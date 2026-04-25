@@ -181,7 +181,7 @@ function LockedStateCard({
     return (
       <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
         <Text className="text-sm font-semibold text-foreground">
-          {lockSource === "auto" ? "Today&rsquo;s list is locked" : "Today&rsquo;s list is set"}
+          {lockSource === "auto" ? "Today's list is locked" : "Today's list is set"}
         </Text>
         <Text className="text-sm text-muted">
           Your list is locked for today so you can focus on finishing.
@@ -202,14 +202,14 @@ function LockedStateCard({
       <View className="gap-1">
         <Text className="text-sm font-semibold text-foreground">Still editable</Text>
         <Text className="text-sm text-muted">
-          Lock today&rsquo;s list when it feels set, even if you picked fewer than three tasks.
+          Lock today's list when it feels set, even if you picked fewer than three tasks.
         </Text>
       </View>
       <Pressable
         onPress={onLock}
         className="self-start rounded-full px-4 py-2 border border-border"
       >
-        <Text className="text-sm font-semibold text-foreground">Lock Today&rsquo;s List</Text>
+        <Text className="text-sm font-semibold text-foreground">Lock Today's List</Text>
       </Pressable>
     </View>
   );

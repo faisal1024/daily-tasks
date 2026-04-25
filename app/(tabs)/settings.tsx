@@ -113,7 +113,7 @@ export default function SettingsScreen() {
             {state.todayLocked && (
               <View className="rounded-2xl border border-border bg-surface p-4">
                 <Text className="text-sm font-semibold text-foreground">
-                  Today&rsquo;s list is locked
+                  Today's list is locked
                 </Text>
                 <Text className="text-sm text-muted mt-1">
                   You can still check tasks off, but the list itself is set for today.
