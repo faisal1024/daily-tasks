@@ -29,7 +29,7 @@ import type {
   NotificationKey,
   TaskId,
 } from "./types";
-import { DEFAULT_NOTIFICATIONS, DEFAULT_TASKS, MAX_TASKS } from "./types";
+import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
 
 type Action =
   | { type: "hydrate"; state: AppState }
@@ -44,6 +44,7 @@ type Action =
   | { type: "resolveRollover"; carriedTaskIds: TaskId[]; today: string; now: Date }
   | { type: "setNotificationsEnabled"; enabled: boolean }
   | { type: "setNotificationEnabled"; key: NotificationKey; enabled: boolean }
+  | { type: "markOnboardingSeen" }
   | { type: "reset"; state: AppState };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -154,6 +155,9 @@ function reducer(state: AppState, action: Action): AppState {
           [action.key]: action.enabled,
         },
       };
+    case "markOnboardingSeen":
+      if (state.hasSeenOnboarding) return state;
+      return { ...state, hasSeenOnboarding: true };
     case "reset":
       return action.state;
   }
@@ -176,6 +180,7 @@ interface StoreContextValue {
   resolveRollover: (carriedTaskIds: TaskId[]) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
+  markOnboardingSeen: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -338,6 +343,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setNotificationEnabled = useCallback((key: NotificationKey, enabled: boolean) => {
     dispatch({ type: "setNotificationEnabled", key, enabled });
   }, []);
+  const markOnboardingSeen = useCallback(() => {
+    dispatch({ type: "markOnboardingSeen" });
+  }, []);
   const resetAll = useCallback(async () => {
     await clearState();
     dispatch({ type: "reset", state: buildInitialState() });
@@ -361,6 +369,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      markOnboardingSeen,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -382,6 +391,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      markOnboardingSeen,
       refreshNotificationPermission,
       requestPermission,
       resetAll,
@@ -399,4 +409,4 @@ export function useDailyTasks(): StoreContextValue {
   return ctx;
 }
 
-export { DEFAULT_NOTIFICATIONS, DEFAULT_TASKS, MAX_TASKS };
+export { DEFAULT_NOTIFICATIONS, MAX_TASKS };

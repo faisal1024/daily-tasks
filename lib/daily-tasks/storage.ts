@@ -11,7 +11,6 @@ import type {
 } from "./types";
 import {
   DEFAULT_NOTIFICATIONS,
-  DEFAULT_TASKS,
 } from "./types";
 
 const STORAGE_KEY = "daily-tasks/state/v1";
@@ -159,6 +158,9 @@ function normalizeState(value: unknown): AppState | null {
     pendingRollover: normalizePendingRollover(value.pendingRollover),
     history: normalizeHistory(value.history),
     notifications: normalizeNotifications(value.notifications),
+    // Existing users (any stored state) have already used the app — skip onboarding.
+    hasSeenOnboarding:
+      typeof value.hasSeenOnboarding === "boolean" ? value.hasSeenOnboarding : true,
   };
 }
 
@@ -168,12 +170,7 @@ export function makeId(): string {
 
 export function buildInitialState(now: Date = new Date()): AppState {
   const today = todayKey(now);
-  const tasks: Task[] = DEFAULT_TASKS.map((t) => ({
-    id: makeId(),
-    text: t.text,
-    createdAt: now.toISOString(),
-    carriedOver: false,
-  }));
+  const tasks: Task[] = [];
   return {
     tasks,
     todayCompletions: [],
@@ -185,20 +182,15 @@ export function buildInitialState(now: Date = new Date()): AppState {
     history: {
       [today]: {
         date: today,
-        total: tasks.length,
+        total: 0,
         completed: 0,
         locked: false,
         lockSource: null,
-        tasks: tasks.map((task) => ({
-          id: task.id,
-          text: task.text,
-          completed: false,
-          carriedOver: task.carriedOver,
-          rolloverOutcome: null,
-        })),
+        tasks: [],
       },
     },
     notifications: DEFAULT_NOTIFICATIONS,
+    hasSeenOnboarding: false,
   };
 }
 

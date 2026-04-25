@@ -23,6 +23,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     pendingRollover: null,
     history: {},
     notifications: DEFAULT_NOTIFICATIONS,
+    hasSeenOnboarding: true,
     ...overrides,
   };
 }

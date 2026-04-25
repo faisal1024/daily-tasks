@@ -7,6 +7,9 @@ import { useColors } from "@/hooks/use-colors";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type { NotificationKey, NotificationPermissionState } from "@/lib/daily-tasks/types";
 
+const SUPPORT_URL = "https://github.com/faisal1024/daily-tasks#support";
+const PRIVACY_URL = "https://github.com/faisal1024/daily-tasks/blob/main/docs/privacy-policy.md";
+
 const NOTIFICATION_LABELS: Record<NotificationKey, { title: string; subtitle: string }> = {
   morning: {
     title: "Morning reminders",
@@ -80,6 +83,14 @@ export default function SettingsScreen() {
         "Open System Settings",
         "Notifications can be updated from your device settings for Daily Tasks.",
       );
+    }
+  };
+
+  const openExternal = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert("Couldn't open link", "Please try again later.");
     }
   };
 
@@ -226,11 +237,56 @@ export default function SettingsScreen() {
           </Pressable>
         </Section>
 
+        <Section title="Help">
+          <View className="bg-surface rounded-2xl border border-border overflow-hidden">
+            <HelpRow
+              icon="chatbubble-ellipses-outline"
+              label="Contact support"
+              onPress={() => void openExternal(SUPPORT_URL)}
+            />
+            <View style={{ height: 1, backgroundColor: colors.border }} />
+            <HelpRow
+              icon="lock-closed-outline"
+              label="Privacy policy"
+              onPress={() => void openExternal(PRIVACY_URL)}
+            />
+          </View>
+        </Section>
+
         <Text className="text-xs text-center mt-2" style={{ color: colors.muted }}>
           Daily Tasks · v1.0.0
         </Text>
       </ScrollView>
     </ScreenContainer>
+  );
+}
+
+function HelpRow({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="link"
+      accessibilityLabel={label}
+      className="flex-row items-center gap-3 p-4"
+    >
+      <View
+        className="w-9 h-9 rounded-full items-center justify-center"
+        style={{ backgroundColor: `${colors.primary}16` }}
+      >
+        <Ionicons name={icon} size={18} color={colors.primary} />
+      </View>
+      <Text className="flex-1 text-base font-semibold text-foreground">{label}</Text>
+      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+    </Pressable>
   );
 }
 

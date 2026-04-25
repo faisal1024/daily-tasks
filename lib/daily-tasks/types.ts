@@ -54,12 +54,15 @@ export interface AppState {
   pendingRollover: PendingRollover | null;
   history: History;
   notifications: NotificationConfig;
+  hasSeenOnboarding: boolean;
 }
 
-export const DEFAULT_TASKS: Pick<Task, "text">[] = [
-  { text: "Morning Exercise" },
-  { text: "Read for 30 Minutes" },
-  { text: "Review Daily Goals" },
+export const TASK_SUGGESTIONS: string[] = [
+  "Move my body",
+  "Plan tomorrow",
+  "Reply to one important message",
+  "Tidy one small area",
+  "Read for 20 minutes",
 ];
 
 export const DEFAULT_NOTIFICATIONS: NotificationConfig = {

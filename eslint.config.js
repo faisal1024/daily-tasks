@@ -7,4 +7,13 @@ export default defineConfig([
   {
     ignores: ["dist/*"],
   },
+  {
+    files: ["**/*.{tsx,jsx}"],
+    rules: {
+      // React Native <Text> renders raw apostrophes correctly; the DOM-oriented
+      // unescaped-entities rule produces false positives that contradict the
+      // app's "no HTML-escaped copy" guideline.
+      "react/no-unescaped-entities": "off",
+    },
+  },
 ]);
