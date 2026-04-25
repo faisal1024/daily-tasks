@@ -17,13 +17,29 @@ interface TaskCardProps {
   onToggle: () => void;
   onEdit: (text: string) => void;
   onDelete: () => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
-export function TaskCard({ task, completed, onToggle, onEdit, onDelete }: TaskCardProps) {
+export function TaskCard({
+  task,
+  completed,
+  onToggle,
+  onEdit,
+  onDelete,
+  canEdit = true,
+  canDelete = true,
+}: TaskCardProps) {
   const colors = useColors();
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(task.text);
   const inputRef = useRef<TextInputType | null>(null);
+
+  useEffect(() => {
+    if (!canEdit && isEditing) {
+      setIsEditing(false);
+    }
+  }, [canEdit, isEditing]);
 
   useEffect(() => {
     if (!isEditing) setDraft(task.text);
@@ -95,7 +111,7 @@ export function TaskCard({ task, completed, onToggle, onEdit, onDelete }: TaskCa
         </View>
 
         <View className="flex-row items-center gap-2">
-          {isEditing ? (
+          {canEdit && isEditing ? (
             <Pressable
               onPress={commit}
               accessibilityLabel="Save task"
@@ -104,7 +120,7 @@ export function TaskCard({ task, completed, onToggle, onEdit, onDelete }: TaskCa
             >
               <Ionicons name="checkmark" size={20} color={colors.primary} />
             </Pressable>
-          ) : (
+          ) : canEdit ? (
             <Pressable
               onPress={() => setIsEditing(true)}
               accessibilityLabel="Edit task"
@@ -113,15 +129,17 @@ export function TaskCard({ task, completed, onToggle, onEdit, onDelete }: TaskCa
             >
               <Ionicons name="pencil" size={18} color={colors.muted} />
             </Pressable>
-          )}
-          <Pressable
-            onPress={onDelete}
-            accessibilityLabel="Delete task"
-            hitSlop={8}
-            className="p-2"
-          >
-            <Ionicons name="trash-outline" size={18} color={colors.muted} />
-          </Pressable>
+          ) : null}
+          {canDelete ? (
+            <Pressable
+              onPress={onDelete}
+              accessibilityLabel="Delete task"
+              hitSlop={8}
+              className="p-2"
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.muted} />
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </View>

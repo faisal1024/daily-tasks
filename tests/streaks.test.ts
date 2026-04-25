@@ -10,7 +10,14 @@ import type { History } from "../lib/daily-tasks/types";
 function buildHistory(entries: Record<string, [number, number]>): History {
   const out: History = {};
   for (const [date, [completed, total]] of Object.entries(entries)) {
-    out[date] = { date, completed, total };
+    out[date] = {
+      date,
+      completed,
+      total,
+      locked: false,
+      lockSource: null,
+      tasks: [],
+    };
   }
   return out;
 }

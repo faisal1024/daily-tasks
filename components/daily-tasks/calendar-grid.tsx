@@ -20,7 +20,7 @@ export function CalendarGrid({ month, history }: CalendarGridProps) {
   const total = daysInMonth(month);
   const today = todayKey();
 
-  const cells: Array<{ key: string; day: number | null; dateKey: string | null }> = [];
+  const cells: { key: string; day: number | null; dateKey: string | null }[] = [];
   for (let i = 0; i < firstWeekday; i++) {
     cells.push({ key: `pad-${i}`, day: null, dateKey: null });
   }

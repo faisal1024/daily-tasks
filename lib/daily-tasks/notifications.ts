@@ -1,26 +1,18 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 
-import type { NotificationConfig, NotificationKey } from "./types";
-
-const SCHEDULED_PREFIX = "daily-tasks:";
-
-const SLOT_MESSAGES: Record<NotificationKey, { title: string; body: string }> = {
-  morning: {
-    title: "Good morning!",
-    body: "Time to plan your 3 daily tasks.",
-  },
-  evening: {
-    title: "Evening check-in",
-    body: "How are your tasks going?",
-  },
-  night: {
-    title: "Final reminder",
-    body: "Complete your remaining tasks.",
-  },
-};
+import { MANAGED_REMINDER_PREFIX, planReminders } from "./reminders";
+import type { NotificationConfig, NotificationPermissionState } from "./types";
 
 let handlerConfigured = false;
+
+interface SyncNotificationsInput {
+  now?: Date;
+  settings: NotificationConfig;
+  permissionState: NotificationPermissionState;
+  taskCount: number;
+  completedCount: number;
+}
 
 function configureHandler() {
   if (handlerConfigured) return;
@@ -35,14 +27,29 @@ function configureHandler() {
   });
 }
 
-export async function ensurePermission(): Promise<boolean> {
-  if (Platform.OS === "web") return false;
+function mapPermissionStatus(
+  settings: Notifications.NotificationPermissionsStatus,
+): NotificationPermissionState {
+  if (settings.granted) return "granted";
+  if (settings.canAskAgain === false) return "denied";
+  return "undetermined";
+}
+
+export async function getNotificationPermissionStatus(): Promise<NotificationPermissionState> {
+  if (Platform.OS === "web") return "unsupported";
   configureHandler();
   const settings = await Notifications.getPermissionsAsync();
-  if (settings.granted) return true;
-  if (settings.canAskAgain === false) return false;
+  return mapPermissionStatus(settings);
+}
+
+export async function requestNotificationPermission(): Promise<NotificationPermissionState> {
+  if (Platform.OS === "web") return "unsupported";
+  configureHandler();
+  const current = await Notifications.getPermissionsAsync();
+  if (current.granted) return "granted";
+  if (current.canAskAgain === false) return "denied";
   const result = await Notifications.requestPermissionsAsync();
-  return result.granted;
+  return mapPermissionStatus(result);
 }
 
 async function cancelAllManaged() {
@@ -50,32 +57,49 @@ async function cancelAllManaged() {
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
   await Promise.all(
     scheduled
-      .filter((s) => typeof s.identifier === "string" && s.identifier.startsWith(SCHEDULED_PREFIX))
+      .filter(
+        (s) =>
+          typeof s.identifier === "string" &&
+          s.identifier.startsWith(MANAGED_REMINDER_PREFIX),
+      )
       .map((s) => Notifications.cancelScheduledNotificationAsync(s.identifier)),
   );
 }
 
-export async function syncNotifications(config: NotificationConfig): Promise<void> {
+export async function syncNotifications({
+  now = new Date(),
+  settings,
+  permissionState,
+  taskCount,
+  completedCount,
+}: SyncNotificationsInput): Promise<void> {
   if (Platform.OS === "web") return;
   configureHandler();
   await cancelAllManaged();
 
-  const slots: NotificationKey[] = ["morning", "evening", "night"];
-  for (const key of slots) {
-    const slot = config[key];
-    if (!slot.enabled) continue;
+  const planned = planReminders({
+    now,
+    taskCount,
+    completedCount,
+    settings,
+    permissionState,
+  });
+
+  for (const reminder of planned) {
     try {
       await Notifications.scheduleNotificationAsync({
-        identifier: `${SCHEDULED_PREFIX}${key}`,
-        content: SLOT_MESSAGES[key],
+        identifier: reminder.identifier,
+        content: {
+          title: reminder.title,
+          body: reminder.body,
+        },
         trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DAILY,
-          hour: slot.hour,
-          minute: slot.minute,
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: reminder.at,
         },
       });
     } catch (err) {
-      console.warn(`[daily-tasks] failed to schedule ${key} notification`, err);
+      console.warn(`[daily-tasks] failed to schedule ${reminder.kind} reminder`, err);
     }
   }
 }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { applyRollover, syncTodayHistory } from "../lib/daily-tasks/rollover";
+import {
+  applyRollover,
+  resolvePendingRollover,
+  syncTodayHistory,
+} from "../lib/daily-tasks/rollover";
 import type { AppState } from "../lib/daily-tasks/types";
 import { DEFAULT_NOTIFICATIONS } from "../lib/daily-tasks/types";
 
@@ -13,83 +17,118 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     ],
     todayCompletions: ["a"],
     lastOpenedDate: "2026-04-17",
-    history: { "2026-04-17": { date: "2026-04-17", total: 3, completed: 1 } },
+    todayLocked: false,
+    todayLockSource: null,
+    autoLockNoticeDate: null,
+    pendingRollover: null,
+    history: {},
     notifications: DEFAULT_NOTIFICATIONS,
     ...overrides,
   };
 }
 
 describe("applyRollover", () => {
-  it("is a no-op when the day hasn't changed", () => {
+  it("is a no-op when the day has not changed", () => {
     const state = makeState();
     expect(applyRollover(state, "2026-04-17")).toBe(state);
   });
 
-  it("marks uncompleted tasks as carriedOver and resets completions", () => {
-    const state = makeState();
-    const next = applyRollover(state, "2026-04-18");
-
-    const a = next.tasks.find((t) => t.id === "a")!;
-    const b = next.tasks.find((t) => t.id === "b")!;
-    expect(a.carriedOver).toBe(false);
-    expect(b.carriedOver).toBe(true);
-    expect(next.todayCompletions).toEqual([]);
-    expect(next.lastOpenedDate).toBe("2026-04-18");
-  });
-
-  it("preserves yesterday's history record", () => {
+  it("creates a pending rollover flow for unfinished tasks and starts today empty", () => {
     const next = applyRollover(makeState(), "2026-04-18");
-    expect(next.history["2026-04-17"]).toEqual({
-      date: "2026-04-17",
-      total: 3,
-      completed: 1,
-    });
+
+    expect(next.lastOpenedDate).toBe("2026-04-18");
+    expect(next.tasks).toEqual([]);
+    expect(next.todayCompletions).toEqual([]);
+    expect(next.pendingRollover?.sourceDate).toBe("2026-04-17");
+    expect(next.pendingRollover?.tasks.map((task) => task.id)).toEqual(["b", "c"]);
+    expect(next.history["2026-04-17"]?.tasks.find((task) => task.id === "b")?.rolloverOutcome).toBe(
+      "unresolved",
+    );
   });
 
-  it("clears prior carryover flag for tasks that were completed yesterday", () => {
-    const state = makeState({
-      tasks: [{ id: "a", text: "A", createdAt: "x", carriedOver: true }],
-      todayCompletions: ["a"],
-    });
-    const next = applyRollover(state, "2026-04-18");
-    expect(next.tasks[0].carriedOver).toBe(false);
+  it("resets the new day to unlocked", () => {
+    const next = applyRollover(
+      makeState({ todayLocked: true, todayLockSource: "manual", autoLockNoticeDate: "2026-04-17" }),
+      "2026-04-18",
+    );
+
+    expect(next.todayLocked).toBe(false);
+    expect(next.todayLockSource).toBeNull();
+    expect(next.autoLockNoticeDate).toBeNull();
+  });
+});
+
+describe("resolvePendingRollover", () => {
+  it("carries chosen tasks into today and marks the rest dropped", () => {
+    const rolled = applyRollover(makeState(), "2026-04-18");
+    const resolved = resolvePendingRollover(rolled, ["b"], new Date("2026-04-18T09:00:00Z"));
+
+    expect(resolved.pendingRollover).toBeNull();
+    expect(resolved.tasks).toHaveLength(1);
+    expect(resolved.tasks[0]?.text).toBe("B");
+    expect(resolved.tasks[0]?.carriedOver).toBe(true);
+    expect(resolved.history["2026-04-17"]?.tasks.find((task) => task.id === "b")?.rolloverOutcome).toBe(
+      "carried",
+    );
+    expect(resolved.history["2026-04-17"]?.tasks.find((task) => task.id === "c")?.rolloverOutcome).toBe(
+      "dropped",
+    );
+  });
+
+  it("respects the 3-task cap when carrying tasks", () => {
+    const rolled = applyRollover(
+      makeState({
+        tasks: [{ id: "keep", text: "Keep", createdAt: "x", carriedOver: false }],
+      }),
+      "2026-04-18",
+    );
+    const withTodayTasks: AppState = {
+      ...rolled,
+      tasks: [
+        { id: "t1", text: "Today 1", createdAt: "x", carriedOver: false },
+        { id: "t2", text: "Today 2", createdAt: "x", carriedOver: false },
+      ],
+    };
+
+    const resolved = resolvePendingRollover(
+      withTodayTasks,
+      rolled.pendingRollover?.tasks.map((task) => task.id) ?? [],
+      new Date("2026-04-18T09:00:00Z"),
+    );
+
+    expect(resolved.tasks).toHaveLength(3);
+    expect(resolved.tasks.filter((task) => task.carriedOver)).toHaveLength(1);
   });
 });
 
 describe("syncTodayHistory", () => {
-  it("creates today's record reflecting current tasks/completions", () => {
-    const state = makeState({
-      todayCompletions: ["a", "b"],
-      history: {},
-      lastOpenedDate: "2026-04-18",
-    });
-    const next = syncTodayHistory(state, "2026-04-18");
-    expect(next.history["2026-04-18"]).toEqual({
-      date: "2026-04-18",
-      total: 3,
-      completed: 2,
-    });
-  });
+  it("captures lock state and task snapshots for the current day", () => {
+    const next = syncTodayHistory(
+      makeState({
+        lastOpenedDate: "2026-04-18",
+        todayLocked: true,
+        todayLockSource: "auto",
+        tasks: [{ id: "a", text: "A", createdAt: "x", carriedOver: true }],
+        todayCompletions: [],
+      }),
+      "2026-04-18",
+    );
 
-  it("returns the same state when nothing changed", () => {
-    const state = makeState({
-      todayCompletions: ["a"],
-      history: { "2026-04-17": { date: "2026-04-17", total: 3, completed: 1 } },
-    });
-    expect(syncTodayHistory(state, "2026-04-17")).toBe(state);
-  });
-
-  it("ignores deleted tasks when counting completions", () => {
-    const state = makeState({
-      tasks: [{ id: "a", text: "A", createdAt: "x", carriedOver: false }],
-      todayCompletions: ["a", "ghost"],
-      history: {},
-    });
-    const next = syncTodayHistory(state, "2026-04-18");
     expect(next.history["2026-04-18"]).toEqual({
       date: "2026-04-18",
       total: 1,
-      completed: 1,
+      completed: 0,
+      locked: true,
+      lockSource: "auto",
+      tasks: [
+        {
+          id: "a",
+          text: "A",
+          completed: false,
+          carriedOver: true,
+          rolloverOutcome: null,
+        },
+      ],
     });
   });
 });

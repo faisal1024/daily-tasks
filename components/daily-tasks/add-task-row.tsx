@@ -13,9 +13,10 @@ import { useColors } from "@/hooks/use-colors";
 interface AddTaskRowProps {
   onAdd: (text: string) => void;
   remainingSlots: number;
+  disabled?: boolean;
 }
 
-export function AddTaskRow({ onAdd, remainingSlots }: AddTaskRowProps) {
+export function AddTaskRow({ onAdd, remainingSlots, disabled = false }: AddTaskRowProps) {
   const colors = useColors();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState("");
@@ -28,9 +29,20 @@ export function AddTaskRow({ onAdd, remainingSlots }: AddTaskRowProps) {
     }
   }, [editing]);
 
+  useEffect(() => {
+    if (disabled) {
+      setEditing(false);
+      setText("");
+    }
+  }, [disabled]);
+
   if (remainingSlots <= 0) return null;
 
   const submit = () => {
+    if (disabled) {
+      setEditing(false);
+      return;
+    }
     const trimmed = text.trim();
     if (trimmed) onAdd(trimmed);
     setText("");
@@ -40,18 +52,21 @@ export function AddTaskRow({ onAdd, remainingSlots }: AddTaskRowProps) {
   if (!editing) {
     return (
       <Pressable
-        onPress={() => setEditing(true)}
+        onPress={() => {
+          if (!disabled) setEditing(true);
+        }}
+        disabled={disabled}
         className="flex-row items-center gap-3 p-4 rounded-2xl border-2 border-dashed"
-        style={{ borderColor: colors.border }}
+        style={{ borderColor: colors.border, opacity: disabled ? 0.45 : 1 }}
       >
         <View
           className="w-7 h-7 rounded-full items-center justify-center"
-          style={{ backgroundColor: colors.primary }}
+          style={{ backgroundColor: disabled ? colors.border : colors.primary }}
         >
           <Ionicons name="add" size={18} color={colors.background} />
         </View>
         <Text className="text-base" style={{ color: colors.muted }}>
-          Add a task
+          {disabled ? "Today's list is locked" : "Add a task"}
         </Text>
       </Pressable>
     );

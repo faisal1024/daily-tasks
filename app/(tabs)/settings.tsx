@@ -1,45 +1,86 @@
-import { Alert, Pressable, ScrollView, Switch, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { TaskCard } from "@/components/daily-tasks/task-card";
-import { TimeStepper } from "@/components/daily-tasks/time-stepper";
 import { useColors } from "@/hooks/use-colors";
-import { ensurePermission } from "@/lib/daily-tasks/notifications";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
-import type { NotificationKey } from "@/lib/daily-tasks/types";
+import type { NotificationKey, NotificationPermissionState } from "@/lib/daily-tasks/types";
 
 const NOTIFICATION_LABELS: Record<NotificationKey, { title: string; subtitle: string }> = {
-  morning: { title: "Morning reminder", subtitle: "Plan your three tasks" },
-  evening: { title: "Evening check-in", subtitle: "See how you're tracking" },
-  night: { title: "Night reminder", subtitle: "Last chance to wrap up" },
+  morning: {
+    title: "Morning reminders",
+    subtitle: "A gentle start if today is still blank.",
+  },
+  progress: {
+    title: "Progress reminders",
+    subtitle: "Calm nudges while today's three tasks are still open.",
+  },
+  evening: {
+    title: "Evening reminders",
+    subtitle: "A soft wrap-up when something is still left.",
+  },
 };
 
 export default function SettingsScreen() {
   const colors = useColors();
   const {
     state,
+    notificationPermission,
     isCompleted,
     editTask,
     deleteTask,
     toggleTask,
+    setNotificationsEnabled,
     setNotificationEnabled,
-    setNotificationTime,
+    refreshNotificationPermission,
+    requestNotificationPermission,
     resetAll,
   } = useDailyTasks();
 
-  const handleEnable = async (key: NotificationKey, value: boolean) => {
-    if (value) {
-      const ok = await ensurePermission();
-      if (!ok) {
+  const handleNotificationsEnabled = async (value: boolean) => {
+    if (!value) {
+      setNotificationsEnabled(false);
+      return;
+    }
+
+    const status = await requestNotificationPermission();
+    if (status !== "granted") {
+      Alert.alert(
+        "Notifications unavailable",
+        "Allow notifications in System Settings to get calm reminders for today's tasks.",
+      );
+      return;
+    }
+
+    setNotificationsEnabled(true);
+  };
+
+  const handleReminderEnabled = async (key: NotificationKey, value: boolean) => {
+    if (value && state.notifications.enabled && notificationPermission !== "granted") {
+      const status = await requestNotificationPermission();
+      if (status !== "granted") {
         Alert.alert(
-          "Notifications disabled",
-          "Enable notifications for Daily Tasks in System Settings to use reminders.",
+          "Notifications unavailable",
+          "Allow notifications in System Settings to get calm reminders for today's tasks.",
         );
         return;
       }
     }
+
     setNotificationEnabled(key, value);
+  };
+
+  const openSystemSettings = async () => {
+    try {
+      await Linking.openSettings();
+      await refreshNotificationPermission();
+    } catch {
+      Alert.alert(
+        "Open System Settings",
+        "Notifications can be updated from your device settings for Daily Tasks.",
+      );
+    }
   };
 
   const handleReset = () => {
@@ -69,6 +110,16 @@ export default function SettingsScreen() {
 
         <Section title="Your tasks" subtitle="Edit, complete, or remove from anywhere.">
           <View className="gap-3">
+            {state.todayLocked && (
+              <View className="rounded-2xl border border-border bg-surface p-4">
+                <Text className="text-sm font-semibold text-foreground">
+                  Today&rsquo;s list is locked
+                </Text>
+                <Text className="text-sm text-muted mt-1">
+                  You can still check tasks off, but the list itself is set for today.
+                </Text>
+              </View>
+            )}
             {state.tasks.length === 0 ? (
               <Text className="text-sm text-muted">No tasks yet — add some on the Tasks tab.</Text>
             ) : (
@@ -89,22 +140,49 @@ export default function SettingsScreen() {
                       },
                     ])
                   }
+                  canEdit={!state.todayLocked}
+                  canDelete={!state.todayLocked}
                 />
               ))
             )}
           </View>
         </Section>
 
-        <Section title="Reminders" subtitle="Three local nudges. No data leaves your device.">
+        <Section title="Reminders" subtitle="Smart, local nudges that react to today's tasks.">
+          <View className="bg-surface rounded-2xl p-4 border border-border gap-4">
+            <View className="flex-row items-center justify-between gap-4">
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-foreground">Notifications</Text>
+                <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                  {permissionDescription(notificationPermission)}
+                </Text>
+              </View>
+              <Switch
+                value={state.notifications.enabled}
+                onValueChange={(value) => void handleNotificationsEnabled(value)}
+                trackColor={{ true: colors.primary }}
+              />
+            </View>
+
+            {notificationPermission !== "granted" &&
+              notificationPermission !== "unsupported" && (
+                <Pressable
+                  onPress={() => void openSystemSettings()}
+                  className="self-start rounded-full px-4 py-2"
+                  style={{ backgroundColor: `${colors.primary}16` }}
+                >
+                  <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                    Open System Settings
+                  </Text>
+                </Pressable>
+              )}
+          </View>
+
           <View className="gap-3">
             {(Object.keys(NOTIFICATION_LABELS) as NotificationKey[]).map((key) => {
-              const slot = state.notifications[key];
               const meta = NOTIFICATION_LABELS[key];
               return (
-                <View
-                  key={key}
-                  className="bg-surface rounded-2xl p-4 border border-border"
-                >
+                <View key={key} className="bg-surface rounded-2xl p-4 border border-border">
                   <View className="flex-row items-center justify-between gap-4">
                     <View className="flex-1">
                       <Text className="text-base font-semibold text-foreground">
@@ -115,17 +193,11 @@ export default function SettingsScreen() {
                       </Text>
                     </View>
                     <Switch
-                      value={slot.enabled}
-                      onValueChange={(v) => void handleEnable(key, v)}
+                      value={state.notifications[key]}
+                      onValueChange={(value) => void handleReminderEnabled(key, value)}
                       trackColor={{ true: colors.primary }}
                     />
                   </View>
-                  <TimeStepper
-                    hour={slot.hour}
-                    minute={slot.minute}
-                    disabled={!slot.enabled}
-                    onChange={(h, m) => setNotificationTime(key, h, m)}
-                  />
                 </View>
               );
             })}
@@ -162,6 +234,19 @@ export default function SettingsScreen() {
   );
 }
 
+function permissionDescription(state: NotificationPermissionState): string {
+  switch (state) {
+    case "granted":
+      return "Allowed. Reminders only appear when today's tasks still need attention.";
+    case "denied":
+      return "Blocked at the system level. You can turn them back on in Settings.";
+    case "unsupported":
+      return "Notifications are unavailable on web preview.";
+    case "undetermined":
+      return "Enable notifications to get calm reminders for today's three tasks.";
+  }
+}
+
 function Section({
   title,
   subtitle,
@@ -175,9 +260,7 @@ function Section({
     <View className="gap-3">
       <View>
         <Text className="text-lg font-semibold text-foreground">{title}</Text>
-        {subtitle && (
-          <Text className="text-sm text-muted mt-0.5">{subtitle}</Text>
-        )}
+        {subtitle && <Text className="text-sm text-muted mt-0.5">{subtitle}</Text>}
       </View>
       {children}
     </View>
