@@ -56,7 +56,7 @@ export function RolloverModal({
 
   const slotsMessage =
     remainingSlots === 0
-      ? "Today&rsquo;s three slots are already full, so these can only be dropped."
+      ? "Today's three slots are already full, so these can only be dropped."
       : `You can carry ${remainingSlots} more ${remainingSlots === 1 ? "task" : "tasks"} into today.`;
 
   return (
@@ -83,7 +83,7 @@ export function RolloverModal({
           >
             <Text className="text-sm font-semibold text-foreground">{slotsMessage}</Text>
             <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-              You already have {currentTaskCount} of 3 tasks in today&rsquo;s list.
+              You already have {currentTaskCount} of 3 tasks in today's list.
             </Text>
           </View>
 
@@ -127,7 +127,7 @@ export function RolloverModal({
             style={{ backgroundColor: colors.primary }}
           >
             <Text className="text-base font-semibold" style={{ color: colors.background }}>
-              Save today&rsquo;s choices
+              Save today's choices
             </Text>
           </Pressable>
         </View>
