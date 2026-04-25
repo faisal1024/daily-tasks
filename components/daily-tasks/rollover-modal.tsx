@@ -54,10 +54,14 @@ export function RolloverModal({
     setSelectedIds([]);
   };
 
-  const slotsMessage =
-    remainingSlots === 0
-      ? "Today's three slots are already full, so these can only be dropped."
-      : `You can carry ${remainingSlots} more ${remainingSlots === 1 ? "task" : "tasks"} into today.`;
+  const selectedCount = selectedIds.length;
+  const hasAvailableSlots = remainingSlots > 0;
+  const slotsMessage = hasAvailableSlots
+    ? `You can carry ${remainingSlots} more ${remainingSlots === 1 ? "task" : "tasks"} into today.`
+    : "Today's three slots are full, so yesterday's unfinished tasks can only be dropped.";
+  const decisionMessage = hasAvailableSlots
+    ? `${selectedCount} selected to carry. Dropped tasks stay in yesterday's history.`
+    : "Nothing will be erased. Dropped tasks stay in yesterday's history.";
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -83,12 +87,16 @@ export function RolloverModal({
           >
             <Text className="text-sm font-semibold text-foreground">{slotsMessage}</Text>
             <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-              You already have {currentTaskCount} of 3 tasks in today's list.
+              You already have {currentTaskCount} of 3 tasks in today's list. {decisionMessage}
             </Text>
           </View>
 
           <View className="flex-row gap-3">
-            <QuickAction label="Carry all" onPress={carryAll} />
+            <QuickAction
+              label={hasAvailableSlots ? "Carry all that fit" : "No room to carry"}
+              disabled={!hasAvailableSlots}
+              onPress={carryAll}
+            />
             <QuickAction label="Drop all" onPress={dropAll} />
           </View>
 
@@ -105,7 +113,7 @@ export function RolloverModal({
                   <Text className="text-base text-foreground">{task.text}</Text>
                   <View className="flex-row gap-3">
                     <ChoiceButton
-                      label="Carry to today"
+                      label={remainingSlots === 0 ? "No room today" : "Carry to today"}
                       active={selected}
                       disabled={remainingSlots === 0 || carryDisabled}
                       onPress={() => toggleTask(task.id)}
@@ -136,9 +144,22 @@ export function RolloverModal({
   );
 }
 
-function QuickAction({ label, onPress }: { label: string; onPress: () => void }) {
+function QuickAction({
+  label,
+  disabled = false,
+  onPress,
+}: {
+  label: string;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
   return (
-    <Pressable onPress={onPress} className="rounded-full border border-border px-4 py-2">
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      className="rounded-full border border-border px-4 py-2"
+      style={{ opacity: disabled ? 0.45 : 1 }}
+    >
       <Text className="text-sm font-semibold text-foreground">{label}</Text>
     </Pressable>
   );

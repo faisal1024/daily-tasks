@@ -1,6 +1,6 @@
 # 3 Daily Tasks Manager Product Roadmap
 
-Last updated: 2026-04-24
+Last updated: 2026-04-25
 
 ## Product Positioning
 
@@ -41,15 +41,15 @@ The app should feel calm, intentional, privacy-first, and useful for people who 
 
 ## Key Findings From Code Review
 
-- New users still get default fake tasks: `Morning Exercise`, `Read for 30 Minutes`, and `Review Daily Goals`. This should become onboarding/suggestions instead of pre-filled tasks.
+- New users no longer get default fake tasks. The app now starts at `0/3` with onboarding and optional suggestions.
 - App Store metadata still mentions older reminder behavior and should be updated to match smart reminders.
-- The app has no onboarding, so users may not understand the three-task philosophy.
+- First-run onboarding now explains the three-task philosophy.
 - The core screen works, but it needs more premium visual polish before charging money.
-- There is no in-app support or privacy link yet.
-- There is no privacy policy page yet.
-- The repo still includes unused template/server/auth code and dependencies.
-- `package.json` still uses the package name `app-template`.
-- Leftover React starter image assets still exist in `assets/images`.
+- Settings now includes in-app Support and Privacy links.
+- A local-first privacy policy exists in `docs/privacy-policy.md`.
+- Some unused template/server/auth code and dependencies may still remain and need follow-up cleanup.
+- The package name has been renamed from `app-template` to `daily-tasks`.
+- Obvious React starter image assets were removed from `assets/images`.
 
 ## Competitor Lessons
 
@@ -104,24 +104,25 @@ Status: In progress
 - [x] Submit new build to App Store Connect.
 - [ ] Verify TestFlight build `1.0.0 (5)` shows the new icon on an actual iPhone.
 - [ ] Update App Store description to match current smart reminders, lock, and rollover behavior.
-- [ ] Add a simple privacy policy page/URL.
-- [ ] Add in-app Support and Privacy links in Settings.
-- [ ] Remove unused starter assets.
-- [ ] Rename package/internal app template references.
+- [x] Add a simple privacy policy page/URL.
+- [x] Add in-app Support and Privacy links in Settings.
+- [x] Remove unused starter assets.
+- [x] Rename package/internal app template references.
 - [ ] Run full QA on fresh install, notification permissions, rollover, lock, and icon.
 
 ## Phase 1: First-Run Experience
 
 Goal: help users understand the product promise immediately.
 
-Status: Not started
+Status: Complete
 
-- [ ] Remove default seeded tasks from new installs.
-- [ ] Add onboarding explaining the 3-task philosophy.
-- [ ] Add first-day flow: choose up to 3 tasks, then set/lock the list.
-- [ ] Add optional task suggestions without auto-filling them.
-- [ ] Add empty states for no tasks, locked day, completed day, and rollover decisions.
-- [ ] Add clear copy explaining why the app limits the day to three tasks.
+- [x] Remove default seeded tasks from new installs.
+- [x] Add onboarding explaining the 3-task philosophy.
+- [x] Add first-day flow: choose up to 3 tasks, then set/lock the list.
+- [x] Add optional task suggestions without auto-filling them.
+- [x] Add empty states for no tasks, locked day, completed day, and rollover decisions.
+- [x] Polish rollover decision empty/explanatory states.
+- [x] Add clear copy explaining why the app limits the day to three tasks.
 
 ## Phase 2: Premium Feel
 
