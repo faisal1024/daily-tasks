@@ -33,6 +33,7 @@ function buildDayRecord(
   completedIds: TaskId[],
   locked: boolean,
   lockSource: LockSource | null,
+  reflection: string | null,
   incompleteOutcome: DayTaskRecord["rolloverOutcome"] = null,
 ): DayRecord {
   const taskRecords = buildDayTaskRecords(tasks, completedIds, incompleteOutcome);
@@ -45,6 +46,7 @@ function buildDayRecord(
     locked,
     lockSource,
     tasks: taskRecords,
+    reflection,
   };
 }
 
@@ -58,6 +60,7 @@ export function applyRollover(state: AppState, today: string): AppState {
     state.todayCompletions,
     state.todayLocked,
     state.todayLockSource,
+    state.todayReflection,
     "unresolved",
   );
 
@@ -72,6 +75,7 @@ export function applyRollover(state: AppState, today: string): AppState {
       todayLocked: false,
       todayLockSource: null,
       autoLockNoticeDate: null,
+      todayReflection: null,
       pendingRollover:
         pendingTasks.length > 0
           ? {
@@ -153,6 +157,7 @@ export function syncTodayHistory(state: AppState, today: string): AppState {
     state.todayCompletions,
     state.todayLocked,
     state.todayLockSource,
+    state.todayReflection,
   );
 
   const existing = state.history[today];

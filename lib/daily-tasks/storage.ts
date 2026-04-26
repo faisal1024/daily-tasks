@@ -58,6 +58,7 @@ function normalizeDayRecord(date: string, value: unknown): DayRecord | null {
     lockSource:
       value.lockSource === "manual" || value.lockSource === "auto" ? value.lockSource : null,
     tasks,
+    reflection: typeof value.reflection === "string" ? value.reflection : null,
   };
 }
 
@@ -161,6 +162,8 @@ function normalizeState(value: unknown): AppState | null {
     // Existing users (any stored state) have already used the app — skip onboarding.
     hasSeenOnboarding:
       typeof value.hasSeenOnboarding === "boolean" ? value.hasSeenOnboarding : true,
+    todayReflection:
+      typeof value.todayReflection === "string" ? value.todayReflection : null,
   };
 }
 
@@ -187,10 +190,12 @@ export function buildInitialState(now: Date = new Date()): AppState {
         locked: false,
         lockSource: null,
         tasks: [],
+        reflection: null,
       },
     },
     notifications: DEFAULT_NOTIFICATIONS,
     hasSeenOnboarding: false,
+    todayReflection: null,
   };
 }
 

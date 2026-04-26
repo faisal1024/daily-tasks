@@ -28,6 +28,7 @@ export interface DayRecord {
   locked: boolean;
   lockSource: LockSource | null;
   tasks: DayTaskRecord[];
+  reflection: string | null;
 }
 
 export type History = Record<string, DayRecord>;
@@ -55,6 +56,7 @@ export interface AppState {
   history: History;
   notifications: NotificationConfig;
   hasSeenOnboarding: boolean;
+  todayReflection: string | null;
 }
 
 export const TASK_SUGGESTIONS: string[] = [

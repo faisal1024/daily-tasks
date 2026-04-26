@@ -45,6 +45,7 @@ type Action =
   | { type: "setNotificationsEnabled"; enabled: boolean }
   | { type: "setNotificationEnabled"; key: NotificationKey; enabled: boolean }
   | { type: "markOnboardingSeen" }
+  | { type: "setTodayReflection"; text: string; today: string }
   | { type: "reset"; state: AppState };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -158,6 +159,16 @@ function reducer(state: AppState, action: Action): AppState {
     case "markOnboardingSeen":
       if (state.hasSeenOnboarding) return state;
       return { ...state, hasSeenOnboarding: true };
+    case "setTodayReflection": {
+      const text = action.text.trim();
+      return syncTodayHistory(
+        {
+          ...state,
+          todayReflection: text.length > 0 ? text : null,
+        },
+        action.today,
+      );
+    }
     case "reset":
       return action.state;
   }
@@ -181,6 +192,7 @@ interface StoreContextValue {
   setNotificationsEnabled: (enabled: boolean) => void;
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
   markOnboardingSeen: () => void;
+  setTodayReflection: (text: string) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -346,6 +358,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const markOnboardingSeen = useCallback(() => {
     dispatch({ type: "markOnboardingSeen" });
   }, []);
+  const setTodayReflection = useCallback((text: string) => {
+    dispatch({ type: "setTodayReflection", text, today: todayKey() });
+  }, []);
   const resetAll = useCallback(async () => {
     await clearState();
     dispatch({ type: "reset", state: buildInitialState() });
@@ -370,6 +385,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setNotificationsEnabled,
       setNotificationEnabled,
       markOnboardingSeen,
+      setTodayReflection,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -392,6 +408,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setNotificationsEnabled,
       setNotificationEnabled,
       markOnboardingSeen,
+      setTodayReflection,
       refreshNotificationPermission,
       requestPermission,
       resetAll,

@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
+import { CompletionReflection } from "@/components/daily-tasks/completion-reflection";
 import { ConfettiOverlay } from "@/components/daily-tasks/confetti-overlay";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { ProgressRing } from "@/components/daily-tasks/progress-ring";
@@ -11,6 +12,7 @@ import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StreakPill } from "@/components/daily-tasks/streak-pill";
 import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TaskSuggestions } from "@/components/daily-tasks/task-suggestions";
+import { TodaySummaryCard } from "@/components/daily-tasks/today-summary-card";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { computeDayStreak, computePerfectStreak } from "@/lib/daily-tasks/streaks";
@@ -42,6 +44,7 @@ export default function HomeScreen() {
     dismissAutoLockNotice,
     resolveRollover,
     markOnboardingSeen,
+    setTodayReflection,
   } = useDailyTasks();
 
   const [confetti, setConfetti] = useState(false);
@@ -94,9 +97,16 @@ export default function HomeScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View className="gap-1">
-        <Text className="text-base text-muted">{greeting}</Text>
+          <Text className="text-base text-muted">{greeting}</Text>
           <Text className="text-3xl font-bold text-foreground">Your day, three tasks.</Text>
         </View>
+
+        <TodaySummaryCard
+          completedCount={completedCount}
+          total={total}
+          remainingSlots={remainingSlots}
+          locked={state.todayLocked}
+        />
 
         <View className="flex-row gap-3">
           <StreakPill icon="flame" label="Day streak" value={dayStreak} />
@@ -131,10 +141,11 @@ export default function HomeScreen() {
         )}
 
         <View className="gap-3">
-          {state.tasks.map((task) => (
+          {state.tasks.map((task, index) => (
             <TaskCard
               key={task.id}
               task={task}
+              index={index}
               completed={isCompleted(task.id)}
               onToggle={() => handleToggle(task.id)}
               onEdit={(text) => editTask(task.id, text)}
@@ -165,14 +176,20 @@ export default function HomeScreen() {
         </View>
 
         {total > 0 && completedCount === total && (
-          <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
-            <Text className="text-sm font-semibold text-foreground">
-              {total === MAX_TASKS ? "Today's three are done." : "Today's list is done."}
-            </Text>
-            <Text className="text-sm text-muted">
-              A small finish is still a finish.
-            </Text>
-          </View>
+          <>
+            <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
+              <Text className="text-sm font-semibold text-foreground">
+                {total === MAX_TASKS ? "Today's three are done." : "Today's list is done."}
+              </Text>
+              <Text className="text-sm text-muted">
+                A small finish is still a finish.
+              </Text>
+            </View>
+            <CompletionReflection
+              value={state.todayReflection}
+              onSave={setTodayReflection}
+            />
+          </>
         )}
       </ScrollView>
 

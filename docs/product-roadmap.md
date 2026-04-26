@@ -128,13 +128,13 @@ Status: Complete
 
 Goal: make the app feel like something worth paying for.
 
-Status: Not started
+Status: In progress
 
-- [ ] Redesign the main Tasks screen with a calmer, more premium layout.
-- [ ] Add a Today Summary card.
-- [ ] Improve task cards and completed-state polish.
-- [ ] Improve calendar day detail by allowing users to tap a day and review tasks.
-- [ ] Add optional completion reflection: one short note about what worked today.
+- [x] Redesign the main Tasks screen with a calmer, more premium layout.
+- [x] Add a Today Summary card.
+- [x] Improve task cards and completed-state polish.
+- [x] Improve calendar day detail by allowing users to tap a day and review tasks.
+- [x] Add optional completion reflection: one short note about what worked today.
 - [ ] Improve haptics, animations, and transitions carefully without making the app noisy.
 - [ ] Improve App Store screenshots to communicate the value clearly.
 

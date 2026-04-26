@@ -24,6 +24,7 @@ describe("buildInitialState (new install)", () => {
       locked: false,
       lockSource: null,
       tasks: [],
+      reflection: null,
     });
   });
 
@@ -31,6 +32,11 @@ describe("buildInitialState (new install)", () => {
     const state = buildInitialState();
     expect(state.todayLocked).toBe(false);
     expect(state.todayLockSource).toBeNull();
+  });
+
+  it("starts without a completion reflection", () => {
+    const state = buildInitialState();
+    expect(state.todayReflection).toBeNull();
   });
 
   it("does not seed any default task text", () => {

@@ -24,6 +24,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     history: {},
     notifications: DEFAULT_NOTIFICATIONS,
     hasSeenOnboarding: true,
+    todayReflection: null,
     ...overrides,
   };
 }
@@ -109,6 +110,7 @@ describe("syncTodayHistory", () => {
         lastOpenedDate: "2026-04-18",
         todayLocked: true,
         todayLockSource: "auto",
+        todayReflection: "Started earlier than usual.",
         tasks: [{ id: "a", text: "A", createdAt: "x", carriedOver: true }],
         todayCompletions: [],
       }),
@@ -121,6 +123,7 @@ describe("syncTodayHistory", () => {
       completed: 0,
       locked: true,
       lockSource: "auto",
+      reflection: "Started earlier than usual.",
       tasks: [
         {
           id: "a",
@@ -131,5 +134,15 @@ describe("syncTodayHistory", () => {
         },
       ],
     });
+  });
+
+  it("resets today's reflection on rollover and keeps yesterday's note", () => {
+    const next = applyRollover(
+      makeState({ todayReflection: "Kept the list small." }),
+      "2026-04-18",
+    );
+
+    expect(next.todayReflection).toBeNull();
+    expect(next.history["2026-04-17"]?.reflection).toBe("Kept the list small.");
   });
 });
