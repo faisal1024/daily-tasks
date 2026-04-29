@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildInitialState } from "../lib/daily-tasks/storage";
-import { TASK_SUGGESTIONS } from "../lib/daily-tasks/types";
+import { DEFAULT_AUTO_LOCK, TASK_SUGGESTIONS } from "../lib/daily-tasks/types";
 
 describe("buildInitialState (new install)", () => {
   it("starts with zero tasks", () => {
@@ -37,6 +37,11 @@ describe("buildInitialState (new install)", () => {
   it("starts without a completion reflection", () => {
     const state = buildInitialState();
     expect(state.todayReflection).toBeNull();
+  });
+
+  it("starts with noon auto-lock enabled", () => {
+    const state = buildInitialState();
+    expect(state.autoLock).toEqual(DEFAULT_AUTO_LOCK);
   });
 
   it("does not seed any default task text", () => {

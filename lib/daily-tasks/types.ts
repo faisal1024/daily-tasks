@@ -45,6 +45,12 @@ export interface NotificationConfig {
   evening: boolean;
 }
 
+export interface AutoLockConfig {
+  enabled: boolean;
+  hour: number;
+  minute: number;
+}
+
 export interface AppState {
   tasks: Task[];
   todayCompletions: TaskId[];
@@ -55,6 +61,7 @@ export interface AppState {
   pendingRollover: PendingRollover | null;
   history: History;
   notifications: NotificationConfig;
+  autoLock: AutoLockConfig;
   hasSeenOnboarding: boolean;
   todayReflection: string | null;
 }
@@ -72,6 +79,12 @@ export const DEFAULT_NOTIFICATIONS: NotificationConfig = {
   morning: true,
   progress: true,
   evening: true,
+};
+
+export const DEFAULT_AUTO_LOCK: AutoLockConfig = {
+  enabled: true,
+  hour: 12,
+  minute: 0,
 };
 
 export type NotificationKey = Exclude<keyof NotificationConfig, "enabled">;

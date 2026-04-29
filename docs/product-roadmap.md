@@ -24,7 +24,7 @@ The app should feel calm, intentional, privacy-first, and useful for people who 
 - Added notification permission handling.
 - Added notification settings for morning, progress, and evening reminders.
 - Added manual daily lock.
-- Added noon auto-lock when today has at least one task.
+- Added configurable auto-lock with an on/off toggle and custom lock time.
 - Added rollover decision flow for unfinished tasks.
 - Added Carry all / Drop all rollover actions.
 - Added dropped/carried rollover outcomes in history.

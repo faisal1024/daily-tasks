@@ -3,6 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { TaskCard } from "@/components/daily-tasks/task-card";
+import { TimeStepper } from "@/components/daily-tasks/time-stepper";
 import { useColors } from "@/hooks/use-colors";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type { NotificationKey, NotificationPermissionState } from "@/lib/daily-tasks/types";
@@ -34,6 +35,8 @@ export default function SettingsScreen() {
     editTask,
     deleteTask,
     toggleTask,
+    setAutoLockEnabled,
+    setAutoLockTime,
     setNotificationsEnabled,
     setNotificationEnabled,
     refreshNotificationPermission,
@@ -156,6 +159,33 @@ export default function SettingsScreen() {
                 />
               ))
             )}
+          </View>
+        </Section>
+
+        <Section
+          title="Daily lock"
+          subtitle="Choose whether today's list locks automatically."
+        >
+          <View className="bg-surface rounded-2xl p-4 border border-border gap-3">
+            <View className="flex-row items-center justify-between gap-4">
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-foreground">Auto-lock today</Text>
+                <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                  When on, days with at least one task lock at your chosen time.
+                </Text>
+              </View>
+              <Switch
+                value={state.autoLock.enabled}
+                onValueChange={setAutoLockEnabled}
+                trackColor={{ true: colors.primary }}
+              />
+            </View>
+            <TimeStepper
+              hour={state.autoLock.hour}
+              minute={state.autoLock.minute}
+              disabled={!state.autoLock.enabled}
+              onChange={setAutoLockTime}
+            />
           </View>
         </Section>
 

@@ -44,6 +44,8 @@ type Action =
   | { type: "resolveRollover"; carriedTaskIds: TaskId[]; today: string; now: Date }
   | { type: "setNotificationsEnabled"; enabled: boolean }
   | { type: "setNotificationEnabled"; key: NotificationKey; enabled: boolean }
+  | { type: "setAutoLockEnabled"; enabled: boolean }
+  | { type: "setAutoLockTime"; hour: number; minute: number }
   | { type: "markOnboardingSeen" }
   | { type: "setTodayReflection"; text: string; today: string }
   | { type: "reset"; state: AppState };
@@ -156,6 +158,23 @@ function reducer(state: AppState, action: Action): AppState {
           [action.key]: action.enabled,
         },
       };
+    case "setAutoLockEnabled":
+      return {
+        ...state,
+        autoLock: {
+          ...state.autoLock,
+          enabled: action.enabled,
+        },
+      };
+    case "setAutoLockTime":
+      return {
+        ...state,
+        autoLock: {
+          ...state.autoLock,
+          hour: action.hour,
+          minute: action.minute,
+        },
+      };
     case "markOnboardingSeen":
       if (state.hasSeenOnboarding) return state;
       return { ...state, hasSeenOnboarding: true };
@@ -191,6 +210,8 @@ interface StoreContextValue {
   resolveRollover: (carriedTaskIds: TaskId[]) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
+  setAutoLockEnabled: (enabled: boolean) => void;
+  setAutoLockTime: (hour: number, minute: number) => void;
   markOnboardingSeen: () => void;
   setTodayReflection: (text: string) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
@@ -253,9 +274,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!ready) return;
     const now = new Date();
-    if (!shouldAutoLockToday(now, state.tasks.length, state.todayLocked)) return;
+    if (!shouldAutoLockToday(now, state.tasks.length, state.todayLocked, state.autoLock)) return;
     dispatch({ type: "autoLockToday", today });
-  }, [ready, state.tasks.length, state.todayLocked, today]);
+  }, [ready, state.autoLock, state.tasks.length, state.todayLocked, today]);
 
   useEffect(() => {
     if (!ready) return;
@@ -311,12 +332,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         dispatch({ type: "rollover", today: fresh });
         return;
       }
-      if (shouldAutoLockToday(new Date(), state.tasks.length, state.todayLocked)) {
+      if (shouldAutoLockToday(new Date(), state.tasks.length, state.todayLocked, state.autoLock)) {
         dispatch({ type: "autoLockToday", today: fresh });
       }
     }, 60_000);
     return () => clearInterval(id);
-  }, [state.tasks.length, state.todayLocked, today]);
+  }, [state.autoLock, state.tasks.length, state.todayLocked, today]);
 
   const isCompleted = useCallback(
     (id: TaskId) => state.todayCompletions.includes(id),
@@ -355,6 +376,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setNotificationEnabled = useCallback((key: NotificationKey, enabled: boolean) => {
     dispatch({ type: "setNotificationEnabled", key, enabled });
   }, []);
+  const setAutoLockEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "setAutoLockEnabled", enabled });
+  }, []);
+  const setAutoLockTime = useCallback((hour: number, minute: number) => {
+    dispatch({ type: "setAutoLockTime", hour, minute });
+  }, []);
   const markOnboardingSeen = useCallback(() => {
     dispatch({ type: "markOnboardingSeen" });
   }, []);
@@ -384,6 +411,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      setAutoLockEnabled,
+      setAutoLockTime,
       markOnboardingSeen,
       setTodayReflection,
       refreshNotificationPermission,
@@ -407,6 +436,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      setAutoLockEnabled,
+      setAutoLockTime,
       markOnboardingSeen,
       setTodayReflection,
       refreshNotificationPermission,

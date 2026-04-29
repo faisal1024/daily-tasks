@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { todayKey } from "./date";
 import type {
   AppState,
+  AutoLockConfig,
   DayRecord,
   DayTaskRecord,
   NotificationConfig,
@@ -10,6 +11,7 @@ import type {
   Task,
 } from "./types";
 import {
+  DEFAULT_AUTO_LOCK,
   DEFAULT_NOTIFICATIONS,
 } from "./types";
 
@@ -139,6 +141,31 @@ function normalizeNotifications(value: unknown): NotificationConfig {
   };
 }
 
+function normalizeHour(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 23
+    ? value
+    : DEFAULT_AUTO_LOCK.hour;
+}
+
+function normalizeMinute(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 59
+    ? value
+    : DEFAULT_AUTO_LOCK.minute;
+}
+
+function normalizeAutoLock(value: unknown): AutoLockConfig {
+  if (!isRecord(value)) {
+    return DEFAULT_AUTO_LOCK;
+  }
+
+  return {
+    enabled:
+      typeof value.enabled === "boolean" ? value.enabled : DEFAULT_AUTO_LOCK.enabled,
+    hour: normalizeHour(value.hour),
+    minute: normalizeMinute(value.minute),
+  };
+}
+
 function normalizeState(value: unknown): AppState | null {
   if (!isRecord(value)) return null;
 
@@ -159,6 +186,7 @@ function normalizeState(value: unknown): AppState | null {
     pendingRollover: normalizePendingRollover(value.pendingRollover),
     history: normalizeHistory(value.history),
     notifications: normalizeNotifications(value.notifications),
+    autoLock: normalizeAutoLock(value.autoLock),
     // Existing users (any stored state) have already used the app — skip onboarding.
     hasSeenOnboarding:
       typeof value.hasSeenOnboarding === "boolean" ? value.hasSeenOnboarding : true,
@@ -194,6 +222,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
       },
     },
     notifications: DEFAULT_NOTIFICATIONS,
+    autoLock: DEFAULT_AUTO_LOCK,
     hasSeenOnboarding: false,
     todayReflection: null,
   };
