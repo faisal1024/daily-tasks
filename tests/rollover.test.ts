@@ -59,6 +59,67 @@ describe("applyRollover", () => {
     expect(next.todayLockSource).toBeNull();
     expect(next.autoLockNoticeDate).toBeNull();
   });
+
+  it("preserves tasks already added for today while creating yesterday's rollover", () => {
+    const next = applyRollover(
+      makeState({
+        tasks: [{ id: "today-1", text: "Already today", createdAt: "x", carriedOver: false }],
+        todayCompletions: ["today-1"],
+        history: {
+          "2026-04-17": {
+            date: "2026-04-17",
+            total: 2,
+            completed: 1,
+            locked: true,
+            lockSource: "auto",
+            reflection: null,
+            tasks: [
+              {
+                id: "done-yesterday",
+                text: "Done yesterday",
+                completed: true,
+                carriedOver: false,
+                rolloverOutcome: null,
+              },
+              {
+                id: "unfinished-yesterday",
+                text: "Unfinished yesterday",
+                completed: false,
+                carriedOver: false,
+                rolloverOutcome: null,
+              },
+            ],
+          },
+          "2026-04-18": {
+            date: "2026-04-18",
+            total: 1,
+            completed: 1,
+            locked: false,
+            lockSource: null,
+            reflection: null,
+            tasks: [
+              {
+                id: "today-1",
+                text: "Already today",
+                completed: true,
+                carriedOver: false,
+                rolloverOutcome: null,
+              },
+            ],
+          },
+        },
+      }),
+      "2026-04-18",
+    );
+
+    expect(next.tasks.map((task) => task.id)).toEqual(["today-1"]);
+    expect(next.todayCompletions).toEqual(["today-1"]);
+    expect(next.pendingRollover?.tasks.map((task) => task.id)).toEqual(["unfinished-yesterday"]);
+    expect(
+      next.history["2026-04-17"]?.tasks.find((task) => task.id === "unfinished-yesterday")
+        ?.rolloverOutcome,
+    ).toBe("unresolved");
+  });
 });
 
 describe("resolvePendingRollover", () => {

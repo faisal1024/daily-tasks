@@ -50,32 +50,79 @@ function buildDayRecord(
   };
 }
 
+function markIncompleteTasksUnresolved(record: DayRecord): DayRecord {
+  return {
+    ...record,
+    tasks: record.tasks.map((task) => ({
+      ...task,
+      rolloverOutcome: task.completed ? null : task.rolloverOutcome ?? "unresolved",
+    })),
+  };
+}
+
+function taskRecordsMatchTasks(record: DayRecord, tasks: Task[]): boolean {
+  if (record.tasks.length !== tasks.length) return false;
+  return record.tasks.every((task, index) => {
+    const liveTask = tasks[index];
+    return liveTask?.id === task.id && liveTask.text === task.text;
+  });
+}
+
+function restoreTasksFromRecord(record: DayRecord): Task[] {
+  return record.tasks.map((task) => ({
+    id: task.id,
+    text: task.text,
+    createdAt: `${record.date}T00:00:00.000Z`,
+    carriedOver: task.carriedOver,
+  }));
+}
+
+function completedIdsFromRecord(record: DayRecord): TaskId[] {
+  return record.tasks.filter((task) => task.completed).map((task) => task.id);
+}
+
 export function applyRollover(state: AppState, today: string): AppState {
   if (state.lastOpenedDate === today) return state;
 
   const previousDate = state.lastOpenedDate;
-  const previousRecord = buildDayRecord(
-    previousDate,
-    state.tasks,
-    state.todayCompletions,
-    state.todayLocked,
-    state.todayLockSource,
-    state.todayReflection,
-    "unresolved",
-  );
+  const existingTodayRecord = state.history[today];
+  const existingPreviousRecord = state.history[previousDate];
+  const previousRecord = existingPreviousRecord
+    ? markIncompleteTasksUnresolved(existingPreviousRecord)
+    : buildDayRecord(
+        previousDate,
+        existingTodayRecord ? [] : state.tasks,
+        existingTodayRecord ? [] : state.todayCompletions,
+        state.todayLocked,
+        state.todayLockSource,
+        state.todayReflection,
+        "unresolved",
+      );
 
-  const pendingTasks = previousRecord.tasks.filter((task) => !task.completed);
+  const pendingTasks = previousRecord.tasks.filter(
+    (task) => !task.completed && task.rolloverOutcome === "unresolved",
+  );
+  const todayTasks = existingTodayRecord
+    ? taskRecordsMatchTasks(existingTodayRecord, state.tasks)
+      ? state.tasks
+      : restoreTasksFromRecord(existingTodayRecord)
+    : [];
+  const todayCompletions = existingTodayRecord
+    ? taskRecordsMatchTasks(existingTodayRecord, state.tasks)
+      ? state.todayCompletions
+      : completedIdsFromRecord(existingTodayRecord)
+    : [];
 
   return syncTodayHistory(
     {
       ...state,
-      tasks: [],
-      todayCompletions: [],
+      tasks: todayTasks,
+      todayCompletions,
       lastOpenedDate: today,
-      todayLocked: false,
-      todayLockSource: null,
+      todayLocked: existingTodayRecord?.locked ?? false,
+      todayLockSource: existingTodayRecord?.lockSource ?? null,
       autoLockNoticeDate: null,
-      todayReflection: null,
+      todayReflection: existingTodayRecord?.reflection ?? null,
       pendingRollover:
         pendingTasks.length > 0
           ? {

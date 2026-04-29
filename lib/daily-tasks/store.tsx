@@ -318,11 +318,15 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       if (fresh !== today) {
         setToday(fresh);
         dispatch({ type: "rollover", today: fresh });
+        return;
+      }
+      if (shouldAutoLockToday(new Date(), state.tasks.length, state.todayLocked, state.autoLock)) {
+        dispatch({ type: "autoLockToday", today: fresh });
       }
     };
     const sub = RNAppState.addEventListener("change", onChange);
     return () => sub.remove();
-  }, [refreshNotificationPermission, today]);
+  }, [refreshNotificationPermission, state.autoLock, state.tasks.length, state.todayLocked, today]);
 
   useEffect(() => {
     const id = setInterval(() => {
