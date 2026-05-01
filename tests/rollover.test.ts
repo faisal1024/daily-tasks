@@ -6,7 +6,7 @@ import {
   syncTodayHistory,
 } from "../lib/daily-tasks/rollover";
 import type { AppState } from "../lib/daily-tasks/types";
-import { DEFAULT_NOTIFICATIONS } from "../lib/daily-tasks/types";
+import { DEFAULT_AUTO_LOCK, DEFAULT_NOTIFICATIONS } from "../lib/daily-tasks/types";
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -23,6 +23,9 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     pendingRollover: null,
     history: {},
     notifications: DEFAULT_NOTIFICATIONS,
+    autoLock: DEFAULT_AUTO_LOCK,
+    hasSeenOnboarding: true,
+    todayReflection: null,
     ...overrides,
   };
 }
@@ -55,6 +58,67 @@ describe("applyRollover", () => {
     expect(next.todayLocked).toBe(false);
     expect(next.todayLockSource).toBeNull();
     expect(next.autoLockNoticeDate).toBeNull();
+  });
+
+  it("preserves tasks already added for today while creating yesterday's rollover", () => {
+    const next = applyRollover(
+      makeState({
+        tasks: [{ id: "today-1", text: "Already today", createdAt: "x", carriedOver: false }],
+        todayCompletions: ["today-1"],
+        history: {
+          "2026-04-17": {
+            date: "2026-04-17",
+            total: 2,
+            completed: 1,
+            locked: true,
+            lockSource: "auto",
+            reflection: null,
+            tasks: [
+              {
+                id: "done-yesterday",
+                text: "Done yesterday",
+                completed: true,
+                carriedOver: false,
+                rolloverOutcome: null,
+              },
+              {
+                id: "unfinished-yesterday",
+                text: "Unfinished yesterday",
+                completed: false,
+                carriedOver: false,
+                rolloverOutcome: null,
+              },
+            ],
+          },
+          "2026-04-18": {
+            date: "2026-04-18",
+            total: 1,
+            completed: 1,
+            locked: false,
+            lockSource: null,
+            reflection: null,
+            tasks: [
+              {
+                id: "today-1",
+                text: "Already today",
+                completed: true,
+                carriedOver: false,
+                rolloverOutcome: null,
+              },
+            ],
+          },
+        },
+      }),
+      "2026-04-18",
+    );
+
+    expect(next.tasks.map((task) => task.id)).toEqual(["today-1"]);
+    expect(next.todayCompletions).toEqual(["today-1"]);
+    expect(next.pendingRollover?.tasks.map((task) => task.id)).toEqual(["unfinished-yesterday"]);
+    expect(
+      next.history["2026-04-17"]?.tasks.find((task) => task.id === "unfinished-yesterday")
+        ?.rolloverOutcome,
+    ).toBe("unresolved");
   });
 });
 
@@ -108,6 +172,7 @@ describe("syncTodayHistory", () => {
         lastOpenedDate: "2026-04-18",
         todayLocked: true,
         todayLockSource: "auto",
+        todayReflection: "Started earlier than usual.",
         tasks: [{ id: "a", text: "A", createdAt: "x", carriedOver: true }],
         todayCompletions: [],
       }),
@@ -120,6 +185,7 @@ describe("syncTodayHistory", () => {
       completed: 0,
       locked: true,
       lockSource: "auto",
+      reflection: "Started earlier than usual.",
       tasks: [
         {
           id: "a",
@@ -130,5 +196,15 @@ describe("syncTodayHistory", () => {
         },
       ],
     });
+  });
+
+  it("resets today's reflection on rollover and keeps yesterday's note", () => {
+    const next = applyRollover(
+      makeState({ todayReflection: "Kept the list small." }),
+      "2026-04-18",
+    );
+
+    expect(next.todayReflection).toBeNull();
+    expect(next.history["2026-04-17"]?.reflection).toBe("Kept the list small.");
   });
 });

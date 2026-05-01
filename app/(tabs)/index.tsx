@@ -4,15 +4,19 @@ import * as Haptics from "expo-haptics";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
+import { CompletionReflection } from "@/components/daily-tasks/completion-reflection";
 import { ConfettiOverlay } from "@/components/daily-tasks/confetti-overlay";
+import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StreakPill } from "@/components/daily-tasks/streak-pill";
 import { TaskCard } from "@/components/daily-tasks/task-card";
+import { TaskSuggestions } from "@/components/daily-tasks/task-suggestions";
+import { TodaySummaryCard } from "@/components/daily-tasks/today-summary-card";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { computeDayStreak, computePerfectStreak } from "@/lib/daily-tasks/streaks";
-import { MAX_TASKS } from "@/lib/daily-tasks/types";
+import { MAX_TASKS, TASK_SUGGESTIONS } from "@/lib/daily-tasks/types";
 
 function impact(style: Haptics.ImpactFeedbackStyle) {
   if (Platform.OS === "web") return;
@@ -39,6 +43,8 @@ export default function HomeScreen() {
     lockToday,
     dismissAutoLockNotice,
     resolveRollover,
+    markOnboardingSeen,
+    setTodayReflection,
   } = useDailyTasks();
 
   const [confetti, setConfetti] = useState(false);
@@ -91,9 +97,16 @@ export default function HomeScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View className="gap-1">
-        <Text className="text-base text-muted">{greeting}</Text>
+          <Text className="text-base text-muted">{greeting}</Text>
           <Text className="text-3xl font-bold text-foreground">Your day, three tasks.</Text>
         </View>
+
+        <TodaySummaryCard
+          completedCount={completedCount}
+          total={total}
+          remainingSlots={remainingSlots}
+          locked={state.todayLocked}
+        />
 
         <View className="flex-row gap-3">
           <StreakPill icon="flame" label="Day streak" value={dayStreak} />
@@ -116,11 +129,23 @@ export default function HomeScreen() {
           onDismissNotice={dismissAutoLockNotice}
         />
 
+        {state.tasks.length === 0 && !state.todayLocked && (
+          <View className="gap-2">
+            <Text className="text-xl font-semibold text-foreground">
+              What would make today feel complete?
+            </Text>
+            <Text className="text-sm text-muted">
+              Choose up to three tasks. Keep it small enough to finish.
+            </Text>
+          </View>
+        )}
+
         <View className="gap-3">
-          {state.tasks.map((task) => (
+          {state.tasks.map((task, index) => (
             <TaskCard
               key={task.id}
               task={task}
+              index={index}
               completed={isCompleted(task.id)}
               onToggle={() => handleToggle(task.id)}
               onEdit={(text) => editTask(task.id, text)}
@@ -139,15 +164,41 @@ export default function HomeScreen() {
             }}
           />
 
-          {state.tasks.length === 0 && (
-            <Text className="text-sm text-muted text-center mt-2">
-              Add up to three tasks to focus on today.
-            </Text>
+          {state.tasks.length === 0 && !state.todayLocked && (
+            <TaskSuggestions
+              suggestions={TASK_SUGGESTIONS}
+              onPick={(text) => {
+                impact(Haptics.ImpactFeedbackStyle.Light);
+                addTask(text);
+              }}
+            />
           )}
         </View>
+
+        {total > 0 && completedCount === total && (
+          <>
+            <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
+              <Text className="text-sm font-semibold text-foreground">
+                {total === MAX_TASKS ? "Today's three are done." : "Today's list is done."}
+              </Text>
+              <Text className="text-sm text-muted">
+                A small finish is still a finish.
+              </Text>
+            </View>
+            <CompletionReflection
+              value={state.todayReflection}
+              onSave={setTodayReflection}
+            />
+          </>
+        )}
       </ScrollView>
 
       <ConfettiOverlay visible={confetti} onDismiss={() => setConfetti(false)} />
+
+      <OnboardingModal
+        visible={ready && !state.hasSeenOnboarding && !state.pendingRollover}
+        onDismiss={markOnboardingSeen}
+      />
 
       <RolloverModal
         visible={Boolean(state.pendingRollover)}

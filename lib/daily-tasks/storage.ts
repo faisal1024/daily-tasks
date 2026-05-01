@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { todayKey } from "./date";
 import type {
   AppState,
+  AutoLockConfig,
   DayRecord,
   DayTaskRecord,
   NotificationConfig,
@@ -10,8 +11,8 @@ import type {
   Task,
 } from "./types";
 import {
+  DEFAULT_AUTO_LOCK,
   DEFAULT_NOTIFICATIONS,
-  DEFAULT_TASKS,
 } from "./types";
 
 const STORAGE_KEY = "daily-tasks/state/v1";
@@ -59,6 +60,7 @@ function normalizeDayRecord(date: string, value: unknown): DayRecord | null {
     lockSource:
       value.lockSource === "manual" || value.lockSource === "auto" ? value.lockSource : null,
     tasks,
+    reflection: typeof value.reflection === "string" ? value.reflection : null,
   };
 }
 
@@ -139,6 +141,31 @@ function normalizeNotifications(value: unknown): NotificationConfig {
   };
 }
 
+function normalizeHour(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 23
+    ? value
+    : DEFAULT_AUTO_LOCK.hour;
+}
+
+function normalizeMinute(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 59
+    ? value
+    : DEFAULT_AUTO_LOCK.minute;
+}
+
+function normalizeAutoLock(value: unknown): AutoLockConfig {
+  if (!isRecord(value)) {
+    return DEFAULT_AUTO_LOCK;
+  }
+
+  return {
+    enabled:
+      typeof value.enabled === "boolean" ? value.enabled : DEFAULT_AUTO_LOCK.enabled,
+    hour: normalizeHour(value.hour),
+    minute: normalizeMinute(value.minute),
+  };
+}
+
 function normalizeState(value: unknown): AppState | null {
   if (!isRecord(value)) return null;
 
@@ -159,6 +186,12 @@ function normalizeState(value: unknown): AppState | null {
     pendingRollover: normalizePendingRollover(value.pendingRollover),
     history: normalizeHistory(value.history),
     notifications: normalizeNotifications(value.notifications),
+    autoLock: normalizeAutoLock(value.autoLock),
+    // Existing users (any stored state) have already used the app — skip onboarding.
+    hasSeenOnboarding:
+      typeof value.hasSeenOnboarding === "boolean" ? value.hasSeenOnboarding : true,
+    todayReflection:
+      typeof value.todayReflection === "string" ? value.todayReflection : null,
   };
 }
 
@@ -168,12 +201,7 @@ export function makeId(): string {
 
 export function buildInitialState(now: Date = new Date()): AppState {
   const today = todayKey(now);
-  const tasks: Task[] = DEFAULT_TASKS.map((t) => ({
-    id: makeId(),
-    text: t.text,
-    createdAt: now.toISOString(),
-    carriedOver: false,
-  }));
+  const tasks: Task[] = [];
   return {
     tasks,
     todayCompletions: [],
@@ -185,20 +213,18 @@ export function buildInitialState(now: Date = new Date()): AppState {
     history: {
       [today]: {
         date: today,
-        total: tasks.length,
+        total: 0,
         completed: 0,
         locked: false,
         lockSource: null,
-        tasks: tasks.map((task) => ({
-          id: task.id,
-          text: task.text,
-          completed: false,
-          carriedOver: task.carriedOver,
-          rolloverOutcome: null,
-        })),
+        tasks: [],
+        reflection: null,
       },
     },
     notifications: DEFAULT_NOTIFICATIONS,
+    autoLock: DEFAULT_AUTO_LOCK,
+    hasSeenOnboarding: false,
+    todayReflection: null,
   };
 }
 

@@ -19,6 +19,7 @@ interface TaskCardProps {
   onDelete: () => void;
   canEdit?: boolean;
   canDelete?: boolean;
+  index?: number;
 }
 
 export function TaskCard({
@@ -29,6 +30,7 @@ export function TaskCard({
   onDelete,
   canEdit = true,
   canDelete = true,
+  index,
 }: TaskCardProps) {
   const colors = useColors();
   const [isEditing, setIsEditing] = useState(false);
@@ -59,7 +61,13 @@ export function TaskCard({
   };
 
   return (
-    <View className="bg-surface border border-border rounded-2xl p-4">
+    <View
+      className="border rounded-2xl p-4"
+      style={{
+        backgroundColor: completed ? `${colors.success}0F` : colors.surface,
+        borderColor: completed ? `${colors.success}55` : colors.border,
+      }}
+    >
       <View className="flex-row items-center gap-3">
         <Pressable
           accessibilityRole="checkbox"
@@ -76,7 +84,12 @@ export function TaskCard({
           {completed && <Ionicons name="checkmark" size={18} color={colors.background} />}
         </Pressable>
 
-        <View className="flex-1">
+        <View className="flex-1 gap-1">
+          {typeof index === "number" && !isEditing && (
+            <Text className="text-xs uppercase tracking-wide" style={{ color: colors.muted }}>
+              Task {index + 1}
+            </Text>
+          )}
           {isEditing ? (
             <TextInput
               ref={inputRef}
@@ -90,21 +103,26 @@ export function TaskCard({
               style={{ color: colors.foreground }}
             />
           ) : (
-            <Pressable onPress={onToggle} hitSlop={4}>
+            <Pressable onPress={onToggle} hitSlop={4} className="gap-1">
               <Text
-                className="text-base text-foreground"
+                className="text-base font-semibold text-foreground"
                 style={{
                   textDecorationLine: completed ? "line-through" : "none",
-                  opacity: completed ? 0.55 : 1,
+                  opacity: completed ? 0.62 : 1,
                 }}
               >
                 {task.text}
               </Text>
+              {completed && (
+                <Text className="text-xs" style={{ color: colors.success }}>
+                  Finished
+                </Text>
+              )}
             </Pressable>
           )}
 
           {task.carriedOver && !completed && !isEditing && (
-            <Text className="text-xs mt-1" style={{ color: colors.warning }}>
+            <Text className="text-xs" style={{ color: colors.warning }}>
               Carried over
             </Text>
           )}

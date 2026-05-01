@@ -4,14 +4,16 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { CalendarGrid } from "@/components/daily-tasks/calendar-grid";
+import { DayDetailCard } from "@/components/daily-tasks/day-detail-card";
 import { useColors } from "@/hooks/use-colors";
-import { formatMonthLabel } from "@/lib/daily-tasks/date";
+import { formatMonthLabel, todayKey } from "@/lib/daily-tasks/date";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { monthlyStats } from "@/lib/daily-tasks/streaks";
 
 export default function CalendarScreen() {
   const colors = useColors();
   const { state } = useDailyTasks();
+  const [selectedDate, setSelectedDate] = useState(() => todayKey());
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -20,12 +22,21 @@ export default function CalendarScreen() {
   const stats = monthlyStats(state.history, month.getFullYear(), month.getMonth());
 
   const shift = (delta: number) => {
-    setMonth((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1));
+    setMonth((m) => {
+      const next = new Date(m.getFullYear(), m.getMonth() + delta, 1);
+      setSelectedDate(todayKey(next));
+      return next;
+    });
   };
 
   const jumpToToday = () => {
     const d = new Date();
     setMonth(new Date(d.getFullYear(), d.getMonth(), 1));
+    setSelectedDate(todayKey(d));
+  };
+
+  const selectDate = (dateKey: string) => {
+    setSelectedDate(dateKey);
   };
 
   return (
@@ -61,8 +72,18 @@ export default function CalendarScreen() {
         </View>
 
         <View className="bg-surface rounded-2xl p-4 border border-border">
-          <CalendarGrid month={month} history={state.history} />
+          <CalendarGrid
+            month={month}
+            history={state.history}
+            selectedDate={selectedDate}
+            onSelectDate={selectDate}
+          />
         </View>
+
+        <DayDetailCard
+          dateLabel={formatDateDetailLabel(selectedDate)}
+          record={state.history[selectedDate]}
+        />
 
         <View className="flex-row gap-3">
           <View className="flex-1 bg-surface rounded-2xl p-4 border border-border">
@@ -90,6 +111,16 @@ export default function CalendarScreen() {
       </ScrollView>
     </ScreenContainer>
   );
+}
+
+function formatDateDetailLabel(dateKey: string): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
 }
 
 function LegendRow({

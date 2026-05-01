@@ -17,6 +17,7 @@ function buildHistory(entries: Record<string, [number, number]>): History {
       locked: false,
       lockSource: null,
       tasks: [],
+      reflection: null,
     };
   }
   return out;

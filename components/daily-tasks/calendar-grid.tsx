@@ -1,4 +1,4 @@
-import { View, Text } from "react-native";
+import { Pressable, View, Text } from "react-native";
 
 import { useColors } from "@/hooks/use-colors";
 import { daysInMonth, toDateKey, todayKey } from "@/lib/daily-tasks/date";
@@ -8,11 +8,18 @@ import { MAX_TASKS } from "@/lib/daily-tasks/types";
 interface CalendarGridProps {
   month: Date;
   history: History;
+  selectedDate: string | null;
+  onSelectDate: (dateKey: string) => void;
 }
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
-export function CalendarGrid({ month, history }: CalendarGridProps) {
+export function CalendarGrid({
+  month,
+  history,
+  selectedDate,
+  onSelectDate,
+}: CalendarGridProps) {
   const colors = useColors();
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
@@ -49,8 +56,10 @@ export function CalendarGrid({ month, history }: CalendarGridProps) {
           if (!cell.day || !cell.dateKey) {
             return <View key={cell.key} style={{ width: `${100 / 7}%`, aspectRatio: 1 }} />;
           }
-          const record = history[cell.dateKey];
-          const isToday = cell.dateKey === today;
+          const dateKey = cell.dateKey;
+          const record = history[dateKey];
+          const isToday = dateKey === today;
+          const isSelected = dateKey === selectedDate;
           const completed = record?.completed ?? 0;
           const total = record?.total ?? 0;
           const isPerfect = total === MAX_TASKS && completed === MAX_TASKS;
@@ -68,8 +77,11 @@ export function CalendarGrid({ month, history }: CalendarGridProps) {
           }
 
           return (
-            <View
+            <Pressable
               key={cell.key}
+              onPress={() => onSelectDate(dateKey)}
+              accessibilityRole="button"
+              accessibilityLabel={`View ${dateKey}`}
               style={{ width: `${100 / 7}%`, aspectRatio: 1 }}
               className="items-center justify-center p-1"
             >
@@ -79,8 +91,8 @@ export function CalendarGrid({ month, history }: CalendarGridProps) {
                   width: 36,
                   height: 36,
                   backgroundColor: bg,
-                  borderWidth: isToday ? 2 : 0,
-                  borderColor: colors.primary,
+                  borderWidth: isSelected ? 3 : isToday ? 2 : 0,
+                  borderColor: isSelected ? colors.foreground : colors.primary,
                 }}
               >
                 <Text className="text-sm font-medium" style={{ color: textColor }}>
@@ -99,7 +111,7 @@ export function CalendarGrid({ month, history }: CalendarGridProps) {
                   />
                 )}
               </View>
-            </View>
+            </Pressable>
           );
         })}
       </View>

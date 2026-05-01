@@ -29,7 +29,7 @@ import type {
   NotificationKey,
   TaskId,
 } from "./types";
-import { DEFAULT_NOTIFICATIONS, DEFAULT_TASKS, MAX_TASKS } from "./types";
+import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
 
 type Action =
   | { type: "hydrate"; state: AppState }
@@ -44,6 +44,10 @@ type Action =
   | { type: "resolveRollover"; carriedTaskIds: TaskId[]; today: string; now: Date }
   | { type: "setNotificationsEnabled"; enabled: boolean }
   | { type: "setNotificationEnabled"; key: NotificationKey; enabled: boolean }
+  | { type: "setAutoLockEnabled"; enabled: boolean }
+  | { type: "setAutoLockTime"; hour: number; minute: number }
+  | { type: "markOnboardingSeen" }
+  | { type: "setTodayReflection"; text: string; today: string }
   | { type: "reset"; state: AppState };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -154,6 +158,36 @@ function reducer(state: AppState, action: Action): AppState {
           [action.key]: action.enabled,
         },
       };
+    case "setAutoLockEnabled":
+      return {
+        ...state,
+        autoLock: {
+          ...state.autoLock,
+          enabled: action.enabled,
+        },
+      };
+    case "setAutoLockTime":
+      return {
+        ...state,
+        autoLock: {
+          ...state.autoLock,
+          hour: action.hour,
+          minute: action.minute,
+        },
+      };
+    case "markOnboardingSeen":
+      if (state.hasSeenOnboarding) return state;
+      return { ...state, hasSeenOnboarding: true };
+    case "setTodayReflection": {
+      const text = action.text.trim();
+      return syncTodayHistory(
+        {
+          ...state,
+          todayReflection: text.length > 0 ? text : null,
+        },
+        action.today,
+      );
+    }
     case "reset":
       return action.state;
   }
@@ -176,6 +210,10 @@ interface StoreContextValue {
   resolveRollover: (carriedTaskIds: TaskId[]) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
+  setAutoLockEnabled: (enabled: boolean) => void;
+  setAutoLockTime: (hour: number, minute: number) => void;
+  markOnboardingSeen: () => void;
+  setTodayReflection: (text: string) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -236,9 +274,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!ready) return;
     const now = new Date();
-    if (!shouldAutoLockToday(now, state.tasks.length, state.todayLocked)) return;
+    if (!shouldAutoLockToday(now, state.tasks.length, state.todayLocked, state.autoLock)) return;
     dispatch({ type: "autoLockToday", today });
-  }, [ready, state.tasks.length, state.todayLocked, today]);
+  }, [ready, state.autoLock, state.tasks.length, state.todayLocked, today]);
 
   useEffect(() => {
     if (!ready) return;
@@ -280,11 +318,15 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       if (fresh !== today) {
         setToday(fresh);
         dispatch({ type: "rollover", today: fresh });
+        return;
+      }
+      if (shouldAutoLockToday(new Date(), state.tasks.length, state.todayLocked, state.autoLock)) {
+        dispatch({ type: "autoLockToday", today: fresh });
       }
     };
     const sub = RNAppState.addEventListener("change", onChange);
     return () => sub.remove();
-  }, [refreshNotificationPermission, today]);
+  }, [refreshNotificationPermission, state.autoLock, state.tasks.length, state.todayLocked, today]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -294,12 +336,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         dispatch({ type: "rollover", today: fresh });
         return;
       }
-      if (shouldAutoLockToday(new Date(), state.tasks.length, state.todayLocked)) {
+      if (shouldAutoLockToday(new Date(), state.tasks.length, state.todayLocked, state.autoLock)) {
         dispatch({ type: "autoLockToday", today: fresh });
       }
     }, 60_000);
     return () => clearInterval(id);
-  }, [state.tasks.length, state.todayLocked, today]);
+  }, [state.autoLock, state.tasks.length, state.todayLocked, today]);
 
   const isCompleted = useCallback(
     (id: TaskId) => state.todayCompletions.includes(id),
@@ -338,6 +380,18 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setNotificationEnabled = useCallback((key: NotificationKey, enabled: boolean) => {
     dispatch({ type: "setNotificationEnabled", key, enabled });
   }, []);
+  const setAutoLockEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "setAutoLockEnabled", enabled });
+  }, []);
+  const setAutoLockTime = useCallback((hour: number, minute: number) => {
+    dispatch({ type: "setAutoLockTime", hour, minute });
+  }, []);
+  const markOnboardingSeen = useCallback(() => {
+    dispatch({ type: "markOnboardingSeen" });
+  }, []);
+  const setTodayReflection = useCallback((text: string) => {
+    dispatch({ type: "setTodayReflection", text, today: todayKey() });
+  }, []);
   const resetAll = useCallback(async () => {
     await clearState();
     dispatch({ type: "reset", state: buildInitialState() });
@@ -361,6 +415,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      setAutoLockEnabled,
+      setAutoLockTime,
+      markOnboardingSeen,
+      setTodayReflection,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -382,6 +440,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      setAutoLockEnabled,
+      setAutoLockTime,
+      markOnboardingSeen,
+      setTodayReflection,
       refreshNotificationPermission,
       requestPermission,
       resetAll,
@@ -399,4 +461,4 @@ export function useDailyTasks(): StoreContextValue {
   return ctx;
 }
 
-export { DEFAULT_NOTIFICATIONS, DEFAULT_TASKS, MAX_TASKS };
+export { DEFAULT_NOTIFICATIONS, MAX_TASKS };
