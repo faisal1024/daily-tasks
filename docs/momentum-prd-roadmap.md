@@ -12,6 +12,10 @@ The new product promise:
 
 > Pick a meaningful goal. Momentum turns it into three achievable tasks today, learns from what happened, and keeps tomorrow simple.
 
+The sharper market position:
+
+> Momentum is an AI accountability coach for three daily tasks. It helps busy people choose the right three commitments, follow through, and build discipline without creating an endless to-do list.
+
 The constraint stays strict: no backlog, no projects, no endless planning, no more than three tasks per day.
 
 ## What Exists Now
@@ -61,7 +65,17 @@ This is the differentiator Apple should be able to understand:
 
 - Most task apps help users collect more tasks.
 - This app helps users choose fewer tasks.
-- Momentum goes further by adapting those three tasks to the user's goal, time, confidence, and recent behavior.
+- Momentum goes further by acting like a calm accountability coach: it helps the user commit, protects the day from endless reshuffling, and adapts tomorrow based on follow-through.
+
+## Research-Informed Retention Principles
+
+These principles should guide future design and feature decisions:
+
+- Commitment beats collection. The app should ask users what they are willing to stand behind today, not what they might do someday.
+- Planning should be specific. Strong daily tasks should include a clear action and realistic time window, similar to implementation-intention research around when, where, and how goal pursuit happens.
+- Feedback should be fast and kind. The user needs a quick sense of progress, but no shame language when the day goes poorly.
+- Reminders should support self-chosen commitments. Notifications should feel like a coach helping the user protect their own decision, not generic spam.
+- Personalization should reduce friction. AI should make the next three tasks easier to choose, not open a chat rabbit hole or create a backlog.
 
 ## Design Work For Claude
 
@@ -287,6 +301,27 @@ Acceptance criteria:
 - The app has a clear daily ritual: morning suggestion, focused day, evening reflection.
 - The app feels differentiated in screenshots and first launch.
 - The premium candidates support the core promise instead of adding clutter.
+
+## Phase 4A: Accountability Coach Positioning
+
+Goal: make the current app immediately feel more distinct, sticky, and emotionally valuable.
+
+Build:
+
+- [x] Reposition primary app copy around an accountability coach, not a generic task manager.
+- [x] Add a Today-screen coach ritual card that frames the current state: commit, set the day, follow through, or reflect.
+- [x] Add an accountability check-in card when tasks are active and incomplete.
+- [x] Update onboarding to explain the three-commitment accountability promise.
+- [x] Update settings copy so AI adaptation feels like coach tuning, not abstract configuration.
+- [ ] Add an implementation-intention prompt for each accepted task, such as "When will you do this?" without making task entry heavy.
+- [ ] Add a missed-day repair flow that asks, "What got in the way?" and suggests a smaller recovery trio.
+- [ ] Add a weekly accountability review focused on wins, patterns, and one next-week adjustment.
+
+Acceptance criteria:
+
+- A new user can describe the product as an accountability coach after first launch.
+- The Today tab has a recognizable daily ritual instead of feeling like a plain checklist.
+- The app still preserves the three-task cap and avoids backlog behavior.
 
 ## Phase 5: Monetization
 

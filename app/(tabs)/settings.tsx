@@ -156,7 +156,7 @@ export default function SettingsScreen() {
 
         <Section
           title="Momentum"
-          subtitle="Personalize suggestions without adding a backlog."
+          subtitle="Personalize your accountability coach without adding a backlog."
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-3">
             <View className="gap-1">
@@ -186,7 +186,7 @@ export default function SettingsScreen() {
 
         <Section
           title="AI adaptation"
-          subtitle="How Momentum tunes tomorrow based on how today goes."
+          subtitle="How your coach tunes tomorrow based on today's follow-through."
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-4">
             <View className="flex-row items-center justify-between gap-4">
@@ -195,7 +195,8 @@ export default function SettingsScreen() {
                   Adapt difficulty
                 </Text>
                 <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                  If recent days are missed, suggestions get gentler.
+                  If recent days are missed, commitments get smaller and more
+                  concrete.
                 </Text>
               </View>
               <Switch
@@ -212,7 +213,7 @@ export default function SettingsScreen() {
                   Reflect each evening
                 </Text>
                 <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                  One quick check-in will help tune the next day.
+                  One quick accountability check-in helps tune the next day.
                 </Text>
               </View>
               <Switch

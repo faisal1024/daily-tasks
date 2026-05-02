@@ -104,10 +104,13 @@ export function OnboardingModal({
         >
           {step === "welcome" && (
             <>
-              <Header eyebrow="Welcome" title="Let's make progress simple." />
+              <Header
+                eyebrow="Welcome"
+                title="Your accountability coach for three daily commitments."
+              />
               <Text className="text-sm" style={{ color: colors.muted }}>
-                Momentum starts with one meaningful direction, then keeps each
-                day to three achievable tasks.
+                Momentum helps you choose the right three tasks, follow
+                through, and build discipline without an endless list.
               </Text>
               <PrimaryButton label="Get Started" onPress={() => setStep("goal")} />
             </>
@@ -202,17 +205,17 @@ export function OnboardingModal({
 
           {step === "ready" && (
             <>
-              <Header eyebrow="First win" title="You're ready. Let's start small." />
+              <Header eyebrow="First win" title="Commit to today, not forever." />
               <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
                 <Text className="text-sm font-semibold text-foreground">
-                  Momentum will suggest calm starting points for:
+                  Momentum will coach your first three commitments for:
                 </Text>
                 <Text className="text-lg font-bold text-foreground">
                   {trimmedGoal}
                 </Text>
                 <Text className="text-sm" style={{ color: colors.muted }}>
-                  You can accept suggestions, edit them, or write your own.
-                  Today's limit still stays at three.
+                  You can accept suggestions, edit them, or write your own. The
+                  limit stays at three so the day stays honest.
                 </Text>
               </View>
               <FooterButtons

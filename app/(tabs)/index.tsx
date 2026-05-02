@@ -123,9 +123,16 @@ export default function HomeScreen() {
             Today's Three
           </Text>
           <Text className="text-sm text-muted">
-            Pick less. Set the day. Finish calmly.
+            Your accountability coach for three daily commitments.
           </Text>
         </View>
+
+        <CoachRitualCard
+          goalTitle={state.momentumProfile.goalTitle}
+          completedCount={completedCount}
+          total={total}
+          locked={state.todayLocked}
+        />
 
         <TodaySummaryCard
           completedCount={completedCount}
@@ -158,11 +165,11 @@ export default function HomeScreen() {
         {state.tasks.length === 0 && !state.todayLocked && (
           <View className="gap-2">
             <Text className="text-xl font-semibold text-foreground">
-              What would make today feel complete?
+              What are you willing to be accountable for today?
             </Text>
             <Text className="text-sm text-muted">
-              Most to-do apps help you collect more. This one helps you choose
-              less.
+              Momentum helps you choose fewer tasks, follow through, and learn
+              from the day.
             </Text>
           </View>
         )}
@@ -176,6 +183,14 @@ export default function HomeScreen() {
               impact(Haptics.ImpactFeedbackStyle.Medium);
               addTasks(momentumSuggestions.map((task) => task.text));
             }}
+          />
+        )}
+
+        {total > 0 && completedCount < total && (
+          <AccountabilityCheckCard
+            completedCount={completedCount}
+            total={total}
+            locked={state.todayLocked}
           />
         )}
 
@@ -238,7 +253,8 @@ export default function HomeScreen() {
                   : "Today's commitments are done."}
               </Text>
               <Text className="text-sm text-muted">
-                You showed up today.
+                You showed up today. Momentum will use this check-in to tune
+                tomorrow.
               </Text>
             </View>
             {state.momentumSettings.eveningReflection && (
@@ -278,6 +294,66 @@ export default function HomeScreen() {
   );
 }
 
+function CoachRitualCard({
+  goalTitle,
+  completedCount,
+  total,
+  locked,
+}: {
+  goalTitle: string | null;
+  completedCount: number;
+  total: number;
+  locked: boolean;
+}) {
+  const hasTasks = total > 0;
+  const isDone = hasTasks && completedCount === total;
+  const phase = !hasTasks
+    ? "Commit"
+    : isDone
+      ? "Reflect"
+      : locked
+        ? "Follow through"
+        : "Set the day";
+  const title = !hasTasks
+    ? "Start with the three that actually matter."
+    : isDone
+      ? "Capture the win before tomorrow arrives."
+      : locked
+        ? "The list is protected. Now finish calmly."
+        : "Choose, then stop choosing.";
+  const body = !hasTasks
+    ? "Your coach will help turn one meaningful goal into a small list you can stand behind today."
+    : isDone
+      ? "A quick reflection helps Momentum make tomorrow easier, sharper, or just right."
+      : locked
+        ? "No backlog, no reshuffle. Pick the next unfinished commitment and give it your attention."
+        : "When the list feels honest, set it. Momentum works best when today has edges.";
+
+  return (
+    <View className="rounded-3xl bg-foreground p-5 gap-4">
+      <View className="flex-row items-center justify-between gap-3">
+        <Text className="text-xs uppercase tracking-wide text-background/70">
+          Momentum coach
+        </Text>
+        <Text className="text-xs font-semibold text-background/80">
+          {phase}
+        </Text>
+      </View>
+      <View className="gap-2">
+        <Text className="text-2xl font-bold text-background">{title}</Text>
+        <Text className="text-sm text-background/75">{body}</Text>
+      </View>
+      {goalTitle && (
+        <View className="self-start rounded-full bg-background/12 px-3 py-1.5">
+          <Text className="text-xs font-semibold text-background">
+            Goal: {goalTitle}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function MomentumSuggestionCard({
   goalTitle,
   suggestions,
@@ -293,13 +369,13 @@ function MomentumSuggestionCard({
     <View className="rounded-3xl bg-surface border border-border p-5 gap-4">
       <View className="gap-1">
         <Text className="text-xs uppercase tracking-wide text-muted">
-          Suggested by Momentum
+          Coach-picked trio
         </Text>
         <Text className="text-xl font-semibold text-foreground">
-          Three steps toward {goalTitle ?? "your goal"}
+          Three commitments toward {goalTitle ?? "your goal"}
         </Text>
         <Text className="text-sm text-muted">
-          Based on your goal and daily window, here is a calm trio for today.
+          Small enough to do today. Focused enough to build discipline.
         </Text>
         {adaptationReason && (
           <Text className="text-xs text-muted">
@@ -336,9 +412,38 @@ function MomentumSuggestionCard({
         accessibilityLabel="Set suggested tasks as Today's Three"
       >
         <Text className="text-base font-semibold text-background">
-          Set as Today's Three
+          Commit to these three
         </Text>
       </Pressable>
+    </View>
+  );
+}
+
+function AccountabilityCheckCard({
+  completedCount,
+  total,
+  locked,
+}: {
+  completedCount: number;
+  total: number;
+  locked: boolean;
+}) {
+  const remaining = Math.max(0, total - completedCount);
+  const remainingLabel = `${remaining} commitment${remaining === 1 ? "" : "s"} left`;
+
+  return (
+    <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
+      <Text className="text-xs uppercase tracking-wide text-muted">
+        Accountability check-in
+      </Text>
+      <Text className="text-base font-semibold text-foreground">
+        {locked ? remainingLabel : "Choose the work you'll stand behind"}
+      </Text>
+      <Text className="text-sm text-muted">
+        {locked
+          ? "The list is set. Pick one unfinished task and give it 10 focused minutes."
+          : "Before the day gets noisy, set the three commitments that deserve follow-through."}
+      </Text>
     </View>
   );
 }
