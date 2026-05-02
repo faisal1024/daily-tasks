@@ -330,22 +330,22 @@ function CoachRitualCard({
         : "When the list feels honest, set it. Momentum works best when today has edges.";
 
   return (
-    <View className="rounded-3xl bg-foreground p-5 gap-4">
+    <View className="rounded-3xl bg-surface border border-border p-5 gap-4">
       <View className="flex-row items-center justify-between gap-3">
-        <Text className="text-xs uppercase tracking-wide text-background/70">
+        <Text className="text-xs uppercase tracking-wide text-primary">
           Momentum coach
         </Text>
-        <Text className="text-xs font-semibold text-background/80">
+        <Text className="text-xs font-semibold text-muted">
           {phase}
         </Text>
       </View>
       <View className="gap-2">
-        <Text className="text-2xl font-bold text-background">{title}</Text>
-        <Text className="text-sm text-background/75">{body}</Text>
+        <Text className="text-2xl font-bold text-foreground">{title}</Text>
+        <Text className="text-sm text-muted">{body}</Text>
       </View>
       {goalTitle && (
-        <View className="self-start rounded-full bg-background/12 px-3 py-1.5">
-          <Text className="text-xs font-semibold text-background">
+        <View className="self-start rounded-full border border-border px-3 py-1.5">
+          <Text className="text-xs font-semibold text-foreground">
             Goal: {goalTitle}
           </Text>
         </View>
