@@ -20,6 +20,7 @@ import { StreakPill } from "@/components/daily-tasks/streak-pill";
 import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TaskSuggestions } from "@/components/daily-tasks/task-suggestions";
 import { TodaySummaryCard } from "@/components/daily-tasks/today-summary-card";
+import { selectCoachMessage } from "@/lib/daily-tasks/coach-messages";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
@@ -132,6 +133,10 @@ export default function HomeScreen() {
           completedCount={completedCount}
           total={total}
           locked={state.todayLocked}
+          dateKey={today}
+          adaptationRecommendation={
+            state.adaptationSnapshot?.recommendation ?? null
+          }
         />
 
         <TodaySummaryCard
@@ -299,35 +304,23 @@ function CoachRitualCard({
   completedCount,
   total,
   locked,
+  dateKey,
+  adaptationRecommendation,
 }: {
   goalTitle: string | null;
   completedCount: number;
   total: number;
   locked: boolean;
+  dateKey: string;
+  adaptationRecommendation: "simplify" | "maintain" | "increase" | null;
 }) {
-  const hasTasks = total > 0;
-  const isDone = hasTasks && completedCount === total;
-  const phase = !hasTasks
-    ? "Commit"
-    : isDone
-      ? "Reflect"
-      : locked
-        ? "Follow through"
-        : "Set the day";
-  const title = !hasTasks
-    ? "Start with the three that actually matter."
-    : isDone
-      ? "Capture the win before tomorrow arrives."
-      : locked
-        ? "The list is protected. Now finish calmly."
-        : "Choose, then stop choosing.";
-  const body = !hasTasks
-    ? "Your coach will help turn one meaningful goal into a small list you can stand behind today."
-    : isDone
-      ? "A quick reflection helps Momentum make tomorrow easier, sharper, or just right."
-      : locked
-        ? "No backlog, no reshuffle. Pick the next unfinished commitment and give it your attention."
-        : "When the list feels honest, set it. Momentum works best when today has edges.";
+  const message = selectCoachMessage({
+    dateKey,
+    total,
+    completedCount,
+    locked,
+    adaptationRecommendation,
+  });
 
   return (
     <View className="rounded-3xl bg-surface border border-border p-5 gap-4">
@@ -336,12 +329,14 @@ function CoachRitualCard({
           Momentum coach
         </Text>
         <Text className="text-xs font-semibold text-muted">
-          {phase}
+          {message.phase}
         </Text>
       </View>
       <View className="gap-2">
-        <Text className="text-2xl font-bold text-foreground">{title}</Text>
-        <Text className="text-sm text-muted">{body}</Text>
+        <Text className="text-2xl font-bold text-foreground">
+          {message.title}
+        </Text>
+        <Text className="text-sm text-muted">{message.body}</Text>
       </View>
       {goalTitle && (
         <View className="self-start rounded-full border border-border px-3 py-1.5">
