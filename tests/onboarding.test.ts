@@ -27,6 +27,7 @@ describe("buildInitialState (new install)", () => {
     expect(state.momentumSettings).toEqual(DEFAULT_MOMENTUM_SETTINGS);
     expect(state.momentumPlanStatus).toBe("idle");
     expect(state.momentumPlanError).toBeNull();
+    expect(state.adaptationSnapshot).toBeNull();
   });
 
   it("creates an empty history entry for today", () => {
@@ -39,6 +40,7 @@ describe("buildInitialState (new install)", () => {
       lockSource: null,
       tasks: [],
       reflection: null,
+      reflectionResult: null,
     });
   });
 
@@ -51,6 +53,7 @@ describe("buildInitialState (new install)", () => {
   it("starts without a completion reflection", () => {
     const state = buildInitialState();
     expect(state.todayReflection).toBeNull();
+    expect(state.todayReflectionResult).toBeNull();
   });
 
   it("starts with noon auto-lock enabled", () => {

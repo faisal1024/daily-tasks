@@ -13,6 +13,7 @@ import type {
   MomentumSettings,
   NotificationConfig,
   PendingRollover,
+  ReflectionResult,
   Task,
 } from "./types";
 import {
@@ -68,6 +69,7 @@ function normalizeDayRecord(date: string, value: unknown): DayRecord | null {
       value.lockSource === "manual" || value.lockSource === "auto" ? value.lockSource : null,
     tasks,
     reflection: typeof value.reflection === "string" ? value.reflection : null,
+    reflectionResult: normalizeReflectionResult(value.reflectionResult),
   };
 }
 
@@ -242,6 +244,30 @@ function normalizeMilestone(value: unknown): MomentumMilestone | null {
   };
 }
 
+function normalizeReflectionResult(value: unknown): ReflectionResult | null {
+  return value === "easy" || value === "good" || value === "hard" || value === "missed"
+    ? value
+    : null;
+}
+
+function normalizeAdaptationSnapshot(value: unknown): AppState["adaptationSnapshot"] {
+  if (!isRecord(value) || typeof value.date !== "string") return null;
+
+  return {
+    date: value.date,
+    completionRate:
+      typeof value.completionRate === "number" ? value.completionRate : 0,
+    missedCount: typeof value.missedCount === "number" ? value.missedCount : 0,
+    recommendation:
+      value.recommendation === "simplify" ||
+      value.recommendation === "maintain" ||
+      value.recommendation === "increase"
+        ? value.recommendation
+        : "maintain",
+    reason: typeof value.reason === "string" ? value.reason : "Momentum is staying steady.",
+  };
+}
+
 function normalizeMomentumPlan(value: unknown): MomentumPlan | null {
   if (
     !isRecord(value) ||
@@ -330,6 +356,7 @@ function normalizeState(value: unknown): AppState | null {
       typeof value.hasSeenOnboarding === "boolean" ? value.hasSeenOnboarding : true,
     todayReflection:
       typeof value.todayReflection === "string" ? value.todayReflection : null,
+    todayReflectionResult: normalizeReflectionResult(value.todayReflectionResult),
     momentumProfile: normalizeMomentumProfile(value.momentumProfile),
     momentumPlan: normalizeMomentumPlan(value.momentumPlan),
     momentumSettings: normalizeMomentumSettings(value.momentumSettings),
@@ -343,6 +370,7 @@ function normalizeState(value: unknown): AppState | null {
           : "idle",
     momentumPlanError:
       typeof value.momentumPlanError === "string" ? value.momentumPlanError : null,
+    adaptationSnapshot: normalizeAdaptationSnapshot(value.adaptationSnapshot),
   };
 }
 
@@ -370,17 +398,20 @@ export function buildInitialState(now: Date = new Date()): AppState {
         lockSource: null,
         tasks: [],
         reflection: null,
+        reflectionResult: null,
       },
     },
     notifications: DEFAULT_NOTIFICATIONS,
     autoLock: DEFAULT_AUTO_LOCK,
     hasSeenOnboarding: false,
     todayReflection: null,
+    todayReflectionResult: null,
     momentumProfile: DEFAULT_MOMENTUM_PROFILE,
     momentumPlan: null,
     momentumSettings: DEFAULT_MOMENTUM_SETTINGS,
     momentumPlanStatus: "idle",
     momentumPlanError: null,
+    adaptationSnapshot: null,
   };
 }
 

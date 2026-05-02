@@ -250,15 +250,15 @@ Goal: make Momentum learn from user behavior without becoming complicated.
 
 Build:
 
-- [ ] Expand evening reflection beyond a text note into fast tap choices.
-- [ ] Suggested reflection choices: "Easy", "Good", "Hard", "Missed".
-- [ ] Summarize the last 3-5 days into a small adaptation input.
-- [ ] If the user misses tasks, reduce difficulty or break tasks smaller.
-- [ ] If the user completes consistently, gradually increase challenge.
-- [ ] If struggle is overwhelm, keep tasks especially concrete and small.
-- [ ] If time availability is low, keep tasks within 15-30 minutes.
-- [ ] Add a calm recovery state after a missed day.
-- [ ] Add tests for adaptation rules.
+- [x] Expand evening reflection beyond a text note into fast tap choices.
+- [x] Suggested reflection choices: "Easy", "Good", "Hard", "Missed".
+- [x] Summarize the last 3-5 days into a small adaptation input.
+- [x] If the user misses tasks, reduce difficulty or break tasks smaller.
+- [x] If the user completes consistently, gradually increase challenge.
+- [x] If struggle is overwhelm, keep tasks especially concrete and small.
+- [x] If time availability is low, keep tasks within 15-30 minutes.
+- [x] Add a calm recovery state after a missed day.
+- [x] Add tests for adaptation rules.
 
 Acceptance criteria:
 

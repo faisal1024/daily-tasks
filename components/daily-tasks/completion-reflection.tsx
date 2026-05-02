@@ -9,14 +9,19 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 
 import { useColors } from "@/hooks/use-colors";
+import type { ReflectionResult } from "@/lib/daily-tasks/types";
 
 interface CompletionReflectionProps {
   value: string | null;
+  result: ReflectionResult | null;
+  onSelectResult: (result: ReflectionResult) => void;
   onSave: (text: string) => void;
 }
 
 export function CompletionReflection({
   value,
+  result,
+  onSelectResult,
   onSave,
 }: CompletionReflectionProps) {
   const colors = useColors();
@@ -54,12 +59,38 @@ export function CompletionReflection({
         </View>
         <View className="flex-1 gap-1">
           <Text className="text-sm font-semibold text-foreground">
-            Finish note
+            How did today go?
           </Text>
           <Text className="text-sm" style={{ color: colors.muted }}>
-            Optional: save one sentence about what helped you protect the day.
+            One quick tap helps Momentum tune tomorrow. A note is optional.
           </Text>
         </View>
+      </View>
+
+      <View className="flex-row flex-wrap gap-2">
+        {REFLECTION_CHOICES.map((choice) => {
+          const selected = result === choice.value;
+          return (
+            <Pressable
+              key={choice.value}
+              onPress={() => onSelectResult(choice.value)}
+              className="rounded-full px-3 py-2 border"
+              style={{
+                borderColor: selected ? colors.primary : colors.border,
+                backgroundColor: selected ? `${colors.primary}16` : colors.background,
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Reflect that today felt ${choice.label}`}
+            >
+              <Text
+                className="text-sm font-semibold"
+                style={{ color: selected ? colors.primary : colors.foreground }}
+              >
+                {choice.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       {editing ? (
@@ -111,3 +142,10 @@ export function CompletionReflection({
     </View>
   );
 }
+
+const REFLECTION_CHOICES: { value: ReflectionResult; label: string }[] = [
+  { value: "easy", label: "Easy" },
+  { value: "good", label: "Good" },
+  { value: "hard", label: "Hard" },
+  { value: "missed", label: "Missed" },
+];

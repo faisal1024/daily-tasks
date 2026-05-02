@@ -34,6 +34,7 @@ export interface AiPlanRequestPayload {
     completionRate: number;
   };
   recentReflection: string | null;
+  recentReflectionResult: string | null;
 }
 
 export function getMomentumAiProxyUrl(): string | null {
@@ -70,6 +71,7 @@ export function buildAiPlanRequestPayload({
     settings,
     recentPerformance: summarizeRecentPerformance(history, now),
     recentReflection: latestReflection(history, now),
+    recentReflectionResult: latestReflectionResult(history, now),
   };
 }
 
@@ -154,6 +156,15 @@ function latestReflection(history: History, now: Date): string | null {
     .sort((a, b) => b.date.localeCompare(a.date))[0];
 
   return record?.reflection ?? null;
+}
+
+function latestReflectionResult(history: History, now: Date): string | null {
+  const today = dateKey(now);
+  const record = Object.values(history)
+    .filter((day) => day.date < today && day.reflectionResult)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+
+  return record?.reflectionResult ?? null;
 }
 
 function dateKey(date: Date): string {

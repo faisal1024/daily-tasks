@@ -29,6 +29,7 @@ export interface DayRecord {
   lockSource: LockSource | null;
   tasks: DayTaskRecord[];
   reflection: string | null;
+  reflectionResult: ReflectionResult | null;
 }
 
 export type History = Record<string, DayRecord>;
@@ -87,6 +88,23 @@ export interface MomentumPlan {
   version: number;
 }
 
+export type ReflectionResult = "easy" | "good" | "hard" | "missed";
+
+export interface DailyReflection {
+  date: string;
+  result: ReflectionResult;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface AdaptationSnapshot {
+  date: string;
+  completionRate: number;
+  missedCount: number;
+  recommendation: "simplify" | "maintain" | "increase";
+  reason: string;
+}
+
 export interface MomentumSettings {
   adaptivePlanning: boolean;
   eveningReflection: boolean;
@@ -119,11 +137,13 @@ export interface AppState {
   autoLock: AutoLockConfig;
   hasSeenOnboarding: boolean;
   todayReflection: string | null;
+  todayReflectionResult: ReflectionResult | null;
   momentumProfile: MomentumProfile;
   momentumPlan: MomentumPlan | null;
   momentumSettings: MomentumSettings;
   momentumPlanStatus: "idle" | "loading" | "ready" | "error";
   momentumPlanError: string | null;
+  adaptationSnapshot: AdaptationSnapshot | null;
 }
 
 export const GOAL_OPTIONS: string[] = [

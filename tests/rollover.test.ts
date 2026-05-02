@@ -31,11 +31,13 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     autoLock: DEFAULT_AUTO_LOCK,
     hasSeenOnboarding: true,
     todayReflection: null,
+    todayReflectionResult: null,
     momentumProfile: DEFAULT_MOMENTUM_PROFILE,
     momentumPlan: null,
     momentumSettings: DEFAULT_MOMENTUM_SETTINGS,
     momentumPlanStatus: "idle",
     momentumPlanError: null,
+    adaptationSnapshot: null,
     ...overrides,
   };
 }
@@ -83,6 +85,7 @@ describe("applyRollover", () => {
             locked: true,
             lockSource: "auto",
             reflection: null,
+            reflectionResult: null,
             tasks: [
               {
                 id: "done-yesterday",
@@ -107,6 +110,7 @@ describe("applyRollover", () => {
             locked: false,
             lockSource: null,
             reflection: null,
+            reflectionResult: null,
             tasks: [
               {
                 id: "today-1",
@@ -196,6 +200,7 @@ describe("syncTodayHistory", () => {
       locked: true,
       lockSource: "auto",
       reflection: "Started earlier than usual.",
+      reflectionResult: null,
       tasks: [
         {
           id: "a",

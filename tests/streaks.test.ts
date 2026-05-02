@@ -18,6 +18,7 @@ function buildHistory(entries: Record<string, [number, number]>): History {
       lockSource: null,
       tasks: [],
       reflection: null,
+      reflectionResult: null,
     };
   }
   return out;

@@ -1,4 +1,5 @@
 import type {
+  AdaptationSnapshot,
   GeneratedTask,
   GeneratedTaskDifficulty,
   History,
@@ -169,6 +170,26 @@ export function summarizeRecentPerformance(history: History, now: Date): RecentP
   };
 }
 
+export function buildAdaptationSnapshot(
+  profile: MomentumProfile,
+  settings: MomentumSettings,
+  history: History,
+  now: Date = new Date(),
+): AdaptationSnapshot | null {
+  if (!isMomentumProfileComplete(profile)) return null;
+
+  const performance = summarizeRecentPerformance(history, now);
+  const recommendation = adaptationRecommendation(profile, settings, performance);
+
+  return {
+    date: dateKey(now),
+    completionRate: performance.completionRate,
+    missedCount: performance.missed,
+    recommendation,
+    reason: adaptationReason(profile, performance, recommendation),
+  };
+}
+
 function goalSuggestions(goalTitle: string): string[] {
   const normalized = goalTitle.trim().toLowerCase();
   const exact = GOAL_TEMPLATES[normalized];
@@ -248,6 +269,23 @@ function reasonFor(
   }
   if (recommendation === "increase") return "A gentle step up from recent wins.";
   return "Matched to your goal and daily window.";
+}
+
+function adaptationReason(
+  profile: MomentumProfile,
+  performance: RecentPerformance,
+  recommendation: "simplify" | "maintain" | "increase",
+): string {
+  if (recommendation === "simplify") {
+    if (profile.struggleType === "overwhelm") return "Simplifying because overwhelm is the main friction.";
+    if (profile.struggleType === "time") return "Keeping tasks short for the time available.";
+    return "Recent misses suggest tomorrow should start smaller.";
+  }
+  if (recommendation === "increase") {
+    return "Recent completions show room for a gentle step up.";
+  }
+  if (performance.daysReviewed === 0) return "No recent pattern yet, so Momentum is staying steady.";
+  return "Recent rhythm looks steady enough to maintain.";
 }
 
 function buildMilestones(goalTitle: string) {

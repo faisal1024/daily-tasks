@@ -60,6 +60,7 @@ export default function HomeScreen() {
     resolveRollover,
     completeMomentumOnboarding,
     setTodayReflection,
+    setTodayReflectionResult,
   } = useDailyTasks();
 
   const [confetti, setConfetti] = useState(false);
@@ -170,6 +171,7 @@ export default function HomeScreen() {
           <MomentumSuggestionCard
             goalTitle={state.momentumProfile.goalTitle}
             suggestions={momentumSuggestions}
+            adaptationReason={state.adaptationSnapshot?.reason ?? null}
             onAccept={() => {
               impact(Haptics.ImpactFeedbackStyle.Medium);
               addTasks(momentumSuggestions.map((task) => task.text));
@@ -242,6 +244,11 @@ export default function HomeScreen() {
             {state.momentumSettings.eveningReflection && (
               <CompletionReflection
                 value={state.todayReflection}
+                result={state.todayReflectionResult}
+                onSelectResult={(result) => {
+                  impact(Haptics.ImpactFeedbackStyle.Light);
+                  setTodayReflectionResult(result);
+                }}
                 onSave={setTodayReflection}
               />
             )}
@@ -274,10 +281,12 @@ export default function HomeScreen() {
 function MomentumSuggestionCard({
   goalTitle,
   suggestions,
+  adaptationReason,
   onAccept,
 }: {
   goalTitle: string | null;
   suggestions: GeneratedTask[];
+  adaptationReason: string | null;
   onAccept: () => void;
 }) {
   return (
@@ -292,6 +301,11 @@ function MomentumSuggestionCard({
         <Text className="text-sm text-muted">
           Based on your goal and daily window, here is a calm trio for today.
         </Text>
+        {adaptationReason && (
+          <Text className="text-xs text-muted">
+            {adaptationReason}
+          </Text>
+        )}
       </View>
 
       <View className="gap-2">

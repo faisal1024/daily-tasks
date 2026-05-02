@@ -151,6 +151,7 @@ function buildPrompt(payload) {
     `Recent completion: ${payload.recentPerformance.completed}/${payload.recentPerformance.total} tasks across ${payload.recentPerformance.daysReviewed} active days`,
     `Recent missed tasks: ${payload.recentPerformance.missed}`,
     `Recent reflection: ${payload.recentReflection ?? "none"}`,
+    `Recent reflection result: ${payload.recentReflectionResult ?? "none"}`,
     "Return three milestones and exactly three todaySuggestions.",
     "Tasks must be short verb phrases, 64 characters or fewer, specific enough to do today, and sized to the user's time.",
     "If recent completion is weak, make tasks easier. If recent completion is strong, make tasks a gentle step up.",

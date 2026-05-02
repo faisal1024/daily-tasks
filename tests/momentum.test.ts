@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildMomentumPlan,
+  buildAdaptationSnapshot,
   generateMomentumSuggestions,
   isMomentumProfileComplete,
   summarizeRecentPerformance,
@@ -89,6 +90,7 @@ describe("buildMomentumPlan", () => {
           lockSource: "manual",
           tasks: [],
           reflection: null,
+          reflectionResult: null,
         },
         "2026-05-01": {
           date: "2026-05-01",
@@ -98,6 +100,7 @@ describe("buildMomentumPlan", () => {
           lockSource: "manual",
           tasks: [],
           reflection: null,
+          reflectionResult: null,
         },
       },
       settings: DEFAULT_MOMENTUM_SETTINGS,
@@ -153,6 +156,7 @@ describe("summarizeRecentPerformance", () => {
           lockSource: "manual",
           tasks: [],
           reflection: null,
+          reflectionResult: null,
         },
       },
       new Date("2026-05-02T12:00:00"),
@@ -165,5 +169,47 @@ describe("summarizeRecentPerformance", () => {
       missed: 1,
       completionRate: 2 / 3,
     });
+  });
+});
+
+describe("buildAdaptationSnapshot", () => {
+  it("explains why tomorrow should simplify after missed work", () => {
+    const snapshot = buildAdaptationSnapshot(
+      {
+        ...COMPLETE_PROFILE,
+        struggleType: "consistency",
+      },
+      DEFAULT_MOMENTUM_SETTINGS,
+      {
+        "2026-05-01": {
+          date: "2026-05-01",
+          total: 3,
+          completed: 0,
+          locked: true,
+          lockSource: "manual",
+          tasks: [],
+          reflection: null,
+          reflectionResult: "hard",
+        },
+        "2026-04-30": {
+          date: "2026-04-30",
+          total: 3,
+          completed: 1,
+          locked: true,
+          lockSource: "manual",
+          tasks: [],
+          reflection: null,
+          reflectionResult: "missed",
+        },
+      },
+      new Date("2026-05-02T12:00:00"),
+    );
+
+    expect(snapshot).toMatchObject({
+      date: "2026-05-02",
+      missedCount: 5,
+      recommendation: "simplify",
+    });
+    expect(snapshot?.reason).toContain("smaller");
   });
 });

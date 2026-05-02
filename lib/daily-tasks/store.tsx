@@ -21,7 +21,11 @@ import {
   buildFallbackMomentumPlan,
   requestOpenAiMomentumPlan,
 } from "./momentum-ai";
-import { buildMomentumPlan, isMomentumProfileComplete } from "./momentum";
+import {
+  buildAdaptationSnapshot,
+  buildMomentumPlan,
+  isMomentumProfileComplete,
+} from "./momentum";
 import {
   applyRollover,
   resolvePendingRollover,
@@ -33,6 +37,7 @@ import type {
   MomentumProfile,
   NotificationPermissionState,
   NotificationKey,
+  ReflectionResult,
   TaskId,
 } from "./types";
 import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
@@ -66,14 +71,34 @@ type Action =
       value: AppState["momentumSettings"][keyof AppState["momentumSettings"]];
     }
   | { type: "setTodayReflection"; text: string; today: string }
+  | { type: "setTodayReflectionResult"; result: ReflectionResult; today: string; now: Date }
   | { type: "reset"; state: AppState };
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "hydrate":
       return action.state;
-    case "rollover":
-      return applyRollover(state, action.today);
+    case "rollover": {
+      const next = applyRollover(state, action.today);
+      if (!isMomentumProfileComplete(next.momentumProfile)) return next;
+      return {
+        ...next,
+        momentumPlan: buildMomentumPlan({
+          profile: next.momentumProfile,
+          history: next.history,
+          settings: next.momentumSettings,
+          now: new Date(`${action.today}T12:00:00`),
+        }),
+        momentumPlanStatus: "ready",
+        momentumPlanError: null,
+        adaptationSnapshot: buildAdaptationSnapshot(
+          next.momentumProfile,
+          next.momentumSettings,
+          next.history,
+          new Date(`${action.today}T12:00:00`),
+        ),
+      };
+    }
     case "addTask": {
       if (state.todayLocked || state.tasks.length >= MAX_TASKS) return state;
       const text = action.text.trim();
@@ -238,6 +263,11 @@ function reducer(state: AppState, action: Action): AppState {
           }),
           momentumPlanStatus: "ready",
           momentumPlanError: null,
+          adaptationSnapshot: buildAdaptationSnapshot(
+            momentumProfile,
+            state.momentumSettings,
+            state.history,
+          ),
         };
       }
     case "updateMomentumProfile":
@@ -251,6 +281,11 @@ function reducer(state: AppState, action: Action): AppState {
         }),
         momentumPlanStatus: "ready",
         momentumPlanError: null,
+        adaptationSnapshot: buildAdaptationSnapshot(
+          action.profile,
+          state.momentumSettings,
+          state.history,
+        ),
       };
     case "regenerateMomentumPlan":
       return {
@@ -263,6 +298,12 @@ function reducer(state: AppState, action: Action): AppState {
         }),
         momentumPlanStatus: "ready",
         momentumPlanError: null,
+        adaptationSnapshot: buildAdaptationSnapshot(
+          state.momentumProfile,
+          state.momentumSettings,
+          state.history,
+          action.now,
+        ),
       };
     case "requestMomentumPlanStarted":
       return {
@@ -305,6 +346,11 @@ function reducer(state: AppState, action: Action): AppState {
         }),
         momentumPlanStatus: "ready",
         momentumPlanError: null,
+        adaptationSnapshot: buildAdaptationSnapshot(
+          state.momentumProfile,
+          momentumSettings,
+          state.history,
+        ),
       };
     }
     case "setTodayReflection": {
@@ -313,6 +359,21 @@ function reducer(state: AppState, action: Action): AppState {
         {
           ...state,
           todayReflection: text.length > 0 ? text : null,
+        },
+        action.today,
+      );
+    }
+    case "setTodayReflectionResult": {
+      return syncTodayHistory(
+        {
+          ...state,
+          todayReflectionResult: action.result,
+          adaptationSnapshot: buildAdaptationSnapshot(
+            state.momentumProfile,
+            state.momentumSettings,
+            state.history,
+            action.now,
+          ),
         },
         action.today,
       );
@@ -352,6 +413,7 @@ interface StoreContextValue {
     value: AppState["momentumSettings"][K],
   ) => void;
   setTodayReflection: (text: string) => void;
+  setTodayReflectionResult: (result: ReflectionResult) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -577,6 +639,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setTodayReflection = useCallback((text: string) => {
     dispatch({ type: "setTodayReflection", text, today: todayKey() });
   }, []);
+  const setTodayReflectionResult = useCallback((result: ReflectionResult) => {
+    dispatch({ type: "setTodayReflectionResult", result, today: todayKey(), now: new Date() });
+  }, []);
   const resetAll = useCallback(async () => {
     await clearState();
     dispatch({ type: "reset", state: buildInitialState() });
@@ -610,6 +675,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       requestMomentumPlan,
       setMomentumSetting,
       setTodayReflection,
+      setTodayReflectionResult,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -641,6 +707,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       requestMomentumPlan,
       setMomentumSetting,
       setTodayReflection,
+      setTodayReflectionResult,
       refreshNotificationPermission,
       requestPermission,
       resetAll,

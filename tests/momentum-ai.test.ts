@@ -40,6 +40,7 @@ describe("buildAiPlanRequestPayload", () => {
           locked: true,
           lockSource: "manual",
           reflection: "Had a good rhythm.",
+          reflectionResult: "good",
           tasks: [
             {
               id: "secret-task",
@@ -64,6 +65,7 @@ describe("buildAiPlanRequestPayload", () => {
         missed: 1,
       },
       recentReflection: "Had a good rhythm.",
+      recentReflectionResult: "good",
     });
     expect(JSON.stringify(payload)).not.toContain("Private task text");
   });
