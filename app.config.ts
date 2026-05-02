@@ -1,4 +1,3 @@
-import "./scripts/load-env.js";
 import type { ExpoConfig } from "expo/config";
 
 const bundleId = "com.faisalislam.dailytasks";

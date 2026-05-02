@@ -47,7 +47,7 @@ The app should feel calm, intentional, privacy-first, and useful for people who 
 - The core screen works, but it needs more premium visual polish before charging money.
 - Settings now includes in-app Support and Privacy links.
 - A local-first privacy policy exists in `docs/privacy-policy.md`.
-- Some unused template/server/auth code and dependencies may still remain and need follow-up cleanup.
+- Unused template backend, auth, database, and tRPC code has been removed for a cleaner local-first app bundle.
 - The package name has been renamed from `app-template` to `daily-tasks`.
 - Obvious React starter image assets were removed from `assets/images`.
 
@@ -108,6 +108,7 @@ Status: In progress
 - [x] Add in-app Support and Privacy links in Settings.
 - [x] Remove unused starter assets.
 - [x] Rename package/internal app template references.
+- [x] Remove unused backend/auth/database template code and dependencies.
 - [ ] Run full QA on fresh install, notification permissions, rollover, lock, and icon.
 
 ## Phase 1: First-Run Experience
