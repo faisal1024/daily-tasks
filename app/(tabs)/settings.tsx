@@ -1,4 +1,12 @@
-import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
+import {
+  Alert,
+  Linking,
+  Pressable,
+  ScrollView,
+  Switch,
+  Text,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
@@ -6,19 +14,26 @@ import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TimeStepper } from "@/components/daily-tasks/time-stepper";
 import { useColors } from "@/hooks/use-colors";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
-import type { NotificationKey, NotificationPermissionState } from "@/lib/daily-tasks/types";
+import type {
+  NotificationKey,
+  NotificationPermissionState,
+} from "@/lib/daily-tasks/types";
 
 const SUPPORT_URL = "https://github.com/faisal1024/daily-tasks#support";
-const PRIVACY_URL = "https://github.com/faisal1024/daily-tasks/blob/main/docs/privacy-policy.md";
+const PRIVACY_URL =
+  "https://github.com/faisal1024/daily-tasks/blob/main/docs/privacy-policy.md";
 
-const NOTIFICATION_LABELS: Record<NotificationKey, { title: string; subtitle: string }> = {
+const NOTIFICATION_LABELS: Record<
+  NotificationKey,
+  { title: string; subtitle: string }
+> = {
   morning: {
     title: "Morning reminders",
     subtitle: "A gentle start if today is still blank.",
   },
   progress: {
     title: "Progress reminders",
-    subtitle: "Calm nudges while today's three tasks are still open.",
+    subtitle: "Calm nudges while Today's Three are still open.",
   },
   evening: {
     title: "Evening reminders",
@@ -54,7 +69,7 @@ export default function SettingsScreen() {
     if (status !== "granted") {
       Alert.alert(
         "Notifications unavailable",
-        "Allow notifications in System Settings to get calm reminders for today's tasks.",
+        "Allow notifications in System Settings to get calm reminders for Today's Three.",
       );
       return;
     }
@@ -62,13 +77,20 @@ export default function SettingsScreen() {
     setNotificationsEnabled(true);
   };
 
-  const handleReminderEnabled = async (key: NotificationKey, value: boolean) => {
-    if (value && state.notifications.enabled && notificationPermission !== "granted") {
+  const handleReminderEnabled = async (
+    key: NotificationKey,
+    value: boolean,
+  ) => {
+    if (
+      value &&
+      state.notifications.enabled &&
+      notificationPermission !== "granted"
+    ) {
       const status = await requestNotificationPermission();
       if (status !== "granted") {
         Alert.alert(
           "Notifications unavailable",
-          "Allow notifications in System Settings to get calm reminders for today's tasks.",
+          "Allow notifications in System Settings to get calm reminders for Today's Three.",
         );
         return;
       }
@@ -100,7 +122,7 @@ export default function SettingsScreen() {
   const handleReset = () => {
     Alert.alert(
       "Reset everything?",
-      "This deletes all tasks, history, and settings. This can't be undone.",
+      "This deletes Today's Three, history, and settings. This can't be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -116,26 +138,36 @@ export default function SettingsScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 28 }}>
+      <ScrollView
+        contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 28 }}
+      >
         <View className="gap-1">
           <Text className="text-base text-muted">Settings</Text>
-          <Text className="text-3xl font-bold text-foreground">Tune your day</Text>
+          <Text className="text-3xl font-bold text-foreground">
+            Tune your day
+          </Text>
         </View>
 
-        <Section title="Your tasks" subtitle="Edit, complete, or remove from anywhere.">
+        <Section
+          title="Today's Three"
+          subtitle="Review or finish the focus commitments you chose."
+        >
           <View className="gap-3">
             {state.todayLocked && (
               <View className="rounded-2xl border border-border bg-surface p-4">
                 <Text className="text-sm font-semibold text-foreground">
-                  Today's list is locked
+                  Today's Three is set
                 </Text>
                 <Text className="text-sm text-muted mt-1">
-                  You can still check tasks off, but the list itself is set for today.
+                  You can still check things off, but today is no longer a place
+                  to reshuffle.
                 </Text>
               </View>
             )}
             {state.tasks.length === 0 ? (
-              <Text className="text-sm text-muted">No tasks yet — add some on the Tasks tab.</Text>
+              <Text className="text-sm text-muted">
+                No focus commitments yet — choose them on the Today tab.
+              </Text>
             ) : (
               state.tasks.map((task) => (
                 <TaskCard
@@ -145,14 +177,18 @@ export default function SettingsScreen() {
                   onToggle={() => toggleTask(task.id)}
                   onEdit={(text) => editTask(task.id, text)}
                   onDelete={() =>
-                    Alert.alert("Delete task?", `Remove "${task.text}"?`, [
-                      { text: "Cancel", style: "cancel" },
-                      {
-                        text: "Delete",
-                        style: "destructive",
-                        onPress: () => deleteTask(task.id),
-                      },
-                    ])
+                    Alert.alert(
+                      "Release this focus?",
+                      `Remove "${task.text}" from Today's Three?`,
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Delete",
+                          style: "destructive",
+                          onPress: () => deleteTask(task.id),
+                        },
+                      ],
+                    )
                   }
                   canEdit={!state.todayLocked}
                   canDelete={!state.todayLocked}
@@ -164,14 +200,17 @@ export default function SettingsScreen() {
 
         <Section
           title="Daily lock"
-          subtitle="Choose whether today's list locks automatically."
+          subtitle="Choose whether Today's Three sets itself automatically."
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-3">
             <View className="flex-row items-center justify-between gap-4">
               <View className="flex-1">
-                <Text className="text-base font-semibold text-foreground">Auto-lock today</Text>
+                <Text className="text-base font-semibold text-foreground">
+                  Auto-set today
+                </Text>
                 <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                  When on, days with at least one task lock at your chosen time.
+                  When on, days with at least one focus commitment are set at
+                  your chosen time.
                 </Text>
               </View>
               <Switch
@@ -189,18 +228,25 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        <Section title="Reminders" subtitle="Smart, local nudges that react to today's tasks.">
+        <Section
+          title="Reminders"
+          subtitle="Smart, local nudges that react to Today's Three."
+        >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-4">
             <View className="flex-row items-center justify-between gap-4">
               <View className="flex-1">
-                <Text className="text-base font-semibold text-foreground">Notifications</Text>
+                <Text className="text-base font-semibold text-foreground">
+                  Notifications
+                </Text>
                 <Text className="text-xs mt-1" style={{ color: colors.muted }}>
                   {permissionDescription(notificationPermission)}
                 </Text>
               </View>
               <Switch
                 value={state.notifications.enabled}
-                onValueChange={(value) => void handleNotificationsEnabled(value)}
+                onValueChange={(value) =>
+                  void handleNotificationsEnabled(value)
+                }
                 trackColor={{ true: colors.primary }}
               />
             </View>
@@ -212,7 +258,10 @@ export default function SettingsScreen() {
                   className="self-start rounded-full px-4 py-2"
                   style={{ backgroundColor: `${colors.primary}16` }}
                 >
-                  <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                  <Text
+                    className="text-sm font-semibold"
+                    style={{ color: colors.primary }}
+                  >
                     Open System Settings
                   </Text>
                 </Pressable>
@@ -220,28 +269,38 @@ export default function SettingsScreen() {
           </View>
 
           <View className="gap-3">
-            {(Object.keys(NOTIFICATION_LABELS) as NotificationKey[]).map((key) => {
-              const meta = NOTIFICATION_LABELS[key];
-              return (
-                <View key={key} className="bg-surface rounded-2xl p-4 border border-border">
-                  <View className="flex-row items-center justify-between gap-4">
-                    <View className="flex-1">
-                      <Text className="text-base font-semibold text-foreground">
-                        {meta.title}
-                      </Text>
-                      <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                        {meta.subtitle}
-                      </Text>
+            {(Object.keys(NOTIFICATION_LABELS) as NotificationKey[]).map(
+              (key) => {
+                const meta = NOTIFICATION_LABELS[key];
+                return (
+                  <View
+                    key={key}
+                    className="bg-surface rounded-2xl p-4 border border-border"
+                  >
+                    <View className="flex-row items-center justify-between gap-4">
+                      <View className="flex-1">
+                        <Text className="text-base font-semibold text-foreground">
+                          {meta.title}
+                        </Text>
+                        <Text
+                          className="text-xs mt-1"
+                          style={{ color: colors.muted }}
+                        >
+                          {meta.subtitle}
+                        </Text>
+                      </View>
+                      <Switch
+                        value={state.notifications[key]}
+                        onValueChange={(value) =>
+                          void handleReminderEnabled(key, value)
+                        }
+                        trackColor={{ true: colors.primary }}
+                      />
                     </View>
-                    <Switch
-                      value={state.notifications[key]}
-                      onValueChange={(value) => void handleReminderEnabled(key, value)}
-                      trackColor={{ true: colors.primary }}
-                    />
                   </View>
-                </View>
-              );
-            })}
+                );
+              },
+            )}
           </View>
         </Section>
 
@@ -257,11 +316,14 @@ export default function SettingsScreen() {
               <Ionicons name="trash-outline" size={18} color={colors.error} />
             </View>
             <View className="flex-1">
-              <Text className="text-base font-semibold" style={{ color: colors.error }}>
+              <Text
+                className="text-base font-semibold"
+                style={{ color: colors.error }}
+              >
                 Reset all data
               </Text>
               <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                Clears tasks, history, and reminder settings.
+                Clears focus commitments, history, and reminder settings.
               </Text>
             </View>
           </Pressable>
@@ -283,7 +345,10 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        <Text className="text-xs text-center mt-2" style={{ color: colors.muted }}>
+        <Text
+          className="text-xs text-center mt-2"
+          style={{ color: colors.muted }}
+        >
           Daily Tasks · v1.0.0
         </Text>
       </ScrollView>
@@ -314,7 +379,9 @@ function HelpRow({
       >
         <Ionicons name={icon} size={18} color={colors.primary} />
       </View>
-      <Text className="flex-1 text-base font-semibold text-foreground">{label}</Text>
+      <Text className="flex-1 text-base font-semibold text-foreground">
+        {label}
+      </Text>
       <Ionicons name="chevron-forward" size={18} color={colors.muted} />
     </Pressable>
   );
@@ -323,13 +390,13 @@ function HelpRow({
 function permissionDescription(state: NotificationPermissionState): string {
   switch (state) {
     case "granted":
-      return "Allowed. Reminders only appear when today's tasks still need attention.";
+      return "Allowed. Reminders only appear when Today's Three still need attention.";
     case "denied":
       return "Blocked at the system level. You can turn them back on in Settings.";
     case "unsupported":
       return "Notifications are unavailable on web preview.";
     case "undetermined":
-      return "Enable notifications to get calm reminders for today's three tasks.";
+      return "Enable notifications to get calm reminders for Today's Three.";
   }
 }
 
@@ -346,7 +413,9 @@ function Section({
     <View className="gap-3">
       <View>
         <Text className="text-lg font-semibold text-foreground">{title}</Text>
-        {subtitle && <Text className="text-sm text-muted mt-0.5">{subtitle}</Text>}
+        {subtitle && (
+          <Text className="text-sm text-muted mt-0.5">{subtitle}</Text>
+        )}
       </View>
       {children}
     </View>

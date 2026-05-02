@@ -35,11 +35,11 @@ export interface PlannedReminder {
 const REMINDER_COPY: Record<ReminderKind, { title: string; body: string }> = {
   morning: {
     title: "A calm start",
-    body: "Pick your 3 tasks for today.",
+    body: "Choose Today's Three.",
   },
   progress: {
     title: "A small nudge",
-    body: "You still have a few tasks left today.",
+    body: "Today's Three still need a little attention.",
   },
   evening: {
     title: "Still time today",
@@ -47,7 +47,9 @@ const REMINDER_COPY: Record<ReminderKind, { title: string; body: string }> = {
   },
 };
 
-export function canScheduleReminders(permissionState: NotificationPermissionState): boolean {
+export function canScheduleReminders(
+  permissionState: NotificationPermissionState,
+): boolean {
   return permissionState === "granted";
 }
 
@@ -111,7 +113,11 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
     const startHour = isWeekend(now)
       ? REMINDER_HOURS.weekendMorningStart
       : REMINDER_HOURS.weekdayMorningStart;
-    return collectCandidates(now, "morning", range(startHour, REMINDER_HOURS.morningEnd, 1));
+    return collectCandidates(
+      now,
+      "morning",
+      range(startHour, REMINDER_HOURS.morningEnd, 1),
+    );
   }
 
   const reminders: PlannedReminder[] = [];

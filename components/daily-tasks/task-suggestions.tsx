@@ -14,8 +14,11 @@ export function TaskSuggestions({ suggestions, onPick }: TaskSuggestionsProps) {
 
   return (
     <View className="gap-2">
-      <Text className="text-xs uppercase tracking-wide" style={{ color: colors.muted }}>
-        Need a starting point?
+      <Text
+        className="text-xs uppercase tracking-wide"
+        style={{ color: colors.muted }}
+      >
+        Gentle starting points
       </Text>
       <View className="flex-row flex-wrap gap-2">
         {suggestions.map((text) => (
@@ -23,9 +26,12 @@ export function TaskSuggestions({ suggestions, onPick }: TaskSuggestionsProps) {
             key={text}
             onPress={() => onPick(text)}
             accessibilityRole="button"
-            accessibilityLabel={`Add suggested task: ${text}`}
+            accessibilityLabel={`Choose suggested focus: ${text}`}
             className="rounded-full px-3 py-2 border"
-            style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+            style={{
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
+            }}
           >
             <Text className="text-sm text-foreground">{text}</Text>
           </Pressable>

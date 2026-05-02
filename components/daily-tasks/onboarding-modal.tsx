@@ -9,16 +9,16 @@ interface OnboardingModalProps {
 
 const STEPS: { title: string; body: string }[] = [
   {
-    title: "Choose only three",
-    body: "Pick the tasks that would make today feel complete.",
+    title: "Choose less on purpose",
+    body: "Most to-do apps help you collect more. This app helps you pick what actually deserves today.",
   },
   {
-    title: "Lock when ready",
-    body: "Once your list is set, the app helps you finish instead of reshuffling.",
+    title: "Set Today's Three",
+    body: "Choose up to three focus commitments, then set the day so you can finish instead of reshuffle.",
   },
   {
-    title: "Tomorrow starts fresh",
-    body: "Unfinished tasks are handled intentionally, not silently buried.",
+    title: "Carry or release",
+    body: "When tomorrow arrives, unfinished work asks for a decision. Carry it forward or release it.",
   },
 ];
 
@@ -45,7 +45,7 @@ export function OnboardingModal({ visible, onDismiss }: OnboardingModalProps) {
               Welcome
             </Text>
             <Text className="text-2xl font-bold text-foreground">
-              Three tasks. One calm day.
+              Pick three. Protect your day.
             </Text>
           </View>
 
@@ -80,7 +80,7 @@ export function OnboardingModal({ visible, onDismiss }: OnboardingModalProps) {
               className="text-base font-semibold"
               style={{ color: colors.background }}
             >
-              Start today
+              Choose Today's Three
             </Text>
           </Pressable>
         </View>

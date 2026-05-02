@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import * as Haptics from "expo-haptics";
 
 import { ScreenContainer } from "@/components/screen-container";
@@ -15,7 +22,10 @@ import { TaskSuggestions } from "@/components/daily-tasks/task-suggestions";
 import { TodaySummaryCard } from "@/components/daily-tasks/today-summary-card";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
-import { computeDayStreak, computePerfectStreak } from "@/lib/daily-tasks/streaks";
+import {
+  computeDayStreak,
+  computePerfectStreak,
+} from "@/lib/daily-tasks/streaks";
 import { MAX_TASKS, TASK_SUGGESTIONS } from "@/lib/daily-tasks/types";
 
 function impact(style: Haptics.ImpactFeedbackStyle) {
@@ -25,7 +35,9 @@ function impact(style: Haptics.ImpactFeedbackStyle) {
 
 function success() {
   if (Platform.OS === "web") return;
-  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+    () => {},
+  );
 }
 
 export default function HomeScreen() {
@@ -77,7 +89,7 @@ export default function HomeScreen() {
   };
 
   const handleDelete = (id: string, text: string) => {
-    Alert.alert("Delete task?", `Remove "${text}"?`, [
+    Alert.alert("Release this focus?", `Remove "${text}" from Today's Three?`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
@@ -98,7 +110,12 @@ export default function HomeScreen() {
       >
         <View className="gap-1">
           <Text className="text-base text-muted">{greeting}</Text>
-          <Text className="text-3xl font-bold text-foreground">Your day, three tasks.</Text>
+          <Text className="text-3xl font-bold text-foreground">
+            Today's Three
+          </Text>
+          <Text className="text-sm text-muted">
+            Pick less. Set the day. Finish calmly.
+          </Text>
         </View>
 
         <TodaySummaryCard
@@ -135,34 +152,45 @@ export default function HomeScreen() {
               What would make today feel complete?
             </Text>
             <Text className="text-sm text-muted">
-              Choose up to three tasks. Keep it small enough to finish.
+              Most to-do apps help you collect more. This one helps you choose
+              less.
             </Text>
           </View>
         )}
 
         <View className="gap-3">
-          {state.tasks.map((task, index) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              index={index}
-              completed={isCompleted(task.id)}
-              onToggle={() => handleToggle(task.id)}
-              onEdit={(text) => editTask(task.id, text)}
-              onDelete={() => handleDelete(task.id, task.text)}
-              canEdit={!state.todayLocked}
-              canDelete={!state.todayLocked}
-            />
-          ))}
+          {Array.from({ length: MAX_TASKS }).map((_, index) => {
+            const task = state.tasks[index];
 
-          <AddTaskRow
-            remainingSlots={remainingSlots}
-            disabled={state.todayLocked}
-            onAdd={(text) => {
-              impact(Haptics.ImpactFeedbackStyle.Light);
-              addTask(text);
-            }}
-          />
+            if (task) {
+              return (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  index={index}
+                  completed={isCompleted(task.id)}
+                  onToggle={() => handleToggle(task.id)}
+                  onEdit={(text) => editTask(task.id, text)}
+                  onDelete={() => handleDelete(task.id, task.text)}
+                  canEdit={!state.todayLocked}
+                  canDelete={!state.todayLocked}
+                />
+              );
+            }
+
+            return (
+              <AddTaskRow
+                key={`empty-focus-${index}`}
+                remainingSlots={remainingSlots}
+                slotNumber={index + 1}
+                disabled={state.todayLocked}
+                onAdd={(text) => {
+                  impact(Haptics.ImpactFeedbackStyle.Light);
+                  addTask(text);
+                }}
+              />
+            );
+          })}
 
           {state.tasks.length === 0 && !state.todayLocked && (
             <TaskSuggestions
@@ -179,7 +207,9 @@ export default function HomeScreen() {
           <>
             <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
               <Text className="text-sm font-semibold text-foreground">
-                {total === MAX_TASKS ? "Today's three are done." : "Today's list is done."}
+                {total === MAX_TASKS
+                  ? "Today's Three are done."
+                  : "Today's commitments are done."}
               </Text>
               <Text className="text-sm text-muted">
                 A small finish is still a finish.
@@ -193,7 +223,10 @@ export default function HomeScreen() {
         )}
       </ScrollView>
 
-      <ConfettiOverlay visible={confetti} onDismiss={() => setConfetti(false)} />
+      <ConfettiOverlay
+        visible={confetti}
+        onDismiss={() => setConfetti(false)}
+      />
 
       <OnboardingModal
         visible={ready && !state.hasSeenOnboarding && !state.pendingRollover}
@@ -232,10 +265,13 @@ function LockedStateCard({
     return (
       <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
         <Text className="text-sm font-semibold text-foreground">
-          {lockSource === "auto" ? "Today's list is locked" : "Today's list is set"}
+          {lockSource === "auto"
+            ? "Today's Three is set"
+            : "Today's Three is set"}
         </Text>
         <Text className="text-sm text-muted">
-          Your list is locked for today so you can focus on finishing.
+          You can still check things off, but today is no longer a place to
+          reshuffle.
         </Text>
         {autoNoticeVisible && (
           <Pressable onPress={onDismissNotice} className="self-start">
@@ -251,16 +287,21 @@ function LockedStateCard({
   return (
     <View className="rounded-2xl bg-surface border border-border p-4 gap-3">
       <View className="gap-1">
-        <Text className="text-sm font-semibold text-foreground">Still editable</Text>
+        <Text className="text-sm font-semibold text-foreground">
+          Still choosing
+        </Text>
         <Text className="text-sm text-muted">
-          Lock today's list when it feels set, even if you picked fewer than three tasks.
+          Set Today's Three when the day feels chosen, even if you picked fewer
+          than three.
         </Text>
       </View>
       <Pressable
         onPress={onLock}
         className="self-start rounded-full px-4 py-2 border border-border"
       >
-        <Text className="text-sm font-semibold text-foreground">Lock Today's List</Text>
+        <Text className="text-sm font-semibold text-foreground">
+          Set Today's Three
+        </Text>
       </Pressable>
     </View>
   );

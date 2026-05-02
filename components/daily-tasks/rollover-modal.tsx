@@ -27,7 +27,9 @@ export function RolloverModal({
       setSelectedIds([]);
       return;
     }
-    setSelectedIds(pending.tasks.slice(0, remainingSlots).map((task) => task.id));
+    setSelectedIds(
+      pending.tasks.slice(0, remainingSlots).map((task) => task.id),
+    );
   }, [pending, remainingSlots]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -47,7 +49,9 @@ export function RolloverModal({
   };
 
   const carryAll = () => {
-    setSelectedIds(pending.tasks.slice(0, remainingSlots).map((task) => task.id));
+    setSelectedIds(
+      pending.tasks.slice(0, remainingSlots).map((task) => task.id),
+    );
   };
 
   const dropAll = () => {
@@ -57,11 +61,11 @@ export function RolloverModal({
   const selectedCount = selectedIds.length;
   const hasAvailableSlots = remainingSlots > 0;
   const slotsMessage = hasAvailableSlots
-    ? `You can carry ${remainingSlots} more ${remainingSlots === 1 ? "task" : "tasks"} into today.`
-    : "Today's three slots are full, so yesterday's unfinished tasks can only be dropped.";
+    ? `You can carry ${remainingSlots} more ${remainingSlots === 1 ? "focus" : "focuses"} into today.`
+    : "Today's Three is full, so yesterday's unfinished work can only be released.";
   const decisionMessage = hasAvailableSlots
-    ? `${selectedCount} selected to carry. Dropped tasks stay in yesterday's history.`
-    : "Nothing will be erased. Dropped tasks stay in yesterday's history.";
+    ? `${selectedCount} selected to carry forward. Released work stays in yesterday's history.`
+    : "Nothing will be erased. Released work stays in yesterday's history.";
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -73,37 +77,47 @@ export function RolloverModal({
           <View className="gap-1">
             <Text className="text-base text-muted">New day</Text>
             <Text className="text-2xl font-bold text-foreground">
-              Choose what still deserves space today
+              Carry forward or release
             </Text>
           </View>
 
           <Text className="text-sm text-muted">
-            Yesterday had unfinished tasks. Carry only what still matters.
+            Yesterday is done. Choose what still deserves one of today's three
+            slots.
           </Text>
 
           <View
             className="rounded-2xl p-4 border border-border"
             style={{ backgroundColor: `${colors.primary}10` }}
           >
-            <Text className="text-sm font-semibold text-foreground">{slotsMessage}</Text>
+            <Text className="text-sm font-semibold text-foreground">
+              {slotsMessage}
+            </Text>
             <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-              You already have {currentTaskCount} of 3 tasks in today's list. {decisionMessage}
+              You already have {currentTaskCount} of 3 focus slots filled today.{" "}
+              {decisionMessage}
             </Text>
           </View>
 
           <View className="flex-row gap-3">
             <QuickAction
-              label={hasAvailableSlots ? "Carry all that fit" : "No room to carry"}
+              label={
+                hasAvailableSlots ? "Carry all that fit" : "No room to carry"
+              }
               disabled={!hasAvailableSlots}
               onPress={carryAll}
             />
-            <QuickAction label="Drop all" onPress={dropAll} />
+            <QuickAction label="Release all" onPress={dropAll} />
           </View>
 
-          <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ gap: 12 }}>
+          <ScrollView
+            style={{ maxHeight: 320 }}
+            contentContainerStyle={{ gap: 12 }}
+          >
             {pending.tasks.map((task) => {
               const selected = selectedSet.has(task.id);
-              const carryDisabled = !selected && selectedIds.length >= remainingSlots;
+              const carryDisabled =
+                !selected && selectedIds.length >= remainingSlots;
 
               return (
                 <View
@@ -113,15 +127,21 @@ export function RolloverModal({
                   <Text className="text-base text-foreground">{task.text}</Text>
                   <View className="flex-row gap-3">
                     <ChoiceButton
-                      label={remainingSlots === 0 ? "No room today" : "Carry to today"}
+                      label={
+                        remainingSlots === 0 ? "No room today" : "Carry forward"
+                      }
                       active={selected}
                       disabled={remainingSlots === 0 || carryDisabled}
                       onPress={() => toggleTask(task.id)}
                     />
                     <ChoiceButton
-                      label="Drop it"
+                      label="Release"
                       active={!selected}
-                      onPress={() => setSelectedIds((current) => current.filter((id) => id !== task.id))}
+                      onPress={() =>
+                        setSelectedIds((current) =>
+                          current.filter((id) => id !== task.id),
+                        )
+                      }
                     />
                   </View>
                 </View>
@@ -134,7 +154,10 @@ export function RolloverModal({
             className="rounded-full px-5 py-4 items-center"
             style={{ backgroundColor: colors.primary }}
           >
-            <Text className="text-base font-semibold" style={{ color: colors.background }}>
+            <Text
+              className="text-base font-semibold"
+              style={{ color: colors.background }}
+            >
               Save today's choices
             </Text>
           </Pressable>

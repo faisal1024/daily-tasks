@@ -19,7 +19,11 @@ export default function CalendarScreen() {
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
 
-  const stats = monthlyStats(state.history, month.getFullYear(), month.getMonth());
+  const stats = monthlyStats(
+    state.history,
+    month.getFullYear(),
+    month.getMonth(),
+  );
 
   const shift = (delta: number) => {
     setMonth((m) => {
@@ -41,10 +45,14 @@ export default function CalendarScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 24 }}>
+      <ScrollView
+        contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 24 }}
+      >
         <View className="gap-1">
           <Text className="text-base text-muted">History</Text>
-          <Text className="text-3xl font-bold text-foreground">Your streak map</Text>
+          <Text className="text-3xl font-bold text-foreground">
+            Your streak map
+          </Text>
         </View>
 
         <View className="flex-row items-center justify-between">
@@ -67,7 +75,11 @@ export default function CalendarScreen() {
             accessibilityLabel="Next month"
             className="p-2"
           >
-            <Ionicons name="chevron-forward" size={22} color={colors.foreground} />
+            <Ionicons
+              name="chevron-forward"
+              size={22}
+              color={colors.foreground}
+            />
           </Pressable>
         </View>
 
@@ -87,25 +99,46 @@ export default function CalendarScreen() {
 
         <View className="flex-row gap-3">
           <View className="flex-1 bg-surface rounded-2xl p-4 border border-border">
-            <Text className="text-xs uppercase tracking-wide" style={{ color: colors.muted }}>
+            <Text
+              className="text-xs uppercase tracking-wide"
+              style={{ color: colors.muted }}
+            >
               Active Days
             </Text>
-            <Text className="text-2xl font-bold text-foreground mt-2">{stats.activeDays}</Text>
+            <Text className="text-2xl font-bold text-foreground mt-2">
+              {stats.activeDays}
+            </Text>
           </View>
           <View className="flex-1 bg-surface rounded-2xl p-4 border border-border">
-            <Text className="text-xs uppercase tracking-wide" style={{ color: colors.muted }}>
+            <Text
+              className="text-xs uppercase tracking-wide"
+              style={{ color: colors.muted }}
+            >
               Perfect Days
             </Text>
-            <Text className="text-2xl font-bold text-foreground mt-2">{stats.perfectDays}</Text>
+            <Text className="text-2xl font-bold text-foreground mt-2">
+              {stats.perfectDays}
+            </Text>
           </View>
         </View>
 
         <View className="bg-surface rounded-2xl p-4 border border-border gap-2">
-          <Text className="text-xs font-semibold uppercase tracking-wide" style={{ color: colors.muted }}>
+          <Text
+            className="text-xs font-semibold uppercase tracking-wide"
+            style={{ color: colors.muted }}
+          >
             Legend
           </Text>
-          <LegendRow color={colors.success} label="All tasks completed" filled />
-          <LegendRow color={colors.primary} label="Some tasks completed" dot />
+          <LegendRow
+            color={colors.success}
+            label="All focuses completed"
+            filled
+          />
+          <LegendRow
+            color={colors.primary}
+            label="Some focuses completed"
+            dot
+          />
           <LegendRow color={colors.primary} label="Today" outlined />
         </View>
       </ScrollView>
@@ -143,7 +176,11 @@ function LegendRow({
           width: 18,
           height: 18,
           borderRadius: 9,
-          backgroundColor: filled ? color : outlined ? "transparent" : `${color}22`,
+          backgroundColor: filled
+            ? color
+            : outlined
+              ? "transparent"
+              : `${color}22`,
           borderWidth: outlined ? 2 : 0,
           borderColor: color,
           alignItems: "center",
@@ -152,7 +189,12 @@ function LegendRow({
       >
         {dot && (
           <View
-            style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: color }}
+            style={{
+              width: 4,
+              height: 4,
+              borderRadius: 2,
+              backgroundColor: color,
+            }}
           />
         )}
       </View>

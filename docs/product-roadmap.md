@@ -28,6 +28,7 @@ The app should feel calm, intentional, privacy-first, and useful for people who 
 - Added rollover decision flow for unfinished tasks.
 - Added Carry all / Drop all rollover actions.
 - Added dropped/carried rollover outcomes in history.
+- Added Today’s Three positioning with three fixed focus slots and carry/release language.
 - Added tests for reminders, locking, rollover, and streak behavior.
 - Replaced placeholder app icons for Apple review.
 - Added GitHub support page content for Apple review.
@@ -136,6 +137,7 @@ Status: In progress
 - [x] Improve task cards and completed-state polish.
 - [x] Improve calendar day detail by allowing users to tap a day and review tasks.
 - [x] Add optional completion reflection: one short note about what worked today.
+- [x] Reposition the main experience around three fixed focus slots instead of a generic list.
 - [ ] Improve haptics, animations, and transitions carefully without making the app noisy.
 - [ ] Improve App Store screenshots to communicate the value clearly.
 

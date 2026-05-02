@@ -15,12 +15,17 @@ export function DayDetailCard({ dateLabel, record }: DayDetailCardProps) {
   if (!record || record.total === 0) {
     return (
       <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
-        <Text className="text-xs uppercase tracking-wide" style={{ color: colors.muted }}>
+        <Text
+          className="text-xs uppercase tracking-wide"
+          style={{ color: colors.muted }}
+        >
           {dateLabel}
         </Text>
-        <Text className="text-lg font-semibold text-foreground">No task history</Text>
+        <Text className="text-lg font-semibold text-foreground">
+          No focus history
+        </Text>
         <Text className="text-sm" style={{ color: colors.muted }}>
-          This day has no saved tasks yet.
+          This day has no saved focus commitments yet.
         </Text>
       </View>
     );
@@ -30,7 +35,10 @@ export function DayDetailCard({ dateLabel, record }: DayDetailCardProps) {
     <View className="rounded-2xl bg-surface border border-border p-4 gap-4">
       <View className="flex-row items-start justify-between gap-3">
         <View className="gap-1">
-          <Text className="text-xs uppercase tracking-wide" style={{ color: colors.muted }}>
+          <Text
+            className="text-xs uppercase tracking-wide"
+            style={{ color: colors.muted }}
+          >
             {dateLabel}
           </Text>
           <Text className="text-lg font-semibold text-foreground">
@@ -43,7 +51,10 @@ export function DayDetailCard({ dateLabel, record }: DayDetailCardProps) {
             style={{ backgroundColor: `${colors.primary}16` }}
           >
             <Ionicons name="lock-closed" size={12} color={colors.primary} />
-            <Text className="text-xs font-semibold" style={{ color: colors.primary }}>
+            <Text
+              className="text-xs font-semibold"
+              style={{ color: colors.primary }}
+            >
               Locked
             </Text>
           </View>
@@ -65,13 +76,19 @@ export function DayDetailCard({ dateLabel, record }: DayDetailCardProps) {
               {task.text}
             </Text>
             {task.rolloverOutcome === "carried" && (
-              <Text className="text-xs font-semibold" style={{ color: colors.primary }}>
+              <Text
+                className="text-xs font-semibold"
+                style={{ color: colors.primary }}
+              >
                 Carried
               </Text>
             )}
             {task.rolloverOutcome === "dropped" && (
-              <Text className="text-xs font-semibold" style={{ color: colors.muted }}>
-                Dropped
+              <Text
+                className="text-xs font-semibold"
+                style={{ color: colors.muted }}
+              >
+                Released
               </Text>
             )}
           </View>
@@ -80,7 +97,10 @@ export function DayDetailCard({ dateLabel, record }: DayDetailCardProps) {
 
       {record.reflection && (
         <View className="rounded-2xl bg-background border border-border p-3 gap-1">
-          <Text className="text-xs uppercase tracking-wide" style={{ color: colors.muted }}>
+          <Text
+            className="text-xs uppercase tracking-wide"
+            style={{ color: colors.muted }}
+          >
             Reflection
           </Text>
           <Text className="text-sm text-foreground">{record.reflection}</Text>

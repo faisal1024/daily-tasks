@@ -20,8 +20,20 @@ export function TodaySummaryCard({
   const colors = useColors();
   const remainingTasks = Math.max(0, total - completedCount);
   const isDone = total > 0 && completedCount === total;
-  const headline = getHeadline({ isDone, locked, total, remainingTasks, remainingSlots });
-  const subcopy = getSubcopy({ isDone, locked, total, remainingTasks, remainingSlots });
+  const headline = getHeadline({
+    isDone,
+    locked,
+    total,
+    remainingTasks,
+    remainingSlots,
+  });
+  const subcopy = getSubcopy({
+    isDone,
+    locked,
+    total,
+    remainingTasks,
+    remainingSlots,
+  });
 
   return (
     <View
@@ -30,8 +42,11 @@ export function TodaySummaryCard({
     >
       <View className="flex-row items-start justify-between gap-4">
         <View className="flex-1 gap-2">
-          <Text className="text-xs uppercase tracking-[2px]" style={{ color: colors.primary }}>
-            Today's focus
+          <Text
+            className="text-xs uppercase tracking-[2px]"
+            style={{ color: colors.primary }}
+          >
+            Daily commitment
           </Text>
           <Text className="text-2xl font-bold text-foreground">{headline}</Text>
           <Text className="text-sm leading-5" style={{ color: colors.muted }}>
@@ -41,7 +56,11 @@ export function TodaySummaryCard({
 
         <View
           className="w-12 h-12 rounded-2xl items-center justify-center"
-          style={{ backgroundColor: isDone ? `${colors.success}22` : `${colors.primary}18` }}
+          style={{
+            backgroundColor: isDone
+              ? `${colors.success}22`
+              : `${colors.primary}18`,
+          }}
         >
           <Ionicons
             name={isDone ? "sparkles" : locked ? "lock-closed" : "leaf"}
@@ -52,9 +71,15 @@ export function TodaySummaryCard({
       </View>
 
       <View className="flex-row gap-2">
-        <SummaryPill label="Done" value={`${completedCount}/${total || MAX_TASKS}`} />
+        <SummaryPill
+          label="Done"
+          value={`${completedCount}/${total || MAX_TASKS}`}
+        />
         <SummaryPill label="Open" value={`${remainingTasks}`} />
-        <SummaryPill label={locked ? "Locked" : "Slots"} value={locked ? "Yes" : `${remainingSlots}`} />
+        <SummaryPill
+          label={locked ? "Set" : "Open slots"}
+          value={locked ? "Yes" : `${remainingSlots}`}
+        />
       </View>
     </View>
   );
@@ -64,7 +89,10 @@ function SummaryPill({ label, value }: { label: string; value: string }) {
   const colors = useColors();
   return (
     <View className="flex-1 rounded-2xl bg-background border border-border p-3">
-      <Text className="text-xs uppercase tracking-wide" style={{ color: colors.muted }}>
+      <Text
+        className="text-xs uppercase tracking-wide"
+        style={{ color: colors.muted }}
+      >
         {label}
       </Text>
       <Text className="text-lg font-bold text-foreground mt-1">{value}</Text>
@@ -87,9 +115,9 @@ function getHeadline({
 }) {
   if (isDone) return "A complete day";
   if (locked && remainingTasks > 0) return `${remainingTasks} left to finish`;
-  if (total === 0) return "Choose your three";
+  if (total === 0) return "Choose Today's Three";
   if (remainingSlots > 0) return "Still shaping today";
-  return "Three tasks set";
+  return "Today's Three are set";
 }
 
 function getSubcopy({
@@ -106,8 +134,11 @@ function getSubcopy({
   remainingSlots: number;
 }) {
   if (isDone) return "You kept the list small and finished what mattered.";
-  if (locked && remainingTasks > 0) return "The list is set. Now the job is simply to finish.";
-  if (total === 0) return "Pick the tasks that would make today feel meaningfully complete.";
-  if (remainingSlots > 0) return "You can add less than three. Enough is allowed.";
-  return "Now protect your attention and work through the list calmly.";
+  if (locked && remainingTasks > 0)
+    return "The day is chosen. Now the work is simply to finish.";
+  if (total === 0)
+    return "Pick the focus commitments that would make today feel meaningfully complete.";
+  if (remainingSlots > 0)
+    return "You can choose fewer than three. Enough is allowed.";
+  return "Protect your attention and move through the three calmly.";
 }

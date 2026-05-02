@@ -62,7 +62,7 @@ export function TaskCard({
 
   return (
     <View
-      className="border rounded-2xl p-4"
+      className="border rounded-2xl p-4 min-h-24"
       style={{
         backgroundColor: completed ? `${colors.success}0F` : colors.surface,
         borderColor: completed ? `${colors.success}55` : colors.border,
@@ -81,13 +81,18 @@ export function TaskCard({
             backgroundColor: completed ? colors.success : "transparent",
           }}
         >
-          {completed && <Ionicons name="checkmark" size={18} color={colors.background} />}
+          {completed && (
+            <Ionicons name="checkmark" size={18} color={colors.background} />
+          )}
         </Pressable>
 
         <View className="flex-1 gap-1">
           {typeof index === "number" && !isEditing && (
-            <Text className="text-xs uppercase tracking-wide" style={{ color: colors.muted }}>
-              Task {index + 1}
+            <Text
+              className="text-xs uppercase tracking-wide"
+              style={{ color: colors.muted }}
+            >
+              Focus {index + 1}
             </Text>
           )}
           {isEditing ? (
@@ -123,7 +128,7 @@ export function TaskCard({
 
           {task.carriedOver && !completed && !isEditing && (
             <Text className="text-xs" style={{ color: colors.warning }}>
-              Carried over
+              Carried forward
             </Text>
           )}
         </View>

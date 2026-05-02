@@ -27,7 +27,10 @@ export function ProgressRing({
     ratio >= 1 ? colors.success : ratio > 0 ? colors.primary : colors.muted;
 
   return (
-    <View style={{ width: size, height: size }} className="items-center justify-center">
+    <View
+      style={{ width: size, height: size }}
+      className="items-center justify-center"
+    >
       <Svg width={size} height={size}>
         <Circle
           cx={size / 2}
@@ -51,8 +54,10 @@ export function ProgressRing({
         />
       </Svg>
       <View className="absolute items-center justify-center">
-        <Text className="text-3xl font-bold text-foreground">{completed}/{total || 0}</Text>
-        <Text className="text-xs text-muted mt-1">tasks</Text>
+        <Text className="text-3xl font-bold text-foreground">
+          {completed}/{total || 0}
+        </Text>
+        <Text className="text-xs text-muted mt-1">focuses</Text>
       </View>
     </View>
   );

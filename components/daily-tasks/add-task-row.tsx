@@ -14,9 +14,15 @@ interface AddTaskRowProps {
   onAdd: (text: string) => void;
   remainingSlots: number;
   disabled?: boolean;
+  slotNumber?: number;
 }
 
-export function AddTaskRow({ onAdd, remainingSlots, disabled = false }: AddTaskRowProps) {
+export function AddTaskRow({
+  onAdd,
+  remainingSlots,
+  disabled = false,
+  slotNumber,
+}: AddTaskRowProps) {
   const colors = useColors();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState("");
@@ -56,31 +62,56 @@ export function AddTaskRow({ onAdd, remainingSlots, disabled = false }: AddTaskR
           if (!disabled) setEditing(true);
         }}
         disabled={disabled}
-        className="flex-row items-center gap-3 p-4 rounded-2xl border-2 border-dashed"
+        className="flex-row items-center gap-3 p-4 rounded-2xl border-2 border-dashed min-h-24"
         style={{ borderColor: colors.border, opacity: disabled ? 0.45 : 1 }}
       >
         <View
-          className="w-7 h-7 rounded-full items-center justify-center"
-          style={{ backgroundColor: disabled ? colors.border : colors.primary }}
+          className="w-10 h-10 rounded-2xl items-center justify-center"
+          style={{
+            backgroundColor: disabled ? colors.border : `${colors.primary}18`,
+          }}
         >
-          <Ionicons name="add" size={18} color={colors.background} />
+          {slotNumber ? (
+            <Text
+              className="text-base font-bold"
+              style={{ color: disabled ? colors.muted : colors.primary }}
+            >
+              {slotNumber}
+            </Text>
+          ) : (
+            <Ionicons
+              name="add"
+              size={18}
+              color={disabled ? colors.muted : colors.primary}
+            />
+          )}
         </View>
-        <Text className="text-base" style={{ color: colors.muted }}>
-          {disabled ? "Today's list is locked" : "Add a task"}
-        </Text>
+        <View className="flex-1 gap-1">
+          <Text
+            className="text-base font-semibold"
+            style={{ color: disabled ? colors.muted : colors.foreground }}
+          >
+            {disabled ? "Left intentionally open" : "Choose this focus"}
+          </Text>
+          <Text className="text-sm" style={{ color: colors.muted }}>
+            {disabled
+              ? "Today's Three is already set."
+              : "Add one meaningful thing for today."}
+          </Text>
+        </View>
       </Pressable>
     );
   }
 
   return (
-    <View
-      className="flex-row items-center gap-3 p-4 rounded-2xl bg-surface border border-border"
-    >
+    <View className="flex-row items-center gap-3 p-4 rounded-2xl bg-surface border border-border min-h-24">
       <View
-        className="w-7 h-7 rounded-full items-center justify-center"
-        style={{ backgroundColor: colors.primary }}
+        className="w-10 h-10 rounded-2xl items-center justify-center"
+        style={{ backgroundColor: `${colors.primary}18` }}
       >
-        <Ionicons name="add" size={18} color={colors.background} />
+        <Text className="text-base font-bold" style={{ color: colors.primary }}>
+          {slotNumber ?? "+"}
+        </Text>
       </View>
       <TextInput
         ref={ref}
@@ -88,7 +119,7 @@ export function AddTaskRow({ onAdd, remainingSlots, disabled = false }: AddTaskR
         onChangeText={setText}
         onSubmitEditing={submit}
         onBlur={submit}
-        placeholder="What's important today?"
+        placeholder="What deserves this focus slot?"
         placeholderTextColor={colors.muted}
         returnKeyType="done"
         maxLength={80}
