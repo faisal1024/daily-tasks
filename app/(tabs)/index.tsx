@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Platform,
@@ -21,12 +21,14 @@ import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TaskSuggestions } from "@/components/daily-tasks/task-suggestions";
 import { TodaySummaryCard } from "@/components/daily-tasks/today-summary-card";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
+import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import {
   computeDayStreak,
   computePerfectStreak,
 } from "@/lib/daily-tasks/streaks";
-import { MAX_TASKS, TASK_SUGGESTIONS } from "@/lib/daily-tasks/types";
+import type { GeneratedTask } from "@/lib/daily-tasks/types";
+import { MAX_TASKS } from "@/lib/daily-tasks/types";
 
 function impact(style: Haptics.ImpactFeedbackStyle) {
   if (Platform.OS === "web") return;
@@ -49,13 +51,14 @@ export default function HomeScreen() {
     remainingSlots,
     isCompleted,
     addTask,
+    addTasks,
     editTask,
     deleteTask,
     toggleTask,
     lockToday,
     dismissAutoLockNotice,
     resolveRollover,
-    markOnboardingSeen,
+    completeMomentumOnboarding,
     setTodayReflection,
   } = useDailyTasks();
 
@@ -66,6 +69,11 @@ export default function HomeScreen() {
   const dayStreak = computeDayStreak(state.history, today);
   const perfectStreak = computePerfectStreak(state.history, today);
   const greeting = greetingText(greetingFor());
+  const suggestions = useMemo(
+    () => generateMomentumSuggestions(state.momentumProfile),
+    [state.momentumProfile],
+  );
+  const momentumSuggestions = state.momentumPlan?.todaySuggestions ?? [];
 
   useEffect(() => {
     if (!ready) return;
@@ -158,6 +166,17 @@ export default function HomeScreen() {
           </View>
         )}
 
+        {state.tasks.length === 0 && !state.todayLocked && momentumSuggestions.length > 0 && (
+          <MomentumSuggestionCard
+            goalTitle={state.momentumProfile.goalTitle}
+            suggestions={momentumSuggestions}
+            onAccept={() => {
+              impact(Haptics.ImpactFeedbackStyle.Medium);
+              addTasks(momentumSuggestions.map((task) => task.text));
+            }}
+          />
+        )}
+
         <View className="gap-3">
           {Array.from({ length: MAX_TASKS }).map((_, index) => {
             const task = state.tasks[index];
@@ -192,9 +211,14 @@ export default function HomeScreen() {
             );
           })}
 
-          {state.tasks.length === 0 && !state.todayLocked && (
+          {state.tasks.length === 0 && !state.todayLocked && momentumSuggestions.length === 0 && (
             <TaskSuggestions
-              suggestions={TASK_SUGGESTIONS}
+              suggestions={suggestions}
+              title={
+                state.momentumProfile.goalTitle
+                  ? `For ${state.momentumProfile.goalTitle}`
+                  : "Gentle starting points"
+              }
               onPick={(text) => {
                 impact(Haptics.ImpactFeedbackStyle.Light);
                 addTask(text);
@@ -212,13 +236,15 @@ export default function HomeScreen() {
                   : "Today's commitments are done."}
               </Text>
               <Text className="text-sm text-muted">
-                A small finish is still a finish.
+                You showed up today.
               </Text>
             </View>
-            <CompletionReflection
-              value={state.todayReflection}
-              onSave={setTodayReflection}
-            />
+            {state.momentumSettings.eveningReflection && (
+              <CompletionReflection
+                value={state.todayReflection}
+                onSave={setTodayReflection}
+              />
+            )}
           </>
         )}
       </ScrollView>
@@ -230,7 +256,8 @@ export default function HomeScreen() {
 
       <OnboardingModal
         visible={ready && !state.hasSeenOnboarding && !state.pendingRollover}
-        onDismiss={markOnboardingSeen}
+        initialProfile={state.momentumProfile}
+        onComplete={completeMomentumOnboarding}
       />
 
       <RolloverModal
@@ -241,6 +268,64 @@ export default function HomeScreen() {
         onApply={resolveRollover}
       />
     </ScreenContainer>
+  );
+}
+
+function MomentumSuggestionCard({
+  goalTitle,
+  suggestions,
+  onAccept,
+}: {
+  goalTitle: string | null;
+  suggestions: GeneratedTask[];
+  onAccept: () => void;
+}) {
+  return (
+    <View className="rounded-3xl bg-surface border border-border p-5 gap-4">
+      <View className="gap-1">
+        <Text className="text-xs uppercase tracking-wide text-muted">
+          Suggested by Momentum
+        </Text>
+        <Text className="text-xl font-semibold text-foreground">
+          Three steps toward {goalTitle ?? "your goal"}
+        </Text>
+        <Text className="text-sm text-muted">
+          Based on your goal and daily window, here is a calm trio for today.
+        </Text>
+      </View>
+
+      <View className="gap-2">
+        {suggestions.map((task, index) => (
+          <View
+            key={task.id}
+            className="rounded-2xl bg-background border border-border p-3 flex-row gap-3"
+          >
+            <View className="w-6 h-6 rounded-full border border-border items-center justify-center">
+              <Text className="text-xs font-semibold text-muted">{index + 1}</Text>
+            </View>
+            <View className="flex-1 gap-0.5">
+              <Text className="text-sm font-semibold text-foreground">
+                {task.text}
+              </Text>
+              <Text className="text-xs text-muted">
+                {task.estimatedMinutes} min · {task.reason}
+              </Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <Pressable
+        onPress={onAccept}
+        className="self-stretch rounded-full py-3 items-center bg-foreground"
+        accessibilityRole="button"
+        accessibilityLabel="Set suggested tasks as Today's Three"
+      >
+        <Text className="text-base font-semibold text-background">
+          Set as Today's Three
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 

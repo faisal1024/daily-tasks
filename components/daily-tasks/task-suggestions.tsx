@@ -4,10 +4,15 @@ import { useColors } from "@/hooks/use-colors";
 
 interface TaskSuggestionsProps {
   suggestions: string[];
+  title?: string;
   onPick: (text: string) => void;
 }
 
-export function TaskSuggestions({ suggestions, onPick }: TaskSuggestionsProps) {
+export function TaskSuggestions({
+  suggestions,
+  title = "Gentle starting points",
+  onPick,
+}: TaskSuggestionsProps) {
   const colors = useColors();
 
   if (suggestions.length === 0) return null;
@@ -18,7 +23,7 @@ export function TaskSuggestions({ suggestions, onPick }: TaskSuggestionsProps) {
         className="text-xs uppercase tracking-wide"
         style={{ color: colors.muted }}
       >
-        Gentle starting points
+        {title}
       </Text>
       <View className="flex-row flex-wrap gap-2">
         {suggestions.map((text) => (

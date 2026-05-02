@@ -6,12 +6,19 @@ import type {
   AutoLockConfig,
   DayRecord,
   DayTaskRecord,
+  GeneratedTask,
+  MomentumMilestone,
+  MomentumPlan,
+  MomentumProfile,
+  MomentumSettings,
   NotificationConfig,
   PendingRollover,
   Task,
 } from "./types";
 import {
   DEFAULT_AUTO_LOCK,
+  DEFAULT_MOMENTUM_PROFILE,
+  DEFAULT_MOMENTUM_SETTINGS,
   DEFAULT_NOTIFICATIONS,
 } from "./types";
 
@@ -166,6 +173,137 @@ function normalizeAutoLock(value: unknown): AutoLockConfig {
   };
 }
 
+function normalizeMomentumProfile(value: unknown): MomentumProfile {
+  if (!isRecord(value)) {
+    return DEFAULT_MOMENTUM_PROFILE;
+  }
+
+  return {
+    goalTitle: typeof value.goalTitle === "string" ? value.goalTitle : null,
+    goalSource:
+      value.goalSource === "suggested" || value.goalSource === "custom"
+        ? value.goalSource
+        : null,
+    timeAvailability:
+      value.timeAvailability === "15_min" ||
+      value.timeAvailability === "30_min" ||
+      value.timeAvailability === "60_min"
+        ? value.timeAvailability
+        : null,
+    experienceLevel:
+      value.experienceLevel === "beginner" ||
+      value.experienceLevel === "intermediate" ||
+      value.experienceLevel === "advanced"
+        ? value.experienceLevel
+        : null,
+    struggleType:
+      value.struggleType === "overwhelm" ||
+      value.struggleType === "consistency" ||
+      value.struggleType === "motivation" ||
+      value.struggleType === "time"
+        ? value.struggleType
+        : null,
+    onboardingCompletedAt:
+      typeof value.onboardingCompletedAt === "string" ? value.onboardingCompletedAt : null,
+  };
+}
+
+function normalizeGeneratedTask(value: unknown): GeneratedTask | null {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.text !== "string") {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    text: value.text,
+    estimatedMinutes:
+      typeof value.estimatedMinutes === "number" ? value.estimatedMinutes : 15,
+    difficulty:
+      value.difficulty === "easy" ||
+      value.difficulty === "medium" ||
+      value.difficulty === "stretch"
+        ? value.difficulty
+        : "easy",
+    reason: typeof value.reason === "string" ? value.reason : "Suggested for today.",
+    source: value.source === "ai" || value.source === "template" ? value.source : "template",
+  };
+}
+
+function normalizeMilestone(value: unknown): MomentumMilestone | null {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.title !== "string") {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    title: value.title,
+    description: typeof value.description === "string" ? value.description : "",
+    completedAt: typeof value.completedAt === "string" ? value.completedAt : null,
+  };
+}
+
+function normalizeMomentumPlan(value: unknown): MomentumPlan | null {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.goalTitle !== "string" ||
+    typeof value.generatedAt !== "string"
+  ) {
+    return null;
+  }
+
+  const taskPool = Array.isArray(value.taskPool)
+    ? value.taskPool
+        .map((task) => normalizeGeneratedTask(task))
+        .filter((task): task is GeneratedTask => task !== null)
+    : [];
+  const todaySuggestions = Array.isArray(value.todaySuggestions)
+    ? value.todaySuggestions
+        .map((task) => normalizeGeneratedTask(task))
+        .filter((task): task is GeneratedTask => task !== null)
+    : taskPool.slice(0, 3);
+  const milestones = Array.isArray(value.milestones)
+    ? value.milestones
+        .map((milestone) => normalizeMilestone(milestone))
+        .filter((milestone): milestone is MomentumMilestone => milestone !== null)
+    : [];
+
+  return {
+    id: value.id,
+    goalTitle: value.goalTitle,
+    generatedAt: value.generatedAt,
+    provider: value.provider === "ai" || value.provider === "template" ? value.provider : "template",
+    milestones,
+    taskPool,
+    todaySuggestions: todaySuggestions.slice(0, 3),
+    promptSummary: typeof value.promptSummary === "string" ? value.promptSummary : "",
+    version: typeof value.version === "number" ? value.version : 1,
+  };
+}
+
+function normalizeMomentumSettings(value: unknown): MomentumSettings {
+  if (!isRecord(value)) {
+    return DEFAULT_MOMENTUM_SETTINGS;
+  }
+
+  return {
+    adaptivePlanning:
+      typeof value.adaptivePlanning === "boolean"
+        ? value.adaptivePlanning
+        : DEFAULT_MOMENTUM_SETTINGS.adaptivePlanning,
+    eveningReflection:
+      typeof value.eveningReflection === "boolean"
+        ? value.eveningReflection
+        : DEFAULT_MOMENTUM_SETTINGS.eveningReflection,
+    suggestionTone:
+      value.suggestionTone === "calm" ||
+      value.suggestionTone === "friendly" ||
+      value.suggestionTone === "direct"
+        ? value.suggestionTone
+        : DEFAULT_MOMENTUM_SETTINGS.suggestionTone,
+  };
+}
+
 function normalizeState(value: unknown): AppState | null {
   if (!isRecord(value)) return null;
 
@@ -192,6 +330,19 @@ function normalizeState(value: unknown): AppState | null {
       typeof value.hasSeenOnboarding === "boolean" ? value.hasSeenOnboarding : true,
     todayReflection:
       typeof value.todayReflection === "string" ? value.todayReflection : null,
+    momentumProfile: normalizeMomentumProfile(value.momentumProfile),
+    momentumPlan: normalizeMomentumPlan(value.momentumPlan),
+    momentumSettings: normalizeMomentumSettings(value.momentumSettings),
+    momentumPlanStatus:
+      value.momentumPlanStatus === "loading" ||
+      value.momentumPlanStatus === "ready" ||
+      value.momentumPlanStatus === "error"
+        ? value.momentumPlanStatus
+        : normalizeMomentumPlan(value.momentumPlan)
+          ? "ready"
+          : "idle",
+    momentumPlanError:
+      typeof value.momentumPlanError === "string" ? value.momentumPlanError : null,
   };
 }
 
@@ -225,6 +376,11 @@ export function buildInitialState(now: Date = new Date()): AppState {
     autoLock: DEFAULT_AUTO_LOCK,
     hasSeenOnboarding: false,
     todayReflection: null,
+    momentumProfile: DEFAULT_MOMENTUM_PROFILE,
+    momentumPlan: null,
+    momentumSettings: DEFAULT_MOMENTUM_SETTINGS,
+    momentumPlanStatus: "idle",
+    momentumPlanError: null,
   };
 }
 

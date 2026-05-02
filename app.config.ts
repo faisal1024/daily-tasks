@@ -8,6 +8,7 @@ const env = {
   scheme: "dailytasks",
   iosBundleId: bundleId,
   androidPackage: bundleId,
+  momentumAiProxyUrl: process.env.EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL ?? null,
 };
 
 const config: ExpoConfig = {
@@ -86,6 +87,7 @@ const config: ExpoConfig = {
     reactCompiler: true,
   },
   extra: {
+    momentumAiProxyUrl: env.momentumAiProxyUrl,
     eas: {
       projectId: "e67ec287-0ca6-48c4-bc9e-d106aec8d145",
     },

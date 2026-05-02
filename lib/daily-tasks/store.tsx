@@ -18,6 +18,11 @@ import {
 } from "./notifications";
 import { shouldAutoLockToday } from "./locking";
 import {
+  buildFallbackMomentumPlan,
+  requestOpenAiMomentumPlan,
+} from "./momentum-ai";
+import { buildMomentumPlan, isMomentumProfileComplete } from "./momentum";
+import {
   applyRollover,
   resolvePendingRollover,
   syncTodayHistory,
@@ -25,6 +30,7 @@ import {
 import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
 import type {
   AppState,
+  MomentumProfile,
   NotificationPermissionState,
   NotificationKey,
   TaskId,
@@ -35,6 +41,7 @@ type Action =
   | { type: "hydrate"; state: AppState }
   | { type: "rollover"; today: string }
   | { type: "addTask"; text: string; today: string }
+  | { type: "addTasks"; texts: string[]; today: string }
   | { type: "editTask"; id: TaskId; text: string; today: string }
   | { type: "deleteTask"; id: TaskId; today: string }
   | { type: "toggleTask"; id: TaskId; today: string }
@@ -47,6 +54,17 @@ type Action =
   | { type: "setAutoLockEnabled"; enabled: boolean }
   | { type: "setAutoLockTime"; hour: number; minute: number }
   | { type: "markOnboardingSeen" }
+  | { type: "completeMomentumOnboarding"; profile: MomentumProfile }
+  | { type: "updateMomentumProfile"; profile: MomentumProfile }
+  | { type: "regenerateMomentumPlan"; now: Date }
+  | { type: "requestMomentumPlanStarted" }
+  | { type: "requestMomentumPlanSucceeded"; plan: NonNullable<AppState["momentumPlan"]> }
+  | { type: "requestMomentumPlanFailed"; message: string; now: Date }
+  | {
+      type: "setMomentumSetting";
+      key: keyof AppState["momentumSettings"];
+      value: AppState["momentumSettings"][keyof AppState["momentumSettings"]];
+    }
   | { type: "setTodayReflection"; text: string; today: string }
   | { type: "reset"; state: AppState };
 
@@ -66,6 +84,30 @@ function reducer(state: AppState, action: Action): AppState {
           tasks: [
             ...state.tasks,
             { id: makeId(), text, createdAt: new Date().toISOString(), carriedOver: false },
+          ],
+        },
+        action.today,
+      );
+    }
+    case "addTasks": {
+      if (state.todayLocked || state.tasks.length >= MAX_TASKS) return state;
+      const openSlots = MAX_TASKS - state.tasks.length;
+      const texts = action.texts
+        .map((text) => text.trim())
+        .filter(Boolean)
+        .slice(0, openSlots);
+      if (texts.length === 0) return state;
+      return syncTodayHistory(
+        {
+          ...state,
+          tasks: [
+            ...state.tasks,
+            ...texts.map((text) => ({
+              id: makeId(),
+              text,
+              createdAt: new Date().toISOString(),
+              carriedOver: false,
+            })),
           ],
         },
         action.today,
@@ -178,6 +220,93 @@ function reducer(state: AppState, action: Action): AppState {
     case "markOnboardingSeen":
       if (state.hasSeenOnboarding) return state;
       return { ...state, hasSeenOnboarding: true };
+    case "completeMomentumOnboarding":
+      {
+        const momentumProfile = {
+          ...action.profile,
+          onboardingCompletedAt:
+            action.profile.onboardingCompletedAt ?? new Date().toISOString(),
+        };
+        return {
+          ...state,
+          hasSeenOnboarding: true,
+          momentumProfile,
+          momentumPlan: buildMomentumPlan({
+            profile: momentumProfile,
+            history: state.history,
+            settings: state.momentumSettings,
+          }),
+          momentumPlanStatus: "ready",
+          momentumPlanError: null,
+        };
+      }
+    case "updateMomentumProfile":
+      return {
+        ...state,
+        momentumProfile: action.profile,
+        momentumPlan: buildMomentumPlan({
+          profile: action.profile,
+          history: state.history,
+          settings: state.momentumSettings,
+        }),
+        momentumPlanStatus: "ready",
+        momentumPlanError: null,
+      };
+    case "regenerateMomentumPlan":
+      return {
+        ...state,
+        momentumPlan: buildMomentumPlan({
+          profile: state.momentumProfile,
+          history: state.history,
+          settings: state.momentumSettings,
+          now: action.now,
+        }),
+        momentumPlanStatus: "ready",
+        momentumPlanError: null,
+      };
+    case "requestMomentumPlanStarted":
+      return {
+        ...state,
+        momentumPlanStatus: "loading",
+        momentumPlanError: null,
+      };
+    case "requestMomentumPlanSucceeded":
+      return {
+        ...state,
+        momentumPlan: action.plan,
+        momentumPlanStatus: "ready",
+        momentumPlanError: null,
+      };
+    case "requestMomentumPlanFailed":
+      return {
+        ...state,
+        momentumPlan:
+          buildFallbackMomentumPlan({
+            profile: state.momentumProfile,
+            history: state.history,
+            settings: state.momentumSettings,
+            now: action.now,
+          }) ?? state.momentumPlan,
+        momentumPlanStatus: "error",
+        momentumPlanError: action.message,
+      };
+    case "setMomentumSetting": {
+      const momentumSettings = {
+        ...state.momentumSettings,
+        [action.key]: action.value,
+      };
+      return {
+        ...state,
+        momentumSettings,
+        momentumPlan: buildMomentumPlan({
+          profile: state.momentumProfile,
+          history: state.history,
+          settings: momentumSettings,
+        }),
+        momentumPlanStatus: "ready",
+        momentumPlanError: null,
+      };
+    }
     case "setTodayReflection": {
       const text = action.text.trim();
       return syncTodayHistory(
@@ -202,6 +331,7 @@ interface StoreContextValue {
   remainingSlots: number;
   isCompleted: (id: TaskId) => boolean;
   addTask: (text: string) => void;
+  addTasks: (texts: string[]) => void;
   editTask: (id: TaskId, text: string) => void;
   deleteTask: (id: TaskId) => void;
   toggleTask: (id: TaskId) => void;
@@ -213,6 +343,14 @@ interface StoreContextValue {
   setAutoLockEnabled: (enabled: boolean) => void;
   setAutoLockTime: (hour: number, minute: number) => void;
   markOnboardingSeen: () => void;
+  completeMomentumOnboarding: (profile: MomentumProfile) => void;
+  updateMomentumProfile: (profile: MomentumProfile) => void;
+  regenerateMomentumPlan: () => void;
+  requestMomentumPlan: () => Promise<void>;
+  setMomentumSetting: <K extends keyof AppState["momentumSettings"]>(
+    key: K,
+    value: AppState["momentumSettings"][K],
+  ) => void;
   setTodayReflection: (text: string) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
@@ -277,6 +415,13 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     if (!shouldAutoLockToday(now, state.tasks.length, state.todayLocked, state.autoLock)) return;
     dispatch({ type: "autoLockToday", today });
   }, [ready, state.autoLock, state.tasks.length, state.todayLocked, today]);
+
+  useEffect(() => {
+    if (!ready || state.momentumPlan || !isMomentumProfileComplete(state.momentumProfile)) {
+      return;
+    }
+    dispatch({ type: "regenerateMomentumPlan", now: new Date() });
+  }, [ready, state.momentumPlan, state.momentumProfile]);
 
   useEffect(() => {
     if (!ready) return;
@@ -351,6 +496,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const addTask = useCallback((text: string) => {
     dispatch({ type: "addTask", text, today: todayKey() });
   }, []);
+  const addTasks = useCallback((texts: string[]) => {
+    dispatch({ type: "addTasks", texts, today: todayKey() });
+  }, []);
   const editTask = useCallback((id: TaskId, text: string) => {
     dispatch({ type: "editTask", id, text, today: todayKey() });
   }, []);
@@ -389,6 +537,43 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const markOnboardingSeen = useCallback(() => {
     dispatch({ type: "markOnboardingSeen" });
   }, []);
+  const completeMomentumOnboarding = useCallback((profile: MomentumProfile) => {
+    dispatch({ type: "completeMomentumOnboarding", profile });
+  }, []);
+  const updateMomentumProfile = useCallback((profile: MomentumProfile) => {
+    dispatch({ type: "updateMomentumProfile", profile });
+  }, []);
+  const regenerateMomentumPlan = useCallback(() => {
+    dispatch({ type: "regenerateMomentumPlan", now: new Date() });
+  }, []);
+  const requestMomentumPlan = useCallback(async () => {
+    dispatch({ type: "requestMomentumPlanStarted" });
+    const now = new Date();
+    try {
+      const plan = await requestOpenAiMomentumPlan({
+        profile: state.momentumProfile,
+        history: state.history,
+        settings: state.momentumSettings,
+        now,
+      });
+      dispatch({ type: "requestMomentumPlanSucceeded", plan });
+    } catch (error) {
+      dispatch({
+        type: "requestMomentumPlanFailed",
+        message: error instanceof Error ? error.message : "Momentum AI is unavailable.",
+        now,
+      });
+    }
+  }, [state.history, state.momentumProfile, state.momentumSettings]);
+  const setMomentumSetting = useCallback(
+    <K extends keyof AppState["momentumSettings"]>(
+      key: K,
+      value: AppState["momentumSettings"][K],
+    ) => {
+      dispatch({ type: "setMomentumSetting", key, value });
+    },
+    [],
+  );
   const setTodayReflection = useCallback((text: string) => {
     dispatch({ type: "setTodayReflection", text, today: todayKey() });
   }, []);
@@ -407,6 +592,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       remainingSlots,
       isCompleted,
       addTask,
+      addTasks,
       editTask,
       deleteTask,
       toggleTask,
@@ -418,6 +604,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,
+      completeMomentumOnboarding,
+      updateMomentumProfile,
+      regenerateMomentumPlan,
+      requestMomentumPlan,
+      setMomentumSetting,
       setTodayReflection,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
@@ -432,6 +623,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       remainingSlots,
       isCompleted,
       addTask,
+      addTasks,
       editTask,
       deleteTask,
       toggleTask,
@@ -443,6 +635,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,
+      completeMomentumOnboarding,
+      updateMomentumProfile,
+      regenerateMomentumPlan,
+      requestMomentumPlan,
+      setMomentumSetting,
       setTodayReflection,
       refreshNotificationPermission,
       requestPermission,

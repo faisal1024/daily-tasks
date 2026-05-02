@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: 2026-04-25_
+_Last updated: 2026-05-02_
 
 Daily Tasks ("the app") is built around a simple promise: pick three tasks, lock your day, finish calmly. The app is designed to be local-first and to collect as little information as possible.
 
@@ -8,14 +8,21 @@ Daily Tasks ("the app") is built around a simple promise: pick three tasks, lock
 
 - **Tasks and history.** Your daily tasks, completion records, streaks, and reminder settings are stored locally on your device using the operating system's app storage. They never leave your device.
 - **Notification preferences.** Your reminder choices are stored alongside your other app data on the device.
+- **Momentum profile.** If you use Momentum planning, your selected goal, time availability, experience level, and main struggle are stored locally with your app data.
 
 ## What the app does not collect
 
 - The app does **not** require an account.
-- The app does **not** sync your data to any server.
+- The app does **not** sync your data to a user account or cloud task database.
 - The app does **not** sell or share personal data with third parties.
 - The app does **not** include analytics or crash reporting.
 - The app does **not** show ads or use advertising identifiers.
+
+## Optional AI planning
+
+If AI planning is enabled, the app may send a small planning request to a server-side AI proxy. That request is limited to your active goal, onboarding choices, a summary of recent completion counts, and your latest reflection. The app should not send your full task history or private daily task text for AI planning.
+
+The OpenAI API key is never stored inside the iOS app. It belongs only on the server-side proxy.
 
 ## Notifications
 

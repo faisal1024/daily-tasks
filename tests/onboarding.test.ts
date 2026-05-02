@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { buildInitialState } from "../lib/daily-tasks/storage";
-import { DEFAULT_AUTO_LOCK, TASK_SUGGESTIONS } from "../lib/daily-tasks/types";
+import {
+  DEFAULT_AUTO_LOCK,
+  DEFAULT_MOMENTUM_PROFILE,
+  DEFAULT_MOMENTUM_SETTINGS,
+  TASK_SUGGESTIONS,
+} from "../lib/daily-tasks/types";
 
 describe("buildInitialState (new install)", () => {
   it("starts with zero tasks", () => {
@@ -13,6 +18,15 @@ describe("buildInitialState (new install)", () => {
   it("has not seen onboarding yet", () => {
     const state = buildInitialState();
     expect(state.hasSeenOnboarding).toBe(false);
+  });
+
+  it("starts without a Momentum profile", () => {
+    const state = buildInitialState();
+    expect(state.momentumProfile).toEqual(DEFAULT_MOMENTUM_PROFILE);
+    expect(state.momentumPlan).toBeNull();
+    expect(state.momentumSettings).toEqual(DEFAULT_MOMENTUM_SETTINGS);
+    expect(state.momentumPlanStatus).toBe("idle");
+    expect(state.momentumPlanError).toBeNull();
   });
 
   it("creates an empty history entry for today", () => {

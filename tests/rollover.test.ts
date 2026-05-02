@@ -6,7 +6,12 @@ import {
   syncTodayHistory,
 } from "../lib/daily-tasks/rollover";
 import type { AppState } from "../lib/daily-tasks/types";
-import { DEFAULT_AUTO_LOCK, DEFAULT_NOTIFICATIONS } from "../lib/daily-tasks/types";
+import {
+  DEFAULT_AUTO_LOCK,
+  DEFAULT_MOMENTUM_PROFILE,
+  DEFAULT_MOMENTUM_SETTINGS,
+  DEFAULT_NOTIFICATIONS,
+} from "../lib/daily-tasks/types";
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -26,6 +31,11 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     autoLock: DEFAULT_AUTO_LOCK,
     hasSeenOnboarding: true,
     todayReflection: null,
+    momentumProfile: DEFAULT_MOMENTUM_PROFILE,
+    momentumPlan: null,
+    momentumSettings: DEFAULT_MOMENTUM_SETTINGS,
+    momentumPlanStatus: "idle",
+    momentumPlanError: null,
     ...overrides,
   };
 }

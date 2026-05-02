@@ -7,9 +7,11 @@ import {
   Text,
   View,
 } from "react-native";
+import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TimeStepper } from "@/components/daily-tasks/time-stepper";
 import { useColors } from "@/hooks/use-colors";
@@ -56,8 +58,12 @@ export default function SettingsScreen() {
     setNotificationEnabled,
     refreshNotificationPermission,
     requestNotificationPermission,
+    completeMomentumOnboarding,
+    requestMomentumPlan,
+    setMomentumSetting,
     resetAll,
   } = useDailyTasks();
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
 
   const handleNotificationsEnabled = async (value: boolean) => {
     if (!value) {
@@ -147,6 +153,134 @@ export default function SettingsScreen() {
             Tune your day
           </Text>
         </View>
+
+        <Section
+          title="Momentum"
+          subtitle="Personalize suggestions without adding a backlog."
+        >
+          <View className="bg-surface rounded-2xl p-4 border border-border gap-3">
+            <View className="gap-1">
+              <Text className="text-base font-semibold text-foreground">
+                {state.momentumProfile.goalTitle ?? "No goal selected"}
+              </Text>
+              <Text className="text-xs" style={{ color: colors.muted }}>
+                {momentumSummary(state.momentumProfile)}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setProfileModalVisible(true)}
+              className="self-start rounded-full px-4 py-2"
+              style={{ backgroundColor: `${colors.primary}16` }}
+              accessibilityRole="button"
+              accessibilityLabel="Update Momentum profile"
+            >
+              <Text
+                className="text-sm font-semibold"
+                style={{ color: colors.primary }}
+              >
+                Update profile
+              </Text>
+            </Pressable>
+          </View>
+        </Section>
+
+        <Section
+          title="AI adaptation"
+          subtitle="How Momentum tunes tomorrow based on how today goes."
+        >
+          <View className="bg-surface rounded-2xl p-4 border border-border gap-4">
+            <View className="flex-row items-center justify-between gap-4">
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-foreground">
+                  Adapt difficulty
+                </Text>
+                <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                  If recent days are missed, suggestions get gentler.
+                </Text>
+              </View>
+              <Switch
+                value={state.momentumSettings.adaptivePlanning}
+                onValueChange={(value) =>
+                  setMomentumSetting("adaptivePlanning", value)
+                }
+                trackColor={{ true: colors.primary }}
+              />
+            </View>
+            <View className="flex-row items-center justify-between gap-4">
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-foreground">
+                  Reflect each evening
+                </Text>
+                <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                  One quick check-in will help tune the next day.
+                </Text>
+              </View>
+              <Switch
+                value={state.momentumSettings.eveningReflection}
+                onValueChange={(value) =>
+                  setMomentumSetting("eveningReflection", value)
+                }
+                trackColor={{ true: colors.primary }}
+              />
+            </View>
+            <View className="gap-2">
+              <Text className="text-sm font-semibold text-foreground">
+                Tone of suggestions
+              </Text>
+              <View className="flex-row gap-2">
+                {(["calm", "friendly", "direct"] as const).map((tone) => (
+                  <Pressable
+                    key={tone}
+                    onPress={() => setMomentumSetting("suggestionTone", tone)}
+                    className="flex-1 rounded-full py-2 items-center border"
+                    style={{
+                      borderColor:
+                        state.momentumSettings.suggestionTone === tone
+                          ? colors.primary
+                          : colors.border,
+                      backgroundColor:
+                        state.momentumSettings.suggestionTone === tone
+                          ? `${colors.primary}16`
+                          : colors.background,
+                    }}
+                  >
+                    <Text
+                      className="text-xs font-semibold"
+                      style={{
+                        color:
+                          state.momentumSettings.suggestionTone === tone
+                            ? colors.primary
+                            : colors.text,
+                      }}
+                    >
+                      {formatChoice(tone)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <Pressable
+              onPress={() => void requestMomentumPlan()}
+              disabled={state.momentumPlanStatus === "loading"}
+              className="self-start rounded-full px-4 py-2"
+              style={{ backgroundColor: `${colors.primary}16` }}
+            >
+              <Text
+                className="text-sm font-semibold"
+                style={{ color: colors.primary }}
+              >
+                {state.momentumPlanStatus === "loading"
+                  ? "Refreshing..."
+                  : "Refresh with AI"}
+              </Text>
+            </Pressable>
+            {state.momentumPlanError && (
+              <Text className="text-xs" style={{ color: colors.muted }}>
+                AI was unavailable, so Momentum kept a local fallback plan.
+              </Text>
+            )}
+          </View>
+        </Section>
 
         <Section
           title="Today's Three"
@@ -352,6 +486,15 @@ export default function SettingsScreen() {
           Daily Tasks · v1.0.0
         </Text>
       </ScrollView>
+      <OnboardingModal
+        visible={profileModalVisible}
+        initialProfile={state.momentumProfile}
+        onRequestClose={() => setProfileModalVisible(false)}
+        onComplete={(profile) => {
+          completeMomentumOnboarding(profile);
+          setProfileModalVisible(false);
+        }}
+      />
     </ScreenContainer>
   );
 }
@@ -398,6 +541,24 @@ function permissionDescription(state: NotificationPermissionState): string {
     case "undetermined":
       return "Enable notifications to get calm reminders for Today's Three.";
   }
+}
+
+function momentumSummary(profile: {
+  timeAvailability: string | null;
+  experienceLevel: string | null;
+  struggleType: string | null;
+}): string {
+  if (!profile.timeAvailability || !profile.experienceLevel || !profile.struggleType) {
+    return "Add a goal and a few quick details so suggestions feel more personal.";
+  }
+
+  return `${formatChoice(profile.timeAvailability)} per day · ${formatChoice(
+    profile.experienceLevel,
+  )} · ${formatChoice(profile.struggleType)}`;
+}
+
+function formatChoice(value: string): string {
+  return value.replace("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function Section({
