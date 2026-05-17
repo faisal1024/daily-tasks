@@ -15,6 +15,8 @@ interface AddTaskRowProps {
   remainingSlots: number;
   disabled?: boolean;
   slotNumber?: number;
+  forceEditing?: boolean;
+  onEditingHandled?: () => void;
 }
 
 export function AddTaskRow({
@@ -22,6 +24,8 @@ export function AddTaskRow({
   remainingSlots,
   disabled = false,
   slotNumber,
+  forceEditing = false,
+  onEditingHandled,
 }: AddTaskRowProps) {
   const colors = useColors();
   const [editing, setEditing] = useState(false);
@@ -41,6 +45,12 @@ export function AddTaskRow({
       setText("");
     }
   }, [disabled]);
+
+  useEffect(() => {
+    if (!forceEditing || disabled) return;
+    setEditing(true);
+    onEditingHandled?.();
+  }, [disabled, forceEditing, onEditingHandled]);
 
   if (remainingSlots <= 0) return null;
 
@@ -122,7 +132,7 @@ export function AddTaskRow({
         placeholder="What deserves this focus slot?"
         placeholderTextColor={colors.muted}
         returnKeyType="done"
-        maxLength={80}
+        maxLength={200}
         className="flex-1 text-base text-foreground py-1"
         style={{ color: colors.foreground }}
       />

@@ -16,8 +16,15 @@ import { useColors } from "@/hooks/use-colors";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type {
   NotificationKey,
+  NotificationFrequencyHours,
   NotificationPermissionState,
+  UserEnergy,
+  UserGoal,
+  UserProfile,
+  UserTimeWindow,
+  UserWorkStyle,
 } from "@/lib/daily-tasks/types";
+import { USER_GOALS, USER_GOAL_META } from "@/lib/daily-tasks/task-catalog";
 
 const SUPPORT_URL = "https://github.com/faisal1024/daily-tasks#support";
 const PRIVACY_URL =
@@ -41,6 +48,29 @@ const NOTIFICATION_LABELS: Record<
   },
 };
 
+const ENERGY_OPTIONS: { value: UserEnergy; label: string }[] = [
+  { value: "low", label: "Low" },
+  { value: "steady", label: "Steady" },
+  { value: "high", label: "High" },
+];
+
+const TIME_OPTIONS: { value: UserTimeWindow; label: string }[] = [
+  { value: "quick", label: "5-10 min" },
+  { value: "medium", label: "20 min" },
+  { value: "deep", label: "45 min" },
+];
+
+const STYLE_OPTIONS: { value: UserWorkStyle; label: string }[] = [
+  { value: "gentle", label: "Gentle" },
+  { value: "structured", label: "Structured" },
+  { value: "ambitious", label: "Ambitious" },
+];
+
+const FREQUENCY_OPTIONS: { value: NotificationFrequencyHours; label: string }[] = [
+  { value: 1, label: "Hourly" },
+  { value: 2, label: "Every 2 hours" },
+];
+
 export default function SettingsScreen() {
   const colors = useColors();
   const {
@@ -54,8 +84,10 @@ export default function SettingsScreen() {
     setAutoLockTime,
     setNotificationsEnabled,
     setNotificationEnabled,
+    setNotificationFrequency,
     refreshNotificationPermission,
     requestNotificationPermission,
+    setProfile,
     resetAll,
   } = useDailyTasks();
 
@@ -136,6 +168,18 @@ export default function SettingsScreen() {
     );
   };
 
+  const updateProfile = (patch: Partial<UserProfile>) => {
+    setProfile({ ...state.profile, ...patch });
+  };
+
+  const toggleGoal = (goal: UserGoal) => {
+    const nextGoals = state.profile.goals.includes(goal)
+      ? state.profile.goals.filter((item) => item !== goal)
+      : [...state.profile.goals, goal].slice(0, 4);
+    if (nextGoals.length === 0) return;
+    updateProfile({ goals: nextGoals });
+  };
+
   return (
     <ScreenContainer>
       <ScrollView
@@ -195,6 +239,50 @@ export default function SettingsScreen() {
                 />
               ))
             )}
+          </View>
+        </Section>
+
+        <Section
+          title="Profile"
+          subtitle="Suggestions use this to pick better focus commitments."
+        >
+          <View className="bg-surface rounded-2xl p-4 border border-border gap-5">
+            <ProfileGroup title="Goals">
+              <View className="flex-row flex-wrap gap-2">
+                {USER_GOALS.map((goal) => (
+                  <ChoicePill
+                    key={goal}
+                    label={USER_GOAL_META[goal].label}
+                    active={state.profile.goals.includes(goal)}
+                    onPress={() => toggleGoal(goal)}
+                  />
+                ))}
+              </View>
+            </ProfileGroup>
+
+            <ProfileGroup title="Energy">
+              <ChoiceRow
+                options={ENERGY_OPTIONS}
+                value={state.profile.energy}
+                onChange={(energy) => updateProfile({ energy })}
+              />
+            </ProfileGroup>
+
+            <ProfileGroup title="Time">
+              <ChoiceRow
+                options={TIME_OPTIONS}
+                value={state.profile.timeWindow}
+                onChange={(timeWindow) => updateProfile({ timeWindow })}
+              />
+            </ProfileGroup>
+
+            <ProfileGroup title="Style">
+              <ChoiceRow
+                options={STYLE_OPTIONS}
+                value={state.profile.workStyle}
+                onChange={(workStyle) => updateProfile({ workStyle })}
+              />
+            </ProfileGroup>
           </View>
         </Section>
 
@@ -266,6 +354,17 @@ export default function SettingsScreen() {
                   </Text>
                 </Pressable>
               )}
+
+            <View className="gap-2">
+              <Text className="text-sm font-semibold text-foreground">
+                Reminder frequency
+              </Text>
+              <ChoiceRow
+                options={FREQUENCY_OPTIONS}
+                value={state.notifications.frequencyHours}
+                onChange={setNotificationFrequency}
+              />
+            </View>
           </View>
 
           <View className="gap-3">
@@ -383,6 +482,69 @@ function HelpRow({
         {label}
       </Text>
       <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+    </Pressable>
+  );
+}
+
+function ProfileGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View className="gap-2">
+      <Text className="text-sm font-semibold text-foreground">{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function ChoiceRow<T extends string | number>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <View className="flex-row flex-wrap gap-2">
+      {options.map((option) => (
+        <ChoicePill
+          key={String(option.value)}
+          label={option.label}
+          active={value === option.value}
+          onPress={() => onChange(option.value)}
+        />
+      ))}
+    </View>
+  );
+}
+
+function ChoicePill({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      className="rounded-full px-3 py-2 border"
+      style={{
+        borderColor: active ? colors.primary : colors.border,
+        backgroundColor: active ? `${colors.primary}16` : colors.background,
+      }}
+    >
+      <Text
+        className="text-sm font-semibold"
+        style={{ color: active ? colors.primary : colors.foreground }}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }

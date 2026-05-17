@@ -103,7 +103,7 @@ export function TaskCard({
               onBlur={commit}
               onSubmitEditing={commit}
               returnKeyType="done"
-              maxLength={80}
+              maxLength={200}
               className="text-base text-foreground py-1"
               style={{ color: colors.foreground }}
             />
