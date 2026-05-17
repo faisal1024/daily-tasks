@@ -9,7 +9,6 @@ export const REMINDER_HOURS = {
   morningEnd: 12,
   progressStart: 10,
   progressEnd: 16,
-  progressStep: 2,
   eveningStart: 17,
   eveningEnd: 22,
 } as const;
@@ -97,8 +96,13 @@ function range(startHour: number, endHour: number, step: number): number[] {
   return hours;
 }
 
+function reminderStep(settings: NotificationConfig): number {
+  return settings.frequencyHours === 2 ? 2 : 1;
+}
+
 export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
   const { now, taskCount, completedCount, settings, permissionState } = input;
+  const step = reminderStep(settings);
 
   if (!settings.enabled || !canScheduleReminders(permissionState)) {
     return [];
@@ -116,7 +120,7 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
     return collectCandidates(
       now,
       "morning",
-      range(startHour, REMINDER_HOURS.morningEnd, 1),
+      range(startHour, REMINDER_HOURS.morningEnd, step),
     );
   }
 
@@ -126,14 +130,14 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
     reminders.push(
       ...collectCandidates(
         now,
-        "progress",
-        range(
-          REMINDER_HOURS.progressStart,
-          REMINDER_HOURS.progressEnd,
-          REMINDER_HOURS.progressStep,
+          "progress",
+          range(
+            REMINDER_HOURS.progressStart,
+            REMINDER_HOURS.progressEnd,
+            step,
+          ),
         ),
-      ),
-    );
+      );
   }
 
   if (settings.evening) {
@@ -141,7 +145,7 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
       ...collectCandidates(
         now,
         "evening",
-        range(REMINDER_HOURS.eveningStart, REMINDER_HOURS.eveningEnd, 1),
+        range(REMINDER_HOURS.eveningStart, REMINDER_HOURS.eveningEnd, step),
       ),
     );
   }

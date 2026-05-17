@@ -29,7 +29,7 @@ describe("planReminders", () => {
     expect(reminders.map((reminder) => reminder.at.getHours())).toEqual([10, 11, 12]);
   });
 
-  it("switches to every-two-hour progress reminders once tasks exist", () => {
+  it("uses the selected hourly cadence once tasks exist", () => {
     const reminders = planReminders({
       now: new Date(2026, 3, 20, 9, 5),
       taskCount: 2,
@@ -41,8 +41,24 @@ describe("planReminders", () => {
       permissionState: "granted",
     });
 
-    expect(reminders.map((reminder) => reminder.at.getHours())).toEqual([10, 12, 14, 16]);
+    expect(reminders.map((reminder) => reminder.at.getHours())).toEqual([10, 11, 12, 13, 14, 15, 16]);
     expect(reminders.every((reminder) => reminder.kind === "progress")).toBe(true);
+  });
+
+  it("supports every-two-hour reminder cadence", () => {
+    const reminders = planReminders({
+      now: new Date(2026, 3, 20, 9, 5),
+      taskCount: 2,
+      completedCount: 1,
+      settings: {
+        ...DEFAULT_NOTIFICATIONS,
+        evening: false,
+        frequencyHours: 2,
+      },
+      permissionState: "granted",
+    });
+
+    expect(reminders.map((reminder) => reminder.at.getHours())).toEqual([10, 12, 14, 16]);
   });
 
   it("switches to hourly evening reminders after 5 PM until 10 PM", () => {

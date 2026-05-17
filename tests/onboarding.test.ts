@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  personalizedTaskSuggestions,
+  TASK_CATALOG,
+  TASK_CATALOG_SIZE,
+  TASKS_BY_GOAL,
+  USER_GOALS,
+} from "../lib/daily-tasks/task-catalog";
 import { buildInitialState } from "../lib/daily-tasks/storage";
-import { DEFAULT_AUTO_LOCK, TASK_SUGGESTIONS } from "../lib/daily-tasks/types";
+import { DEFAULT_AUTO_LOCK, DEFAULT_PROFILE, type UserProfile } from "../lib/daily-tasks/types";
 
 describe("buildInitialState (new install)", () => {
   it("starts with zero tasks", () => {
@@ -44,6 +51,11 @@ describe("buildInitialState (new install)", () => {
     expect(state.autoLock).toEqual(DEFAULT_AUTO_LOCK);
   });
 
+  it("starts with a suggestion profile", () => {
+    const state = buildInitialState();
+    expect(state.profile).toEqual(DEFAULT_PROFILE);
+  });
+
   it("does not seed any default task text", () => {
     const state = buildInitialState();
     const removedDefaults = ["Morning Exercise", "Read for 30 Minutes", "Review Daily Goals"];
@@ -53,15 +65,44 @@ describe("buildInitialState (new install)", () => {
   });
 });
 
-describe("TASK_SUGGESTIONS", () => {
-  it("provides at least three calm suggestions", () => {
-    expect(TASK_SUGGESTIONS.length).toBeGreaterThanOrEqual(3);
+describe("task catalog", () => {
+  it("generates 10000 productive task options", () => {
+    expect(TASK_CATALOG).toHaveLength(TASK_CATALOG_SIZE);
   });
 
-  it("contains only short, finishable phrases (no auto-fill)", () => {
-    for (const suggestion of TASK_SUGGESTIONS) {
-      expect(suggestion.length).toBeLessThanOrEqual(50);
-      expect(suggestion.trim()).toBe(suggestion);
+  it("groups task options by goal", () => {
+    for (const goal of USER_GOALS) {
+      expect(TASKS_BY_GOAL[goal].length).toBeGreaterThan(0);
+      expect(TASKS_BY_GOAL[goal].every((task) => task.goal === goal)).toBe(true);
     }
+  });
+
+  it("selects suggestions that match the user's goals", () => {
+    const suggestions = personalizedTaskSuggestions(
+      {
+        goals: ["finance"],
+        energy: "steady",
+        timeWindow: "quick",
+        workStyle: "structured",
+      },
+      "2026-04-25",
+      3,
+    );
+
+    expect(suggestions).toHaveLength(3);
+    expect(suggestions.every((suggestion) => suggestion.goal === "finance")).toBe(true);
+  });
+
+  it("does not recommend tasks the user already has today", () => {
+    const profile: UserProfile = {
+      goals: ["finance"],
+      energy: "steady",
+      timeWindow: "quick",
+      workStyle: "structured",
+    };
+    const first = personalizedTaskSuggestions(profile, "2026-04-25", 1)[0];
+    const next = personalizedTaskSuggestions(profile, "2026-04-25", 1, [first.text])[0];
+
+    expect(next.text).not.toBe(first.text);
   });
 });

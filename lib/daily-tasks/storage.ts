@@ -9,10 +9,16 @@ import type {
   NotificationConfig,
   PendingRollover,
   Task,
+  UserEnergy,
+  UserGoal,
+  UserProfile,
+  UserTimeWindow,
+  UserWorkStyle,
 } from "./types";
 import {
   DEFAULT_AUTO_LOCK,
   DEFAULT_NOTIFICATIONS,
+  DEFAULT_PROFILE,
 } from "./types";
 
 const STORAGE_KEY = "daily-tasks/state/v1";
@@ -120,6 +126,10 @@ function normalizeNotifications(value: unknown): NotificationConfig {
         typeof value.progress === "boolean" ? value.progress : DEFAULT_NOTIFICATIONS.progress,
       evening:
         typeof value.evening === "boolean" ? value.evening : DEFAULT_NOTIFICATIONS.evening,
+      frequencyHours:
+        value.frequencyHours === 1 || value.frequencyHours === 2
+          ? value.frequencyHours
+          : DEFAULT_NOTIFICATIONS.frequencyHours,
     };
   }
 
@@ -138,6 +148,7 @@ function normalizeNotifications(value: unknown): NotificationConfig {
       legacyValues.length > 0
         ? Boolean((evening ?? false) || (night ?? false))
         : DEFAULT_NOTIFICATIONS.evening,
+    frequencyHours: DEFAULT_NOTIFICATIONS.frequencyHours,
   };
 }
 
@@ -166,6 +177,43 @@ function normalizeAutoLock(value: unknown): AutoLockConfig {
   };
 }
 
+const VALID_GOALS: UserGoal[] = [
+  "health",
+  "career",
+  "learning",
+  "relationships",
+  "home",
+  "finance",
+  "creativity",
+  "mindfulness",
+];
+const VALID_ENERGIES: UserEnergy[] = ["low", "steady", "high"];
+const VALID_TIME_WINDOWS: UserTimeWindow[] = ["quick", "medium", "deep"];
+const VALID_WORK_STYLES: UserWorkStyle[] = ["gentle", "structured", "ambitious"];
+
+function includes<T extends string>(items: readonly T[], value: unknown): value is T {
+  return typeof value === "string" && items.includes(value as T);
+}
+
+function normalizeProfile(value: unknown): UserProfile {
+  if (!isRecord(value)) return DEFAULT_PROFILE;
+
+  const goals = Array.isArray(value.goals)
+    ? value.goals.filter((goal): goal is UserGoal => includes(VALID_GOALS, goal))
+    : DEFAULT_PROFILE.goals;
+
+  return {
+    goals: goals.length > 0 ? goals.slice(0, 4) : DEFAULT_PROFILE.goals,
+    energy: includes(VALID_ENERGIES, value.energy) ? value.energy : DEFAULT_PROFILE.energy,
+    timeWindow: includes(VALID_TIME_WINDOWS, value.timeWindow)
+      ? value.timeWindow
+      : DEFAULT_PROFILE.timeWindow,
+    workStyle: includes(VALID_WORK_STYLES, value.workStyle)
+      ? value.workStyle
+      : DEFAULT_PROFILE.workStyle,
+  };
+}
+
 function normalizeState(value: unknown): AppState | null {
   if (!isRecord(value)) return null;
 
@@ -187,6 +235,7 @@ function normalizeState(value: unknown): AppState | null {
     history: normalizeHistory(value.history),
     notifications: normalizeNotifications(value.notifications),
     autoLock: normalizeAutoLock(value.autoLock),
+    profile: normalizeProfile(value.profile),
     // Existing users (any stored state) have already used the app — skip onboarding.
     hasSeenOnboarding:
       typeof value.hasSeenOnboarding === "boolean" ? value.hasSeenOnboarding : true,
@@ -223,6 +272,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     },
     notifications: DEFAULT_NOTIFICATIONS,
     autoLock: DEFAULT_AUTO_LOCK,
+    profile: DEFAULT_PROFILE,
     hasSeenOnboarding: false,
     todayReflection: null,
   };

@@ -43,12 +43,35 @@ export interface NotificationConfig {
   morning: boolean;
   progress: boolean;
   evening: boolean;
+  frequencyHours: NotificationFrequencyHours;
 }
 
 export interface AutoLockConfig {
   enabled: boolean;
   hour: number;
   minute: number;
+}
+
+export type UserGoal =
+  | "health"
+  | "career"
+  | "learning"
+  | "relationships"
+  | "home"
+  | "finance"
+  | "creativity"
+  | "mindfulness";
+
+export type UserEnergy = "low" | "steady" | "high";
+export type UserTimeWindow = "quick" | "medium" | "deep";
+export type UserWorkStyle = "gentle" | "structured" | "ambitious";
+export type NotificationFrequencyHours = 1 | 2;
+
+export interface UserProfile {
+  goals: UserGoal[];
+  energy: UserEnergy;
+  timeWindow: UserTimeWindow;
+  workStyle: UserWorkStyle;
 }
 
 export interface AppState {
@@ -62,23 +85,17 @@ export interface AppState {
   history: History;
   notifications: NotificationConfig;
   autoLock: AutoLockConfig;
+  profile: UserProfile;
   hasSeenOnboarding: boolean;
   todayReflection: string | null;
 }
-
-export const TASK_SUGGESTIONS: string[] = [
-  "Move my body",
-  "Plan tomorrow",
-  "Reply to one important message",
-  "Tidy one small area",
-  "Read for 20 minutes",
-];
 
 export const DEFAULT_NOTIFICATIONS: NotificationConfig = {
   enabled: true,
   morning: true,
   progress: true,
   evening: true,
+  frequencyHours: 1,
 };
 
 export const DEFAULT_AUTO_LOCK: AutoLockConfig = {
@@ -87,7 +104,14 @@ export const DEFAULT_AUTO_LOCK: AutoLockConfig = {
   minute: 0,
 };
 
-export type NotificationKey = Exclude<keyof NotificationConfig, "enabled">;
+export type NotificationKey = Exclude<keyof NotificationConfig, "enabled" | "frequencyHours">;
+
+export const DEFAULT_PROFILE: UserProfile = {
+  goals: ["health", "career", "learning"],
+  energy: "steady",
+  timeWindow: "medium",
+  workStyle: "structured",
+};
 
 export type NotificationPermissionState =
   | "granted"

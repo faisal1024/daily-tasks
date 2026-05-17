@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -21,12 +22,13 @@ import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TaskSuggestions } from "@/components/daily-tasks/task-suggestions";
 import { TodaySummaryCard } from "@/components/daily-tasks/today-summary-card";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
+import { randomPersonalizedTask } from "@/lib/daily-tasks/task-catalog";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import {
   computeDayStreak,
   computePerfectStreak,
 } from "@/lib/daily-tasks/streaks";
-import { MAX_TASKS, TASK_SUGGESTIONS } from "@/lib/daily-tasks/types";
+import { MAX_TASKS } from "@/lib/daily-tasks/types";
 
 function impact(style: Haptics.ImpactFeedbackStyle) {
   if (Platform.OS === "web") return;
@@ -56,16 +58,28 @@ export default function HomeScreen() {
     dismissAutoLockNotice,
     resolveRollover,
     markOnboardingSeen,
+    setProfile,
     setTodayReflection,
   } = useDailyTasks();
 
   const [confetti, setConfetti] = useState(false);
+  const [suggestionAttempt, setSuggestionAttempt] = useState(0);
+  const [customSlot, setCustomSlot] = useState<number | null>(null);
   const lastConfettiDay = useRef<string | null>(null);
 
   const total = state.tasks.length;
   const dayStreak = computeDayStreak(state.history, today);
   const perfectStreak = computePerfectStreak(state.history, today);
   const greeting = greetingText(greetingFor());
+  const suggestion =
+    ready && !state.pendingRollover && !state.todayLocked && remainingSlots > 0
+      ? randomPersonalizedTask(
+          state.profile,
+          today,
+          suggestionAttempt,
+          state.tasks.map((task) => task.text),
+        )
+      : null;
 
   useEffect(() => {
     if (!ready) return;
@@ -104,19 +118,26 @@ export default function HomeScreen() {
 
   return (
     <ScreenContainer>
-      <ScrollView
-        contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 24 }}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 72 : 0}
       >
-        <View className="gap-1">
-          <Text className="text-base text-muted">{greeting}</Text>
-          <Text className="text-3xl font-bold text-foreground">
-            Today's Three
-          </Text>
-          <Text className="text-sm text-muted">
-            Pick less. Set the day. Finish calmly.
-          </Text>
-        </View>
+        <ScrollView
+          contentContainerStyle={{ padding: 24, paddingBottom: 120, gap: 24 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          automaticallyAdjustKeyboardInsets
+        >
+          <View className="gap-1">
+            <Text className="text-base text-muted">{greeting}</Text>
+            <Text className="text-3xl font-bold text-foreground">
+              Today's Three
+            </Text>
+            <Text className="text-sm text-muted">
+              Pick less. Set the day. Finish calmly.
+            </Text>
+          </View>
 
         <TodaySummaryCard
           completedCount={completedCount}
@@ -178,27 +199,31 @@ export default function HomeScreen() {
               );
             }
 
-            return (
-              <AddTaskRow
-                key={`empty-focus-${index}`}
-                remainingSlots={remainingSlots}
-                slotNumber={index + 1}
-                disabled={state.todayLocked}
-                onAdd={(text) => {
-                  impact(Haptics.ImpactFeedbackStyle.Light);
-                  addTask(text);
-                }}
-              />
-            );
+              return (
+                <AddTaskRow
+                  key={`empty-focus-${index}`}
+                  remainingSlots={remainingSlots}
+                  slotNumber={index + 1}
+                  disabled={state.todayLocked}
+                  forceEditing={customSlot === index}
+                  onEditingHandled={() => setCustomSlot(null)}
+                  onAdd={(text) => {
+                    impact(Haptics.ImpactFeedbackStyle.Light);
+                    addTask(text);
+                  }}
+                />
+              );
           })}
 
-          {state.tasks.length === 0 && !state.todayLocked && (
+          {state.tasks.length < MAX_TASKS && !state.todayLocked && !state.pendingRollover && (
             <TaskSuggestions
-              suggestions={TASK_SUGGESTIONS}
-              onPick={(text) => {
+              suggestion={suggestion}
+              onAccept={(text) => {
                 impact(Haptics.ImpactFeedbackStyle.Light);
                 addTask(text);
               }}
+              onShuffle={() => setSuggestionAttempt((current) => current + 1)}
+              onCustom={() => setCustomSlot(state.tasks.length)}
             />
           )}
         </View>
@@ -221,7 +246,8 @@ export default function HomeScreen() {
             />
           </>
         )}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <ConfettiOverlay
         visible={confetti}
@@ -230,7 +256,11 @@ export default function HomeScreen() {
 
       <OnboardingModal
         visible={ready && !state.hasSeenOnboarding && !state.pendingRollover}
-        onDismiss={markOnboardingSeen}
+        profile={state.profile}
+        onComplete={(profile) => {
+          setProfile(profile);
+          markOnboardingSeen();
+        }}
       />
 
       <RolloverModal

@@ -27,7 +27,11 @@ import type {
   AppState,
   NotificationPermissionState,
   NotificationKey,
+  NotificationFrequencyHours,
   TaskId,
+  Task,
+  AutoLockConfig,
+  UserProfile,
 } from "./types";
 import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
 
@@ -44,8 +48,10 @@ type Action =
   | { type: "resolveRollover"; carriedTaskIds: TaskId[]; today: string; now: Date }
   | { type: "setNotificationsEnabled"; enabled: boolean }
   | { type: "setNotificationEnabled"; key: NotificationKey; enabled: boolean }
+  | { type: "setNotificationFrequency"; frequencyHours: NotificationFrequencyHours }
   | { type: "setAutoLockEnabled"; enabled: boolean }
   | { type: "setAutoLockTime"; hour: number; minute: number }
+  | { type: "setProfile"; profile: UserProfile }
   | { type: "markOnboardingSeen" }
   | { type: "setTodayReflection"; text: string; today: string }
   | { type: "reset"; state: AppState };
@@ -158,6 +164,14 @@ function reducer(state: AppState, action: Action): AppState {
           [action.key]: action.enabled,
         },
       };
+    case "setNotificationFrequency":
+      return {
+        ...state,
+        notifications: {
+          ...state.notifications,
+          frequencyHours: action.frequencyHours,
+        },
+      };
     case "setAutoLockEnabled":
       return {
         ...state,
@@ -174,6 +188,11 @@ function reducer(state: AppState, action: Action): AppState {
           hour: action.hour,
           minute: action.minute,
         },
+      };
+    case "setProfile":
+      return {
+        ...state,
+        profile: action.profile,
       };
     case "markOnboardingSeen":
       if (state.hasSeenOnboarding) return state;
@@ -210,8 +229,10 @@ interface StoreContextValue {
   resolveRollover: (carriedTaskIds: TaskId[]) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
+  setNotificationFrequency: (frequencyHours: NotificationFrequencyHours) => void;
   setAutoLockEnabled: (enabled: boolean) => void;
   setAutoLockTime: (hour: number, minute: number) => void;
+  setProfile: (profile: UserProfile) => void;
   markOnboardingSeen: () => void;
   setTodayReflection: (text: string) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
@@ -220,6 +241,21 @@ interface StoreContextValue {
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
+
+function autoLockEligibleTaskCount(
+  tasks: Task[],
+  today: string,
+  settings: AutoLockConfig,
+): number {
+  const [year, month, day] = today.split("-").map(Number);
+  const lockAt = new Date(year, (month ?? 1) - 1, day ?? 1, settings.hour, settings.minute);
+  const lockAtMs = lockAt.getTime();
+
+  return tasks.filter((task) => {
+    const createdAtMs = new Date(task.createdAt).getTime();
+    return Number.isNaN(createdAtMs) || createdAtMs <= lockAtMs;
+  }).length;
+}
 
 export function DailyTasksProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, () => buildInitialState());
@@ -270,13 +306,14 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     state.tasks.some((task) => task.id === id),
   ).length;
   const remainingSlots = Math.max(0, MAX_TASKS - state.tasks.length);
+  const autoLockTaskCount = autoLockEligibleTaskCount(state.tasks, today, state.autoLock);
 
   useEffect(() => {
     if (!ready) return;
     const now = new Date();
-    if (!shouldAutoLockToday(now, state.tasks.length, state.todayLocked, state.autoLock)) return;
+    if (!shouldAutoLockToday(now, autoLockTaskCount, state.todayLocked, state.autoLock)) return;
     dispatch({ type: "autoLockToday", today });
-  }, [ready, state.autoLock, state.tasks.length, state.todayLocked, today]);
+  }, [autoLockTaskCount, ready, state.autoLock, state.todayLocked, today]);
 
   useEffect(() => {
     if (!ready) return;
@@ -320,7 +357,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         dispatch({ type: "rollover", today: fresh });
         return;
       }
-      if (shouldAutoLockToday(new Date(), state.tasks.length, state.todayLocked, state.autoLock)) {
+      const eligibleCount = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
+      if (shouldAutoLockToday(new Date(), eligibleCount, state.todayLocked, state.autoLock)) {
         dispatch({ type: "autoLockToday", today: fresh });
       }
     };
@@ -336,7 +374,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         dispatch({ type: "rollover", today: fresh });
         return;
       }
-      if (shouldAutoLockToday(new Date(), state.tasks.length, state.todayLocked, state.autoLock)) {
+      const eligibleCount = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
+      if (shouldAutoLockToday(new Date(), eligibleCount, state.todayLocked, state.autoLock)) {
         dispatch({ type: "autoLockToday", today: fresh });
       }
     }, 60_000);
@@ -380,11 +419,17 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setNotificationEnabled = useCallback((key: NotificationKey, enabled: boolean) => {
     dispatch({ type: "setNotificationEnabled", key, enabled });
   }, []);
+  const setNotificationFrequency = useCallback((frequencyHours: NotificationFrequencyHours) => {
+    dispatch({ type: "setNotificationFrequency", frequencyHours });
+  }, []);
   const setAutoLockEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "setAutoLockEnabled", enabled });
   }, []);
   const setAutoLockTime = useCallback((hour: number, minute: number) => {
     dispatch({ type: "setAutoLockTime", hour, minute });
+  }, []);
+  const setProfile = useCallback((profile: UserProfile) => {
+    dispatch({ type: "setProfile", profile });
   }, []);
   const markOnboardingSeen = useCallback(() => {
     dispatch({ type: "markOnboardingSeen" });
@@ -415,8 +460,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      setNotificationFrequency,
       setAutoLockEnabled,
       setAutoLockTime,
+      setProfile,
       markOnboardingSeen,
       setTodayReflection,
       refreshNotificationPermission,
@@ -440,8 +487,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      setNotificationFrequency,
       setAutoLockEnabled,
       setAutoLockTime,
+      setProfile,
       markOnboardingSeen,
       setTodayReflection,
       refreshNotificationPermission,
