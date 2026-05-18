@@ -70,10 +70,16 @@ describe("task catalog", () => {
     expect(TASK_CATALOG).toHaveLength(TASK_CATALOG_SIZE);
   });
 
+  it("keeps generated tasks short and actionable", () => {
+    expect(TASK_CATALOG.every((task) => task.text.length <= 60)).toBe(true);
+    expect(new Set(TASK_CATALOG.map((task) => task.text)).size).toBe(TASK_CATALOG_SIZE);
+  });
+
   it("groups task options by goal", () => {
     for (const goal of USER_GOALS) {
       expect(TASKS_BY_GOAL[goal].length).toBeGreaterThan(0);
       expect(TASKS_BY_GOAL[goal].every((task) => task.goal === goal)).toBe(true);
+      expect(TASKS_BY_GOAL[goal].every((task) => task.tags.includes(goal))).toBe(true);
     }
   });
 
