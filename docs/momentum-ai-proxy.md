@@ -83,5 +83,7 @@ The app does not send full daily task history or private task text for AI planni
 - Deploy the proxy to a serverless host or small Node server before shipping AI.
 - Store the provider key only in the hosting provider's secret manager.
 - Set `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL` to the production HTTPS endpoint for EAS builds.
-- Add rate limiting before public launch.
-- Add authentication or app attestation before making AI a paid feature.
+- Set `CORS_ORIGIN` to the app's origin in production — do **not** ship `*`.
+- Set `PROXY_SHARED_SECRET`; the app sends it as the `x-momentum-secret` header.
+- The proxy applies a simple per-IP rate limit (`RATE_LIMIT_PER_MIN`, default 30);
+  put it behind your host's rate limiting / app attestation for a paid feature.

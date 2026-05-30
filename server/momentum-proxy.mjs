@@ -32,6 +32,25 @@ try {
   process.exit(1);
 }
 
+// Optional shared secret: when PROXY_SHARED_SECRET is set, requests must send a
+// matching `x-momentum-secret` header. Left unset for local dev.
+const SHARED_SECRET = process.env.PROXY_SHARED_SECRET ?? "";
+// Simple in-memory fixed-window rate limit per client IP.
+const RATE_LIMIT = Number(process.env.RATE_LIMIT_PER_MIN ?? 30);
+const rateWindow = new Map();
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const windowStart = now - (now % 60_000);
+  const entry = rateWindow.get(ip);
+  if (!entry || entry.windowStart !== windowStart) {
+    rateWindow.set(ip, { windowStart, count: 1 });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > RATE_LIMIT;
+}
+
 const server = http.createServer(async (req, res) => {
   setCorsHeaders(res);
 
@@ -46,13 +65,34 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (SHARED_SECRET && req.headers["x-momentum-secret"] !== SHARED_SECRET) {
+    sendJson(res, 401, { error: "Unauthorized" });
+    return;
+  }
+
+  const clientIp =
+    (req.headers["x-forwarded-for"]?.toString().split(",")[0].trim()) ||
+    req.socket.remoteAddress ||
+    "unknown";
+  if (isRateLimited(clientIp)) {
+    sendJson(res, 429, { error: "Too many requests" });
+    return;
+  }
+
   if (!provider.isConfigured()) {
     sendJson(res, 500, { error: provider.missingConfigMessage() });
     return;
   }
 
   try {
-    const payload = await readJson(req);
+    let payload;
+    try {
+      payload = await readJson(req);
+    } catch {
+      // Body too large or malformed JSON is a client error, not a provider one.
+      sendJson(res, 400, { error: "Invalid request body" });
+      return;
+    }
     const validationError = validatePayload(payload);
     if (validationError) {
       sendJson(res, 400, { error: validationError });
@@ -112,7 +152,12 @@ function sendJson(res, status, body) {
 }
 
 function setCorsHeaders(res) {
-  res.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN ?? "*");
+  // No wildcard default: set CORS_ORIGIN explicitly (e.g. "*" for local dev, or
+  // the app's origin in production). When unset, no cross-origin header is sent.
+  const origin = process.env.CORS_ORIGIN ?? "";
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-momentum-secret");
 }
