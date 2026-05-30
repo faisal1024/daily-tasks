@@ -20,6 +20,8 @@ import { StreakPill } from "@/components/daily-tasks/streak-pill";
 import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TaskSuggestions } from "@/components/daily-tasks/task-suggestions";
 import { TodaySummaryCard } from "@/components/daily-tasks/today-summary-card";
+import { UpdateBanner } from "@/components/daily-tasks/update-banner";
+import { useAppUpdate } from "@/hooks/use-app-update";
 import { selectCoachMessage } from "@/lib/daily-tasks/coach-messages";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
@@ -63,6 +65,7 @@ export default function HomeScreen() {
     setTodayReflection,
     setTodayReflectionResult,
   } = useDailyTasks();
+  const { update, dismiss: dismissUpdate } = useAppUpdate();
 
   const [confetti, setConfetti] = useState(false);
   const lastConfettiDay = useRef<string | null>(null);
@@ -118,6 +121,8 @@ export default function HomeScreen() {
         contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 24 }}
         keyboardShouldPersistTaps="handled"
       >
+        {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
+
         <View className="gap-1">
           <Text className="text-base text-muted">{greeting}</Text>
           <Text className="text-3xl font-bold text-foreground">
