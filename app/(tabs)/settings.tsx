@@ -52,6 +52,7 @@ export default function SettingsScreen() {
     editTask,
     deleteTask,
     toggleTask,
+    unlockToday,
     setAutoLockEnabled,
     setAutoLockTime,
     setNotificationsEnabled,
@@ -289,14 +290,28 @@ export default function SettingsScreen() {
         >
           <View className="gap-3">
             {state.todayLocked && (
-              <View className="rounded-2xl border border-border bg-surface p-4">
-                <Text className="text-sm font-semibold text-foreground">
-                  Today's Three is set
-                </Text>
-                <Text className="text-sm text-muted mt-1">
-                  You can still check things off, but today is no longer a place
-                  to reshuffle.
-                </Text>
+              <View className="rounded-2xl border border-border bg-surface p-4 gap-3">
+                <View>
+                  <Text className="text-sm font-semibold text-foreground">
+                    Today's Three is set
+                  </Text>
+                  <Text className="text-sm text-muted mt-1">
+                    You can still check things off. Unlock if you need to add,
+                    edit, or swap a task today.
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={unlockToday}
+                  accessibilityRole="button"
+                  accessibilityLabel="Unlock today's list"
+                  className="self-start flex-row items-center gap-2 rounded-full px-4 py-2 border"
+                  style={{ borderColor: colors.primary }}
+                >
+                  <Ionicons name="lock-open-outline" size={16} color={colors.primary} />
+                  <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                    Unlock today
+                  </Text>
+                </Pressable>
               </View>
             )}
             {state.tasks.length === 0 ? (

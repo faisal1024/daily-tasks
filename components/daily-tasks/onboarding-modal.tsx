@@ -136,9 +136,26 @@ export function OnboardingModal({
                     }}
                   />
                 ))}
-                <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
+                <View className="flex-row items-center gap-3 my-1">
+                  <View className="flex-1 h-px" style={{ backgroundColor: colors.border }} />
+                  <Text
+                    className="text-xs uppercase tracking-wide"
+                    style={{ color: colors.muted }}
+                  >
+                    or set your own
+                  </Text>
+                  <View className="flex-1 h-px" style={{ backgroundColor: colors.border }} />
+                </View>
+                <View
+                  className="rounded-2xl p-4 gap-2"
+                  style={{
+                    backgroundColor: colors.surface,
+                    borderColor: goalSource === "custom" ? colors.primary : colors.border,
+                    borderWidth: goalSource === "custom" ? 2 : 1,
+                  }}
+                >
                   <Text className="text-sm font-semibold text-foreground">
-                    Something else
+                    Type your own goal
                   </Text>
                   <TextInput
                     value={goalSource === "custom" ? goalTitle : ""}
@@ -150,10 +167,19 @@ export function OnboardingModal({
                       setGoalSource("custom");
                       if (GOAL_OPTIONS.includes(goalTitle)) setGoalTitle("");
                     }}
-                    placeholder="Write your goal"
+                    placeholder="e.g. Run a marathon, Write a book, Save $5,000"
                     placeholderTextColor={colors.muted}
-                    className="text-base text-foreground"
+                    className="text-base text-foreground rounded-xl px-3 py-3"
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.background,
+                    }}
                   />
+                  <Text className="text-xs" style={{ color: colors.muted }}>
+                    Momentum builds a personalized plan and daily tasks for whatever you
+                    choose.
+                  </Text>
                 </View>
               </ScrollView>
               <FooterButtons

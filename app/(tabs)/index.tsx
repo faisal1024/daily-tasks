@@ -8,11 +8,13 @@ import {
   View,
 } from "react-native";
 import * as Haptics from "expo-haptics";
+import { Ionicons } from "@expo/vector-icons";
 
+import { useColors } from "@/hooks/use-colors";
 import { ScreenContainer } from "@/components/screen-container";
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
 import { CompletionReflection } from "@/components/daily-tasks/completion-reflection";
-import { ConfettiOverlay } from "@/components/daily-tasks/confetti-overlay";
+import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
@@ -64,8 +66,14 @@ export default function HomeScreen() {
     completeMomentumOnboarding,
     setTodayReflection,
     setTodayReflectionResult,
+    requestMomentumPlan,
   } = useDailyTasks();
   const { update, dismiss: dismissUpdate } = useAppUpdate();
+
+  const addedTexts = useMemo(
+    () => new Set(state.tasks.map((task) => task.text.trim().toLowerCase())),
+    [state.tasks],
+  );
 
   const [confetti, setConfetti] = useState(false);
   const lastConfettiDay = useRef<string | null>(null);
@@ -184,14 +192,29 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {state.tasks.length === 0 && !state.todayLocked && momentumSuggestions.length > 0 && (
+        {!state.todayLocked && remainingSlots > 0 && momentumSuggestions.length > 0 && (
           <MomentumSuggestionCard
             goalTitle={state.momentumProfile.goalTitle}
             suggestions={momentumSuggestions}
             adaptationReason={state.adaptationSnapshot?.reason ?? null}
-            onAccept={() => {
+            addedTexts={addedTexts}
+            remainingSlots={remainingSlots}
+            regenerating={state.momentumPlanStatus === "loading"}
+            onAdd={(text) => {
+              impact(Haptics.ImpactFeedbackStyle.Light);
+              addTask(text);
+            }}
+            onAddAll={() => {
               impact(Haptics.ImpactFeedbackStyle.Medium);
-              addTasks(momentumSuggestions.map((task) => task.text));
+              addTasks(
+                momentumSuggestions
+                  .filter((task) => !addedTexts.has(task.text.trim().toLowerCase()))
+                  .map((task) => task.text),
+              );
+            }}
+            onRegenerate={() => {
+              impact(Haptics.ImpactFeedbackStyle.Light);
+              void requestMomentumPlan();
             }}
           />
         )}
@@ -238,7 +261,7 @@ export default function HomeScreen() {
             );
           })}
 
-          {state.tasks.length === 0 && !state.todayLocked && momentumSuggestions.length === 0 && (
+          {remainingSlots > 0 && !state.todayLocked && momentumSuggestions.length === 0 && (
             <TaskSuggestions
               suggestions={suggestions}
               title={
@@ -282,7 +305,7 @@ export default function HomeScreen() {
         )}
       </ScrollView>
 
-      <ConfettiOverlay
+      <CelebrationOverlay
         visible={confetti}
         onDismiss={() => setConfetti(false)}
       />
@@ -358,63 +381,108 @@ function MomentumSuggestionCard({
   goalTitle,
   suggestions,
   adaptationReason,
-  onAccept,
+  addedTexts,
+  remainingSlots,
+  regenerating,
+  onAdd,
+  onAddAll,
+  onRegenerate,
 }: {
   goalTitle: string | null;
   suggestions: GeneratedTask[];
   adaptationReason: string | null;
-  onAccept: () => void;
+  addedTexts: Set<string>;
+  remainingSlots: number;
+  regenerating: boolean;
+  onAdd: (text: string) => void;
+  onAddAll: () => void;
+  onRegenerate: () => void;
 }) {
+  const colors = useColors();
+  const available = suggestions.filter(
+    (task) => !addedTexts.has(task.text.trim().toLowerCase()),
+  );
+
   return (
     <View className="rounded-3xl bg-surface border border-border p-5 gap-4">
       <View className="gap-1">
-        <Text className="text-xs uppercase tracking-wide text-muted">
-          Coach-picked trio
-        </Text>
+        <View className="flex-row items-center justify-between">
+          <Text className="text-xs uppercase tracking-wide text-muted">
+            Suggested for you
+          </Text>
+          <Pressable
+            onPress={onRegenerate}
+            disabled={regenerating}
+            accessibilityRole="button"
+            accessibilityLabel="Get new suggestions"
+            hitSlop={8}
+            className="flex-row items-center gap-1"
+            style={{ opacity: regenerating ? 0.5 : 1 }}
+          >
+            <Ionicons name="refresh" size={14} color={colors.primary} />
+            <Text className="text-xs font-semibold" style={{ color: colors.primary }}>
+              {regenerating ? "Refreshing…" : "New ideas"}
+            </Text>
+          </Pressable>
+        </View>
         <Text className="text-xl font-semibold text-foreground">
-          Three commitments toward {goalTitle ?? "your goal"}
+          Pick what works toward {goalTitle ?? "your goal"}
         </Text>
         <Text className="text-sm text-muted">
-          Small enough to do today. Focused enough to build discipline.
+          Add any you like — one, two, or all three. You can also write your own below.
         </Text>
         {adaptationReason && (
-          <Text className="text-xs text-muted">
-            {adaptationReason}
-          </Text>
+          <Text className="text-xs text-muted">{adaptationReason}</Text>
         )}
       </View>
 
       <View className="gap-2">
-        {suggestions.map((task, index) => (
-          <View
-            key={task.id}
-            className="rounded-2xl bg-background border border-border p-3 flex-row gap-3"
-          >
-            <View className="w-6 h-6 rounded-full border border-border items-center justify-center">
-              <Text className="text-xs font-semibold text-muted">{index + 1}</Text>
-            </View>
-            <View className="flex-1 gap-0.5">
-              <Text className="text-sm font-semibold text-foreground">
-                {task.text}
-              </Text>
-              <Text className="text-xs text-muted">
-                {task.estimatedMinutes} min · {task.reason}
-              </Text>
-            </View>
-          </View>
-        ))}
+        {suggestions.map((task) => {
+          const added = addedTexts.has(task.text.trim().toLowerCase());
+          const disabled = added || remainingSlots <= 0;
+          return (
+            <Pressable
+              key={task.id}
+              onPress={() => onAdd(task.text)}
+              disabled={disabled}
+              accessibilityRole="button"
+              accessibilityLabel={added ? `${task.text}, added` : `Add ${task.text}`}
+              className="rounded-2xl bg-background border p-3 flex-row items-center gap-3"
+              style={{
+                borderColor: added ? colors.success : colors.border,
+                opacity: disabled && !added ? 0.5 : 1,
+              }}
+            >
+              <Ionicons
+                name={added ? "checkmark-circle" : "add-circle-outline"}
+                size={22}
+                color={added ? colors.success : colors.primary}
+              />
+              <View className="flex-1 gap-0.5">
+                <Text className="text-sm font-semibold text-foreground">{task.text}</Text>
+                <Text className="text-xs text-muted">
+                  {task.estimatedMinutes} min · {task.reason}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        })}
       </View>
 
-      <Pressable
-        onPress={onAccept}
-        className="self-stretch rounded-full py-3 items-center bg-foreground"
-        accessibilityRole="button"
-        accessibilityLabel="Set suggested tasks as Today's Three"
-      >
-        <Text className="text-base font-semibold text-background">
-          Commit to these three
-        </Text>
-      </Pressable>
+      {available.length > 1 && remainingSlots > 0 && (
+        <Pressable
+          onPress={onAddAll}
+          className="self-stretch rounded-full py-3 items-center bg-foreground"
+          accessibilityRole="button"
+          accessibilityLabel="Add all suggestions"
+        >
+          <Text className="text-base font-semibold text-background">
+            {available.length > remainingSlots
+              ? `Add ${remainingSlots} more`
+              : "Add all"}
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }
