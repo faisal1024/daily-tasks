@@ -61,6 +61,32 @@ describe("planReminders", () => {
     expect(reminders.every((reminder) => reminder.kind === "evening")).toBe(true);
   });
 
+  it("schedules an hourly nudge across the day when hourly mode is on", () => {
+    const reminders = planReminders({
+      now: new Date(2026, 3, 20, 9, 30),
+      taskCount: 3,
+      completedCount: 1,
+      settings: { ...DEFAULT_NOTIFICATIONS, hourly: true },
+      permissionState: "granted",
+    });
+
+    // From 8-21 hourly, only future hours (>= 10) remain at 9:30.
+    expect(reminders.map((reminder) => reminder.at.getHours())).toEqual([
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+    ]);
+  });
+
+  it("schedules nothing in hourly mode once all tasks are complete", () => {
+    const reminders = planReminders({
+      now: new Date(2026, 3, 20, 11, 0),
+      taskCount: 3,
+      completedCount: 3,
+      settings: { ...DEFAULT_NOTIFICATIONS, hourly: true },
+      permissionState: "granted",
+    });
+    expect(reminders).toEqual([]);
+  });
+
   it("schedules nothing once all tasks are complete", () => {
     const reminders = planReminders({
       now: new Date(2026, 3, 20, 11, 0),

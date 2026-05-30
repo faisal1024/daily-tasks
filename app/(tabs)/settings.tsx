@@ -1,6 +1,8 @@
 import {
   Alert,
+  KeyboardAvoidingView,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   Switch,
@@ -40,6 +42,10 @@ const NOTIFICATION_LABELS: Record<
   evening: {
     title: "Evening reminders",
     subtitle: "A soft wrap-up when something is still left.",
+  },
+  hourly: {
+    title: "Every hour",
+    subtitle: "A nudge each hour (8am–9pm) until Today's Three are done.",
   },
 };
 
@@ -145,8 +151,14 @@ export default function SettingsScreen() {
 
   return (
     <ScreenContainer>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
       <ScrollView
         contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 28 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         <View className="gap-1">
           <Text className="text-base text-muted">Settings</Text>
@@ -502,6 +514,7 @@ export default function SettingsScreen() {
           Daily Tasks · v1.0.0
         </Text>
       </ScrollView>
+      </KeyboardAvoidingView>
       <OnboardingModal
         visible={profileModalVisible}
         initialProfile={state.momentumProfile}

@@ -130,6 +130,8 @@ function normalizeNotifications(value: unknown): NotificationConfig {
         typeof value.progress === "boolean" ? value.progress : DEFAULT_NOTIFICATIONS.progress,
       evening:
         typeof value.evening === "boolean" ? value.evening : DEFAULT_NOTIFICATIONS.evening,
+      hourly:
+        typeof value.hourly === "boolean" ? value.hourly : DEFAULT_NOTIFICATIONS.hourly,
     };
   }
 
@@ -148,6 +150,7 @@ function normalizeNotifications(value: unknown): NotificationConfig {
       legacyValues.length > 0
         ? Boolean((evening ?? false) || (night ?? false))
         : DEFAULT_NOTIFICATIONS.evening,
+    hourly: DEFAULT_NOTIFICATIONS.hourly,
   };
 }
 

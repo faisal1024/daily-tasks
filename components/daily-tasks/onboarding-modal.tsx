@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import { useColors } from "@/hooks/use-colors";
 import type {
@@ -94,9 +103,13 @@ export function OnboardingModal({
       transparent
       onRequestClose={onRequestClose}
     >
-      <View
-        className="flex-1 justify-end"
-        style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+      <KeyboardAvoidingView
+        style={{
+          flex: 1,
+          justifyContent: "flex-end",
+          backgroundColor: "rgba(0,0,0,0.45)",
+        }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View
           className="bg-background rounded-t-3xl p-6 gap-5"
@@ -253,7 +266,7 @@ export function OnboardingModal({
             </>
           )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

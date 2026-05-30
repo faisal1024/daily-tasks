@@ -6,6 +6,7 @@ import {
   generateMomentumSuggestions,
   isMomentumProfileComplete,
   summarizeRecentPerformance,
+  summarizeRecentTasks,
   validateGeneratedTasks,
 } from "../lib/daily-tasks/momentum";
 import type { MomentumProfile } from "../lib/daily-tasks/types";
@@ -169,6 +170,56 @@ describe("summarizeRecentPerformance", () => {
       missed: 1,
       completionRate: 2 / 3,
     });
+  });
+});
+
+describe("summarizeRecentTasks", () => {
+  const dayRecord = (date: string, tasks: { text: string; completed: boolean }[]) => ({
+    date,
+    total: tasks.length,
+    completed: tasks.filter((t) => t.completed).length,
+    locked: false,
+    lockSource: null,
+    reflection: null,
+    reflectionResult: null,
+    tasks: tasks.map((t, i) => ({
+      id: `${date}-${i}`,
+      text: t.text,
+      completed: t.completed,
+      carriedOver: false,
+      rolloverOutcome: null,
+    })),
+  });
+
+  it("returns recent task texts newest-first with completion, excluding today", () => {
+    const result = summarizeRecentTasks(
+      {
+        "2026-05-01": dayRecord("2026-05-01", [
+          { text: "Walk 10 min", completed: true },
+          { text: "Stretch", completed: false },
+        ]),
+        "2026-04-30": dayRecord("2026-04-30", [{ text: "Read a page", completed: true }]),
+        // today — must be excluded
+        "2026-05-02": dayRecord("2026-05-02", [{ text: "Today task", completed: false }]),
+      },
+      new Date("2026-05-02T12:00:00"),
+    );
+
+    expect(result).toEqual([
+      { text: "Walk 10 min", completed: true },
+      { text: "Stretch", completed: false },
+      { text: "Read a page", completed: true },
+    ]);
+  });
+
+  it("caps the number of returned tasks", () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ text: `Task ${i}`, completed: true }));
+    const result = summarizeRecentTasks(
+      { "2026-05-01": dayRecord("2026-05-01", many) },
+      new Date("2026-05-02T12:00:00"),
+      5,
+    );
+    expect(result).toHaveLength(5);
   });
 });
 

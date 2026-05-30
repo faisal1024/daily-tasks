@@ -27,7 +27,7 @@ describe("buildAiPlanRequestPayload", () => {
     ).toBeNull();
   });
 
-  it("sends summarized history instead of the full task list", () => {
+  it("includes recent performance, reflection, and the user's own recent tasks", () => {
     const payload = buildAiPlanRequestPayload({
       profile: PROFILE,
       settings: DEFAULT_MOMENTUM_SETTINGS,
@@ -43,8 +43,8 @@ describe("buildAiPlanRequestPayload", () => {
           reflectionResult: "good",
           tasks: [
             {
-              id: "secret-task",
-              text: "Private task text should not be sent",
+              id: "task-1",
+              text: "Practice scales for 10 minutes",
               completed: true,
               carriedOver: false,
               rolloverOutcome: null,
@@ -67,7 +67,11 @@ describe("buildAiPlanRequestPayload", () => {
       recentReflection: "Had a good rhythm.",
       recentReflectionResult: "good",
     });
-    expect(JSON.stringify(payload)).not.toContain("Private task text");
+    // The AI now builds on the user's own recent tasks.
+    expect(payload?.recentTasks).toContainEqual({
+      text: "Practice scales for 10 minutes",
+      completed: true,
+    });
   });
 });
 

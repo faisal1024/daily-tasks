@@ -170,6 +170,38 @@ export function summarizeRecentPerformance(history: History, now: Date): RecentP
   };
 }
 
+export interface RecentTask {
+  text: string;
+  completed: boolean;
+}
+
+/**
+ * The user's own recent task texts (across the last few days), newest first,
+ * with whether each was completed. Lets the AI build on what the user actually
+ * chose — reinforcing finished kinds of tasks and reshaping ones they skipped.
+ */
+export function summarizeRecentTasks(
+  history: History,
+  now: Date,
+  limit = 12,
+): RecentTask[] {
+  const days = Object.values(history)
+    .filter((record) => record.date < dateKey(now) && record.tasks.length > 0)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 5);
+
+  const tasks: RecentTask[] = [];
+  for (const day of days) {
+    for (const task of day.tasks) {
+      const text = task.text.trim();
+      if (!text) continue;
+      tasks.push({ text, completed: task.completed });
+      if (tasks.length >= limit) return tasks;
+    }
+  }
+  return tasks;
+}
+
 export function buildAdaptationSnapshot(
   profile: MomentumProfile,
   settings: MomentumSettings,

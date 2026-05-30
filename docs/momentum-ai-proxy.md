@@ -129,8 +129,12 @@ The app sends only:
 - Momentum settings.
 - Recent completion summary.
 - Latest reflection.
+- The user's own recent task texts (last ~12, with done/skipped) so suggestions
+  build on what they actually chose.
 
-The app does not send full daily task history or private task text for AI planning.
+The app sends recent task text (last few days) but not the full history, and no
+account/PII. This is the minimum needed for the AI to tailor suggestions to the
+user's own tasks.
 
 ## Production Notes
 
