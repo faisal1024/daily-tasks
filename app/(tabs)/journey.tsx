@@ -29,6 +29,7 @@ export default function JourneyScreen() {
   const xpToNext = journeyProgress.xpRemaining;
   const goalTitle = state.momentumProfile.goalTitle;
   const milestonesDone = momentumMilestones.filter((m) => m.done).length;
+  const nextMilestoneIndex = momentumMilestones.findIndex((m) => !m.done);
 
   const celebration = pickCelebration({ pendingMilestoneCelebration, pendingLevelUp });
   const showMilestoneCelebration = celebration === "milestone";
@@ -106,9 +107,7 @@ export default function JourneyScreen() {
               These advance on their own each day you finish all your tasks.
             </Text>
             {momentumMilestones.map((milestone, index) => {
-              const isNext =
-                !milestone.done &&
-                index === momentumMilestones.findIndex((m) => !m.done);
+              const isNext = !milestone.done && index === nextMilestoneIndex;
               return (
                 <View
                   key={milestone.id}

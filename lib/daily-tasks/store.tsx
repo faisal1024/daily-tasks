@@ -283,11 +283,18 @@ function reducer(state: AppState, action: Action): AppState {
           todayLocked: false,
           todayLockSource: null,
           autoLockNoticeDate: null,
+          // Don't let auto-lock immediately re-lock the rest of today.
+          manualUnlockDate: action.today,
         },
         action.today,
       );
     case "autoLockToday":
-      if (state.todayLocked || state.tasks.length === 0) return state;
+      if (
+        state.todayLocked ||
+        state.tasks.length === 0 ||
+        state.manualUnlockDate === action.today
+      )
+        return state;
       return syncTodayHistory(
         {
           ...state,

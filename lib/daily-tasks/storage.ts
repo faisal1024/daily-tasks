@@ -380,6 +380,8 @@ function normalizeState(value: unknown): AppState | null {
         : null,
     autoLockNoticeDate:
       typeof value.autoLockNoticeDate === "string" ? value.autoLockNoticeDate : null,
+    manualUnlockDate:
+      typeof value.manualUnlockDate === "string" ? value.manualUnlockDate : null,
     pendingRollover: normalizePendingRollover(value.pendingRollover),
     history: normalizeHistory(value.history),
     notifications: normalizeNotifications(value.notifications),
@@ -429,6 +431,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     todayLocked: false,
     todayLockSource: null,
     autoLockNoticeDate: null,
+    manualUnlockDate: null,
     pendingRollover: null,
     history: {
       [today]: {

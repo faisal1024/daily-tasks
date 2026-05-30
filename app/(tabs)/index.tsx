@@ -27,6 +27,7 @@ import { useAppUpdate } from "@/hooks/use-app-update";
 import { selectCoachMessage } from "@/lib/daily-tasks/coach-messages";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
+import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import {
   computeDayStreak,
@@ -40,11 +41,9 @@ function impact(style: Haptics.ImpactFeedbackStyle) {
   Haptics.impactAsync(style).catch(() => {});
 }
 
-function success() {
+function celebrationHaptic() {
   if (Platform.OS === "web") return;
-  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-    () => {},
-  );
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {});
 }
 
 export default function HomeScreen() {
@@ -74,9 +73,10 @@ export default function HomeScreen() {
     () => new Set(state.tasks.map((task) => task.text.trim().toLowerCase())),
     [state.tasks],
   );
+  const canRegenerate = getMomentumAiProxyUrl() != null;
 
-  const [confetti, setConfetti] = useState(false);
-  const lastConfettiDay = useRef<string | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const lastCelebrationDay = useRef<string | null>(null);
 
   const total = state.tasks.length;
   const dayStreak = computeDayStreak(state.history, today);
@@ -93,14 +93,14 @@ export default function HomeScreen() {
     if (
       total === MAX_TASKS &&
       completedCount === MAX_TASKS &&
-      lastConfettiDay.current !== today
+      lastCelebrationDay.current !== today
     ) {
-      lastConfettiDay.current = today;
-      success();
-      setConfetti(true);
+      lastCelebrationDay.current = today;
+      celebrationHaptic();
+      setShowCelebration(true);
     }
-    if (completedCount < MAX_TASKS && lastConfettiDay.current === today) {
-      lastConfettiDay.current = null;
+    if (completedCount < MAX_TASKS && lastCelebrationDay.current === today) {
+      lastCelebrationDay.current = null;
     }
   }, [ready, total, completedCount, today]);
 
@@ -199,6 +199,7 @@ export default function HomeScreen() {
             adaptationReason={state.adaptationSnapshot?.reason ?? null}
             addedTexts={addedTexts}
             remainingSlots={remainingSlots}
+            canRegenerate={canRegenerate}
             regenerating={state.momentumPlanStatus === "loading"}
             onAdd={(text) => {
               impact(Haptics.ImpactFeedbackStyle.Light);
@@ -306,8 +307,8 @@ export default function HomeScreen() {
       </ScrollView>
 
       <CelebrationOverlay
-        visible={confetti}
-        onDismiss={() => setConfetti(false)}
+        visible={showCelebration}
+        onDismiss={() => setShowCelebration(false)}
       />
 
       <OnboardingModal
@@ -383,6 +384,7 @@ function MomentumSuggestionCard({
   adaptationReason,
   addedTexts,
   remainingSlots,
+  canRegenerate,
   regenerating,
   onAdd,
   onAddAll,
@@ -393,6 +395,7 @@ function MomentumSuggestionCard({
   adaptationReason: string | null;
   addedTexts: Set<string>;
   remainingSlots: number;
+  canRegenerate: boolean;
   regenerating: boolean;
   onAdd: (text: string) => void;
   onAddAll: () => void;
@@ -410,20 +413,22 @@ function MomentumSuggestionCard({
           <Text className="text-xs uppercase tracking-wide text-muted">
             Suggested for you
           </Text>
-          <Pressable
-            onPress={onRegenerate}
-            disabled={regenerating}
-            accessibilityRole="button"
-            accessibilityLabel="Get new suggestions"
-            hitSlop={8}
-            className="flex-row items-center gap-1"
-            style={{ opacity: regenerating ? 0.5 : 1 }}
-          >
-            <Ionicons name="refresh" size={14} color={colors.primary} />
-            <Text className="text-xs font-semibold" style={{ color: colors.primary }}>
-              {regenerating ? "Refreshing…" : "New ideas"}
-            </Text>
-          </Pressable>
+          {canRegenerate && (
+            <Pressable
+              onPress={onRegenerate}
+              disabled={regenerating}
+              accessibilityRole="button"
+              accessibilityLabel="Get new suggestions"
+              hitSlop={8}
+              className="flex-row items-center gap-1"
+              style={{ opacity: regenerating ? 0.5 : 1 }}
+            >
+              <Ionicons name="refresh" size={14} color={colors.primary} />
+              <Text className="text-xs font-semibold" style={{ color: colors.primary }}>
+                {regenerating ? "Refreshing…" : "New ideas"}
+              </Text>
+            </Pressable>
+          )}
         </View>
         <Text className="text-xl font-semibold text-foreground">
           Pick what works toward {goalTitle ?? "your goal"}
