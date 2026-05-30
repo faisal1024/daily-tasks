@@ -31,6 +31,15 @@ import {
   resolvePendingRollover,
   syncTodayHistory,
 } from "./rollover";
+import {
+  acknowledgeLevel,
+  awardPerfectDay,
+  awardTaskCompletion,
+  levelForXp,
+  levelProgress,
+  pendingLevelUp,
+  type LevelProgress,
+} from "./journey";
 import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
 import type {
   AppState,
@@ -72,7 +81,20 @@ type Action =
     }
   | { type: "setTodayReflection"; text: string; today: string }
   | { type: "setTodayReflectionResult"; result: ReflectionResult; today: string; now: Date }
+  | { type: "acknowledgeLevelUp" }
   | { type: "reset"; state: AppState };
+
+/** Canonical count of today's completions that still map to a current task. */
+function countCompleted(state: AppState): number {
+  return state.todayCompletions.filter((id) =>
+    state.tasks.some((task) => task.id === id),
+  ).length;
+}
+
+/** A "perfect day" is having at least one task and completing all of them. */
+function isPerfectDay(state: AppState): boolean {
+  return state.tasks.length > 0 && countCompleted(state) === state.tasks.length;
+}
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -168,13 +190,25 @@ function reducer(state: AppState, action: Action): AppState {
       const todayCompletions = isCompleted
         ? state.todayCompletions.filter((id) => id !== action.id)
         : [...state.todayCompletions, action.id];
+
+      const nextTasks = state.tasks.map((task) =>
+        task.id === action.id && !isCompleted ? { ...task, carriedOver: false } : task,
+      );
+
+      let journey = state.journey;
+      if (!isCompleted) {
+        journey = awardTaskCompletion(journey, action.id, action.today);
+        if (isPerfectDay({ ...state, tasks: nextTasks, todayCompletions })) {
+          journey = awardPerfectDay(journey, action.today);
+        }
+      }
+
       return syncTodayHistory(
         {
           ...state,
           todayCompletions,
-          tasks: state.tasks.map((task) =>
-            task.id === action.id && !isCompleted ? { ...task, carriedOver: false } : task,
-          ),
+          journey,
+          tasks: nextTasks,
         },
         action.today,
       );
@@ -378,6 +412,8 @@ function reducer(state: AppState, action: Action): AppState {
         action.today,
       );
     }
+    case "acknowledgeLevelUp":
+      return { ...state, journey: acknowledgeLevel(state.journey) };
     case "reset":
       return action.state;
   }
@@ -414,6 +450,10 @@ interface StoreContextValue {
   ) => void;
   setTodayReflection: (text: string) => void;
   setTodayReflectionResult: (result: ReflectionResult) => void;
+  journeyLevel: number;
+  journeyProgress: LevelProgress;
+  pendingLevelUp: number | null;
+  acknowledgeLevelUp: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -466,9 +506,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     return status;
   }, []);
 
-  const completedCount = state.todayCompletions.filter((id) =>
-    state.tasks.some((task) => task.id === id),
-  ).length;
+  const completedCount = countCompleted(state);
   const remainingSlots = Math.max(0, MAX_TASKS - state.tasks.length);
 
   useEffect(() => {
@@ -646,6 +684,13 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     await clearState();
     dispatch({ type: "reset", state: buildInitialState() });
   }, []);
+  const acknowledgeLevelUp = useCallback(() => {
+    dispatch({ type: "acknowledgeLevelUp" });
+  }, []);
+
+  const journeyLevel = levelForXp(state.journey.xp);
+  const journeyProgress = levelProgress(state.journey.xp);
+  const pendingLevelUpValue = pendingLevelUp(state.journey);
 
   const value = useMemo<StoreContextValue>(
     () => ({
@@ -676,6 +721,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setMomentumSetting,
       setTodayReflection,
       setTodayReflectionResult,
+      journeyLevel,
+      journeyProgress,
+      pendingLevelUp: pendingLevelUpValue,
+      acknowledgeLevelUp,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -708,6 +757,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setMomentumSetting,
       setTodayReflection,
       setTodayReflectionResult,
+      journeyLevel,
+      journeyProgress,
+      pendingLevelUpValue,
+      acknowledgeLevelUp,
       refreshNotificationPermission,
       requestPermission,
       resetAll,

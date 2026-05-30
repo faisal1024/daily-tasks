@@ -5,6 +5,7 @@ import {
   resolvePendingRollover,
   syncTodayHistory,
 } from "../lib/daily-tasks/rollover";
+import { DEFAULT_JOURNEY } from "../lib/daily-tasks/journey";
 import type { AppState } from "../lib/daily-tasks/types";
 import {
   DEFAULT_AUTO_LOCK,
@@ -38,6 +39,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     momentumPlanStatus: "idle",
     momentumPlanError: null,
     adaptationSnapshot: null,
+    journey: DEFAULT_JOURNEY,
     ...overrides,
   };
 }

@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { todayKey } from "./date";
+import { DEFAULT_JOURNEY, type Journey } from "./journey";
 import type {
   AppState,
   AutoLockConfig,
@@ -330,6 +331,38 @@ function normalizeMomentumSettings(value: unknown): MomentumSettings {
   };
 }
 
+function normalizeJourney(value: unknown): Journey {
+  if (!isRecord(value)) return DEFAULT_JOURNEY;
+
+  const num = (input: unknown, fallback: number): number =>
+    typeof input === "number" && Number.isFinite(input) ? input : fallback;
+
+  return {
+    xp: Math.max(0, num(value.xp, DEFAULT_JOURNEY.xp)),
+    showedUpStreak: Math.max(0, num(value.showedUpStreak, DEFAULT_JOURNEY.showedUpStreak)),
+    longestShowedUpStreak: Math.max(
+      0,
+      num(value.longestShowedUpStreak, DEFAULT_JOURNEY.longestShowedUpStreak),
+    ),
+    showedUpFreezes: Math.max(0, num(value.showedUpFreezes, DEFAULT_JOURNEY.showedUpFreezes)),
+    lastShowedUpDate:
+      typeof value.lastShowedUpDate === "string" ? value.lastShowedUpDate : null,
+    lastCelebratedLevel: Math.max(
+      1,
+      num(value.lastCelebratedLevel, DEFAULT_JOURNEY.lastCelebratedLevel),
+    ),
+    awardDate: typeof value.awardDate === "string" ? value.awardDate : null,
+    awardedTaskIds: Array.isArray(value.awardedTaskIds)
+      ? value.awardedTaskIds.filter((id): id is string => typeof id === "string")
+      : [],
+    perfectAwarded: typeof value.perfectAwarded === "boolean" ? value.perfectAwarded : false,
+    selectedCosmeticId:
+      typeof value.selectedCosmeticId === "string"
+        ? value.selectedCosmeticId
+        : DEFAULT_JOURNEY.selectedCosmeticId,
+  };
+}
+
 function normalizeState(value: unknown): AppState | null {
   if (!isRecord(value)) return null;
 
@@ -371,6 +404,7 @@ function normalizeState(value: unknown): AppState | null {
     momentumPlanError:
       typeof value.momentumPlanError === "string" ? value.momentumPlanError : null,
     adaptationSnapshot: normalizeAdaptationSnapshot(value.adaptationSnapshot),
+    journey: normalizeJourney(value.journey),
   };
 }
 
@@ -412,6 +446,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     momentumPlanStatus: "idle",
     momentumPlanError: null,
     adaptationSnapshot: null,
+    journey: DEFAULT_JOURNEY,
   };
 }
 

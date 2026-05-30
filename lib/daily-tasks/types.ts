@@ -1,3 +1,5 @@
+import type { Journey } from "./journey";
+
 export const MAX_TASKS = 3;
 
 export type TaskId = string;
@@ -144,6 +146,7 @@ export interface AppState {
   momentumPlanStatus: "idle" | "loading" | "ready" | "error";
   momentumPlanError: string | null;
   adaptationSnapshot: AdaptationSnapshot | null;
+  journey: Journey;
 }
 
 export const GOAL_OPTIONS: string[] = [
