@@ -5,6 +5,7 @@ import {
   FREEZE_EARN_EVERY,
   MAX_SHOWED_UP_FREEZES,
   acknowledgeLevel,
+  awardMilestone,
   awardPerfectDay,
   awardTaskCompletion,
   levelForXp,
@@ -15,6 +16,7 @@ import {
   unlockedCosmetics,
   xpForLevel,
   XP_PERFECT_DAY,
+  XP_PER_MILESTONE,
   XP_PER_TASK,
   type Journey,
 } from "../lib/daily-tasks/journey";
@@ -74,6 +76,10 @@ describe("task + perfect-day XP", () => {
     expect(journey.xp).toBe(XP_PERFECT_DAY);
     journey = awardPerfectDay(journey, "2026-05-30");
     expect(journey.xp).toBe(XP_PERFECT_DAY);
+  });
+
+  it("awards milestone XP", () => {
+    expect(awardMilestone(base()).xp).toBe(XP_PER_MILESTONE);
   });
 });
 

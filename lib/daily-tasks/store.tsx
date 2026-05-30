@@ -41,6 +41,11 @@ import {
   unlockedCosmetics,
   type LevelProgress,
 } from "./journey";
+import {
+  completeMilestone as completeMilestoneState,
+  milestonesWithCompletion,
+  type MilestoneView,
+} from "./milestones";
 import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
 import type {
   AppState,
@@ -84,6 +89,8 @@ type Action =
   | { type: "setTodayReflectionResult"; result: ReflectionResult; today: string; now: Date }
   | { type: "acknowledgeLevelUp" }
   | { type: "selectJourneyCosmetic"; id: string }
+  | { type: "completeMilestone"; id: string }
+  | { type: "acknowledgeMilestoneCelebration" }
   | { type: "reset"; state: AppState };
 
 /** Canonical count of today's completions that still map to a current task. */
@@ -416,6 +423,19 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case "acknowledgeLevelUp":
       return { ...state, journey: acknowledgeLevel(state.journey) };
+    case "completeMilestone": {
+      const result = completeMilestoneState({
+        milestones: state.momentumPlan?.milestones ?? [],
+        completedMilestoneIds: state.completedMilestoneIds,
+        journey: state.journey,
+        id: action.id,
+      });
+      if (!result) return state;
+      return { ...state, ...result };
+    }
+    case "acknowledgeMilestoneCelebration":
+      if (state.pendingMilestoneCelebration === null) return state;
+      return { ...state, pendingMilestoneCelebration: null };
     case "selectJourneyCosmetic": {
       const isUnlocked = unlockedCosmetics(state.journey).some(
         (cosmetic) => cosmetic.id === action.id,
@@ -464,6 +484,10 @@ interface StoreContextValue {
   pendingLevelUp: number | null;
   acknowledgeLevelUp: () => void;
   selectJourneyCosmetic: (id: string) => void;
+  momentumMilestones: MilestoneView[];
+  completeMilestone: (id: string) => void;
+  pendingMilestoneCelebration: string | null;
+  acknowledgeMilestoneCelebration: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -700,10 +724,24 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const selectJourneyCosmetic = useCallback((id: string) => {
     dispatch({ type: "selectJourneyCosmetic", id });
   }, []);
+  const completeMilestone = useCallback((id: string) => {
+    dispatch({ type: "completeMilestone", id });
+  }, []);
+  const acknowledgeMilestoneCelebration = useCallback(() => {
+    dispatch({ type: "acknowledgeMilestoneCelebration" });
+  }, []);
 
   const journeyLevel = levelForXp(state.journey.xp);
   const journeyProgress = levelProgress(state.journey.xp);
   const pendingLevelUpValue = pendingLevelUp(state.journey);
+  const momentumMilestones = useMemo<MilestoneView[]>(
+    () =>
+      milestonesWithCompletion(
+        state.momentumPlan?.milestones ?? [],
+        state.completedMilestoneIds,
+      ),
+    [state.momentumPlan, state.completedMilestoneIds],
+  );
 
   const value = useMemo<StoreContextValue>(
     () => ({
@@ -739,6 +777,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       pendingLevelUp: pendingLevelUpValue,
       acknowledgeLevelUp,
       selectJourneyCosmetic,
+      momentumMilestones,
+      completeMilestone,
+      pendingMilestoneCelebration: state.pendingMilestoneCelebration,
+      acknowledgeMilestoneCelebration,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -776,6 +818,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       pendingLevelUpValue,
       acknowledgeLevelUp,
       selectJourneyCosmetic,
+      momentumMilestones,
+      completeMilestone,
+      acknowledgeMilestoneCelebration,
       refreshNotificationPermission,
       requestPermission,
       resetAll,
