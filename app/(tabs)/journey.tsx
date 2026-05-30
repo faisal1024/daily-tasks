@@ -6,6 +6,7 @@ import { StreakPill } from "@/components/daily-tasks/streak-pill";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { JOURNEY_COSMETICS, stageForLevel } from "@/lib/daily-tasks/journey";
+import { pickCelebration } from "@/lib/daily-tasks/milestones";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 
 export default function JourneyScreen() {
@@ -17,12 +18,22 @@ export default function JourneyScreen() {
     pendingLevelUp,
     acknowledgeLevelUp,
     selectJourneyCosmetic,
+    momentumMilestones,
+    completeMilestone,
+    pendingMilestoneCelebration,
+    acknowledgeMilestoneCelebration,
   } = useDailyTasks();
 
   const journey = state.journey;
   const stage = stageForLevel(journeyLevel);
   const ratio = Math.min(Math.max(journeyProgress.ratio, 0), 1);
   const xpToNext = journeyProgress.xpRemaining;
+  const goalTitle = state.momentumProfile.goalTitle;
+  const milestonesDone = momentumMilestones.filter((m) => m.done).length;
+
+  const celebration = pickCelebration({ pendingMilestoneCelebration, pendingLevelUp });
+  const showMilestoneCelebration = celebration === "milestone";
+  const showLevelCelebration = celebration === "level";
 
   return (
     <ScreenContainer>
@@ -80,6 +91,61 @@ export default function JourneyScreen() {
               : "Show up a few days in a row to earn a streak freeze."}
           </Text>
         </View>
+
+        {/* Milestones toward the goal */}
+        {momentumMilestones.length > 0 && (
+          <View className="gap-3">
+            <View className="flex-row items-center justify-between">
+              <Text className="text-base font-semibold text-foreground">
+                {goalTitle ? `Path to ${goalTitle}` : "Your milestones"}
+              </Text>
+              <Text className="text-xs text-muted">
+                {milestonesDone}/{momentumMilestones.length}
+              </Text>
+            </View>
+            {momentumMilestones.map((milestone) => (
+              <View
+                key={milestone.id}
+                className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3"
+              >
+                <View className="flex-1 gap-1">
+                  <Text
+                    className="text-sm font-semibold"
+                    style={{ color: milestone.done ? colors.muted : colors.foreground }}
+                  >
+                    {milestone.title}
+                  </Text>
+                  {milestone.description ? (
+                    <Text className="text-xs text-muted">{milestone.description}</Text>
+                  ) : null}
+                </View>
+                {milestone.done ? (
+                  <View className="flex-row items-center gap-1">
+                    <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                    <Text className="text-xs" style={{ color: colors.success }}>
+                      Done
+                    </Text>
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={() => completeMilestone(milestone.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Mark milestone "${milestone.title}" complete`}
+                    className="rounded-full px-3 py-2"
+                    style={{ backgroundColor: colors.primary }}
+                  >
+                    <Text
+                      className="text-xs font-semibold"
+                      style={{ color: colors.background }}
+                    >
+                      Mark done
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Cosmetics */}
         <View className="gap-3">
@@ -141,11 +207,17 @@ export default function JourneyScreen() {
       </ScrollView>
 
       <ConfettiOverlay
-        visible={pendingLevelUp !== null}
-        onDismiss={acknowledgeLevelUp}
-        emoji={stage.glyph}
-        title={`Level ${pendingLevelUp ?? journeyLevel}!`}
-        subtitle="Your journey is growing. Keep showing up."
+        visible={showMilestoneCelebration || showLevelCelebration}
+        onDismiss={
+          showMilestoneCelebration ? acknowledgeMilestoneCelebration : acknowledgeLevelUp
+        }
+        emoji={showMilestoneCelebration ? "🏆" : stage.glyph}
+        title={showMilestoneCelebration ? "Milestone reached!" : `Level ${pendingLevelUp ?? journeyLevel}!`}
+        subtitle={
+          showMilestoneCelebration
+            ? `You reached: ${pendingMilestoneCelebration}`
+            : "Your journey is growing. Keep showing up."
+        }
       />
     </ScreenContainer>
   );

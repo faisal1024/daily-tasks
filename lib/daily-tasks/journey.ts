@@ -12,6 +12,7 @@
 
 export const XP_PER_TASK = 10;
 export const XP_PERFECT_DAY = 25;
+export const XP_PER_MILESTONE = 100;
 
 export const MAX_SHOWED_UP_FREEZES = 2;
 /** Earn one streak freeze for every N consecutive days shown up. */
@@ -180,6 +181,11 @@ export function awardPerfectDay(journey: Journey, today: string): Journey {
   const day = ensureDay(journey, today);
   if (day.perfectAwarded) return day;
   return { ...day, perfectAwarded: true, xp: day.xp + XP_PERFECT_DAY };
+}
+
+/** Award XP for completing a goal milestone. */
+export function awardMilestone(journey: Journey): Journey {
+  return { ...journey, xp: journey.xp + XP_PER_MILESTONE };
 }
 
 /** Returns the new level to celebrate, or null if nothing new to celebrate. */

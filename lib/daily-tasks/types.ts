@@ -146,6 +146,11 @@ export interface AppState {
   momentumPlanStatus: "idle" | "loading" | "ready" | "error";
   momentumPlanError: string | null;
   adaptationSnapshot: AdaptationSnapshot | null;
+  // Milestone ids the user has completed. Kept separate from the (regenerated)
+  // plan so completion survives daily plan rebuilds.
+  completedMilestoneIds: string[];
+  // Title of a just-completed milestone awaiting a celebration, or null.
+  pendingMilestoneCelebration: string | null;
   journey: Journey;
 }
 

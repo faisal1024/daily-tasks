@@ -39,6 +39,8 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     momentumPlanStatus: "idle",
     momentumPlanError: null,
     adaptationSnapshot: null,
+    completedMilestoneIds: [],
+    pendingMilestoneCelebration: null,
     journey: DEFAULT_JOURNEY,
     ...overrides,
   };

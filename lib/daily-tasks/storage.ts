@@ -404,6 +404,13 @@ function normalizeState(value: unknown): AppState | null {
     momentumPlanError:
       typeof value.momentumPlanError === "string" ? value.momentumPlanError : null,
     adaptationSnapshot: normalizeAdaptationSnapshot(value.adaptationSnapshot),
+    completedMilestoneIds: Array.isArray(value.completedMilestoneIds)
+      ? value.completedMilestoneIds.filter((id): id is string => typeof id === "string")
+      : [],
+    pendingMilestoneCelebration:
+      typeof value.pendingMilestoneCelebration === "string"
+        ? value.pendingMilestoneCelebration
+        : null,
     journey: normalizeJourney(value.journey),
   };
 }
@@ -446,6 +453,8 @@ export function buildInitialState(now: Date = new Date()): AppState {
     momentumPlanStatus: "idle",
     momentumPlanError: null,
     adaptationSnapshot: null,
+    completedMilestoneIds: [],
+    pendingMilestoneCelebration: null,
     journey: DEFAULT_JOURNEY,
   };
 }
