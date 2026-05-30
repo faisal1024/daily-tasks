@@ -17,6 +17,7 @@ import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TimeStepper } from "@/components/daily-tasks/time-stepper";
 import { useColors } from "@/hooks/use-colors";
+import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type {
   NotificationKey,
@@ -434,10 +435,15 @@ export default function SettingsScreen() {
             {(Object.keys(NOTIFICATION_LABELS) as NotificationKey[]).map(
               (key) => {
                 const meta = NOTIFICATION_LABELS[key];
+                // Hourly mode supersedes the spaced progress/evening nudges.
+                const pausedByHourly =
+                  state.notifications.hourly &&
+                  (key === "progress" || key === "evening");
                 return (
                   <View
                     key={key}
                     className="bg-surface rounded-2xl p-4 border border-border"
+                    style={{ opacity: pausedByHourly ? 0.5 : 1 }}
                   >
                     <View className="flex-row items-center justify-between gap-4">
                       <View className="flex-1">
@@ -448,7 +454,9 @@ export default function SettingsScreen() {
                           className="text-xs mt-1"
                           style={{ color: colors.muted }}
                         >
-                          {meta.subtitle}
+                          {pausedByHourly
+                            ? "Paused while Every hour is on."
+                            : meta.subtitle}
                         </Text>
                       </View>
                       <Switch
@@ -456,6 +464,7 @@ export default function SettingsScreen() {
                         onValueChange={(value) =>
                           void handleReminderEnabled(key, value)
                         }
+                        disabled={pausedByHourly}
                         trackColor={{ true: colors.primary }}
                       />
                     </View>
@@ -511,7 +520,7 @@ export default function SettingsScreen() {
           className="text-xs text-center mt-2"
           style={{ color: colors.muted }}
         >
-          Daily Tasks · v1.0.0
+          Daily Tasks · v{getCurrentVersion()}
         </Text>
       </ScrollView>
       </KeyboardAvoidingView>
