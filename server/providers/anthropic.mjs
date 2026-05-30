@@ -11,8 +11,9 @@ import { PLAN_TOOL_DESCRIPTION, PLAN_TOOL_NAME } from "./plan-contract.mjs";
 export const id = "anthropic";
 
 // Override with ANTHROPIC_MODEL. Per the master plan: a stronger model for the
-// one-time plan, a cheaper one (e.g. Haiku) once a separate /daily endpoint exists.
-const DEFAULT_MODEL = "claude-sonnet-4-5";
+// one-time plan, a cheaper one (e.g. claude-haiku-4-5) once a separate /daily
+// endpoint exists.
+const DEFAULT_MODEL = "claude-sonnet-4-6";
 
 function model() {
   return process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;

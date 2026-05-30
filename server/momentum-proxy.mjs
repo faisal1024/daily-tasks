@@ -9,7 +9,10 @@
 //
 // Adding a provider does not touch this file — see server/providers/index.mjs.
 
+import { readFileSync } from "node:fs";
 import http from "node:http";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   RESPONSE_SCHEMA,
@@ -19,6 +22,39 @@ import {
   validatePayload,
 } from "./providers/plan-contract.mjs";
 import { DEFAULT_PROVIDER_ID, getProvider } from "./providers/index.mjs";
+
+// Dependency-free local env loading: read .env.local then .env from the repo
+// root, without overriding variables already set in the shell. Lets
+// `pnpm ai:proxy` pick up local secrets without a dotenv dependency.
+function loadLocalEnv() {
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  for (const file of [".env.local", ".env"]) {
+    let contents;
+    try {
+      contents = readFileSync(resolve(root, file), "utf8");
+    } catch {
+      continue; // file not present — fine
+    }
+    for (const rawLine of contents.split("\n")) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const eq = line.indexOf("=");
+      if (eq === -1) continue;
+      const key = line.slice(0, eq).trim();
+      if (process.env[key]) continue; // a non-empty shell value wins; blank/unset → file applies
+      let value = line.slice(eq + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      process.env[key] = value;
+    }
+  }
+}
+
+loadLocalEnv();
 
 const PORT = Number(process.env.PORT ?? 8787);
 const PROVIDER_NAME = process.env.MOMENTUM_AI_PROVIDER ?? DEFAULT_PROVIDER_ID;
