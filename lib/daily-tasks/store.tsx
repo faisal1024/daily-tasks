@@ -38,6 +38,7 @@ import {
   levelForXp,
   levelProgress,
   pendingLevelUp,
+  unlockedCosmetics,
   type LevelProgress,
 } from "./journey";
 import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
@@ -82,6 +83,7 @@ type Action =
   | { type: "setTodayReflection"; text: string; today: string }
   | { type: "setTodayReflectionResult"; result: ReflectionResult; today: string; now: Date }
   | { type: "acknowledgeLevelUp" }
+  | { type: "selectJourneyCosmetic"; id: string }
   | { type: "reset"; state: AppState };
 
 /** Canonical count of today's completions that still map to a current task. */
@@ -414,6 +416,13 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case "acknowledgeLevelUp":
       return { ...state, journey: acknowledgeLevel(state.journey) };
+    case "selectJourneyCosmetic": {
+      const isUnlocked = unlockedCosmetics(state.journey).some(
+        (cosmetic) => cosmetic.id === action.id,
+      );
+      if (!isUnlocked || state.journey.selectedCosmeticId === action.id) return state;
+      return { ...state, journey: { ...state.journey, selectedCosmeticId: action.id } };
+    }
     case "reset":
       return action.state;
   }
@@ -454,6 +463,7 @@ interface StoreContextValue {
   journeyProgress: LevelProgress;
   pendingLevelUp: number | null;
   acknowledgeLevelUp: () => void;
+  selectJourneyCosmetic: (id: string) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -687,6 +697,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const acknowledgeLevelUp = useCallback(() => {
     dispatch({ type: "acknowledgeLevelUp" });
   }, []);
+  const selectJourneyCosmetic = useCallback((id: string) => {
+    dispatch({ type: "selectJourneyCosmetic", id });
+  }, []);
 
   const journeyLevel = levelForXp(state.journey.xp);
   const journeyProgress = levelProgress(state.journey.xp);
@@ -725,6 +738,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       journeyProgress,
       pendingLevelUp: pendingLevelUpValue,
       acknowledgeLevelUp,
+      selectJourneyCosmetic,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -761,6 +775,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       journeyProgress,
       pendingLevelUpValue,
       acknowledgeLevelUp,
+      selectJourneyCosmetic,
       refreshNotificationPermission,
       requestPermission,
       resetAll,

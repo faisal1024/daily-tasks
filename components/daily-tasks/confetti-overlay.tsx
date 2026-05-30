@@ -15,6 +15,9 @@ const DURATION = 3200;
 interface ConfettiOverlayProps {
   visible: boolean;
   onDismiss: () => void;
+  emoji?: string;
+  title?: string;
+  subtitle?: string;
 }
 
 interface Particle {
@@ -88,7 +91,13 @@ function ConfettiPiece({ particle, height }: { particle: Particle; height: numbe
   );
 }
 
-export function ConfettiOverlay({ visible, onDismiss }: ConfettiOverlayProps) {
+export function ConfettiOverlay({
+  visible,
+  onDismiss,
+  emoji = "🎉",
+  title = "All Done!",
+  subtitle = "Three for three. Nice work.",
+}: ConfettiOverlayProps) {
   const { width, height } = Dimensions.get("window");
   const particles = useMemo(() => (visible ? makeParticles(width) : []), [visible, width]);
 
@@ -141,12 +150,12 @@ export function ConfettiOverlay({ visible, onDismiss }: ConfettiOverlayProps) {
               elevation: 8,
             }}
           >
-            <Text style={{ fontSize: 36, marginBottom: 4 }}>🎉</Text>
+            <Text style={{ fontSize: 36, marginBottom: 4 }}>{emoji}</Text>
             <Text style={{ fontSize: 22, fontWeight: "700", color: "#11181C" }}>
-              All Done!
+              {title}
             </Text>
             <Text style={{ fontSize: 13, color: "#687076", marginTop: 4 }}>
-              Three for three. Nice work.
+              {subtitle}
             </Text>
           </View>
         </View>

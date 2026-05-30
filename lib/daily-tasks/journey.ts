@@ -56,10 +56,13 @@ export interface LevelProgress {
 
 // Cosmetic journey visuals, unlocked by level. Surfaced and selected from the
 // Journey tab UI; premium entries are gated behind the (future) entitlement.
+// Labels are deliberately non-plant themes so they don't collide with the
+// growth stages (Seed/Sprout/Sapling/Tree/Grove) shown on the same screen.
+// Ids are stable (persisted in selectedCosmeticId) — only labels are cosmetic.
 export const JOURNEY_COSMETICS: JourneyCosmetic[] = [
-  { id: "sprout", label: "Sprout", unlockLevel: 1, premium: false },
-  { id: "sapling", label: "Sapling", unlockLevel: 2, premium: false },
-  { id: "grove", label: "Grove", unlockLevel: 4, premium: false },
+  { id: "sprout", label: "Meadow", unlockLevel: 1, premium: false },
+  { id: "sapling", label: "Sky", unlockLevel: 2, premium: false },
+  { id: "grove", label: "Forest", unlockLevel: 4, premium: false },
   { id: "dawn", label: "Dawn", unlockLevel: 3, premium: true },
   { id: "aurora", label: "Aurora", unlockLevel: 6, premium: true },
 ];
@@ -200,4 +203,27 @@ export function unlockedCosmetics(
   return JOURNEY_COSMETICS.filter(
     (cosmetic) => cosmetic.unlockLevel <= level && (premium || !cosmetic.premium),
   );
+}
+
+export interface JourneyStage {
+  minLevel: number;
+  label: string;
+  glyph: string;
+}
+
+// The growth visual that advances as the user levels up.
+export const JOURNEY_STAGES: JourneyStage[] = [
+  { minLevel: 1, label: "Seed", glyph: "🌱" },
+  { minLevel: 2, label: "Sprout", glyph: "🌿" },
+  { minLevel: 4, label: "Sapling", glyph: "🪴" },
+  { minLevel: 6, label: "Tree", glyph: "🌳" },
+  { minLevel: 9, label: "Grove", glyph: "🌲" },
+];
+
+export function stageForLevel(level: number): JourneyStage {
+  let stage = JOURNEY_STAGES[0];
+  for (const candidate of JOURNEY_STAGES) {
+    if (level >= candidate.minLevel) stage = candidate;
+  }
+  return stage;
 }

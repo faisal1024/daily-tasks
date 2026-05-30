@@ -11,6 +11,7 @@ import {
   levelProgress,
   pendingLevelUp,
   registerShowedUp,
+  stageForLevel,
   unlockedCosmetics,
   xpForLevel,
   XP_PERFECT_DAY,
@@ -148,6 +149,18 @@ describe("level-up celebration", () => {
     const acked = acknowledgeLevel(journey);
     expect(acked.lastCelebratedLevel).toBe(2);
     expect(pendingLevelUp(acked)).toBeNull();
+  });
+});
+
+describe("growth stage", () => {
+  it("advances the visual as the level climbs and never regresses below seed", () => {
+    expect(stageForLevel(1).label).toBe("Seed");
+    expect(stageForLevel(2).label).toBe("Sprout");
+    expect(stageForLevel(5).label).toBe("Sapling");
+    expect(stageForLevel(8).label).toBe("Tree");
+    expect(stageForLevel(20).label).toBe("Grove");
+    // below the first threshold still resolves to the first stage
+    expect(stageForLevel(0).label).toBe("Seed");
   });
 });
 
