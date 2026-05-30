@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_JOURNEY,
+  FREEZE_EARN_EVERY,
+  MAX_SHOWED_UP_FREEZES,
   acknowledgeLevel,
-  awardMilestone,
   awardPerfectDay,
   awardTaskCompletion,
   levelForXp,
@@ -14,7 +15,6 @@ import {
   unlockedCosmetics,
   xpForLevel,
   XP_PERFECT_DAY,
-  XP_PER_MILESTONE,
   XP_PER_TASK,
   type Journey,
 } from "../lib/daily-tasks/journey";
@@ -43,7 +43,8 @@ describe("level math", () => {
     const progress = levelProgress(125); // level 2 (base 50, next 200)
     expect(progress.level).toBe(2);
     expect(progress.xpIntoLevel).toBe(75);
-    expect(progress.xpForNextLevel).toBe(150);
+    expect(progress.xpSpanForLevel).toBe(150);
+    expect(progress.xpRemaining).toBe(75);
     expect(progress.ratio).toBeCloseTo(0.5, 5);
   });
 });
@@ -73,10 +74,6 @@ describe("task + perfect-day XP", () => {
     expect(journey.xp).toBe(XP_PERFECT_DAY);
     journey = awardPerfectDay(journey, "2026-05-30");
     expect(journey.xp).toBe(XP_PERFECT_DAY);
-  });
-
-  it("awards milestone XP", () => {
-    expect(awardMilestone(base()).xp).toBe(XP_PER_MILESTONE);
   });
 });
 
@@ -108,6 +105,40 @@ describe("showed-up streak", () => {
     let journey = registerShowedUp(base({ showedUpFreezes: 0 }), "2026-05-30");
     journey = registerShowedUp(journey, "2026-06-05");
     expect(journey.showedUpStreak).toBe(1);
+  });
+
+  it("absorbs a multi-day gap when enough freezes are banked", () => {
+    let journey = registerShowedUp(base({ showedUpFreezes: 2 }), "2026-06-01");
+    // return on the 4th: missed the 2nd and 3rd (2 days), 2 freezes available
+    journey = registerShowedUp(journey, "2026-06-04");
+    expect(journey.showedUpStreak).toBe(2);
+    expect(journey.showedUpFreezes).toBe(0);
+  });
+
+  it(`earns a freeze every ${FREEZE_EARN_EVERY} days, capped at ${MAX_SHOWED_UP_FREEZES}`, () => {
+    const days = [
+      "2026-06-01",
+      "2026-06-02",
+      "2026-06-03",
+      "2026-06-04",
+      "2026-06-05",
+      "2026-06-06",
+      "2026-06-07",
+    ];
+    let journey = base({ showedUpFreezes: 1 });
+    for (const day of days) journey = registerShowedUp(journey, day);
+    expect(journey.showedUpStreak).toBe(7);
+    expect(journey.longestShowedUpStreak).toBe(7);
+    // started with 1, earned 1 at the 7-day mark, capped at MAX
+    expect(journey.showedUpFreezes).toBe(Math.min(MAX_SHOWED_UP_FREEZES, 2));
+  });
+
+  it("ignores a backwards date (clock skew / replay)", () => {
+    let journey = registerShowedUp(base(), "2026-06-05");
+    const before = journey;
+    journey = registerShowedUp(journey, "2026-06-01");
+    expect(journey.showedUpStreak).toBe(before.showedUpStreak);
+    expect(journey.lastShowedUpDate).toBe("2026-06-05");
   });
 });
 

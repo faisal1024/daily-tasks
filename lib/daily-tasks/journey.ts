@@ -12,7 +12,6 @@
 
 export const XP_PER_TASK = 10;
 export const XP_PERFECT_DAY = 25;
-export const XP_PER_MILESTONE = 100;
 
 export const MAX_SHOWED_UP_FREEZES = 2;
 /** Earn one streak freeze for every N consecutive days shown up. */
@@ -46,11 +45,17 @@ export interface Journey {
 
 export interface LevelProgress {
   level: number;
+  /** XP earned since the start of the current level. */
   xpIntoLevel: number;
-  xpForNextLevel: number;
+  /** Total XP between the current level's start and the next level's start. */
+  xpSpanForLevel: number;
+  /** XP still needed to reach the next level. */
+  xpRemaining: number;
   ratio: number;
 }
 
+// Cosmetic journey visuals, unlocked by level. Surfaced and selected from the
+// Journey tab UI; premium entries are gated behind the (future) entitlement.
 export const JOURNEY_COSMETICS: JourneyCosmetic[] = [
   { id: "sprout", label: "Sprout", unlockLevel: 1, premium: false },
   { id: "sapling", label: "Sapling", unlockLevel: 2, premium: false },
@@ -89,11 +94,13 @@ export function levelProgress(xp: number): LevelProgress {
   const base = xpForLevel(level);
   const next = xpForLevel(level + 1);
   const span = next - base;
+  const into = safe - base;
   return {
     level,
-    xpIntoLevel: safe - base,
-    xpForNextLevel: span,
-    ratio: span === 0 ? 0 : (safe - base) / span,
+    xpIntoLevel: into,
+    xpSpanForLevel: span,
+    xpRemaining: Math.max(0, span - into),
+    ratio: span === 0 ? 0 : into / span,
   };
 }
 
@@ -170,11 +177,6 @@ export function awardPerfectDay(journey: Journey, today: string): Journey {
   const day = ensureDay(journey, today);
   if (day.perfectAwarded) return day;
   return { ...day, perfectAwarded: true, xp: day.xp + XP_PERFECT_DAY };
-}
-
-/** Award XP for finishing a goal milestone. */
-export function awardMilestone(journey: Journey): Journey {
-  return { ...journey, xp: journey.xp + XP_PER_MILESTONE };
 }
 
 /** Returns the new level to celebrate, or null if nothing new to celebrate. */

@@ -86,6 +86,18 @@ type Action =
   | { type: "selectJourneyCosmetic"; id: string }
   | { type: "reset"; state: AppState };
 
+/** Canonical count of today's completions that still map to a current task. */
+function countCompleted(state: AppState): number {
+  return state.todayCompletions.filter((id) =>
+    state.tasks.some((task) => task.id === id),
+  ).length;
+}
+
+/** A "perfect day" is having at least one task and completing all of them. */
+function isPerfectDay(state: AppState): boolean {
+  return state.tasks.length > 0 && countCompleted(state) === state.tasks.length;
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "hydrate":
@@ -181,13 +193,14 @@ function reducer(state: AppState, action: Action): AppState {
         ? state.todayCompletions.filter((id) => id !== action.id)
         : [...state.todayCompletions, action.id];
 
+      const nextTasks = state.tasks.map((task) =>
+        task.id === action.id && !isCompleted ? { ...task, carriedOver: false } : task,
+      );
+
       let journey = state.journey;
       if (!isCompleted) {
         journey = awardTaskCompletion(journey, action.id, action.today);
-        const completedCount = todayCompletions.filter((id) =>
-          state.tasks.some((task) => task.id === id),
-        ).length;
-        if (state.tasks.length > 0 && completedCount === state.tasks.length) {
+        if (isPerfectDay({ ...state, tasks: nextTasks, todayCompletions })) {
           journey = awardPerfectDay(journey, action.today);
         }
       }
@@ -197,9 +210,7 @@ function reducer(state: AppState, action: Action): AppState {
           ...state,
           todayCompletions,
           journey,
-          tasks: state.tasks.map((task) =>
-            task.id === action.id && !isCompleted ? { ...task, carriedOver: false } : task,
-          ),
+          tasks: nextTasks,
         },
         action.today,
       );
@@ -505,9 +516,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     return status;
   }, []);
 
-  const completedCount = state.todayCompletions.filter((id) =>
-    state.tasks.some((task) => task.id === id),
-  ).length;
+  const completedCount = countCompleted(state);
   const remainingSlots = Math.max(0, MAX_TASKS - state.tasks.length);
 
   useEffect(() => {
