@@ -11,6 +11,7 @@
 
 import http from "node:http";
 
+import { loadLocalEnv } from "./load-env.mjs";
 import {
   RESPONSE_SCHEMA,
   SYSTEM_PROMPT,
@@ -19,6 +20,9 @@ import {
   validatePayload,
 } from "./providers/plan-contract.mjs";
 import { DEFAULT_PROVIDER_ID, getProvider } from "./providers/index.mjs";
+
+// Pick up .env.local / .env for local dev before reading any config.
+loadLocalEnv();
 
 const PORT = Number(process.env.PORT ?? 8787);
 const PROVIDER_NAME = process.env.MOMENTUM_AI_PROVIDER ?? DEFAULT_PROVIDER_ID;

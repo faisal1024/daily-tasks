@@ -19,7 +19,9 @@ import {
 import { shouldAutoLockToday } from "./locking";
 import {
   buildFallbackMomentumPlan,
-  requestOpenAiMomentumPlan,
+  getMomentumAiProxyUrl,
+  nextAiPlanFetchKey,
+  requestMomentumAiPlan,
 } from "./momentum-ai";
 import {
   buildAdaptationSnapshot,
@@ -700,7 +702,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "requestMomentumPlanStarted" });
     const now = new Date();
     try {
-      const plan = await requestOpenAiMomentumPlan({
+      const plan = await requestMomentumAiPlan({
         profile: state.momentumProfile,
         history: state.history,
         settings: state.momentumSettings,
@@ -715,6 +717,26 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       });
     }
   }, [state.history, state.momentumProfile, state.momentumSettings]);
+
+  // Auto-generate the AI plan once per (day + goal) when a proxy URL is
+  // configured. No URL → this is a no-op and the app stays on the local
+  // template plan. Failures fall back to the template via requestMomentumPlan.
+  const lastAiPlanFetch = useRef<string | null>(null);
+  useEffect(() => {
+    const key = nextAiPlanFetchKey({
+      ready,
+      proxyUrl: getMomentumAiProxyUrl(),
+      profileComplete: isMomentumProfileComplete(state.momentumProfile),
+      status: state.momentumPlanStatus,
+      today,
+      goalTitle: state.momentumProfile.goalTitle,
+      lastFetchedKey: lastAiPlanFetch.current,
+    });
+    if (!key) return;
+    lastAiPlanFetch.current = key;
+    void requestMomentumPlan();
+  }, [ready, today, state.momentumProfile, state.momentumPlanStatus, requestMomentumPlan]);
+
   const setMomentumSetting = useCallback(
     <K extends keyof AppState["momentumSettings"]>(
       key: K,

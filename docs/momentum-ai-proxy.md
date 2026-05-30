@@ -17,25 +17,61 @@ MOMENTUM_AI_PROVIDER=anthropic   # Claude
 The app does not change and does not need rebuilding to switch providers — the
 choice is entirely server-side.
 
-## Local Setup
+## Local Setup (Claude)
 
-1. Copy `.env.example` to `.env`.
-2. Choose a provider with `MOMENTUM_AI_PROVIDER` and set that provider's key:
-   - OpenAI → `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`)
-   - Anthropic → `ANTHROPIC_API_KEY` (and optionally `ANTHROPIC_MODEL`)
-3. Start the proxy (it prints the active provider + model on boot):
+1. Copy `.env.example` to **`.env.local`** (gitignored — never commit a real key).
+2. Set:
+
+   ```sh
+   MOMENTUM_AI_PROVIDER=anthropic
+   ANTHROPIC_API_KEY=sk-ant-...
+   ANTHROPIC_MODEL=claude-sonnet-4-6        # cheap/fast: claude-haiku-4-5
+   EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL=http://localhost:8787/api/momentum/plan
+   ```
+
+3. Start the proxy (auto-loads `.env.local`; prints the active provider + model):
+
+   ```sh
+   pnpm ai:proxy
+   # → Momentum AI proxy listening on http://localhost:8787/... (provider: anthropic:claude-sonnet-4-6)
+   ```
+
+4. Start Expo (it also reads `.env.local`, so the proxy URL is picked up):
+
+   ```sh
+   pnpm ios
+   ```
+
+   For a physical iPhone, replace `localhost` with your Mac's LAN IP in `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL`.
+
+Once the proxy URL is set, the app **auto-generates the plan with AI** (once per
+day per goal) and also on demand via Settings → "Refresh with AI". With no proxy
+URL configured, the app silently uses the local template plan.
+
+### Smoke test without the app
 
 ```sh
-pnpm ai:proxy
+curl -s -X POST http://localhost:8787/api/momentum/plan \
+  -H "Content-Type: application/json" \
+  -d '{"profile":{"goalTitle":"Run a 5K","timeAvailability":"30_min","experienceLevel":"beginner","struggleType":"consistency"},
+       "settings":{"adaptivePlanning":true,"eveningReflection":true,"suggestionTone":"calm"},
+       "recentPerformance":{"daysReviewed":0,"completed":0,"total":0,"missed":0,"completionRate":1}}'
 ```
 
-4. Start Expo with the proxy URL exposed to the app:
+## Deploying to production
 
-```sh
-EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL=http://localhost:8787/api/momentum/plan pnpm ios
-```
+The proxy is a single stateless Node HTTP server. Any host works; set the same
+env vars there and store the key in the host's secret manager.
 
-For a physical iPhone, replace `localhost` with your Mac's local network IP.
+1. Deploy `server/` (entry: `server/momentum-proxy.mjs`, Node 18+).
+   - **Render / Railway / Fly / a small VM:** run `node server/momentum-proxy.mjs`.
+   - **Vercel/Cloudflare:** wrap the same handler in their function entrypoint
+     (the request/response logic is standard `node:http`).
+2. Set env in the host (NOT in the repo): `MOMENTUM_AI_PROVIDER=anthropic`,
+   `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `CORS_ORIGIN=<app origin>`,
+   `PROXY_SHARED_SECRET=<random>`, `RATE_LIMIT_PER_MIN` (optional, default 30).
+3. Point the app build at it: set `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL` to the
+   deployed HTTPS URL (e.g. in EAS build env), then build.
 
 ## Architecture
 
