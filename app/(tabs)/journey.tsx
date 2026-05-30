@@ -6,6 +6,7 @@ import { StreakPill } from "@/components/daily-tasks/streak-pill";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import { JOURNEY_COSMETICS, stageForLevel } from "@/lib/daily-tasks/journey";
+import { pickCelebration } from "@/lib/daily-tasks/milestones";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 
 export default function JourneyScreen() {
@@ -30,10 +31,9 @@ export default function JourneyScreen() {
   const goalTitle = state.momentumProfile.goalTitle;
   const milestonesDone = momentumMilestones.filter((m) => m.done).length;
 
-  // Milestone celebration takes priority; a level-up (which a milestone's XP can
-  // trigger) shows next once the milestone celebration is dismissed.
-  const showMilestoneCelebration = pendingMilestoneCelebration !== null;
-  const showLevelCelebration = !showMilestoneCelebration && pendingLevelUp !== null;
+  const celebration = pickCelebration({ pendingMilestoneCelebration, pendingLevelUp });
+  const showMilestoneCelebration = celebration === "milestone";
+  const showLevelCelebration = celebration === "level";
 
   return (
     <ScreenContainer>

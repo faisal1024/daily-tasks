@@ -18,6 +18,21 @@ export function milestonesWithCompletion(
   }));
 }
 
+export type CelebrationKind = "milestone" | "level" | null;
+
+/**
+ * Which celebration to show next. Milestone takes priority; a level-up (which a
+ * milestone's XP can trigger) sequences in once the milestone is acknowledged.
+ */
+export function pickCelebration(params: {
+  pendingMilestoneCelebration: string | null;
+  pendingLevelUp: number | null;
+}): CelebrationKind {
+  if (params.pendingMilestoneCelebration !== null) return "milestone";
+  if (params.pendingLevelUp !== null) return "level";
+  return null;
+}
+
 export interface MilestoneCompletion {
   completedMilestoneIds: string[];
   journey: Journey;

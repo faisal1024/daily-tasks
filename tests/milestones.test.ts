@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_JOURNEY, XP_PER_MILESTONE } from "../lib/daily-tasks/journey";
-import { completeMilestone, milestonesWithCompletion } from "../lib/daily-tasks/milestones";
+import {
+  completeMilestone,
+  milestonesWithCompletion,
+  pickCelebration,
+} from "../lib/daily-tasks/milestones";
 import type { MomentumMilestone } from "../lib/daily-tasks/types";
 
 function milestone(id: string, completedAt: string | null = null): MomentumMilestone {
@@ -59,6 +63,20 @@ describe("completeMilestone", () => {
         journey: DEFAULT_JOURNEY,
         id: "does-not-exist",
       }),
+    ).toBeNull();
+  });
+});
+
+describe("pickCelebration", () => {
+  it("prioritizes a milestone, then a level-up, then nothing", () => {
+    expect(
+      pickCelebration({ pendingMilestoneCelebration: "Start small", pendingLevelUp: 3 }),
+    ).toBe("milestone");
+    expect(
+      pickCelebration({ pendingMilestoneCelebration: null, pendingLevelUp: 3 }),
+    ).toBe("level");
+    expect(
+      pickCelebration({ pendingMilestoneCelebration: null, pendingLevelUp: null }),
     ).toBeNull();
   });
 });

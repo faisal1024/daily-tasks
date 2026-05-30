@@ -105,6 +105,18 @@ function isPerfectDay(state: AppState): boolean {
   return state.tasks.length > 0 && countCompleted(state) === state.tasks.length;
 }
 
+/**
+ * When the goal changes, milestone completion (tracked by goal-independent ids)
+ * must reset so the new goal's path doesn't render as already done.
+ */
+function resetMilestonesIfGoalChanged(
+  state: AppState,
+  nextGoalTitle: string | null,
+): Partial<AppState> {
+  if (nextGoalTitle === state.momentumProfile.goalTitle) return {};
+  return { completedMilestoneIds: [], pendingMilestoneCelebration: null };
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "hydrate":
@@ -299,6 +311,8 @@ function reducer(state: AppState, action: Action): AppState {
           ...state,
           hasSeenOnboarding: true,
           momentumProfile,
+          // A new/changed goal starts a fresh milestone path.
+          ...resetMilestonesIfGoalChanged(state, action.profile.goalTitle),
           momentumPlan: buildMomentumPlan({
             profile: momentumProfile,
             history: state.history,
@@ -317,6 +331,8 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         momentumProfile: action.profile,
+        // Switching goals must not carry milestone completion across goals.
+        ...resetMilestonesIfGoalChanged(state, action.profile.goalTitle),
         momentumPlan: buildMomentumPlan({
           profile: action.profile,
           history: state.history,
