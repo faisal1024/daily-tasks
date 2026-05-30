@@ -12,7 +12,10 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL": "https://momentum-ai-proxy.onrender.com/api/momentum/plan"
+      }
     }
   },
   "submit": {
