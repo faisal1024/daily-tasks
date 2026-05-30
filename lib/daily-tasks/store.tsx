@@ -31,6 +31,15 @@ import {
   resolvePendingRollover,
   syncTodayHistory,
 } from "./rollover";
+import {
+  acknowledgeLevel,
+  awardPerfectDay,
+  awardTaskCompletion,
+  levelForXp,
+  levelProgress,
+  pendingLevelUp,
+  type LevelProgress,
+} from "./journey";
 import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
 import type {
   AppState,
@@ -72,6 +81,7 @@ type Action =
     }
   | { type: "setTodayReflection"; text: string; today: string }
   | { type: "setTodayReflectionResult"; result: ReflectionResult; today: string; now: Date }
+  | { type: "acknowledgeLevelUp" }
   | { type: "reset"; state: AppState };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -168,10 +178,23 @@ function reducer(state: AppState, action: Action): AppState {
       const todayCompletions = isCompleted
         ? state.todayCompletions.filter((id) => id !== action.id)
         : [...state.todayCompletions, action.id];
+
+      let journey = state.journey;
+      if (!isCompleted) {
+        journey = awardTaskCompletion(journey, action.id, action.today);
+        const completedCount = todayCompletions.filter((id) =>
+          state.tasks.some((task) => task.id === id),
+        ).length;
+        if (state.tasks.length > 0 && completedCount === state.tasks.length) {
+          journey = awardPerfectDay(journey, action.today);
+        }
+      }
+
       return syncTodayHistory(
         {
           ...state,
           todayCompletions,
+          journey,
           tasks: state.tasks.map((task) =>
             task.id === action.id && !isCompleted ? { ...task, carriedOver: false } : task,
           ),
@@ -378,6 +401,8 @@ function reducer(state: AppState, action: Action): AppState {
         action.today,
       );
     }
+    case "acknowledgeLevelUp":
+      return { ...state, journey: acknowledgeLevel(state.journey) };
     case "reset":
       return action.state;
   }
@@ -414,6 +439,10 @@ interface StoreContextValue {
   ) => void;
   setTodayReflection: (text: string) => void;
   setTodayReflectionResult: (result: ReflectionResult) => void;
+  journeyLevel: number;
+  journeyProgress: LevelProgress;
+  pendingLevelUp: number | null;
+  acknowledgeLevelUp: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -646,6 +675,13 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     await clearState();
     dispatch({ type: "reset", state: buildInitialState() });
   }, []);
+  const acknowledgeLevelUp = useCallback(() => {
+    dispatch({ type: "acknowledgeLevelUp" });
+  }, []);
+
+  const journeyLevel = levelForXp(state.journey.xp);
+  const journeyProgress = levelProgress(state.journey.xp);
+  const pendingLevelUpValue = pendingLevelUp(state.journey);
 
   const value = useMemo<StoreContextValue>(
     () => ({
@@ -676,6 +712,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setMomentumSetting,
       setTodayReflection,
       setTodayReflectionResult,
+      journeyLevel,
+      journeyProgress,
+      pendingLevelUp: pendingLevelUpValue,
+      acknowledgeLevelUp,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -708,6 +748,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setMomentumSetting,
       setTodayReflection,
       setTodayReflectionResult,
+      journeyLevel,
+      journeyProgress,
+      pendingLevelUpValue,
+      acknowledgeLevelUp,
       refreshNotificationPermission,
       requestPermission,
       resetAll,
