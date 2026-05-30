@@ -199,3 +199,26 @@ export function unlockedCosmetics(
     (cosmetic) => cosmetic.unlockLevel <= level && (premium || !cosmetic.premium),
   );
 }
+
+export interface JourneyStage {
+  minLevel: number;
+  label: string;
+  glyph: string;
+}
+
+// The growth visual that advances as the user levels up.
+export const JOURNEY_STAGES: JourneyStage[] = [
+  { minLevel: 1, label: "Seed", glyph: "🌱" },
+  { minLevel: 2, label: "Sprout", glyph: "🌿" },
+  { minLevel: 4, label: "Sapling", glyph: "🪴" },
+  { minLevel: 6, label: "Tree", glyph: "🌳" },
+  { minLevel: 9, label: "Grove", glyph: "🌲" },
+];
+
+export function stageForLevel(level: number): JourneyStage {
+  let stage = JOURNEY_STAGES[0];
+  for (const candidate of JOURNEY_STAGES) {
+    if (level >= candidate.minLevel) stage = candidate;
+  }
+  return stage;
+}
