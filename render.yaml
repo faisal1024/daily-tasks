@@ -6,6 +6,11 @@ services:
     name: momentum-ai-proxy
     runtime: node
     plan: free
+    # The proxy is intentionally dependency-free (Node builtins + global fetch),
+    # so we skip install entirely. If the proxy ever gains a runtime npm
+    # dependency, change this to install it (e.g. give server/ its own
+    # package.json and run `npm ci` there) — otherwise the deploy will fail at
+    # runtime with a module-not-found.
     buildCommand: "echo no build needed"
     startCommand: node server/momentum-proxy.mjs
     healthCheckPath: /health
