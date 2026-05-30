@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { compareVersions, evaluateUpdate, parseVersion } from "../lib/daily-tasks/version";
+import {
+  compareVersions,
+  evaluateUpdate,
+  parseItunesLookup,
+  parseManifest,
+  parseVersion,
+  sanitizeStoreUrl,
+} from "../lib/daily-tasks/version";
 
 describe("compareVersions", () => {
   it("orders versions segment-wise", () => {
@@ -54,5 +61,59 @@ describe("evaluateUpdate", () => {
         dismissedVersion: "1.1.0",
       }),
     ).not.toBeNull();
+  });
+});
+
+describe("sanitizeStoreUrl", () => {
+  it("accepts only absolute https URLs", () => {
+    expect(sanitizeStoreUrl("https://apps.apple.com/app/id1")).toBe(
+      "https://apps.apple.com/app/id1",
+    );
+  });
+
+  it("rejects dangerous or non-https values", () => {
+    expect(sanitizeStoreUrl("javascript:alert(1)")).toBeNull();
+    expect(sanitizeStoreUrl("file:///etc/passwd")).toBeNull();
+    expect(sanitizeStoreUrl("http://apps.apple.com")).toBeNull();
+    expect(sanitizeStoreUrl("myapp://deeplink")).toBeNull();
+    expect(sanitizeStoreUrl("https://has space.com")).toBeNull();
+    expect(sanitizeStoreUrl(123)).toBeNull();
+    expect(sanitizeStoreUrl(null)).toBeNull();
+  });
+});
+
+describe("parseItunesLookup", () => {
+  it("extracts version + sanitized storeUrl from a lookup response", () => {
+    const data = {
+      resultCount: 1,
+      results: [{ version: "2.0.0", trackViewUrl: "https://apps.apple.com/app/id1" }],
+    };
+    expect(parseItunesLookup(data)).toEqual({
+      version: "2.0.0",
+      storeUrl: "https://apps.apple.com/app/id1",
+    });
+  });
+
+  it("nulls an unsafe trackViewUrl and returns null on empty results", () => {
+    expect(
+      parseItunesLookup({ results: [{ version: "2.0.0", trackViewUrl: "javascript:x" }] }),
+    ).toEqual({ version: "2.0.0", storeUrl: null });
+    expect(parseItunesLookup({ results: [] })).toBeNull();
+    expect(parseItunesLookup({})).toBeNull();
+    expect(parseItunesLookup(null)).toBeNull();
+  });
+});
+
+describe("parseManifest", () => {
+  it("reads a { version, storeUrl } manifest and sanitizes the url", () => {
+    expect(parseManifest({ version: "3.1.0", storeUrl: "https://play.google.com/x" })).toEqual({
+      version: "3.1.0",
+      storeUrl: "https://play.google.com/x",
+    });
+    expect(parseManifest({ version: "3.1.0", storeUrl: "ftp://nope" })).toEqual({
+      version: "3.1.0",
+      storeUrl: null,
+    });
+    expect(parseManifest({ storeUrl: "https://x.com" })).toBeNull();
   });
 });

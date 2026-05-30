@@ -57,9 +57,7 @@ export default function JourneyScreen() {
               />
             </View>
             <Text className="text-xs text-muted text-center">
-              {xpToNext > 0
-                ? `${xpToNext} XP to level ${journeyLevel + 1}`
-                : "Top level reached"}
+              {`${xpToNext} XP to level ${journeyLevel + 1}`}
               {"  ·  "}
               {journey.xp} XP total
             </Text>
@@ -142,7 +140,13 @@ export default function JourneyScreen() {
         </View>
       </ScrollView>
 
-      <ConfettiOverlay visible={pendingLevelUp !== null} onDismiss={acknowledgeLevelUp} />
+      <ConfettiOverlay
+        visible={pendingLevelUp !== null}
+        onDismiss={acknowledgeLevelUp}
+        emoji={stage.glyph}
+        title={`Level ${pendingLevelUp ?? journeyLevel}!`}
+        subtitle="Your journey is growing. Keep showing up."
+      />
     </ScreenContainer>
   );
 }

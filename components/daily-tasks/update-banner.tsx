@@ -13,7 +13,8 @@ export function UpdateBanner({ update, onDismiss }: UpdateBannerProps) {
   const colors = useColors();
 
   const openStore = () => {
-    if (update.storeUrl) {
+    // storeUrl is already sanitized to https upstream; re-check defensively.
+    if (update.storeUrl && /^https:\/\//i.test(update.storeUrl)) {
       Linking.openURL(update.storeUrl).catch(() => {});
     }
     onDismiss();

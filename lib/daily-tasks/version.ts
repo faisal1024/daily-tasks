@@ -13,6 +13,33 @@ export interface UpdateInfo {
   storeUrl: string | null;
 }
 
+/**
+ * Only accept absolute https URLs as a store link. Rejects javascript:, file:,
+ * http:, custom deep-link schemes, and anything with whitespace — the store URL
+ * comes from untrusted remote data (iTunes / a manifest) and is opened with
+ * Linking.openURL, so it must be sanitized before it ever reaches the UI.
+ */
+export function sanitizeStoreUrl(value: unknown): string | null {
+  return typeof value === "string" && /^https:\/\/\S+$/i.test(value) ? value : null;
+}
+
+/** Parse an iTunes Lookup API response into a release (storeUrl sanitized). */
+export function parseItunesLookup(data: unknown): LatestRelease | null {
+  if (!data || typeof data !== "object") return null;
+  const results = (data as { results?: unknown }).results;
+  const first = Array.isArray(results) ? results[0] : null;
+  if (!first || typeof first.version !== "string") return null;
+  return { version: first.version, storeUrl: sanitizeStoreUrl(first.trackViewUrl) };
+}
+
+/** Parse a self-hosted { version, storeUrl } manifest (storeUrl sanitized). */
+export function parseManifest(data: unknown): LatestRelease | null {
+  if (!data || typeof data !== "object") return null;
+  const version = (data as { version?: unknown }).version;
+  if (typeof version !== "string") return null;
+  return { version, storeUrl: sanitizeStoreUrl((data as { storeUrl?: unknown }).storeUrl) };
+}
+
 /** Split a version string into numeric segments ("1.2.0+3" -> [1,2,0,3]). */
 export function parseVersion(value: string): number[] {
   return String(value)

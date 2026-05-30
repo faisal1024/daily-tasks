@@ -13,7 +13,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
-import { evaluateUpdate, type LatestRelease, type UpdateInfo } from "./version";
+import {
+  evaluateUpdate,
+  parseItunesLookup,
+  parseManifest,
+  type LatestRelease,
+  type UpdateInfo,
+} from "./version";
 
 export type { UpdateInfo };
 
@@ -45,12 +51,7 @@ export async function fetchLatestRelease(
     if (manifestUrl) {
       const response = await fetchImpl(manifestUrl);
       if (!response.ok) return null;
-      const data = (await response.json()) as { version?: unknown; storeUrl?: unknown };
-      if (typeof data?.version !== "string") return null;
-      return {
-        version: data.version,
-        storeUrl: typeof data.storeUrl === "string" ? data.storeUrl : null,
-      };
+      return parseManifest(await response.json());
     }
 
     if (Platform.OS === "ios") {
@@ -60,13 +61,7 @@ export async function fetchLatestRelease(
         `https://itunes.apple.com/lookup?bundleId=${encodeURIComponent(bundleId)}`,
       );
       if (!response.ok) return null;
-      const data = (await response.json()) as { results?: { version?: unknown; trackViewUrl?: unknown }[] };
-      const result = Array.isArray(data?.results) ? data.results[0] : null;
-      if (!result || typeof result.version !== "string") return null;
-      return {
-        version: result.version,
-        storeUrl: typeof result.trackViewUrl === "string" ? result.trackViewUrl : null,
-      };
+      return parseItunesLookup(await response.json());
     }
 
     return null;
