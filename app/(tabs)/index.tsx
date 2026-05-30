@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -125,9 +126,14 @@ export default function HomeScreen() {
 
   return (
     <ScreenContainer>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
       <ScrollView
         contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 24 }}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
       >
         {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
 
@@ -305,6 +311,7 @@ export default function HomeScreen() {
           </>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <CelebrationOverlay
         visible={showCelebration}

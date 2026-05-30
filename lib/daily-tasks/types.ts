@@ -118,6 +118,7 @@ export interface NotificationConfig {
   morning: boolean;
   progress: boolean;
   evening: boolean;
+  hourly: boolean;
 }
 
 export interface AutoLockConfig {
@@ -192,6 +193,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationConfig = {
   morning: true,
   progress: true,
   evening: true,
+  hourly: false,
 };
 
 export const DEFAULT_AUTO_LOCK: AutoLockConfig = {

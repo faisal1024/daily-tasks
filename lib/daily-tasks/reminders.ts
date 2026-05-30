@@ -10,6 +10,8 @@ export const REMINDER_HOURS = {
   progressStart: 10,
   progressEnd: 16,
   progressStep: 2,
+  hourlyStart: 8,
+  hourlyEnd: 21,
   eveningStart: 17,
   eveningEnd: 22,
 } as const;
@@ -117,6 +119,16 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
       now,
       "morning",
       range(startHour, REMINDER_HOURS.morningEnd, 1),
+    );
+  }
+
+  // Hourly mode replaces the spaced progress + evening nudges with one every
+  // hour across the day, while tasks remain unfinished.
+  if (settings.hourly) {
+    return collectCandidates(
+      now,
+      "progress",
+      range(REMINDER_HOURS.hourlyStart, REMINDER_HOURS.hourlyEnd, 1),
     );
   }
 

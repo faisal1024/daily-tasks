@@ -80,10 +80,23 @@ export function buildPrompt(payload) {
     `Recent missed tasks: ${payload.recentPerformance.missed}`,
     `Recent reflection: ${payload.recentReflection ?? "none"}`,
     `Recent reflection result: ${payload.recentReflectionResult ?? "none"}`,
+    formatRecentTasks(payload.recentTasks),
     "Return three milestones and exactly three todaySuggestions.",
     "Tasks must be short verb phrases, 64 characters or fewer, specific enough to do today, and sized to the user's time.",
     "If recent completion is weak, make tasks easier. If recent completion is strong, make tasks a gentle step up.",
+    "Build on the user's own recent tasks: lean toward the kinds of tasks they actually completed, and gently reshape or replace ones they repeatedly skipped. Do not just repeat their exact tasks.",
   ].join("\n");
+}
+
+function formatRecentTasks(recentTasks) {
+  if (!Array.isArray(recentTasks) || recentTasks.length === 0) {
+    return "Recent tasks the user chose: none yet";
+  }
+  const lines = recentTasks
+    .slice(0, 12)
+    .map((task) => `- ${task.text} (${task.completed ? "done" : "skipped"})`)
+    .join("\n");
+  return `Recent tasks the user chose (newest first):\n${lines}`;
 }
 
 export function validatePayload(payload) {

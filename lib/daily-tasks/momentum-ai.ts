@@ -1,7 +1,9 @@
 import {
   buildMomentumPlan,
   summarizeRecentPerformance,
+  summarizeRecentTasks,
   validateGeneratedTasks,
+  type RecentTask,
 } from "./momentum";
 import type {
   GeneratedTask,
@@ -35,6 +37,7 @@ export interface AiPlanRequestPayload {
   };
   recentReflection: string | null;
   recentReflectionResult: string | null;
+  recentTasks: RecentTask[];
 }
 
 export function getMomentumAiProxyUrl(): string | null {
@@ -97,6 +100,7 @@ export function buildAiPlanRequestPayload({
     recentPerformance: summarizeRecentPerformance(history, now),
     recentReflection: latestReflection(history, now),
     recentReflectionResult: latestReflectionResult(history, now),
+    recentTasks: summarizeRecentTasks(history, now),
   };
 }
 
