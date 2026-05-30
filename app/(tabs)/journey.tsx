@@ -22,7 +22,7 @@ export default function JourneyScreen() {
   const journey = state.journey;
   const stage = stageForLevel(journeyLevel);
   const ratio = Math.min(Math.max(journeyProgress.ratio, 0), 1);
-  const xpToNext = Math.max(0, journeyProgress.xpForNextLevel - journeyProgress.xpIntoLevel);
+  const xpToNext = journeyProgress.xpRemaining;
 
   return (
     <ScreenContainer>
