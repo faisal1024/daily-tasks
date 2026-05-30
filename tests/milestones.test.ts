@@ -4,6 +4,7 @@ import { DEFAULT_JOURNEY, XP_PER_MILESTONE } from "../lib/daily-tasks/journey";
 import {
   completeMilestone,
   milestonesWithCompletion,
+  nextIncompleteMilestone,
   pickCelebration,
 } from "../lib/daily-tasks/milestones";
 import type { MomentumMilestone } from "../lib/daily-tasks/types";
@@ -64,6 +65,23 @@ describe("completeMilestone", () => {
         id: "does-not-exist",
       }),
     ).toBeNull();
+  });
+});
+
+describe("nextIncompleteMilestone", () => {
+  it("returns the first milestone not yet completed", () => {
+    expect(nextIncompleteMilestone(plan, ["m1"])?.id).toBe("m2");
+    expect(nextIncompleteMilestone(plan, ["m1", "m2"])?.id).toBe("m3");
+  });
+
+  it("skips milestones marked done via completedAt", () => {
+    const withDone = [milestone("m1", "2026-05-30T00:00:00.000Z"), milestone("m2")];
+    expect(nextIncompleteMilestone(withDone, [])?.id).toBe("m2");
+  });
+
+  it("returns null when all milestones are complete", () => {
+    expect(nextIncompleteMilestone(plan, ["m1", "m2", "m3"])).toBeNull();
+    expect(nextIncompleteMilestone([], [])).toBeNull();
   });
 });
 

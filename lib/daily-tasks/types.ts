@@ -133,6 +133,8 @@ export interface AppState {
   todayLocked: boolean;
   todayLockSource: LockSource | null;
   autoLockNoticeDate: string | null;
+  // Date the user manually unlocked; suppresses auto-lock for that day only.
+  manualUnlockDate: string | null;
   pendingRollover: PendingRollover | null;
   history: History;
   notifications: NotificationConfig;

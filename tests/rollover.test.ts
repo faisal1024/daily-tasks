@@ -26,6 +26,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     todayLocked: false,
     todayLockSource: null,
     autoLockNoticeDate: null,
+    manualUnlockDate: null,
     pendingRollover: null,
     history: {},
     notifications: DEFAULT_NOTIFICATIONS,

@@ -1,7 +1,7 @@
 import { ScrollView, Text, View, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { ConfettiOverlay } from "@/components/daily-tasks/confetti-overlay";
+import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { StreakPill } from "@/components/daily-tasks/streak-pill";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
@@ -19,7 +19,6 @@ export default function JourneyScreen() {
     acknowledgeLevelUp,
     selectJourneyCosmetic,
     momentumMilestones,
-    completeMilestone,
     pendingMilestoneCelebration,
     acknowledgeMilestoneCelebration,
   } = useDailyTasks();
@@ -30,6 +29,7 @@ export default function JourneyScreen() {
   const xpToNext = journeyProgress.xpRemaining;
   const goalTitle = state.momentumProfile.goalTitle;
   const milestonesDone = momentumMilestones.filter((m) => m.done).length;
+  const nextMilestoneIndex = momentumMilestones.findIndex((m) => !m.done);
 
   const celebration = pickCelebration({ pendingMilestoneCelebration, pendingLevelUp });
   const showMilestoneCelebration = celebration === "milestone";
@@ -92,7 +92,7 @@ export default function JourneyScreen() {
           </Text>
         </View>
 
-        {/* Milestones toward the goal */}
+        {/* Milestones toward the goal — advance automatically as you finish your days */}
         {momentumMilestones.length > 0 && (
           <View className="gap-3">
             <View className="flex-row items-center justify-between">
@@ -103,47 +103,57 @@ export default function JourneyScreen() {
                 {milestonesDone}/{momentumMilestones.length}
               </Text>
             </View>
-            {momentumMilestones.map((milestone) => (
-              <View
-                key={milestone.id}
-                className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3"
-              >
-                <View className="flex-1 gap-1">
-                  <Text
-                    className="text-sm font-semibold"
-                    style={{ color: milestone.done ? colors.muted : colors.foreground }}
-                  >
-                    {milestone.title}
-                  </Text>
-                  {milestone.description ? (
-                    <Text className="text-xs text-muted">{milestone.description}</Text>
-                  ) : null}
-                </View>
-                {milestone.done ? (
-                  <View className="flex-row items-center gap-1">
-                    <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+            <Text className="text-xs text-muted -mt-1">
+              These advance on their own each day you finish all your tasks.
+            </Text>
+            {momentumMilestones.map((milestone, index) => {
+              const isNext = !milestone.done && index === nextMilestoneIndex;
+              return (
+                <View
+                  key={milestone.id}
+                  className="bg-surface rounded-2xl p-4 border flex-row items-center gap-3"
+                  style={{ borderColor: isNext ? colors.primary : colors.border }}
+                >
+                  <Ionicons
+                    name={
+                      milestone.done
+                        ? "checkmark-circle"
+                        : isNext
+                          ? "ellipse"
+                          : "ellipse-outline"
+                    }
+                    size={20}
+                    color={
+                      milestone.done
+                        ? colors.success
+                        : isNext
+                          ? colors.primary
+                          : colors.muted
+                    }
+                  />
+                  <View className="flex-1 gap-1">
+                    <Text
+                      className="text-sm font-semibold"
+                      style={{ color: milestone.done ? colors.muted : colors.foreground }}
+                    >
+                      {milestone.title}
+                    </Text>
+                    {milestone.description ? (
+                      <Text className="text-xs text-muted">{milestone.description}</Text>
+                    ) : null}
+                  </View>
+                  {milestone.done ? (
                     <Text className="text-xs" style={{ color: colors.success }}>
                       Done
                     </Text>
-                  </View>
-                ) : (
-                  <Pressable
-                    onPress={() => completeMilestone(milestone.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Mark milestone "${milestone.title}" complete`}
-                    className="rounded-full px-3 py-2"
-                    style={{ backgroundColor: colors.primary }}
-                  >
-                    <Text
-                      className="text-xs font-semibold"
-                      style={{ color: colors.background }}
-                    >
-                      Mark done
+                  ) : isNext ? (
+                    <Text className="text-xs" style={{ color: colors.primary }}>
+                      In progress
                     </Text>
-                  </Pressable>
-                )}
-              </View>
-            ))}
+                  ) : null}
+                </View>
+              );
+            })}
           </View>
         )}
 
@@ -206,7 +216,7 @@ export default function JourneyScreen() {
         </View>
       </ScrollView>
 
-      <ConfettiOverlay
+      <CelebrationOverlay
         visible={showMilestoneCelebration || showLevelCelebration}
         onDismiss={
           showMilestoneCelebration ? acknowledgeMilestoneCelebration : acknowledgeLevelUp

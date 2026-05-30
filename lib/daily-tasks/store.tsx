@@ -46,6 +46,7 @@ import {
 import {
   completeMilestone as completeMilestoneState,
   milestonesWithCompletion,
+  nextIncompleteMilestone,
   type MilestoneView,
 } from "./milestones";
 import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
@@ -68,6 +69,7 @@ type Action =
   | { type: "deleteTask"; id: TaskId; today: string }
   | { type: "toggleTask"; id: TaskId; today: string }
   | { type: "lockToday"; today: string }
+  | { type: "unlockToday"; today: string }
   | { type: "autoLockToday"; today: string }
   | { type: "dismissAutoLockNotice"; today: string }
   | { type: "resolveRollover"; carriedTaskIds: TaskId[]; today: string; now: Date }
@@ -91,7 +93,6 @@ type Action =
   | { type: "setTodayReflectionResult"; result: ReflectionResult; today: string; now: Date }
   | { type: "acknowledgeLevelUp" }
   | { type: "selectJourneyCosmetic"; id: string }
-  | { type: "completeMilestone"; id: string }
   | { type: "acknowledgeMilestoneCelebration" }
   | { type: "reset"; state: AppState };
 
@@ -219,10 +220,35 @@ function reducer(state: AppState, action: Action): AppState {
       );
 
       let journey = state.journey;
+      let completedMilestoneIds = state.completedMilestoneIds;
+      let pendingMilestoneCelebration = state.pendingMilestoneCelebration;
       if (!isCompleted) {
         journey = awardTaskCompletion(journey, action.id, action.today);
+        const perfectAlreadyAwarded =
+          state.journey.awardDate === action.today && state.journey.perfectAwarded;
         if (isPerfectDay({ ...state, tasks: nextTasks, todayCompletions })) {
           journey = awardPerfectDay(journey, action.today);
+          // A newly-reached perfect day auto-advances the next milestone on the
+          // goal path (no manual marking needed).
+          if (!perfectAlreadyAwarded) {
+            const nextMilestone = nextIncompleteMilestone(
+              state.momentumPlan?.milestones ?? [],
+              completedMilestoneIds,
+            );
+            if (nextMilestone) {
+              const advanced = completeMilestoneState({
+                milestones: state.momentumPlan?.milestones ?? [],
+                completedMilestoneIds,
+                journey,
+                id: nextMilestone.id,
+              });
+              if (advanced) {
+                completedMilestoneIds = advanced.completedMilestoneIds;
+                journey = advanced.journey;
+                pendingMilestoneCelebration = advanced.pendingMilestoneCelebration;
+              }
+            }
+          }
         }
       }
 
@@ -231,6 +257,8 @@ function reducer(state: AppState, action: Action): AppState {
           ...state,
           todayCompletions,
           journey,
+          completedMilestoneIds,
+          pendingMilestoneCelebration,
           tasks: nextTasks,
         },
         action.today,
@@ -247,8 +275,26 @@ function reducer(state: AppState, action: Action): AppState {
         },
         action.today,
       );
+    case "unlockToday":
+      if (!state.todayLocked) return state;
+      return syncTodayHistory(
+        {
+          ...state,
+          todayLocked: false,
+          todayLockSource: null,
+          autoLockNoticeDate: null,
+          // Don't let auto-lock immediately re-lock the rest of today.
+          manualUnlockDate: action.today,
+        },
+        action.today,
+      );
     case "autoLockToday":
-      if (state.todayLocked || state.tasks.length === 0) return state;
+      if (
+        state.todayLocked ||
+        state.tasks.length === 0 ||
+        state.manualUnlockDate === action.today
+      )
+        return state;
       return syncTodayHistory(
         {
           ...state,
@@ -441,16 +487,6 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case "acknowledgeLevelUp":
       return { ...state, journey: acknowledgeLevel(state.journey) };
-    case "completeMilestone": {
-      const result = completeMilestoneState({
-        milestones: state.momentumPlan?.milestones ?? [],
-        completedMilestoneIds: state.completedMilestoneIds,
-        journey: state.journey,
-        id: action.id,
-      });
-      if (!result) return state;
-      return { ...state, ...result };
-    }
     case "acknowledgeMilestoneCelebration":
       if (state.pendingMilestoneCelebration === null) return state;
       return { ...state, pendingMilestoneCelebration: null };
@@ -480,6 +516,7 @@ interface StoreContextValue {
   deleteTask: (id: TaskId) => void;
   toggleTask: (id: TaskId) => void;
   lockToday: () => void;
+  unlockToday: () => void;
   dismissAutoLockNotice: () => void;
   resolveRollover: (carriedTaskIds: TaskId[]) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
@@ -503,7 +540,6 @@ interface StoreContextValue {
   acknowledgeLevelUp: () => void;
   selectJourneyCosmetic: (id: string) => void;
   momentumMilestones: MilestoneView[];
-  completeMilestone: (id: string) => void;
   pendingMilestoneCelebration: string | null;
   acknowledgeMilestoneCelebration: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
@@ -663,6 +699,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const lockToday = useCallback(() => {
     dispatch({ type: "lockToday", today: todayKey() });
   }, []);
+  const unlockToday = useCallback(() => {
+    dispatch({ type: "unlockToday", today: todayKey() });
+  }, []);
   const dismissAutoLockNotice = useCallback(() => {
     dispatch({ type: "dismissAutoLockNotice", today: todayKey() });
   }, []);
@@ -762,9 +801,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const selectJourneyCosmetic = useCallback((id: string) => {
     dispatch({ type: "selectJourneyCosmetic", id });
   }, []);
-  const completeMilestone = useCallback((id: string) => {
-    dispatch({ type: "completeMilestone", id });
-  }, []);
   const acknowledgeMilestoneCelebration = useCallback(() => {
     dispatch({ type: "acknowledgeMilestoneCelebration" });
   }, []);
@@ -796,6 +832,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       deleteTask,
       toggleTask,
       lockToday,
+      unlockToday,
       dismissAutoLockNotice,
       resolveRollover,
       setNotificationsEnabled,
@@ -816,7 +853,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       acknowledgeLevelUp,
       selectJourneyCosmetic,
       momentumMilestones,
-      completeMilestone,
       pendingMilestoneCelebration: state.pendingMilestoneCelebration,
       acknowledgeMilestoneCelebration,
       refreshNotificationPermission,
@@ -837,6 +873,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       deleteTask,
       toggleTask,
       lockToday,
+      unlockToday,
       dismissAutoLockNotice,
       resolveRollover,
       setNotificationsEnabled,
@@ -857,7 +894,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       acknowledgeLevelUp,
       selectJourneyCosmetic,
       momentumMilestones,
-      completeMilestone,
       acknowledgeMilestoneCelebration,
       refreshNotificationPermission,
       requestPermission,

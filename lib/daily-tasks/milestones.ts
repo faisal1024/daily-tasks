@@ -33,6 +33,19 @@ export function pickCelebration(params: {
   return null;
 }
 
+/** The next milestone to auto-advance (first not-yet-completed), or null. */
+export function nextIncompleteMilestone(
+  milestones: MomentumMilestone[],
+  completedMilestoneIds: string[],
+): MomentumMilestone | null {
+  return (
+    milestones.find(
+      (milestone) =>
+        !completedMilestoneIds.includes(milestone.id) && milestone.completedAt == null,
+    ) ?? null
+  );
+}
+
 export interface MilestoneCompletion {
   completedMilestoneIds: string[];
   journey: Journey;
