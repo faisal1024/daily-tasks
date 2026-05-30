@@ -41,6 +41,31 @@ export function getMomentumAiProxyUrl(): string | null {
   return process.env.EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL ?? null;
 }
 
+export type MomentumPlanStatus = "idle" | "loading" | "ready" | "error";
+
+/**
+ * Decide the dedupe key for an automatic AI plan fetch, or null if the app
+ * should not auto-fetch right now (not ready, no proxy configured, profile
+ * incomplete, a fetch is in flight, or this day+goal was already fetched).
+ * Pure + testable; the store effect just acts on the result.
+ */
+export function nextAiPlanFetchKey(params: {
+  ready: boolean;
+  proxyUrl: string | null;
+  profileComplete: boolean;
+  status: MomentumPlanStatus;
+  today: string;
+  goalTitle: string | null;
+  lastFetchedKey: string | null;
+}): string | null {
+  if (!params.ready) return null;
+  if (!params.proxyUrl) return null;
+  if (!params.profileComplete) return null;
+  if (params.status === "loading") return null;
+  const key = `${params.today}:${params.goalTitle ?? ""}`;
+  return key === params.lastFetchedKey ? null : key;
+}
+
 export function buildAiPlanRequestPayload({
   profile,
   history,
@@ -75,7 +100,7 @@ export function buildAiPlanRequestPayload({
   };
 }
 
-export async function requestOpenAiMomentumPlan({
+export async function requestMomentumAiPlan({
   profile,
   history,
   settings,

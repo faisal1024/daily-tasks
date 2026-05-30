@@ -20,7 +20,8 @@ import { shouldAutoLockToday } from "./locking";
 import {
   buildFallbackMomentumPlan,
   getMomentumAiProxyUrl,
-  requestOpenAiMomentumPlan,
+  nextAiPlanFetchKey,
+  requestMomentumAiPlan,
 } from "./momentum-ai";
 import {
   buildAdaptationSnapshot,
@@ -701,7 +702,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "requestMomentumPlanStarted" });
     const now = new Date();
     try {
-      const plan = await requestOpenAiMomentumPlan({
+      const plan = await requestMomentumAiPlan({
         profile: state.momentumProfile,
         history: state.history,
         settings: state.momentumSettings,
@@ -722,12 +723,16 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // template plan. Failures fall back to the template via requestMomentumPlan.
   const lastAiPlanFetch = useRef<string | null>(null);
   useEffect(() => {
-    if (!ready) return;
-    if (!getMomentumAiProxyUrl()) return;
-    if (!isMomentumProfileComplete(state.momentumProfile)) return;
-    if (state.momentumPlanStatus === "loading") return;
-    const key = `${today}:${state.momentumProfile.goalTitle ?? ""}`;
-    if (lastAiPlanFetch.current === key) return;
+    const key = nextAiPlanFetchKey({
+      ready,
+      proxyUrl: getMomentumAiProxyUrl(),
+      profileComplete: isMomentumProfileComplete(state.momentumProfile),
+      status: state.momentumPlanStatus,
+      today,
+      goalTitle: state.momentumProfile.goalTitle,
+      lastFetchedKey: lastAiPlanFetch.current,
+    });
+    if (!key) return;
     lastAiPlanFetch.current = key;
     void requestMomentumPlan();
   }, [ready, today, state.momentumProfile, state.momentumPlanStatus, requestMomentumPlan]);

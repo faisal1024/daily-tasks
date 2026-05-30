@@ -69,7 +69,7 @@ env vars there and store the key in the host's secret manager.
      (the request/response logic is standard `node:http`).
 2. Set env in the host (NOT in the repo): `MOMENTUM_AI_PROVIDER=anthropic`,
    `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `CORS_ORIGIN=<app origin>`,
-   `PROXY_SHARED_SECRET=<random>`.
+   `PROXY_SHARED_SECRET=<random>`, `RATE_LIMIT_PER_MIN` (optional, default 30).
 3. Point the app build at it: set `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL` to the
    deployed HTTPS URL (e.g. in EAS build env), then build.
 
