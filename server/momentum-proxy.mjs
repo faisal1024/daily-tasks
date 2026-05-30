@@ -64,6 +64,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Health check for hosting platforms (GET, unauthenticated).
+  if (req.method === "GET" && req.url === "/health") {
+    sendJson(res, 200, { ok: true, provider: provider.id });
+    return;
+  }
+
   if (req.method !== "POST" || req.url !== ROUTE) {
     sendJson(res, 404, { error: "Not found" });
     return;
