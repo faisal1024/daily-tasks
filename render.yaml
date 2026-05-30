@@ -1,0 +1,35 @@
+# Render blueprint for the Momentum AI proxy.
+# The proxy is a dependency-free Node HTTP server, so no install/build is needed.
+# Deploy: render.com → New → Blueprint → connect this repo → set ANTHROPIC_API_KEY.
+services:
+  - type: web
+    name: momentum-ai-proxy
+    runtime: node
+    plan: free
+    # The proxy is intentionally dependency-free (Node builtins + global fetch),
+    # so we skip install entirely. If the proxy ever gains a runtime npm
+    # dependency, change this to install it (e.g. give server/ its own
+    # package.json and run `npm ci` there) — otherwise the deploy will fail at
+    # runtime with a module-not-found.
+    buildCommand: "echo no build needed"
+    startCommand: node server/momentum-proxy.mjs
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: MOMENTUM_AI_PROVIDER
+        value: anthropic
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      # Set this in the Render dashboard (secret) — never commit a key.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Lock to your app's origin in production if you have one; "*" is fine for TestFlight.
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: RATE_LIMIT_PER_MIN
+        value: "30"
+      # Optional: set a random value here AND as an EAS secret to require the
+      # x-momentum-secret header. Leave unset for the simplest setup.
+      # - key: PROXY_SHARED_SECRET
+      #   sync: false

@@ -63,6 +63,24 @@ curl -s -X POST http://localhost:8787/api/momentum/plan \
 The proxy is a single stateless Node HTTP server. Any host works; set the same
 env vars there and store the key in the host's secret manager.
 
+### Render (one blueprint, ~3 clicks)
+
+A `render.yaml` blueprint is included.
+
+1. Push the repo to GitHub (done).
+2. render.com → **New → Blueprint** → connect this repo. It reads `render.yaml`
+   and creates the `momentum-ai-proxy` web service.
+3. In the service's **Environment**, set `ANTHROPIC_API_KEY` (marked `sync: false`,
+   so it's never in git). The other vars come from the blueprint.
+4. Deploy. The public URL is `https://momentum-ai-proxy.onrender.com` (or similar);
+   the app's endpoint is that URL + `/api/momentum/plan`. Verify with
+   `curl https://<your-service>.onrender.com/health` → `{"ok":true,...}`.
+
+Note: Render's free plan sleeps on idle, so the first request after a quiet
+period has a cold-start delay. Use a paid instance to avoid that.
+
+### Any other host
+
 1. Deploy `server/` (entry: `server/momentum-proxy.mjs`, Node 18+).
    - **Render / Railway / Fly / a small VM:** run `node server/momentum-proxy.mjs`.
    - **Vercel/Cloudflare:** wrap the same handler in their function entrypoint
