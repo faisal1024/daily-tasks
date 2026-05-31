@@ -209,6 +209,20 @@ function normalizeMomentumProfile(value: unknown): MomentumProfile {
       value.struggleType === "time"
         ? value.struggleType
         : null,
+    motivation: typeof value.motivation === "string" ? value.motivation : null,
+    preferredTime:
+      value.preferredTime === "morning" ||
+      value.preferredTime === "afternoon" ||
+      value.preferredTime === "evening" ||
+      value.preferredTime === "anytime"
+        ? value.preferredTime
+        : null,
+    cadence:
+      value.cadence === "daily" ||
+      value.cadence === "weekdays" ||
+      value.cadence === "few_times"
+        ? value.cadence
+        : null,
     onboardingCompletedAt:
       typeof value.onboardingCompletedAt === "string" ? value.onboardingCompletedAt : null,
   };

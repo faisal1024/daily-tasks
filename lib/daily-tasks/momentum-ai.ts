@@ -26,6 +26,9 @@ export interface AiPlanRequestPayload {
     timeAvailability: MomentumProfile["timeAvailability"];
     experienceLevel: MomentumProfile["experienceLevel"];
     struggleType: MomentumProfile["struggleType"];
+    motivation: MomentumProfile["motivation"];
+    preferredTime: MomentumProfile["preferredTime"];
+    cadence: MomentumProfile["cadence"];
   };
   settings: MomentumSettings;
   recentPerformance: {
@@ -95,6 +98,9 @@ export function buildAiPlanRequestPayload({
       timeAvailability: profile.timeAvailability,
       experienceLevel: profile.experienceLevel,
       struggleType: profile.struggleType,
+      motivation: profile.motivation,
+      preferredTime: profile.preferredTime,
+      cadence: profile.cadence,
     },
     settings,
     recentPerformance: summarizeRecentPerformance(history, now),

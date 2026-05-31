@@ -62,35 +62,35 @@ export function TaskCard({
 
   return (
     <View
-      className="border rounded-2xl p-4 min-h-24"
+      className="border rounded-3xl p-5 min-h-24"
       style={{
-        backgroundColor: completed ? `${colors.success}0F` : colors.surface,
+        backgroundColor: completed ? `${colors.success}14` : colors.surface,
         borderColor: completed ? `${colors.success}55` : colors.border,
       }}
     >
-      <View className="flex-row items-center gap-3">
+      <View className="flex-row items-center gap-4">
         <Pressable
           accessibilityRole="checkbox"
           accessibilityState={{ checked: completed }}
           accessibilityLabel={`Mark ${task.text} as ${completed ? "incomplete" : "complete"}`}
           onPress={onToggle}
           hitSlop={8}
-          className="w-7 h-7 rounded-full items-center justify-center border-2"
+          className="w-9 h-9 rounded-full items-center justify-center border-2"
           style={{
             borderColor: completed ? colors.success : colors.border,
             backgroundColor: completed ? colors.success : "transparent",
           }}
         >
           {completed && (
-            <Ionicons name="checkmark" size={18} color={colors.background} />
+            <Ionicons name="checkmark" size={22} color={colors.background} />
           )}
         </Pressable>
 
         <View className="flex-1 gap-1">
           {typeof index === "number" && !isEditing && (
             <Text
-              className="text-xs uppercase tracking-wide"
-              style={{ color: colors.muted }}
+              className="text-sm uppercase tracking-wide font-semibold"
+              style={{ color: colors.primary }}
             >
               Focus {index + 1}
             </Text>
@@ -110,7 +110,7 @@ export function TaskCard({
           ) : (
             <Pressable onPress={onToggle} hitSlop={4} className="gap-1">
               <Text
-                className="text-base font-semibold text-foreground"
+                className="text-lg font-semibold text-foreground"
                 style={{
                   textDecorationLine: completed ? "line-through" : "none",
                   opacity: completed ? 0.62 : 1,
@@ -119,7 +119,7 @@ export function TaskCard({
                 {task.text}
               </Text>
               {completed && (
-                <Text className="text-xs" style={{ color: colors.success }}>
+                <Text className="text-sm font-medium" style={{ color: colors.success }}>
                   Finished
                 </Text>
               )}

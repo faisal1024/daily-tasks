@@ -16,7 +16,7 @@ import {
   requestNotificationPermission,
   syncNotifications,
 } from "./notifications";
-import { shouldAutoLockToday } from "./locking";
+import { autoLockEligibleTaskCount, shouldAutoLockToday } from "./locking";
 import {
   buildFallbackMomentumPlan,
   getMomentumAiProxyUrl,
@@ -599,10 +599,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     if (!ready) return;
-    const now = new Date();
-    if (!shouldAutoLockToday(now, state.tasks.length, state.todayLocked, state.autoLock)) return;
+    const eligible = autoLockEligibleTaskCount(state.tasks, today, state.autoLock);
+    if (!shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) return;
     dispatch({ type: "autoLockToday", today });
-  }, [ready, state.autoLock, state.tasks.length, state.todayLocked, today]);
+  }, [ready, state.autoLock, state.tasks, state.todayLocked, today]);
 
   useEffect(() => {
     if (!ready || state.momentumPlan || !isMomentumProfileComplete(state.momentumProfile)) {
@@ -653,13 +653,14 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         dispatch({ type: "rollover", today: fresh });
         return;
       }
-      if (shouldAutoLockToday(new Date(), state.tasks.length, state.todayLocked, state.autoLock)) {
+      const eligible = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
+      if (shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) {
         dispatch({ type: "autoLockToday", today: fresh });
       }
     };
     const sub = RNAppState.addEventListener("change", onChange);
     return () => sub.remove();
-  }, [refreshNotificationPermission, state.autoLock, state.tasks.length, state.todayLocked, today]);
+  }, [refreshNotificationPermission, state.autoLock, state.tasks, state.todayLocked, today]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -669,12 +670,13 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         dispatch({ type: "rollover", today: fresh });
         return;
       }
-      if (shouldAutoLockToday(new Date(), state.tasks.length, state.todayLocked, state.autoLock)) {
+      const eligible = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
+      if (shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) {
         dispatch({ type: "autoLockToday", today: fresh });
       }
     }, 60_000);
     return () => clearInterval(id);
-  }, [state.autoLock, state.tasks.length, state.todayLocked, today]);
+  }, [state.autoLock, state.tasks, state.todayLocked, today]);
 
   const isCompleted = useCallback(
     (id: TaskId) => state.todayCompletions.includes(id),

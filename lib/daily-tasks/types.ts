@@ -49,12 +49,20 @@ export type ExperienceLevel = "beginner" | "intermediate" | "advanced";
 
 export type StruggleType = "overwhelm" | "consistency" | "motivation" | "time";
 
+export type PreferredTime = "morning" | "afternoon" | "evening" | "anytime";
+
+export type Cadence = "daily" | "weekdays" | "few_times";
+
 export interface MomentumProfile {
   goalTitle: string | null;
   goalSource: GoalSource | null;
   timeAvailability: TimeAvailability | null;
   experienceLevel: ExperienceLevel | null;
   struggleType: StruggleType | null;
+  // Enrichment questions — optional; the core four above gate plan generation.
+  motivation: string | null;
+  preferredTime: PreferredTime | null;
+  cadence: Cadence | null;
   onboardingCompletedAt: string | null;
 }
 
@@ -179,6 +187,9 @@ export const DEFAULT_MOMENTUM_PROFILE: MomentumProfile = {
   timeAvailability: null,
   experienceLevel: null,
   struggleType: null,
+  motivation: null,
+  preferredTime: null,
+  cadence: null,
   onboardingCompletedAt: null,
 };
 
