@@ -19,7 +19,9 @@ export function StreakPill({ icon, label, value }: StreakPillProps) {
     >
       <View className="flex-row items-center gap-2">
         <Ionicons name={icon} size={20} color={tint} />
-        <Text className="text-sm uppercase tracking-wide font-semibold" style={{ color: tint }}>
+        <Text
+          className="text-sm uppercase tracking-wide font-semibold text-foreground"
+        >
           {label}
         </Text>
       </View>

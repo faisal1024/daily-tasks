@@ -43,7 +43,7 @@ export function TodaySummaryCard({
       <View className="flex-row items-start justify-between gap-4">
         <View className="flex-1 gap-2">
           <Text
-            className="text-xs uppercase tracking-[2px]"
+            className="text-sm uppercase tracking-[2px] font-semibold"
             style={{ color: colors.primary }}
           >
             Daily commitment

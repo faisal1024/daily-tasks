@@ -417,7 +417,7 @@ function MomentumSuggestionCard({
     <View className="rounded-3xl bg-surface border border-border p-5 gap-4">
       <View className="gap-1">
         <View className="flex-row items-center justify-between">
-          <Text className="text-xs uppercase tracking-wide text-muted">
+          <Text className="text-sm uppercase tracking-wide text-muted font-semibold">
             Suggested for you
           </Text>
           {canRegenerate && (
@@ -511,7 +511,7 @@ function AccountabilityCheckCard({
 
   return (
     <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
-      <Text className="text-xs uppercase tracking-wide text-muted">
+      <Text className="text-sm uppercase tracking-wide text-muted font-semibold">
         Accountability check-in
       </Text>
       <Text className="text-base font-semibold text-foreground">

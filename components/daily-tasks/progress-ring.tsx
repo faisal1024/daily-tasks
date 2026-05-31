@@ -54,7 +54,11 @@ export function ProgressRing({
         />
       </Svg>
       <View className="absolute items-center justify-center">
-        <Text className="text-5xl font-extrabold text-foreground">
+        <Text
+          className="text-4xl font-extrabold text-foreground"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
           {completed}/{total || 0}
         </Text>
         <Text className="text-sm text-muted mt-1 uppercase tracking-wide">focuses</Text>

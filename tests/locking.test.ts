@@ -23,6 +23,12 @@ describe("autoLockEligibleTaskCount", () => {
     expect(autoLockEligibleTaskCount(tasks, "2026-04-18", DEFAULT_AUTO_LOCK)).toBe(1);
   });
 
+  it("handles the real stored UTC format for a clearly-after-noon task", () => {
+    // toISOString() format. 23:30 UTC is after local noon in every real timezone.
+    const tasks = [{ createdAt: "2026-04-18T23:30:00.000Z" }];
+    expect(autoLockEligibleTaskCount(tasks, "2026-04-18", DEFAULT_AUTO_LOCK)).toBe(0);
+  });
+
   it("counts tasks with an unparseable createdAt defensively", () => {
     expect(
       autoLockEligibleTaskCount([{ createdAt: "nonsense" }], "2026-04-18", DEFAULT_AUTO_LOCK),

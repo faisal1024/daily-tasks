@@ -2,7 +2,7 @@
 // Playful-but-calm palette: a friendly indigo primary + warm coral accent over
 // soft, low-saturation surfaces. Approachable and gamified without feeling loud.
 const themeColors = {
-  primary: { light: '#6C63FF', dark: '#8B82FF' },
+  primary: { light: '#5B52E8', dark: '#8B82FF' },
   accent: { light: '#FF7A6B', dark: '#FF8F80' },
   background: { light: '#FBFAFF', dark: '#161420' },
   surface: { light: '#F3F1FC', dark: '#221F30' },
