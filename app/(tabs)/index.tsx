@@ -44,7 +44,6 @@ function celebrationHaptic() {
 }
 
 export default function HomeScreen() {
-  const colors = useColors();
   const {
     ready,
     state,
@@ -148,22 +147,12 @@ export default function HomeScreen() {
         <View style={{ paddingHorizontal: 22, paddingTop: 22, gap: 22 }}>
         {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
 
-        <View className="flex-row items-center justify-between">
-          <Text
-            className="text-foreground"
-            style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 26 }}
-          >
-            Today&apos;s Three
-          </Text>
-          <View
-            className="rounded-2xl px-3 py-1.5"
-            style={{ backgroundColor: `${colors.primary}1A` }}
-          >
-            <Text className="font-extrabold" style={{ color: colors.primary }}>
-              {completedCount} / {total || MAX_TASKS}
-            </Text>
-          </View>
-        </View>
+        <Text
+          className="text-foreground"
+          style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 26 }}
+        >
+          Today&apos;s Three
+        </Text>
 
         <LockedStateCard
           locked={state.todayLocked}

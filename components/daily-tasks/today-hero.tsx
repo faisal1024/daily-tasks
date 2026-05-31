@@ -1,4 +1,5 @@
-import { Dimensions, Text, View } from "react-native";
+import { useState } from "react";
+import { Dimensions, Text, View, type LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, {
   Circle,
@@ -9,6 +10,13 @@ import Svg, {
 } from "react-native-svg";
 
 import { Fonts } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { MAX_TASKS } from "@/lib/daily-tasks/types";
+
+// Darker, theme-anchored stops so white text/chips clear contrast on the
+// gradient; darker still in dark mode to soften the seam against a dark body.
+const GRADIENT_LIGHT = ["#5B52E8", "#6258E9", "#6A61EB"];
+const GRADIENT_DARK = ["#3C36A8", "#453EBE", "#504AD4"];
 
 interface TodayHeroProps {
   greeting: string;
@@ -39,7 +47,11 @@ export function TodayHero({
   xpRemaining,
 }: TodayHeroProps) {
   const insets = useSafeAreaInsets();
+  const scheme = useColorScheme();
+  const stops = scheme === "dark" ? GRADIENT_DARK : GRADIENT_LIGHT;
   const screenW = Dimensions.get("window").width;
+  const [heroHeight, setHeroHeight] = useState(0);
+  const onLayout = (e: LayoutChangeEvent) => setHeroHeight(e.nativeEvent.layout.height);
   const safeTotal = Math.max(total, 3);
   const ratio = Math.min(Math.max(completed / safeTotal, 0), 1);
   const isDone = total > 0 && completed === total;
@@ -56,22 +68,23 @@ export function TodayHero({
 
   return (
     <View
+      onLayout={onLayout}
       className="overflow-hidden"
       style={{ borderBottomLeftRadius: 36, borderBottomRightRadius: 36 }}
     >
       <Svg
         width={screenW}
-        height={520}
+        height={heroHeight || 520}
         style={{ position: "absolute", top: 0, left: 0 }}
       >
         <Defs>
           <SvgLinearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor="#6C63FF" />
-            <Stop offset="0.55" stopColor="#8B82FF" />
-            <Stop offset="1" stopColor="#A78BFF" />
+            <Stop offset="0" stopColor={stops[0]} />
+            <Stop offset="0.55" stopColor={stops[1]} />
+            <Stop offset="1" stopColor={stops[2]} />
           </SvgLinearGradient>
         </Defs>
-        <Rect x="0" y="0" width={screenW} height={520} fill="url(#hero)" />
+        <Rect x="0" y="0" width={screenW} height={heroHeight || 520} fill="url(#hero)" />
       </Svg>
 
       <View style={{ paddingTop: insets.top + 14, paddingHorizontal: 22, paddingBottom: 26 }}>
@@ -122,7 +135,7 @@ export function TodayHero({
                   fontSize: 44,
                 }}
               >
-                {completed}/{total || 0}
+                {completed}/{total || MAX_TASKS}
               </Text>
               <Text
                 style={{
@@ -166,10 +179,10 @@ export function TodayHero({
         {/* XP bar */}
         <View className="mt-5">
           <View className="flex-row justify-between mb-1.5">
-            <Text style={{ color: "rgba(255,255,255,0.92)", fontWeight: "800", fontSize: 12 }}>
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>
               Level {level} · {stageLabel} {stageGlyph}
             </Text>
-            <Text style={{ color: "rgba(255,255,255,0.92)", fontWeight: "800", fontSize: 12 }}>
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>
               {xpRemaining} XP to Lv {level + 1}
             </Text>
           </View>
