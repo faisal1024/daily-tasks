@@ -19,7 +19,7 @@ export default function TabLayout() {
         tabBarInactiveTintColor: colors.muted,
         headerShown: false,
         tabBarButton: HapticTab,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+        tabBarLabelStyle: { fontSize: 12, fontWeight: "700" },
         tabBarStyle: {
           paddingTop: 8,
           paddingBottom: bottomPadding,

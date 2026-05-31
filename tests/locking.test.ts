@@ -1,7 +1,34 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldAutoLockToday } from "../lib/daily-tasks/locking";
+import {
+  autoLockEligibleTaskCount,
+  shouldAutoLockToday,
+} from "../lib/daily-tasks/locking";
 import { DEFAULT_AUTO_LOCK } from "../lib/daily-tasks/types";
+
+describe("autoLockEligibleTaskCount", () => {
+  // Lock time is noon (DEFAULT_AUTO_LOCK).
+  // Local-time strings (no Z) so the comparison is timezone-robust.
+  it("does not count tasks created after the lock time (the first-task bug)", () => {
+    // A first task added at 3pm must NOT be eligible — so it can't instant-lock.
+    const tasks = [{ createdAt: "2026-04-18T15:00:00" }];
+    expect(autoLockEligibleTaskCount(tasks, "2026-04-18", DEFAULT_AUTO_LOCK)).toBe(0);
+  });
+
+  it("counts tasks created at or before the lock time", () => {
+    const tasks = [
+      { createdAt: "2026-04-18T08:00:00" }, // morning — eligible
+      { createdAt: "2026-04-18T15:00:00" }, // afternoon — not eligible
+    ];
+    expect(autoLockEligibleTaskCount(tasks, "2026-04-18", DEFAULT_AUTO_LOCK)).toBe(1);
+  });
+
+  it("counts tasks with an unparseable createdAt defensively", () => {
+    expect(
+      autoLockEligibleTaskCount([{ createdAt: "nonsense" }], "2026-04-18", DEFAULT_AUTO_LOCK),
+    ).toBe(1);
+  });
+});
 
 describe("shouldAutoLockToday", () => {
   it("locks after noon when there is at least one task", () => {

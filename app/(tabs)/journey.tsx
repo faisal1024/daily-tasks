@@ -42,14 +42,14 @@ export default function JourneyScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View className="gap-1">
-          <Text className="text-2xl font-bold text-foreground">Your journey</Text>
-          <Text className="text-sm text-muted">Small wins, stacking up.</Text>
+          <Text className="text-4xl font-extrabold text-foreground">Your journey</Text>
+          <Text className="text-base text-muted">Small wins, stacking up.</Text>
         </View>
 
         {/* Growth hero */}
         <View className="bg-surface rounded-3xl p-6 border border-border items-center gap-3">
-          <Text style={{ fontSize: 64 }}>{stage.glyph}</Text>
-          <Text className="text-lg font-bold text-foreground">
+          <Text style={{ fontSize: 80 }}>{stage.glyph}</Text>
+          <Text className="text-2xl font-extrabold text-foreground">
             Level {journeyLevel} · {stage.label}
           </Text>
 

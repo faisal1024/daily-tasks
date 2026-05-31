@@ -1,14 +1,17 @@
 /** @type {const} */
+// Playful-but-calm palette: a friendly indigo primary + warm coral accent over
+// soft, low-saturation surfaces. Approachable and gamified without feeling loud.
 const themeColors = {
-  primary: { light: '#0a7ea4', dark: '#0a7ea4' },
-  background: { light: '#ffffff', dark: '#151718' },
-  surface: { light: '#f5f5f5', dark: '#1e2022' },
-  foreground: { light: '#11181C', dark: '#ECEDEE' },
-  muted: { light: '#687076', dark: '#9BA1A6' },
-  border: { light: '#E5E7EB', dark: '#334155' },
-  success: { light: '#22C55E', dark: '#4ADE80' },
-  warning: { light: '#F59E0B', dark: '#FBBF24' },
-  error: { light: '#EF4444', dark: '#F87171' },
+  primary: { light: '#6C63FF', dark: '#8B82FF' },
+  accent: { light: '#FF7A6B', dark: '#FF8F80' },
+  background: { light: '#FBFAFF', dark: '#161420' },
+  surface: { light: '#F3F1FC', dark: '#221F30' },
+  foreground: { light: '#1E1B2E', dark: '#F3F1FB' },
+  muted: { light: '#79748F', dark: '#A8A3C0' },
+  border: { light: '#E8E4F6', dark: '#332F45' },
+  success: { light: '#16C784', dark: '#37D9A0' },
+  warning: { light: '#F5A524', dark: '#FBBF24' },
+  error: { light: '#F4525F', dark: '#FB7185' },
 };
 
 module.exports = { themeColors };

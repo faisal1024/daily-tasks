@@ -138,12 +138,12 @@ export default function HomeScreen() {
         {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
 
         <View className="gap-1">
-          <Text className="text-base text-muted">{greeting}</Text>
-          <Text className="text-3xl font-bold text-foreground">
-            Today's Three
+          <Text className="text-lg font-medium text-muted">{greeting}</Text>
+          <Text className="text-4xl font-extrabold text-foreground">
+            Today&apos;s Three
           </Text>
-          <Text className="text-sm text-muted">
-            Your accountability coach for three daily commitments.
+          <Text className="text-base text-muted">
+            Three small wins. One calm day at a time.
           </Text>
         </View>
 
@@ -430,17 +430,17 @@ function MomentumSuggestionCard({
               className="flex-row items-center gap-1"
               style={{ opacity: regenerating ? 0.5 : 1 }}
             >
-              <Ionicons name="refresh" size={14} color={colors.primary} />
-              <Text className="text-xs font-semibold" style={{ color: colors.primary }}>
+              <Ionicons name="refresh" size={16} color={colors.primary} />
+              <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
                 {regenerating ? "Refreshing…" : "New ideas"}
               </Text>
             </Pressable>
           )}
         </View>
-        <Text className="text-xl font-semibold text-foreground">
+        <Text className="text-2xl font-bold text-foreground">
           Pick what works toward {goalTitle ?? "your goal"}
         </Text>
-        <Text className="text-sm text-muted">
+        <Text className="text-base text-muted">
           Add any you like — one, two, or all three. You can also write your own below.
         </Text>
         {adaptationReason && (
@@ -467,14 +467,12 @@ function MomentumSuggestionCard({
             >
               <Ionicons
                 name={added ? "checkmark-circle" : "add-circle-outline"}
-                size={22}
+                size={26}
                 color={added ? colors.success : colors.primary}
               />
               <View className="flex-1 gap-0.5">
-                <Text className="text-sm font-semibold text-foreground">{task.text}</Text>
-                <Text className="text-xs text-muted">
-                  {task.estimatedMinutes} min · {task.reason}
-                </Text>
+                <Text className="text-base font-semibold text-foreground">{task.text}</Text>
+                <Text className="text-sm text-muted">{task.estimatedMinutes} min</Text>
               </View>
             </Pressable>
           );

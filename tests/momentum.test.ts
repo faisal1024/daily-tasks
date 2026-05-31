@@ -22,6 +22,9 @@ const COMPLETE_PROFILE: MomentumProfile = {
   timeAvailability: "15_min",
   experienceLevel: "beginner",
   struggleType: "overwhelm",
+  motivation: null,
+  preferredTime: null,
+  cadence: null,
   onboardingCompletedAt: "2026-05-02T12:00:00.000Z",
 };
 

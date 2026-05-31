@@ -12,9 +12,11 @@ import {
 
 import { useColors } from "@/hooks/use-colors";
 import type {
+  Cadence,
   ExperienceLevel,
   GoalSource,
   MomentumProfile,
+  PreferredTime,
   StruggleType,
   TimeAvailability,
 } from "@/lib/daily-tasks/types";
@@ -30,7 +32,7 @@ interface OnboardingModalProps {
   onRequestClose?: () => void;
 }
 
-type Step = "welcome" | "goal" | "context" | "ready";
+type Step = "welcome" | "goal" | "context" | "preferences" | "ready";
 
 const TIME_OPTIONS: { value: TimeAvailability; label: string }[] = [
   { value: "15_min", label: "15 min" },
@@ -51,6 +53,19 @@ const STRUGGLE_OPTIONS: { value: StruggleType; label: string }[] = [
   { value: "time", label: "Time" },
 ];
 
+const PREFERRED_TIME_OPTIONS: { value: PreferredTime; label: string }[] = [
+  { value: "morning", label: "Morning" },
+  { value: "afternoon", label: "Afternoon" },
+  { value: "evening", label: "Evening" },
+  { value: "anytime", label: "Anytime" },
+];
+
+const CADENCE_OPTIONS: { value: Cadence; label: string }[] = [
+  { value: "daily", label: "Every day" },
+  { value: "weekdays", label: "Weekdays" },
+  { value: "few_times", label: "A few days a week" },
+];
+
 export function OnboardingModal({
   visible,
   initialProfile = DEFAULT_MOMENTUM_PROFILE,
@@ -69,6 +84,11 @@ export function OnboardingModal({
     useState<ExperienceLevel | null>(initialProfile.experienceLevel);
   const [struggleType, setStruggleType] =
     useState<StruggleType | null>(initialProfile.struggleType);
+  const [motivation, setMotivation] = useState(initialProfile.motivation ?? "");
+  const [preferredTime, setPreferredTime] = useState<PreferredTime | null>(
+    initialProfile.preferredTime,
+  );
+  const [cadence, setCadence] = useState<Cadence | null>(initialProfile.cadence);
 
   useEffect(() => {
     if (!visible) return;
@@ -78,11 +98,18 @@ export function OnboardingModal({
     setTimeAvailability(initialProfile.timeAvailability);
     setExperienceLevel(initialProfile.experienceLevel);
     setStruggleType(initialProfile.struggleType);
+    setMotivation(initialProfile.motivation ?? "");
+    setPreferredTime(initialProfile.preferredTime);
+    setCadence(initialProfile.cadence);
   }, [initialProfile, visible]);
 
   const trimmedGoal = goalTitle.trim();
   const canContinueGoal = trimmedGoal.length > 0 && goalSource !== null;
-  const canFinish = Boolean(canContinueGoal && timeAvailability && experienceLevel && struggleType);
+  const canContinueContext = Boolean(timeAvailability && experienceLevel && struggleType);
+  const canContinuePreferences = Boolean(preferredTime && cadence);
+  const canFinish = Boolean(
+    canContinueGoal && canContinueContext && canContinuePreferences,
+  );
 
   const finish = () => {
     if (!canFinish) return;
@@ -92,6 +119,9 @@ export function OnboardingModal({
       timeAvailability,
       experienceLevel,
       struggleType,
+      motivation: motivation.trim() ? motivation.trim() : null,
+      preferredTime,
+      cadence,
       onboardingCompletedAt: new Date().toISOString(),
     });
   };
@@ -131,7 +161,7 @@ export function OnboardingModal({
 
           {step === "goal" && (
             <>
-              <Header eyebrow="Step 1 of 2" title="What are you working toward?" />
+              <Header eyebrow="Step 1 of 3" title="What are you working toward?" />
               <ScrollView
                 className="max-h-[360px]"
                 contentContainerStyle={{ gap: 12 }}
@@ -207,7 +237,7 @@ export function OnboardingModal({
 
           {step === "context" && (
             <>
-              <Header eyebrow="Step 2 of 2" title="Help Momentum keep it doable." />
+              <Header eyebrow="Step 2 of 3" title="Help Momentum keep it doable." />
               <ScrollView
                 className="max-h-[420px]"
                 contentContainerStyle={{ gap: 18 }}
@@ -234,9 +264,66 @@ export function OnboardingModal({
               </ScrollView>
               <FooterButtons
                 backLabel="Back"
-                nextLabel="Preview"
-                nextDisabled={!canFinish}
+                nextLabel="Next"
+                nextDisabled={!canContinueContext}
                 onBack={() => setStep("goal")}
+                onNext={() => setStep("preferences")}
+              />
+            </>
+          )}
+
+          {step === "preferences" && (
+            <>
+              <Header
+                eyebrow="Step 3 of 3"
+                title="A few details for sharper suggestions."
+              />
+              <ScrollView
+                className="max-h-[420px]"
+                contentContainerStyle={{ gap: 18 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View className="gap-2">
+                  <Text className="text-base font-semibold text-foreground">
+                    Why does this matter to you?
+                  </Text>
+                  <TextInput
+                    value={motivation}
+                    onChangeText={setMotivation}
+                    placeholder="e.g. To feel strong and keep up with my kids"
+                    placeholderTextColor={colors.muted}
+                    multiline
+                    className="text-base text-foreground rounded-xl px-3 py-3"
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.surface,
+                      minHeight: 64,
+                    }}
+                  />
+                  <Text className="text-sm" style={{ color: colors.muted }}>
+                    Optional — but it helps Momentum keep you motivated.
+                  </Text>
+                </View>
+                <OptionGroup
+                  title="Best time of day"
+                  options={PREFERRED_TIME_OPTIONS}
+                  value={preferredTime}
+                  onChange={setPreferredTime}
+                />
+                <OptionGroup
+                  title="How often do you want to commit?"
+                  options={CADENCE_OPTIONS}
+                  value={cadence}
+                  onChange={setCadence}
+                />
+              </ScrollView>
+              <FooterButtons
+                backLabel="Back"
+                nextLabel="Preview"
+                nextDisabled={!canContinuePreferences}
+                onBack={() => setStep("context")}
                 onNext={() => setStep("ready")}
               />
             </>
@@ -260,7 +347,7 @@ export function OnboardingModal({
               <FooterButtons
                 backLabel="Back"
                 nextLabel="Show Today's Three"
-                onBack={() => setStep("context")}
+                onBack={() => setStep("preferences")}
                 onNext={finish}
               />
             </>

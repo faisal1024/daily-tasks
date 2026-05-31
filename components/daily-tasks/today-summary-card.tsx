@@ -48,14 +48,14 @@ export function TodaySummaryCard({
           >
             Daily commitment
           </Text>
-          <Text className="text-2xl font-bold text-foreground">{headline}</Text>
-          <Text className="text-sm leading-5" style={{ color: colors.muted }}>
+          <Text className="text-3xl font-extrabold text-foreground">{headline}</Text>
+          <Text className="text-base leading-6" style={{ color: colors.muted }}>
             {subcopy}
           </Text>
         </View>
 
         <View
-          className="w-12 h-12 rounded-2xl items-center justify-center"
+          className="w-14 h-14 rounded-3xl items-center justify-center"
           style={{
             backgroundColor: isDone
               ? `${colors.success}22`
@@ -90,12 +90,12 @@ function SummaryPill({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-1 rounded-2xl bg-background border border-border p-3">
       <Text
-        className="text-xs uppercase tracking-wide"
+        className="text-sm uppercase tracking-wide"
         style={{ color: colors.muted }}
       >
         {label}
       </Text>
-      <Text className="text-lg font-bold text-foreground mt-1">{value}</Text>
+      <Text className="text-2xl font-extrabold text-foreground mt-1">{value}</Text>
     </View>
   );
 }
