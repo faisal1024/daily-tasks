@@ -318,6 +318,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={state.todayLocked}
                   onValueChange={(value) => (value ? lockToday() : unlockToday())}
+                  accessibilityLabel="Lock today's list"
                   trackColor={{ true: colors.primary }}
                 />
               </View>
