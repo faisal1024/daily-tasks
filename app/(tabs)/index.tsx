@@ -367,7 +367,7 @@ function LockedStateCard({
       <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
         <Text className="text-sm font-semibold text-foreground">
           {lockSource === "auto"
-            ? "Today's Three is set"
+            ? "Today's Three locked in automatically"
             : "Today's Three is set"}
         </Text>
         <Text className="text-sm text-muted">
