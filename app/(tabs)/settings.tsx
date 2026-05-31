@@ -59,6 +59,7 @@ export default function SettingsScreen() {
     editTask,
     deleteTask,
     toggleTask,
+    lockToday,
     unlockToday,
     setAutoLockEnabled,
     setAutoLockTime,
@@ -302,29 +303,23 @@ export default function SettingsScreen() {
           subtitle="Review or finish the focus commitments you chose."
         >
           <View className="gap-3">
-            {state.todayLocked && (
-              <View className="rounded-2xl border border-border bg-surface p-4 gap-3">
-                <View>
-                  <Text className="text-sm font-semibold text-foreground">
-                    Today's Three is set
+            {state.tasks.length > 0 && (
+              <View className="rounded-2xl border border-border bg-surface p-4 flex-row items-center justify-between gap-4">
+                <View className="flex-1">
+                  <Text className="text-base font-semibold text-foreground">
+                    {state.todayLocked ? "Today's list is locked" : "Lock today's list"}
                   </Text>
-                  <Text className="text-sm text-muted mt-1">
-                    You can still check things off. Unlock if you need to add,
-                    edit, or swap a task today.
+                  <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                    {state.todayLocked
+                      ? "You can check things off. Turn this off to unlock and add, edit, or swap a task."
+                      : "Lock to commit your three. You can unlock here anytime."}
                   </Text>
                 </View>
-                <Pressable
-                  onPress={unlockToday}
-                  accessibilityRole="button"
-                  accessibilityLabel="Unlock today's list"
-                  className="self-start flex-row items-center gap-2 rounded-full px-4 py-2 border"
-                  style={{ borderColor: colors.primary }}
-                >
-                  <Ionicons name="lock-open-outline" size={16} color={colors.primary} />
-                  <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-                    Unlock today
-                  </Text>
-                </Pressable>
+                <Switch
+                  value={state.todayLocked}
+                  onValueChange={(value) => (value ? lockToday() : unlockToday())}
+                  trackColor={{ true: colors.primary }}
+                />
               </View>
             )}
             {state.tasks.length === 0 ? (

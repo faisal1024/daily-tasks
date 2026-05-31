@@ -1,46 +1,21 @@
 import { Tabs } from "expo-router";
-import { Platform, View } from "react-native";
+import { Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { useColors } from "@/hooks/use-colors";
 
-function TabIcon({
-  name,
-  color,
-  focused,
-  tint,
-}: {
-  name: React.ComponentProps<typeof Ionicons>["name"];
-  color: string;
-  focused: boolean;
-  tint: string;
-}) {
-  return (
-    <View
-      style={{
-        backgroundColor: focused ? `${tint}1F` : "transparent",
-        paddingHorizontal: 16,
-        paddingVertical: 5,
-        borderRadius: 16,
-      }}
-    >
-      <Ionicons name={name} size={22} color={color} />
-    </View>
-  );
-}
-
 export default function TabLayout() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
-  const tabBarHeight = 56 + bottomPadding;
+  const tabBarHeight = 60 + bottomPadding;
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.tint,
+        tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         headerShown: false,
         tabBarButton: HapticTab,
@@ -59,8 +34,8 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Tasks",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="checkmark-done" color={color} focused={focused} tint={colors.primary} />
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="checkmark-done" size={26} color={color} />
           ),
         }}
       />
@@ -68,8 +43,8 @@ export default function TabLayout() {
         name="calendar"
         options={{
           title: "Calendar",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="calendar" color={color} focused={focused} tint={colors.primary} />
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="calendar" size={24} color={color} />
           ),
         }}
       />
@@ -77,8 +52,8 @@ export default function TabLayout() {
         name="journey"
         options={{
           title: "Journey",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="leaf" color={color} focused={focused} tint={colors.primary} />
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="leaf" size={24} color={color} />
           ),
         }}
       />
@@ -86,8 +61,8 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: "Settings",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="settings" color={color} focused={focused} tint={colors.primary} />
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="settings" size={24} color={color} />
           ),
         }}
       />

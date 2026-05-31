@@ -10,10 +10,13 @@ import { PLAN_TOOL_DESCRIPTION, PLAN_TOOL_NAME } from "./plan-contract.mjs";
 
 export const id = "anthropic";
 
-// Override with ANTHROPIC_MODEL. Per the master plan: a stronger model for the
-// one-time plan, a cheaper one (e.g. claude-haiku-4-5) once a separate /daily
-// endpoint exists.
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+// Haiku 4.5 — the cheapest current model, and strong at short structured task
+// generation. Override with ANTHROPIC_MODEL (e.g. a Sonnet for higher-stakes
+// reasoning). Note: prompt caching below only kicks in above Haiku's 4096-token
+// minimum cacheable prefix; our system+tools prefix is smaller, so caching is a
+// no-op today (harmless) but helps automatically if the prompt grows or we move
+// to Sonnet (1024 min).
+const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 
 function model() {
   return process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;
@@ -43,7 +46,10 @@ export async function generatePlan({ system, user, schema }) {
       model: model(),
       max_tokens: 1500,
       temperature: 0.4,
-      system,
+      // System + tools are identical across every request, so cache that stable
+      // prefix; the dynamic per-user content lives in the (uncached) user message.
+      // The breakpoint on the system block caches tools + system together.
+      system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: user }],
       tools: [
         {
