@@ -12,28 +12,24 @@ import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useColors } from "@/hooks/use-colors";
+import { Fonts } from "@/constants/theme";
 import { ScreenContainer } from "@/components/screen-container";
+import { TodayHero } from "@/components/daily-tasks/today-hero";
+import { stageForLevel } from "@/lib/daily-tasks/journey";
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
 import { CompletionReflection } from "@/components/daily-tasks/completion-reflection";
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
-import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
-import { StreakPill } from "@/components/daily-tasks/streak-pill";
 import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TaskSuggestions } from "@/components/daily-tasks/task-suggestions";
-import { TodaySummaryCard } from "@/components/daily-tasks/today-summary-card";
 import { UpdateBanner } from "@/components/daily-tasks/update-banner";
 import { useAppUpdate } from "@/hooks/use-app-update";
-import { selectCoachMessage } from "@/lib/daily-tasks/coach-messages";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
-import {
-  computeDayStreak,
-  computePerfectStreak,
-} from "@/lib/daily-tasks/streaks";
+import { computeDayStreak } from "@/lib/daily-tasks/streaks";
 import type { GeneratedTask } from "@/lib/daily-tasks/types";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
 
@@ -48,6 +44,7 @@ function celebrationHaptic() {
 }
 
 export default function HomeScreen() {
+  const colors = useColors();
   const {
     ready,
     state,
@@ -67,6 +64,8 @@ export default function HomeScreen() {
     setTodayReflection,
     setTodayReflectionResult,
     requestMomentumPlan,
+    journeyLevel,
+    journeyProgress,
   } = useDailyTasks();
   const { update, dismiss: dismissUpdate } = useAppUpdate();
 
@@ -81,7 +80,6 @@ export default function HomeScreen() {
 
   const total = state.tasks.length;
   const dayStreak = computeDayStreak(state.history, today);
-  const perfectStreak = computePerfectStreak(state.history, today);
   const greeting = greetingText(greetingFor());
   const suggestions = useMemo(
     () => generateMomentumSuggestions(state.momentumProfile),
@@ -125,53 +123,46 @@ export default function HomeScreen() {
   };
 
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={["left", "right"]}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
       <ScrollView
-        contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 24 }}
+        contentContainerStyle={{ paddingBottom: 48 }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
       >
+        <TodayHero
+          greeting={greeting}
+          completed={completedCount}
+          total={total}
+          dayStreak={dayStreak}
+          level={journeyLevel}
+          stageLabel={stageForLevel(journeyLevel).label}
+          stageGlyph={stageForLevel(journeyLevel).glyph}
+          xpRatio={journeyProgress.ratio}
+          xpRemaining={journeyProgress.xpRemaining}
+        />
+
+        <View style={{ paddingHorizontal: 22, paddingTop: 22, gap: 22 }}>
         {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
 
-        <View className="gap-1">
-          <Text className="text-lg font-medium text-muted">{greeting}</Text>
-          <Text className="text-4xl font-extrabold text-foreground">
+        <View className="flex-row items-center justify-between">
+          <Text
+            className="text-foreground"
+            style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 26 }}
+          >
             Today&apos;s Three
           </Text>
-          <Text className="text-base text-muted">
-            Three small wins. One calm day at a time.
-          </Text>
-        </View>
-
-        <CoachRitualCard
-          goalTitle={state.momentumProfile.goalTitle}
-          completedCount={completedCount}
-          total={total}
-          locked={state.todayLocked}
-          dateKey={today}
-          adaptationRecommendation={
-            state.adaptationSnapshot?.recommendation ?? null
-          }
-        />
-
-        <TodaySummaryCard
-          completedCount={completedCount}
-          total={total}
-          remainingSlots={remainingSlots}
-          locked={state.todayLocked}
-        />
-
-        <View className="flex-row gap-3">
-          <StreakPill icon="flame" label="Day streak" value={dayStreak} />
-          <StreakPill icon="star" label="Perfect days" value={perfectStreak} />
-        </View>
-
-        <View className="items-center py-2">
-          <ProgressRing completed={completedCount} total={total || MAX_TASKS} />
+          <View
+            className="rounded-2xl px-3 py-1.5"
+            style={{ backgroundColor: `${colors.primary}1A` }}
+          >
+            <Text className="font-extrabold" style={{ color: colors.primary }}>
+              {completedCount} / {total || MAX_TASKS}
+            </Text>
+          </View>
         </View>
 
         <LockedStateCard
@@ -310,6 +301,7 @@ export default function HomeScreen() {
             )}
           </>
         )}
+        </View>
       </ScrollView>
       </KeyboardAvoidingView>
 
@@ -335,52 +327,94 @@ export default function HomeScreen() {
   );
 }
 
-function CoachRitualCard({
-  goalTitle,
+function AccountabilityCheckCard({
   completedCount,
   total,
   locked,
-  dateKey,
-  adaptationRecommendation,
 }: {
-  goalTitle: string | null;
   completedCount: number;
   total: number;
   locked: boolean;
-  dateKey: string;
-  adaptationRecommendation: "simplify" | "maintain" | "increase" | null;
 }) {
-  const message = selectCoachMessage({
-    dateKey,
-    total,
-    completedCount,
-    locked,
-    adaptationRecommendation,
-  });
+  const remaining = Math.max(0, total - completedCount);
+  const remainingLabel = `${remaining} commitment${remaining === 1 ? "" : "s"} left`;
 
   return (
-    <View className="rounded-3xl bg-surface border border-border p-5 gap-4">
-      <View className="flex-row items-center justify-between gap-3">
-        <Text className="text-xs uppercase tracking-wide text-primary">
-          Momentum coach
+    <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
+      <Text className="text-sm uppercase tracking-wide text-muted font-semibold">
+        Accountability check-in
+      </Text>
+      <Text className="text-base font-semibold text-foreground">
+        {locked ? remainingLabel : "Choose the work you'll stand behind"}
+      </Text>
+      <Text className="text-sm text-muted">
+        {locked
+          ? "The list is set. Pick one unfinished task and give it 10 focused minutes."
+          : "Before the day gets noisy, set the three commitments that deserve follow-through."}
+      </Text>
+    </View>
+  );
+}
+
+function LockedStateCard({
+  locked,
+  lockSource,
+  autoLockNoticeDate,
+  today,
+  onLock,
+  onDismissNotice,
+}: {
+  locked: boolean;
+  lockSource: "manual" | "auto" | null;
+  autoLockNoticeDate: string | null;
+  today: string;
+  onLock: () => void;
+  onDismissNotice: () => void;
+}) {
+  const autoNoticeVisible = autoLockNoticeDate === today;
+
+  if (locked) {
+    return (
+      <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
+        <Text className="text-sm font-semibold text-foreground">
+          {lockSource === "auto"
+            ? "Today's Three is set"
+            : "Today's Three is set"}
         </Text>
-        <Text className="text-xs font-semibold text-muted">
-          {message.phase}
+        <Text className="text-sm text-muted">
+          You can still check things off, but today is no longer a place to
+          reshuffle.
+        </Text>
+        {autoNoticeVisible && (
+          <Pressable onPress={onDismissNotice} className="self-start">
+            <Text className="text-sm font-semibold text-foreground">
+              Dismiss
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <View className="rounded-2xl bg-surface border border-border p-4 gap-3">
+      <View className="gap-1">
+        <Text className="text-sm font-semibold text-foreground">
+          Still choosing
+        </Text>
+        <Text className="text-sm text-muted">
+          Set Today's Three when the day feels chosen, even if you picked fewer
+          than three.
         </Text>
       </View>
-      <View className="gap-2">
-        <Text className="text-2xl font-bold text-foreground">
-          {message.title}
+      <Pressable
+        onPress={onLock}
+        className="self-start rounded-full px-4 py-2 border border-border"
+      >
+        <Text className="text-sm font-semibold text-foreground">
+          Set Today's Three
         </Text>
-        <Text className="text-sm text-muted">{message.body}</Text>
-      </View>
-      {goalTitle && (
-        <View className="self-start rounded-full border border-border px-3 py-1.5">
-          <Text className="text-xs font-semibold text-foreground">
-            Goal: {goalTitle}
-          </Text>
-        </View>
-      )}
+      </Pressable>
     </View>
   );
 }
@@ -497,94 +531,3 @@ function MomentumSuggestionCard({
   );
 }
 
-function AccountabilityCheckCard({
-  completedCount,
-  total,
-  locked,
-}: {
-  completedCount: number;
-  total: number;
-  locked: boolean;
-}) {
-  const remaining = Math.max(0, total - completedCount);
-  const remainingLabel = `${remaining} commitment${remaining === 1 ? "" : "s"} left`;
-
-  return (
-    <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
-      <Text className="text-sm uppercase tracking-wide text-muted font-semibold">
-        Accountability check-in
-      </Text>
-      <Text className="text-base font-semibold text-foreground">
-        {locked ? remainingLabel : "Choose the work you'll stand behind"}
-      </Text>
-      <Text className="text-sm text-muted">
-        {locked
-          ? "The list is set. Pick one unfinished task and give it 10 focused minutes."
-          : "Before the day gets noisy, set the three commitments that deserve follow-through."}
-      </Text>
-    </View>
-  );
-}
-
-function LockedStateCard({
-  locked,
-  lockSource,
-  autoLockNoticeDate,
-  today,
-  onLock,
-  onDismissNotice,
-}: {
-  locked: boolean;
-  lockSource: "manual" | "auto" | null;
-  autoLockNoticeDate: string | null;
-  today: string;
-  onLock: () => void;
-  onDismissNotice: () => void;
-}) {
-  const autoNoticeVisible = autoLockNoticeDate === today;
-
-  if (locked) {
-    return (
-      <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
-        <Text className="text-sm font-semibold text-foreground">
-          {lockSource === "auto"
-            ? "Today's Three is set"
-            : "Today's Three is set"}
-        </Text>
-        <Text className="text-sm text-muted">
-          You can still check things off, but today is no longer a place to
-          reshuffle.
-        </Text>
-        {autoNoticeVisible && (
-          <Pressable onPress={onDismissNotice} className="self-start">
-            <Text className="text-sm font-semibold text-foreground">
-              Dismiss
-            </Text>
-          </Pressable>
-        )}
-      </View>
-    );
-  }
-
-  return (
-    <View className="rounded-2xl bg-surface border border-border p-4 gap-3">
-      <View className="gap-1">
-        <Text className="text-sm font-semibold text-foreground">
-          Still choosing
-        </Text>
-        <Text className="text-sm text-muted">
-          Set Today's Three when the day feels chosen, even if you picked fewer
-          than three.
-        </Text>
-      </View>
-      <Pressable
-        onPress={onLock}
-        className="self-start rounded-full px-4 py-2 border border-border"
-      >
-        <Text className="text-sm font-semibold text-foreground">
-          Set Today's Three
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
