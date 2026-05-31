@@ -1,10 +1,35 @@
 import { Tabs } from "expo-router";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { useColors } from "@/hooks/use-colors";
+
+function TabIcon({
+  name,
+  color,
+  focused,
+  tint,
+}: {
+  name: React.ComponentProps<typeof Ionicons>["name"];
+  color: string;
+  focused: boolean;
+  tint: string;
+}) {
+  return (
+    <View
+      style={{
+        backgroundColor: focused ? `${tint}1F` : "transparent",
+        paddingHorizontal: 16,
+        paddingVertical: 5,
+        borderRadius: 16,
+      }}
+    >
+      <Ionicons name={name} size={22} color={color} />
+    </View>
+  );
+}
 
 export default function TabLayout() {
   const colors = useColors();
@@ -34,8 +59,8 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Tasks",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="checkmark-done-outline" size={24} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="checkmark-done" color={color} focused={focused} tint={colors.primary} />
           ),
         }}
       />
@@ -43,8 +68,8 @@ export default function TabLayout() {
         name="calendar"
         options={{
           title: "Calendar",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="calendar-outline" size={24} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="calendar" color={color} focused={focused} tint={colors.primary} />
           ),
         }}
       />
@@ -52,8 +77,8 @@ export default function TabLayout() {
         name="journey"
         options={{
           title: "Journey",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="leaf-outline" size={24} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="leaf" color={color} focused={focused} tint={colors.primary} />
           ),
         }}
       />
@@ -61,8 +86,8 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: "Settings",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="settings-outline" size={24} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="settings" color={color} focused={focused} tint={colors.primary} />
           ),
         }}
       />

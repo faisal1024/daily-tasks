@@ -60,15 +60,33 @@ export function TaskCard({
     setIsEditing(false);
   };
 
+  const accent = completed ? colors.success : colors.primary;
   return (
     <View
-      className="border rounded-3xl p-5 min-h-24"
+      className="rounded-3xl p-5 min-h-24 border"
       style={{
-        backgroundColor: completed ? `${colors.success}14` : colors.surface,
-        borderColor: completed ? `${colors.success}55` : colors.border,
+        backgroundColor: completed ? `${colors.success}12` : colors.surface,
+        borderColor: completed ? `${colors.success}40` : colors.border,
+        shadowColor: colors.primary,
+        shadowOpacity: 0.1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 3,
       }}
     >
-      <View className="flex-row items-center gap-4">
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 6,
+          backgroundColor: accent,
+          borderTopLeftRadius: 24,
+          borderBottomLeftRadius: 24,
+        }}
+      />
+      <View className="flex-row items-center gap-4 pl-1.5">
         <Pressable
           accessibilityRole="checkbox"
           accessibilityState={{ checked: completed }}
