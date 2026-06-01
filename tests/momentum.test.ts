@@ -17,6 +17,7 @@ import {
 } from "../lib/daily-tasks/types";
 
 const COMPLETE_PROFILE: MomentumProfile = {
+  name: "Test User",
   goalTitle: "Get in shape",
   goalSource: "suggested",
   timeAvailability: "15_min",

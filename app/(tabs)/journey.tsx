@@ -1,9 +1,16 @@
 import { ScrollView, Text, View, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import Svg, {
+  Defs,
+  LinearGradient as SvgLinearGradient,
+  Rect,
+  Stop,
+} from "react-native-svg";
 
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
-import { StreakPill } from "@/components/daily-tasks/streak-pill";
+import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { ScreenContainer } from "@/components/screen-container";
+import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { JOURNEY_COSMETICS, stageForLevel } from "@/lib/daily-tasks/journey";
 import { pickCelebration } from "@/lib/daily-tasks/milestones";
@@ -41,49 +48,86 @@ export default function JourneyScreen() {
         contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 16 }}
         showsVerticalScrollIndicator={false}
       >
-        <View className="gap-1">
-          <Text className="text-4xl font-extrabold text-foreground">Your journey</Text>
-          <Text className="text-base text-muted">Small wins, stacking up.</Text>
-        </View>
+        <SectionLabel emoji="🌱" label="Your journey" />
 
-        {/* Growth hero */}
-        <View className="bg-surface rounded-3xl p-6 border border-border items-center gap-3">
-          <Text style={{ fontSize: 80 }}>{stage.glyph}</Text>
-          <Text className="text-2xl font-extrabold text-foreground">
+        {/* Growth hero — gradient card */}
+        <View
+          className="rounded-3xl p-7 items-center overflow-hidden"
+          style={{
+            shadowColor: colors.primary,
+            shadowOpacity: 0.2,
+            shadowRadius: 22,
+            shadowOffset: { width: 0, height: 12 },
+            elevation: 5,
+          }}
+        >
+          <Svg
+            width="100%"
+            height="100%"
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+          >
+            <Defs>
+              <SvgLinearGradient id="jhero" x1="0" y1="0" x2="1" y2="1">
+                <Stop offset="0" stopColor="#5B52E8" />
+                <Stop offset="1" stopColor="#6A61EB" />
+              </SvgLinearGradient>
+            </Defs>
+            <Rect x="0" y="0" width="100%" height="100%" fill="url(#jhero)" />
+          </Svg>
+          <Text style={{ fontSize: 84 }}>{stage.glyph}</Text>
+          <Text
+            style={{
+              color: "#fff",
+              fontFamily: Fonts.rounded,
+              fontWeight: "800",
+              fontSize: 28,
+              marginTop: 4,
+            }}
+          >
             Level {journeyLevel} · {stage.label}
           </Text>
-
-          <View className="w-full mt-1 gap-2">
+          <View className="w-full mt-4 gap-2">
             <View
               className="w-full rounded-full overflow-hidden"
-              style={{ height: 10, backgroundColor: colors.border }}
+              style={{ height: 13, backgroundColor: "rgba(255,255,255,0.25)" }}
             >
               <View
                 style={{
                   width: `${ratio * 100}%`,
                   height: "100%",
-                  backgroundColor: colors.primary,
+                  backgroundColor: "#FFD37A",
                   borderRadius: 999,
                 }}
               />
             </View>
-            <Text className="text-xs text-muted text-center">
-              {`${xpToNext} XP to level ${journeyLevel + 1}`}
-              {"  ·  "}
-              {journey.xp} XP total
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 14, textAlign: "center" }}>
+              {xpToNext} XP to Level {journeyLevel + 1} · {journey.xp} XP total
             </Text>
           </View>
         </View>
 
-        {/* Streak stats */}
+        {/* Streak stats — colorful tinted cards */}
         <View className="flex-row gap-3">
-          <StreakPill icon="flame" label="Showed up" value={journey.showedUpStreak} />
-          <StreakPill icon="star" label="Best run" value={journey.longestShowedUpStreak} />
+          <StatCard
+            emoji="🔥"
+            label="Showed up"
+            value={journey.showedUpStreak}
+            tint={colors.accent}
+          />
+          <StatCard
+            emoji="⭐"
+            label="Best run"
+            value={journey.longestShowedUpStreak}
+            tint={colors.primary}
+          />
         </View>
 
-        <View className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3">
-          <Ionicons name="snow-outline" size={20} color={colors.primary} />
-          <Text className="flex-1 text-sm text-muted">
+        <View
+          className="rounded-2xl p-4 flex-row items-center gap-3"
+          style={{ backgroundColor: `${colors.primary}12` }}
+        >
+          <Ionicons name="snow-outline" size={22} color={colors.primary} />
+          <Text className="flex-1 text-base font-medium" style={{ color: colors.muted }}>
             {journey.showedUpFreezes > 0
               ? `${journey.showedUpFreezes} streak freeze${
                   journey.showedUpFreezes === 1 ? "" : "s"
@@ -96,14 +140,15 @@ export default function JourneyScreen() {
         {momentumMilestones.length > 0 && (
           <View className="gap-3">
             <View className="flex-row items-center justify-between">
-              <Text className="text-base font-semibold text-foreground">
-                {goalTitle ? `Path to ${goalTitle}` : "Your milestones"}
-              </Text>
-              <Text className="text-xs text-muted">
+              <SectionLabel
+                emoji="🎯"
+                label={goalTitle ? `Path to ${goalTitle}` : "Your milestones"}
+              />
+              <Text className="text-base font-extrabold" style={{ color: colors.primary }}>
                 {milestonesDone}/{momentumMilestones.length}
               </Text>
             </View>
-            <Text className="text-xs text-muted -mt-1">
+            <Text className="text-sm" style={{ color: colors.muted }}>
               These advance on their own each day you finish all your tasks.
             </Text>
             {momentumMilestones.map((milestone, index) => {
@@ -133,21 +178,21 @@ export default function JourneyScreen() {
                   />
                   <View className="flex-1 gap-1">
                     <Text
-                      className="text-sm font-semibold"
+                      className="text-lg font-bold"
                       style={{ color: milestone.done ? colors.muted : colors.foreground }}
                     >
                       {milestone.title}
                     </Text>
                     {milestone.description ? (
-                      <Text className="text-xs text-muted">{milestone.description}</Text>
+                      <Text className="text-sm text-muted">{milestone.description}</Text>
                     ) : null}
                   </View>
                   {milestone.done ? (
-                    <Text className="text-xs" style={{ color: colors.success }}>
+                    <Text className="text-sm font-bold" style={{ color: colors.success }}>
                       Done
                     </Text>
                   ) : isNext ? (
-                    <Text className="text-xs" style={{ color: colors.primary }}>
+                    <Text className="text-sm font-bold" style={{ color: colors.primary }}>
                       In progress
                     </Text>
                   ) : null}
@@ -159,8 +204,8 @@ export default function JourneyScreen() {
 
         {/* Cosmetics */}
         <View className="gap-3">
-          <Text className="text-base font-semibold text-foreground">Looks</Text>
-          <Text className="text-xs text-muted -mt-2">
+          <SectionLabel emoji="🎨" label="Looks" />
+          <Text className="text-sm text-muted -mt-1">
             Unlock new journey styles as you level up.
           </Text>
           <View className="flex-row flex-wrap gap-3">
@@ -230,5 +275,29 @@ export default function JourneyScreen() {
         }
       />
     </ScreenContainer>
+  );
+}
+
+function StatCard({
+  emoji,
+  label,
+  value,
+  tint,
+}: {
+  emoji: string;
+  label: string;
+  value: number;
+  tint: string;
+}) {
+  return (
+    <View
+      className="flex-1 rounded-3xl p-4 border"
+      style={{ backgroundColor: `${tint}14`, borderColor: `${tint}33` }}
+    >
+      <Text className="text-sm uppercase font-extrabold" style={{ color: tint }}>
+        {emoji}  {label}
+      </Text>
+      <Text className="text-4xl font-extrabold text-foreground mt-1.5">{value}</Text>
+    </View>
   );
 }

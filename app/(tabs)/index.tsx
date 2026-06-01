@@ -79,7 +79,10 @@ export default function HomeScreen() {
 
   const total = state.tasks.length;
   const dayStreak = computeDayStreak(state.history, today);
-  const greeting = greetingText(greetingFor());
+  const firstName = state.momentumProfile.name?.trim().split(/\s+/)[0] ?? "";
+  const greeting = firstName
+    ? `${greetingText(greetingFor())}, ${firstName}`
+    : greetingText(greetingFor());
   const suggestions = useMemo(
     () => generateMomentumSuggestions(state.momentumProfile),
     [state.momentumProfile],

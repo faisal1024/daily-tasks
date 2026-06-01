@@ -185,6 +185,7 @@ function normalizeMomentumProfile(value: unknown): MomentumProfile {
   }
 
   return {
+    name: typeof value.name === "string" ? value.name : null,
     goalTitle: typeof value.goalTitle === "string" ? value.goalTitle : null,
     goalSource:
       value.goalSource === "suggested" || value.goalSource === "custom"

@@ -3,6 +3,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { Fonts } from "@/constants/theme";
 import { CalendarGrid } from "@/components/daily-tasks/calendar-grid";
 import { DayDetailCard } from "@/components/daily-tasks/day-detail-card";
 import { useColors } from "@/hooks/use-colors";
@@ -49,9 +50,12 @@ export default function CalendarScreen() {
         contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 24 }}
       >
         <View className="gap-1">
-          <Text className="text-base text-muted">History</Text>
-          <Text className="text-3xl font-bold text-foreground">
-            Your streak map
+          <Text className="text-lg font-medium text-muted">History</Text>
+          <Text
+            className="text-foreground"
+            style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
+          >
+            Your streak map 📅
           </Text>
         </View>
 
