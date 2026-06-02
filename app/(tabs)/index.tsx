@@ -463,7 +463,10 @@ function MomentumSuggestionCard({
             </Pressable>
           )}
         </View>
-        <Text className="text-2xl font-bold text-foreground">
+        <Text
+          className="text-2xl text-foreground"
+          style={{ fontFamily: Fonts.rounded }}
+        >
           Pick what works toward {goalTitle ?? "your goal"}
         </Text>
         <Text className="text-base text-muted">

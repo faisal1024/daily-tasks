@@ -1,5 +1,6 @@
 import { Text, View } from "react-native";
 
+import { DisplayFont } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 
 interface SectionLabelProps {
@@ -19,7 +20,10 @@ export function SectionLabel({ emoji, label }: SectionLabelProps) {
       className="self-start flex-row items-center rounded-2xl px-3.5 py-2"
       style={{ backgroundColor: `${colors.primary}16` }}
     >
-      <Text className="text-sm font-extrabold" style={{ color: colors.primary }}>
+      <Text
+        className="text-base"
+        style={{ color: colors.primary, fontFamily: DisplayFont.semibold }}
+      >
         {emoji ? `${emoji}  ` : ""}
         {label}
       </Text>

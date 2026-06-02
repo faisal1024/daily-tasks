@@ -65,21 +65,39 @@ export const Fonts = Platform.select({
     sans: "system-ui",
     /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: "ui-serif",
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: "ui-rounded",
+    /** Bundled Fredoka (loaded in app/_layout.tsx). */
+    rounded: "Fredoka-Bold",
     /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: "ui-monospace",
   },
   default: {
     sans: "normal",
     serif: "serif",
-    rounded: "normal",
+    rounded: "Fredoka-Bold",
     mono: "monospace",
   },
   web: {
     sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
     serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
+    rounded: "Fredoka-Bold, 'SF Pro Rounded', system-ui, sans-serif",
     mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
   },
 });
+
+/**
+ * Bundled font families. RN custom fonts do NOT respond to fontWeight — each
+ * weight is a separate family — so use these explicit names. Display = Fredoka
+ * (playful, rounded). Body = Nunito (friendly, readable). Both load in
+ * app/_layout.tsx.
+ */
+export const DisplayFont = {
+  medium: "Fredoka-Medium",
+  semibold: "Fredoka-SemiBold",
+  bold: "Fredoka-Bold",
+} as const;
+
+export const BodyFont = {
+  semibold: "Nunito-SemiBold",
+  bold: "Nunito-Bold",
+  extrabold: "Nunito-ExtraBold",
+} as const;
