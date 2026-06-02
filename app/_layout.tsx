@@ -18,7 +18,7 @@ export default function RootLayout() {
   // Bundle the real display + body fonts so the playful look actually renders.
   // GATE render on loaded so no text mounts with the system font first (the
   // earlier bug: text rendered before fonts registered and never swapped).
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     "Baloo2-Medium": require("@/assets/fonts/Baloo2-500.ttf"),
     "Baloo2-SemiBold": require("@/assets/fonts/Baloo2-600.ttf"),
     "Baloo2-Bold": require("@/assets/fonts/Baloo2-700.ttf"),
@@ -28,7 +28,9 @@ export default function RootLayout() {
     "Nunito-ExtraBold": require("@/assets/fonts/Nunito-800.ttf"),
   });
 
-  if (!fontsLoaded) return null;
+  // Wait for fonts so text doesn't flash in the system font first — but if they
+  // fail to load, render anyway (degrade to system font, never a blank app).
+  if (!fontsLoaded && !fontError) return null;
 
   return (
     <ThemeProvider>
