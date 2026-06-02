@@ -11,6 +11,14 @@
     "preview": {
       "distribution": "internal"
     },
+    "simulator": {
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL": "https://momentum-ai-proxy.onrender.com/api/momentum/plan"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "env": {
