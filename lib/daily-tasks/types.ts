@@ -54,6 +54,7 @@ export type PreferredTime = "morning" | "afternoon" | "evening" | "anytime";
 export type Cadence = "daily" | "weekdays" | "few_times";
 
 export interface MomentumProfile {
+  name: string | null;
   goalTitle: string | null;
   goalSource: GoalSource | null;
   timeAvailability: TimeAvailability | null;
@@ -182,6 +183,7 @@ export const TASK_SUGGESTIONS: string[] = [
 ];
 
 export const DEFAULT_MOMENTUM_PROFILE: MomentumProfile = {
+  name: null,
   goalTitle: null,
   goalSource: null,
   timeAvailability: null,

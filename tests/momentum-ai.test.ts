@@ -8,6 +8,7 @@ import type { MomentumProfile } from "../lib/daily-tasks/types";
 import { DEFAULT_MOMENTUM_PROFILE, DEFAULT_MOMENTUM_SETTINGS } from "../lib/daily-tasks/types";
 
 const PROFILE: MomentumProfile = {
+  name: "Test User",
   goalTitle: "Learn guitar",
   goalSource: "custom",
   timeAvailability: "30_min",

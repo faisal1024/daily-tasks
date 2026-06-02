@@ -74,6 +74,7 @@ export function OnboardingModal({
 }: OnboardingModalProps) {
   const colors = useColors();
   const [step, setStep] = useState<Step>("welcome");
+  const [name, setName] = useState(initialProfile.name ?? "");
   const [goalTitle, setGoalTitle] = useState(initialProfile.goalTitle ?? "");
   const [goalSource, setGoalSource] = useState<GoalSource | null>(
     initialProfile.goalSource,
@@ -93,6 +94,7 @@ export function OnboardingModal({
   useEffect(() => {
     if (!visible) return;
     setStep("welcome");
+    setName(initialProfile.name ?? "");
     setGoalTitle(initialProfile.goalTitle ?? "");
     setGoalSource(initialProfile.goalSource);
     setTimeAvailability(initialProfile.timeAvailability);
@@ -114,6 +116,7 @@ export function OnboardingModal({
   const finish = () => {
     if (!canFinish) return;
     onComplete({
+      name: name.trim() ? name.trim() : null,
       goalTitle: trimmedGoal,
       goalSource,
       timeAvailability,
@@ -149,12 +152,35 @@ export function OnboardingModal({
             <>
               <Header
                 eyebrow="Welcome"
-                title="Your accountability coach for three daily commitments."
+                title="Your friendly coach for three daily wins."
               />
-              <Text className="text-sm" style={{ color: colors.muted }}>
+              <Text className="text-base" style={{ color: colors.muted }}>
                 Momentum helps you choose the right three tasks, follow
-                through, and build discipline without an endless list.
+                through, and build momentum without an endless list.
               </Text>
+              <View className="gap-2 mt-1">
+                <Text className="text-base font-semibold text-foreground">
+                  What should we call you?
+                </Text>
+                <TextInput
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Your first name"
+                  placeholderTextColor={colors.muted}
+                  autoCapitalize="words"
+                  returnKeyType="done"
+                  maxLength={40}
+                  className="text-lg text-foreground rounded-2xl px-4 py-3"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surface,
+                  }}
+                />
+                <Text className="text-sm" style={{ color: colors.muted }}>
+                  Optional — we&apos;ll use it to greet you.
+                </Text>
+              </View>
               <PrimaryButton label="Get Started" onPress={() => setStep("goal")} />
             </>
           )}

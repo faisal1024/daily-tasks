@@ -7,16 +7,19 @@ import {
   ScrollView,
   Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
+import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TimeStepper } from "@/components/daily-tasks/time-stepper";
 import { useColors } from "@/hooks/use-colors";
+import { Fonts } from "@/constants/theme";
 import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type {
@@ -68,11 +71,20 @@ export default function SettingsScreen() {
     refreshNotificationPermission,
     requestNotificationPermission,
     completeMomentumOnboarding,
+    updateMomentumProfile,
     requestMomentumPlan,
     setMomentumSetting,
     resetAll,
   } = useDailyTasks();
+  const [nameDraft, setNameDraft] = useState(state.momentumProfile.name ?? "");
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+
+  // Keep the inline name field in sync if the profile changes elsewhere (e.g. the
+  // Update-profile modal), so a later blur can't silently revert the name.
+  const profileName = state.momentumProfile.name ?? "";
+  useEffect(() => {
+    setNameDraft(profileName);
+  }, [profileName]);
 
   const handleNotificationsEnabled = async (value: boolean) => {
     if (!value) {
@@ -163,17 +175,50 @@ export default function SettingsScreen() {
         keyboardDismissMode="interactive"
       >
         <View className="gap-1">
-          <Text className="text-base text-muted">Settings</Text>
-          <Text className="text-3xl font-bold text-foreground">
-            Tune your day
+          <Text className="text-lg font-medium text-muted">Settings</Text>
+          <Text
+            className="text-foreground"
+            style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
+          >
+            Tune your day ⚙️
           </Text>
         </View>
 
         <Section
+          emoji="🚀"
           title="Momentum"
           subtitle="Personalize your accountability coach without adding a backlog."
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-3">
+            <View className="gap-2">
+              <Text className="text-base font-semibold text-foreground">
+                Your name
+              </Text>
+              <TextInput
+                value={nameDraft}
+                onChangeText={setNameDraft}
+                onBlur={() => {
+                  const next = nameDraft.trim();
+                  if ((state.momentumProfile.name ?? "") !== next) {
+                    updateMomentumProfile({
+                      ...state.momentumProfile,
+                      name: next ? next : null,
+                    });
+                  }
+                }}
+                placeholder="Add your name"
+                placeholderTextColor={colors.muted}
+                autoCapitalize="words"
+                returnKeyType="done"
+                maxLength={40}
+                className="text-base text-foreground rounded-xl px-3 py-2.5"
+                style={{
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.background,
+                }}
+              />
+            </View>
             <View className="gap-1">
               <Text className="text-base font-semibold text-foreground">
                 {state.momentumProfile.goalTitle ?? "No goal selected"}
@@ -200,6 +245,7 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
+          emoji="🤖"
           title="AI adaptation"
           subtitle="How your coach tunes tomorrow based on today's follow-through."
         >
@@ -299,6 +345,7 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
+          emoji="🎯"
           title="Today's Three"
           subtitle="Review or finish the focus commitments you chose."
         >
@@ -358,6 +405,7 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
+          emoji="🔒"
           title="Daily lock"
           subtitle="Choose whether Today's Three sets itself automatically."
         >
@@ -388,6 +436,7 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
+          emoji="🔔"
           title="Reminders"
           subtitle="Smart, local nudges that react to Today's Three."
         >
@@ -443,11 +492,11 @@ export default function SettingsScreen() {
                   >
                     <View className="flex-row items-center justify-between gap-4">
                       <View className="flex-1">
-                        <Text className="text-base font-semibold text-foreground">
+                        <Text className="text-lg font-bold text-foreground">
                           {meta.title}
                         </Text>
                         <Text
-                          className="text-xs mt-1"
+                          className="text-sm mt-1"
                           style={{ color: colors.muted }}
                         >
                           {pausedByHourly
@@ -471,7 +520,7 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        <Section title="Data" subtitle="Stored only on this device.">
+        <Section emoji="💾" title="Data" subtitle="Stored only on this device.">
           <Pressable
             onPress={handleReset}
             className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3"
@@ -496,7 +545,7 @@ export default function SettingsScreen() {
           </Pressable>
         </Section>
 
-        <Section title="Help">
+        <Section emoji="💬" title="Help">
           <View className="bg-surface rounded-2xl border border-border overflow-hidden">
             <HelpRow
               icon="chatbubble-ellipses-outline"
@@ -596,20 +645,25 @@ function formatChoice(value: string): string {
 }
 
 function Section({
+  emoji,
   title,
   subtitle,
   children,
 }: {
+  emoji?: string;
   title: string;
   subtitle?: string;
   children: React.ReactNode;
 }) {
+  const colors = useColors();
   return (
     <View className="gap-3">
-      <View>
-        <Text className="text-lg font-semibold text-foreground">{title}</Text>
+      <View className="gap-1.5">
+        <SectionLabel emoji={emoji} label={title} />
         {subtitle && (
-          <Text className="text-sm text-muted mt-0.5">{subtitle}</Text>
+          <Text className="text-sm mt-0.5" style={{ color: colors.muted }}>
+            {subtitle}
+          </Text>
         )}
       </View>
       {children}

@@ -1,22 +1,11 @@
 import { useState } from "react";
 import { Dimensions, Text, View, type LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, {
-  Circle,
-  Defs,
-  LinearGradient as SvgLinearGradient,
-  Rect,
-  Stop,
-} from "react-native-svg";
+import Svg, { Circle } from "react-native-svg";
 
+import { GradientBackground } from "@/components/daily-tasks/gradient-card";
 import { Fonts } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
-
-// Darker, theme-anchored stops so white text/chips clear contrast on the
-// gradient; darker still in dark mode to soften the seam against a dark body.
-const GRADIENT_LIGHT = ["#5B52E8", "#6258E9", "#6A61EB"];
-const GRADIENT_DARK = ["#3C36A8", "#453EBE", "#504AD4"];
 
 interface TodayHeroProps {
   greeting: string;
@@ -47,8 +36,6 @@ export function TodayHero({
   xpRemaining,
 }: TodayHeroProps) {
   const insets = useSafeAreaInsets();
-  const scheme = useColorScheme();
-  const stops = scheme === "dark" ? GRADIENT_DARK : GRADIENT_LIGHT;
   const screenW = Dimensions.get("window").width;
   const [heroHeight, setHeroHeight] = useState(0);
   const onLayout = (e: LayoutChangeEvent) => setHeroHeight(e.nativeEvent.layout.height);
@@ -72,20 +59,7 @@ export function TodayHero({
       className="overflow-hidden"
       style={{ borderBottomLeftRadius: 36, borderBottomRightRadius: 36 }}
     >
-      <Svg
-        width={screenW}
-        height={heroHeight || 520}
-        style={{ position: "absolute", top: 0, left: 0 }}
-      >
-        <Defs>
-          <SvgLinearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor={stops[0]} />
-            <Stop offset="0.55" stopColor={stops[1]} />
-            <Stop offset="1" stopColor={stops[2]} />
-          </SvgLinearGradient>
-        </Defs>
-        <Rect x="0" y="0" width={screenW} height={heroHeight || 520} fill="url(#hero)" />
-      </Svg>
+      <GradientBackground width={screenW} height={heroHeight || 520} />
 
       <View style={{ paddingTop: insets.top + 14, paddingHorizontal: 22, paddingBottom: 26 }}>
         {/* Top row */}
