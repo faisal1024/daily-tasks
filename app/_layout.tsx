@@ -9,9 +9,6 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ThemeProvider } from "@/lib/theme-provider";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
-import { applyDefaultFont } from "@/lib/_core/default-font";
-
-applyDefaultFont();
 
 export const unstable_settings = {
   anchor: "(tabs)",

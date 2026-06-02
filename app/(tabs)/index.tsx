@@ -12,7 +12,7 @@ import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useColors } from "@/hooks/use-colors";
-import { Fonts } from "@/constants/theme";
+import { BodyFont, Fonts } from "@/constants/theme";
 import { ScreenContainer } from "@/components/screen-container";
 import { TodayHero } from "@/components/daily-tasks/today-hero";
 import { stageForLevel } from "@/lib/daily-tasks/journey";
@@ -500,7 +500,12 @@ function MomentumSuggestionCard({
                 color={added ? colors.success : colors.primary}
               />
               <View className="flex-1 gap-0.5">
-                <Text className="text-base font-semibold text-foreground">{task.text}</Text>
+                <Text
+                  className="text-base text-foreground"
+                  style={{ fontFamily: BodyFont.bold }}
+                >
+                  {task.text}
+                </Text>
                 <Text className="text-sm text-muted">{task.estimatedMinutes} min</Text>
               </View>
             </Pressable>
@@ -511,14 +516,18 @@ function MomentumSuggestionCard({
       {available.length > 1 && remainingSlots > 0 && (
         <Pressable
           onPress={onAddAll}
-          className="self-stretch rounded-full py-3 items-center bg-foreground"
+          className="self-stretch rounded-2xl py-4 items-center"
+          style={{ backgroundColor: colors.primary }}
           accessibilityRole="button"
           accessibilityLabel="Add all suggestions"
         >
-          <Text className="text-base font-semibold text-background">
+          <Text
+            className="text-lg text-background"
+            style={{ fontFamily: Fonts.rounded, color: "#fff" }}
+          >
             {available.length > remainingSlots
-              ? `Add ${remainingSlots} more`
-              : "Add all"}
+              ? `Add ${remainingSlots} more ✨`
+              : "Add all ✨"}
           </Text>
         </Pressable>
       )}

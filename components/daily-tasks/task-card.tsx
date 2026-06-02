@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
+import { BodyFont } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import type { Task } from "@/lib/daily-tasks/types";
 
@@ -128,8 +129,9 @@ export function TaskCard({
           ) : (
             <Pressable onPress={onToggle} hitSlop={4} className="gap-1">
               <Text
-                className="text-lg font-semibold text-foreground"
+                className="text-lg text-foreground"
                 style={{
+                  fontFamily: BodyFont.bold,
                   textDecorationLine: completed ? "line-through" : "none",
                   opacity: completed ? 0.62 : 1,
                 }}
