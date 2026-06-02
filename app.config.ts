@@ -61,6 +61,20 @@ const config: ExpoConfig = {
     "expo-router",
     "expo-notifications",
     [
+      "expo-font",
+      {
+        fonts: [
+          "./assets/fonts/Fredoka-400.ttf",
+          "./assets/fonts/Fredoka-500.ttf",
+          "./assets/fonts/Fredoka-600.ttf",
+          "./assets/fonts/Fredoka-700.ttf",
+          "./assets/fonts/Nunito-600.ttf",
+          "./assets/fonts/Nunito-700.ttf",
+          "./assets/fonts/Nunito-800.ttf",
+        ],
+      },
+    ],
+    [
       "expo-splash-screen",
       {
         image: "./assets/images/splash-icon.png",
