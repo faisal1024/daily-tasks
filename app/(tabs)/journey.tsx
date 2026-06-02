@@ -1,13 +1,8 @@
 import { ScrollView, Text, View, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import Svg, {
-  Defs,
-  LinearGradient as SvgLinearGradient,
-  Rect,
-  Stop,
-} from "react-native-svg";
 
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
+import { GradientCard } from "@/components/daily-tasks/gradient-card";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { ScreenContainer } from "@/components/screen-container";
 import { Fonts } from "@/constants/theme";
@@ -48,11 +43,16 @@ export default function JourneyScreen() {
         contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 16 }}
         showsVerticalScrollIndicator={false}
       >
-        <SectionLabel emoji="🌱" label="Your journey" />
+        <Text
+          className="text-foreground"
+          style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
+        >
+          Your journey 🌱
+        </Text>
 
-        {/* Growth hero — gradient card */}
-        <View
-          className="rounded-3xl p-7 items-center overflow-hidden"
+        {/* Growth hero — gradient card (scheme-aware, self-measuring) */}
+        <GradientCard
+          className="rounded-3xl p-7 items-center"
           style={{
             shadowColor: colors.primary,
             shadowOpacity: 0.2,
@@ -61,19 +61,6 @@ export default function JourneyScreen() {
             elevation: 5,
           }}
         >
-          <Svg
-            width="100%"
-            height="100%"
-            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
-          >
-            <Defs>
-              <SvgLinearGradient id="jhero" x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0" stopColor="#5B52E8" />
-                <Stop offset="1" stopColor="#6A61EB" />
-              </SvgLinearGradient>
-            </Defs>
-            <Rect x="0" y="0" width="100%" height="100%" fill="url(#jhero)" />
-          </Svg>
           <Text style={{ fontSize: 84 }}>{stage.glyph}</Text>
           <Text
             style={{
@@ -104,7 +91,7 @@ export default function JourneyScreen() {
               {xpToNext} XP to Level {journeyLevel + 1} · {journey.xp} XP total
             </Text>
           </View>
-        </View>
+        </GradientCard>
 
         {/* Streak stats — colorful tinted cards */}
         <View className="flex-row gap-3">

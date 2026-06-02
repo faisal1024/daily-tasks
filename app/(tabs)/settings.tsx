@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
@@ -78,6 +78,13 @@ export default function SettingsScreen() {
   } = useDailyTasks();
   const [nameDraft, setNameDraft] = useState(state.momentumProfile.name ?? "");
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+
+  // Keep the inline name field in sync if the profile changes elsewhere (e.g. the
+  // Update-profile modal), so a later blur can't silently revert the name.
+  const profileName = state.momentumProfile.name ?? "";
+  useEffect(() => {
+    setNameDraft(profileName);
+  }, [profileName]);
 
   const handleNotificationsEnabled = async (value: boolean) => {
     if (!value) {
