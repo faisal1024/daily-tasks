@@ -391,7 +391,11 @@ function Header({ eyebrow, title }: { eyebrow: string; title: string }) {
       <Text className="text-sm" style={{ color: colors.muted }}>
         {eyebrow}
       </Text>
-      <Text className="text-2xl font-bold text-foreground">{title}</Text>
+      <Text
+        className="text-3xl text-foreground font-display"
+      >
+        {title}
+      </Text>
     </View>
   );
 }

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
-import { Fonts } from "@/constants/theme";
+
 import { CalendarGrid } from "@/components/daily-tasks/calendar-grid";
 import { DayDetailCard } from "@/components/daily-tasks/day-detail-card";
 import { useColors } from "@/hooks/use-colors";
@@ -52,8 +52,8 @@ export default function CalendarScreen() {
         <View className="gap-1">
           <Text className="text-lg font-medium text-muted">History</Text>
           <Text
-            className="text-foreground"
-            style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
+            className="text-foreground font-display"
+            style={{ fontSize: 34 }}
           >
             Your streak map 📅
           </Text>
@@ -109,7 +109,7 @@ export default function CalendarScreen() {
             >
               Active Days
             </Text>
-            <Text className="text-2xl font-bold text-foreground mt-2">
+            <Text className="text-3xl text-foreground mt-2 font-display">
               {stats.activeDays}
             </Text>
           </View>
@@ -120,7 +120,7 @@ export default function CalendarScreen() {
             >
               Perfect Days
             </Text>
-            <Text className="text-2xl font-bold text-foreground mt-2">
+            <Text className="text-3xl text-foreground mt-2 font-display">
               {stats.perfectDays}
             </Text>
           </View>

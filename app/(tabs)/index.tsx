@@ -12,7 +12,7 @@ import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useColors } from "@/hooks/use-colors";
-import { BodyFont, Fonts } from "@/constants/theme";
+
 import { ScreenContainer } from "@/components/screen-container";
 import { TodayHero } from "@/components/daily-tasks/today-hero";
 import { stageForLevel } from "@/lib/daily-tasks/journey";
@@ -151,8 +151,8 @@ export default function HomeScreen() {
         {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
 
         <Text
-          className="text-foreground"
-          style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 26 }}
+          className="text-foreground font-display"
+          style={{ fontSize: 26 }}
         >
           Today&apos;s Three
         </Text>
@@ -464,8 +464,7 @@ function MomentumSuggestionCard({
           )}
         </View>
         <Text
-          className="text-2xl text-foreground"
-          style={{ fontFamily: Fonts.rounded }}
+          className="text-2xl text-foreground font-display"
         >
           Pick what works toward {goalTitle ?? "your goal"}
         </Text>
@@ -500,10 +499,7 @@ function MomentumSuggestionCard({
                 color={added ? colors.success : colors.primary}
               />
               <View className="flex-1 gap-0.5">
-                <Text
-                  className="text-base text-foreground"
-                  style={{ fontFamily: BodyFont.bold }}
-                >
+                <Text className="text-base text-foreground font-body-bold">
                   {task.text}
                 </Text>
                 <Text className="text-sm text-muted">{task.estimatedMinutes} min</Text>
@@ -522,8 +518,8 @@ function MomentumSuggestionCard({
           accessibilityLabel="Add all suggestions"
         >
           <Text
-            className="text-lg text-background"
-            style={{ fontFamily: Fonts.rounded, color: "#fff" }}
+            className="text-lg font-display"
+            style={{ color: "#fff" }}
           >
             {available.length > remainingSlots
               ? `Add ${remainingSlots} more ✨`
