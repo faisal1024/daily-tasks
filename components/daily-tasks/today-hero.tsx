@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle } from "react-native-svg";
 
 import { GradientBackground } from "@/components/daily-tasks/gradient-card";
-import { Fonts } from "@/constants/theme";
+
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
 
 interface TodayHeroProps {
@@ -102,12 +102,8 @@ export function TodayHero({
             </Svg>
             <View className="absolute inset-0 items-center justify-center">
               <Text
-                style={{
-                  color: "#fff",
-                  fontFamily: Fonts.rounded,
-                  fontWeight: "800",
-                  fontSize: 44,
-                }}
+                className="font-display"
+                style={{ color: "#fff", fontSize: 44 }}
               >
                 {completed}/{total || MAX_TASKS}
               </Text>
@@ -127,12 +123,11 @@ export function TodayHero({
 
           <View className="flex-1">
             <Text
+              className="font-display"
               style={{
                 color: "#fff",
-                fontFamily: Fonts.rounded,
-                fontWeight: "800",
-                fontSize: 30,
-                lineHeight: 32,
+                fontSize: 32,
+                lineHeight: 36,
               }}
             >
               {headline}
