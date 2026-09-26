@@ -5,7 +5,6 @@ import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay
 import { GradientCard } from "@/components/daily-tasks/gradient-card";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { ScreenContainer } from "@/components/screen-container";
-import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { JOURNEY_COSMETICS, stageForLevel } from "@/lib/daily-tasks/journey";
 import { pickCelebration } from "@/lib/daily-tasks/milestones";
@@ -44,8 +43,8 @@ export default function JourneyScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text
-          className="text-foreground"
-          style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
+          className="text-foreground font-display"
+          style={{ fontSize: 34 }}
         >
           Your journey 🌱
         </Text>
@@ -63,13 +62,8 @@ export default function JourneyScreen() {
         >
           <Text style={{ fontSize: 84 }}>{stage.glyph}</Text>
           <Text
-            style={{
-              color: "#fff",
-              fontFamily: Fonts.rounded,
-              fontWeight: "800",
-              fontSize: 28,
-              marginTop: 4,
-            }}
+            className="font-display"
+            style={{ color: "#fff", fontSize: 28, marginTop: 4 }}
           >
             Level {journeyLevel} · {stage.label}
           </Text>
@@ -284,7 +278,11 @@ function StatCard({
       <Text className="text-sm uppercase font-extrabold" style={{ color: tint }}>
         {emoji}  {label}
       </Text>
-      <Text className="text-4xl font-extrabold text-foreground mt-1.5">{value}</Text>
+      <Text
+        className="text-4xl text-foreground mt-1.5 font-display"
+      >
+        {value}
+      </Text>
     </View>
   );
 }

@@ -19,7 +19,7 @@ import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TimeStepper } from "@/components/daily-tasks/time-stepper";
 import { useColors } from "@/hooks/use-colors";
-import { Fonts } from "@/constants/theme";
+
 import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type {
@@ -177,8 +177,8 @@ export default function SettingsScreen() {
         <View className="gap-1">
           <Text className="text-lg font-medium text-muted">Settings</Text>
           <Text
-            className="text-foreground"
-            style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
+            className="text-foreground font-display"
+            style={{ fontSize: 34 }}
           >
             Tune your day ⚙️
           </Text>

@@ -22,6 +22,16 @@ module.exports = {
   theme: {
     extend: {
       colors: tailwindColors,
+      // Bundled fonts as NativeWind classes (font-display / font-body…), so the
+      // family is emitted by NativeWind itself — avoids inline-style vs className
+      // conflicts that were silently dropping fontFamily.
+      fontFamily: {
+        display: ["Baloo2-Bold"],
+        "display-semibold": ["Baloo2-SemiBold"],
+        body: ["Nunito-SemiBold"],
+        "body-bold": ["Nunito-Bold"],
+        "body-extrabold": ["Nunito-ExtraBold"],
+      },
     },
   },
   plugins: [

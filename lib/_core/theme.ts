@@ -65,35 +65,36 @@ export const Fonts = Platform.select({
     sans: "system-ui",
     /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: "ui-serif",
-    /** Bundled Fredoka (loaded in app/_layout.tsx). */
-    rounded: "Fredoka-Bold",
+    /** Bundled Baloo 2 (loaded in app/_layout.tsx). */
+    rounded: "Baloo2-Bold",
     /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: "ui-monospace",
   },
   default: {
     sans: "normal",
     serif: "serif",
-    rounded: "Fredoka-Bold",
+    rounded: "Baloo2-Bold",
     mono: "monospace",
   },
   web: {
     sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
     serif: "Georgia, 'Times New Roman', serif",
-    rounded: "Fredoka-Bold, 'SF Pro Rounded', system-ui, sans-serif",
+    rounded: "Baloo2-Bold, 'SF Pro Rounded', system-ui, sans-serif",
     mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
   },
 });
 
 /**
  * Bundled font families. RN custom fonts do NOT respond to fontWeight — each
- * weight is a separate family — so use these explicit names. Display = Fredoka
- * (playful, rounded). Body = Nunito (friendly, readable). Both load in
- * app/_layout.tsx.
+ * weight is a separate family — so use these explicit names. Display = Baloo 2
+ * (playful, bubbly, very round). Body = Nunito (friendly, readable). Both load
+ * in app/_layout.tsx.
  */
 export const DisplayFont = {
-  medium: "Fredoka-Medium",
-  semibold: "Fredoka-SemiBold",
-  bold: "Fredoka-Bold",
+  medium: "Baloo2-Medium",
+  semibold: "Baloo2-SemiBold",
+  bold: "Baloo2-Bold",
+  extrabold: "Baloo2-ExtraBold",
 } as const;
 
 export const BodyFont = {
