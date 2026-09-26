@@ -16,7 +16,10 @@ import {
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
 import {
   THINKING_HINT_DELAY_MS,
+  formatClockTime,
+  ideasEntry,
   ideasSource,
+  lockConfirmation,
   isPerfectDayTransition,
   showIdeasEntry,
   streakChipLabel,
@@ -47,6 +50,13 @@ describe("todayProgress", () => {
     expect(todayProgress(1, 3).headline).toBe("Almost there!");
   });
 
+  it("says how many slots are still open while the day is unlocked", () => {
+    expect(todayProgress(0, 1).label).toBe("0 of 1 done · 2 open");
+    expect(todayProgress(1, 2).label).toBe("1 of 2 done · 1 open");
+    // Once locked, empty slots are closed for the day.
+    expect(todayProgress(0, 1, { locked: true }).label).toBe("0 of 1 done");
+  });
+
   it("labels progress and clamps bad counts", () => {
     expect(todayProgress(2, 3).label).toBe("2 of 3 done");
     expect(todayProgress(5, 3)).toMatchObject({ completed: 3, label: "3 of 3 done" });
@@ -74,8 +84,17 @@ describe("todayStatus", () => {
       text: "Today is set. 1 to go.",
       canLock: false,
     });
-    expect(todayStatus({ ...base, locked: true, lockSource: "auto", completedCount: 2 }).text).toBe(
-      "Locked in automatically. All done.",
+    expect(
+      todayStatus({
+        ...base,
+        locked: true,
+        lockSource: "auto",
+        completedCount: 2,
+        autoLockTime: "12:00 PM",
+      }).text,
+    ).toBe("Locked automatically at 12:00 PM. All done. Change this in Settings.");
+    expect(todayStatus({ ...base, locked: true, lockSource: "auto", completedCount: 0 }).text).toBe(
+      "Locked automatically. 2 to go. Change this in Settings.",
     );
     expect(todayStatus({ ...base, locked: true, lockSource: "manual", taskCount: 0 }).text).toBe(
       "Today is set.",
@@ -97,7 +116,7 @@ describe("ideasSource", () => {
   it("labels AI plans as personalized for the goal", () => {
     expect(ideasSource(plan("ai"), "Run a 5K")).toEqual({
       personalized: true,
-      label: "Personalized for Run a 5K",
+      label: "Made for your goal",
     });
   });
 
@@ -296,5 +315,41 @@ describe("isLatestRequest", () => {
   it("only lets the newest AI request update state", () => {
     expect(isLatestRequest(3, 3)).toBe(true);
     expect(isLatestRequest(2, 3)).toBe(false);
+  });
+});
+
+describe("ideasEntry", () => {
+  it("is the prominent next step on an empty day, naming the goal", () => {
+    expect(ideasEntry(0, "Run a 5K")).toEqual({ label: "See ideas for Run a 5K", prominent: true });
+    expect(ideasEntry(0, null)).toEqual({ label: "See some ideas", prominent: true });
+  });
+
+  it("steps back once tasks exist", () => {
+    expect(ideasEntry(1, "Run a 5K")).toEqual({ label: "Need ideas?", prominent: false });
+  });
+});
+
+describe("lockConfirmation", () => {
+  it("explains what locking does and how to undo it", () => {
+    const { title, message } = lockConfirmation(3);
+    expect(title).toBe("Lock in today?");
+    expect(message).toMatch(/still check tasks off/);
+    expect(message).toMatch(/add, edit or remove/);
+    expect(message).toMatch(/Settings/);
+    expect(message).not.toMatch(/empty slot/);
+  });
+
+  it("warns that empty slots stay empty", () => {
+    expect(lockConfirmation(2).message).toContain("Your empty slot stays empty.");
+    expect(lockConfirmation(1).message).toContain("Your empty slots stay empty.");
+  });
+});
+
+describe("formatClockTime", () => {
+  it("formats 12-hour clock times", () => {
+    expect(formatClockTime(0, 0)).toBe("12:00 AM");
+    expect(formatClockTime(9, 5)).toBe("9:05 AM");
+    expect(formatClockTime(12, 0)).toBe("12:00 PM");
+    expect(formatClockTime(23, 30)).toBe("11:30 PM");
   });
 });

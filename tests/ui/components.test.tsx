@@ -1,15 +1,12 @@
 import { AccessibilityInfo } from "react-native";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
+import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
-import {
-  THINKING_HINT_DELAY_MS,
-  todayProgress,
-  todayStatus,
-} from "@/lib/daily-tasks/today-view";
+import { THINKING_HINT_DELAY_MS, todayProgress, todayStatus } from "@/lib/daily-tasks/today-view";
 
 import { renderWithProviders as render } from "./render";
 
@@ -29,8 +26,47 @@ describe("TodayHeader", () => {
     expect(screen.getByText("🔥 21 · Lv 4")).toBeOnTheScreen();
     expect(screen.getByLabelText("21-day streak, level 4")).toBeOnTheScreen();
     expect(screen.getByText("Almost there!")).toBeOnTheScreen();
-    expect(screen.getByText("2 of 3 done")).toBeOnTheScreen();
-    expect(screen.getByRole("progressbar")).toHaveAccessibilityValue({ now: 67 });
+    expect(screen.getByText("2 of 3 done", { includeHiddenElements: true })).toBeOnTheScreen();
+    // VoiceOver hears the label, not a percentage measured against three slots.
+    expect(screen.getByRole("progressbar")).toHaveAccessibilityValue({ text: "2 of 3 done" });
+  });
+});
+
+describe("TodayHeader progress label", () => {
+  it("speaks the open-slot label, not a percentage, while slots are open", async () => {
+    await render(
+      <TodayHeader greeting="Hi" progress={todayProgress(0, 1)} dayStreak={0} level={1} />,
+    );
+    expect(screen.getByRole("progressbar")).toHaveAccessibilityValue({
+      text: "0 of 1 done · 2 open",
+    });
+    // The visible label is hidden from VoiceOver so it isn't read twice.
+    expect(screen.queryByText("0 of 1 done · 2 open")).toBeNull();
+    expect(
+      screen.getByText("0 of 1 done · 2 open", { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+  });
+});
+
+describe("AddTaskRow", () => {
+  it("invites a task while open and says the day is set when locked", async () => {
+    const onAdd = jest.fn();
+    const { rerender } = await render(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} />);
+    expect(screen.getByText("Add a task")).toBeOnTheScreen();
+    expect(screen.getByText("Something you'll stand behind today.")).toBeOnTheScreen();
+    await rerender(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} disabled />);
+    expect(screen.getByText("Left open")).toBeOnTheScreen();
+    expect(screen.getByText("Today is set.")).toBeOnTheScreen();
+  });
+
+  it("adds trimmed text typed into the slot", async () => {
+    const onAdd = jest.fn();
+    await render(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} />);
+    await fireEvent.press(screen.getByText("Add a task"));
+    const input = screen.getByPlaceholderText("What's one thing for today?");
+    await fireEvent.changeText(input, "  Walk  ");
+    await fireEvent(input, "submitEditing");
+    expect(onAdd).toHaveBeenCalledWith("Walk");
   });
 });
 
@@ -50,7 +86,12 @@ describe("StatusLine", () => {
   it("hides Lock in once the day is set, and for an empty day", async () => {
     const { rerender } = await render(
       <StatusLine
-        status={todayStatus({ locked: true, lockSource: "manual", taskCount: 3, completedCount: 1 })}
+        status={todayStatus({
+          locked: true,
+          lockSource: "manual",
+          taskCount: 3,
+          completedCount: 1,
+        })}
         onLock={jest.fn()}
       />,
     );
@@ -127,7 +168,7 @@ describe("IdeasSheet", () => {
     visible: true,
     onClose: jest.fn(),
     goalTitle: "Run a 5K",
-    source: { personalized: true, label: "Personalized for Run a 5K" },
+    source: { personalized: true, label: "Made for your goal" },
     ideas,
     addedTexts: new Set<string>(),
     remainingSlots: 3,
@@ -147,7 +188,7 @@ describe("IdeasSheet", () => {
 
   it("labels personalized vs starter ideas", async () => {
     const { rerender } = await render(<IdeasSheet {...props()} />);
-    expect(screen.getByText("Personalized for Run a 5K")).toBeOnTheScreen();
+    expect(screen.getByText("Made for your goal")).toBeOnTheScreen();
     await rerender(
       <IdeasSheet {...props()} source={{ personalized: false, label: "Starter ideas" }} />,
     );
@@ -159,6 +200,7 @@ describe("IdeasSheet", () => {
     await render(<IdeasSheet {...p} remainingSlots={2} />);
     await fireEvent.press(screen.getByRole("button", { name: "Add Walk 20 minutes" }));
     expect(p.onAdd).toHaveBeenCalledWith("Walk 20 minutes");
+    expect(screen.getByText("Add the first 2 ✨")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Add 2 of these ideas" }));
     expect(p.onAddAll).toHaveBeenCalledWith(["Walk 20 minutes", "Stretch calves"]);
   });
@@ -192,12 +234,19 @@ describe("IdeasSheet", () => {
   });
 
   it("shows failure notes with an icon and announces them for VoiceOver", async () => {
-    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => {});
+    const announce = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockImplementation(() => {});
     await render(
-      <IdeasSheet {...props()} failureMessage="Couldn't get fresh ideas right now. Try again in a bit." />,
+      <IdeasSheet
+        {...props()}
+        failureMessage="Couldn't get fresh ideas right now. Try again in a bit."
+      />,
     );
     expect(screen.getByTestId("ideas-failure")).toBeOnTheScreen();
-    expect(announce).toHaveBeenCalledWith("Couldn't get fresh ideas right now. Try again in a bit.");
+    expect(announce).toHaveBeenCalledWith(
+      "Couldn't get fresh ideas right now. Try again in a bit.",
+    );
   });
 
   it("disables New ideas while refreshing and hides it when regeneration isn't possible", async () => {
@@ -206,6 +255,27 @@ describe("IdeasSheet", () => {
     expect(screen.getByRole("button", { name: "Get new ideas" })).toBeDisabled();
     await rerender(<IdeasSheet {...p} canRegenerate={false} />);
     expect(screen.queryByRole("button", { name: "Get new ideas" })).toBeNull();
+  });
+
+  it("bases the hint on ideas that can still be added: not already added, and no more than the free slots", async () => {
+    const { rerender } = await render(<IdeasSheet {...props()} />);
+    expect(screen.getByText("Add any you like — one, two, or all three.")).toBeOnTheScreen();
+    // Three ideas, two free slots.
+    await rerender(<IdeasSheet {...props()} remainingSlots={2} />);
+    expect(screen.getByText("Add one or both.")).toBeOnTheScreen();
+    // Three free slots, but one idea is already on the list.
+    await rerender(<IdeasSheet {...props()} addedTexts={new Set(["walk 20 minutes"])} />);
+    expect(screen.getByText("Add one or both.")).toBeOnTheScreen();
+    // One free slot.
+    await rerender(<IdeasSheet {...props()} remainingSlots={1} />);
+    expect(screen.getByText("Add it if it fits.")).toBeOnTheScreen();
+    expect(screen.getByText("Add the first 1 ✨")).toBeOnTheScreen();
+  });
+
+  it("says 'Add all' when every remaining idea fits", async () => {
+    await render(<IdeasSheet {...props()} remainingSlots={3} />);
+    expect(screen.getByText("Add all ✨")).toBeOnTheScreen();
+    expect(screen.queryByText(/Add the first/)).toBeNull();
   });
 
   it("uses count-aware copy for fewer than three ideas", async () => {
