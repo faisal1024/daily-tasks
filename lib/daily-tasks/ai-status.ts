@@ -36,11 +36,17 @@ export class MomentumAiError extends Error {
   }
 }
 
-/** Map a proxy HTTP status to a failure kind. */
-export function kindForStatus(status: number): AiFailureKind {
+/**
+ * Map a proxy HTTP status to a failure kind. A 503 means "daily spend cap hit"
+ * only when our proxy says so; a 503 from the host during a deploy or outage is
+ * a transient "unavailable" (retried, and not described as "for today").
+ */
+export function kindForStatus(status: number, proxyError?: unknown): AiFailureKind {
   if (status === 401 || status === 403) return "unauthorized";
   if (status === 429) return "rate_limited";
-  if (status === 503) return "busy";
+  if (status === 503 && typeof proxyError === "string" && /busy/i.test(proxyError)) {
+    return "busy";
+  }
   return "unavailable";
 }
 
@@ -55,17 +61,26 @@ export function isAiFailureKind(value: unknown): value is AiFailureKind {
 }
 
 /**
- * Short, friendly copy for the suggestions card. Never shows raw error text.
+ * Short, friendly copy for the suggestions card and Settings. Never shows raw
+ * error text. `showingAiIdeas` is true when the (kept) plan on screen is still
+ * the AI one, so the copy doesn't promise "starters" that aren't there.
  * Returns null when there's nothing worth telling the user.
  */
-export function aiFailureMessage(kind: AiFailureKind | null): string | null {
+export function aiFailureMessage(
+  kind: AiFailureKind | null,
+  { showingAiIdeas = false }: { showingAiIdeas?: boolean } = {},
+): string | null {
   switch (kind) {
     case null:
       return null;
     case "rate_limited":
-      return "You've refreshed a lot. Try again in a minute.";
+      // Neutral: the automatic fetch or others on a shared network can trigger
+      // this, and the daily limit lasts longer than a minute.
+      return "Lots of requests right now. Try again a little later.";
     case "busy":
-      return "Smart suggestions are resting for today. Here are some starters.";
+      return showingAiIdeas
+        ? "Smart suggestions are taking a break for today. Your ideas below still work."
+        : "Smart suggestions are taking a break for today. Try these starters.";
     case "unauthorized":
       // Old builds after the proxy secret is enabled: an update fixes it.
       return "Smart suggestions need the latest version of the app.";
@@ -84,8 +99,15 @@ export type PlanStatus = "idle" | "loading" | "ready" | "error";
  * killed mid-request; nothing is in flight anymore, so it must not stay loading
  * (that would disable "New ideas" and block the daily auto-fetch forever).
  */
-export function restorePlanStatus(saved: unknown, hasPlan: boolean): PlanStatus {
-  if (saved === "ready" || saved === "error") return saved;
+export function restorePlanStatus(
+  saved: unknown,
+  hasPlan: boolean,
+  savedError: unknown = null,
+): PlanStatus {
+  if (saved === "ready") return "ready";
+  // An error is only meaningful with a known kind (older builds saved raw text,
+  // which would show no message and never retry).
+  if (saved === "error" && isAiFailureKind(savedError)) return "error";
   return hasPlan ? "ready" : "idle";
 }
 

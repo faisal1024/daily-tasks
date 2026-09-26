@@ -326,7 +326,7 @@ describe("proxy server", () => {
       expect(denied.headers.get("access-control-allow-origin")).toBe("*");
     });
 
-    it("in SECRET_MODE=log, allows requests without the secret but logs them", async () => {
+    it("in SECRET_MODE=log, allows requests without the secret and logs a summary", async () => {
       const { post, logger } = await start({
         env: { PROXY_SHARED_SECRET: "s3cret", SECRET_MODE: "log" },
       });
@@ -334,6 +334,20 @@ describe("proxy server", () => {
       expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("without a valid secret"));
       expect((await post(VALID_PAYLOAD, { [SECRET_HEADER]: "s3cret" })).status).toBe(200);
       expect(logger.warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("throttles log-mode warnings to one summary per minute", async () => {
+      let t = 0;
+      const { post, logger } = await start({
+        env: { PROXY_SHARED_SECRET: "s3cret", SECRET_MODE: "log" },
+        now: () => t,
+      });
+      for (let i = 0; i < 5; i++) await post();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      t = 60_000;
+      await post();
+      expect(logger.warn).toHaveBeenCalledTimes(2);
+      expect(logger.warn).toHaveBeenLastCalledWith(expect.stringContaining("5 request(s)"));
     });
 
     it("hides unknown routes behind auth", async () => {
@@ -499,6 +513,11 @@ describe("proxy server", () => {
   });
 
   describe("client IP debug endpoint", () => {
+    it("stays off without a configured secret, even when enabled", async () => {
+      const { base } = await start({ env: { DEBUG_CLIENT_IP: "1" } });
+      expect((await fetch(`${base}${DEBUG_IP_ROUTE}`)).status).toBe(404);
+    });
+
     it("is off by default", async () => {
       const { base } = await start();
       expect((await fetch(`${base}${DEBUG_IP_ROUTE}`)).status).toBe(404);

@@ -48,7 +48,9 @@ describe("failure classification", () => {
     expect(kindForStatus(401)).toBe("unauthorized");
     expect(kindForStatus(403)).toBe("unauthorized");
     expect(kindForStatus(429)).toBe("rate_limited");
-    expect(kindForStatus(503)).toBe("busy");
+    expect(kindForStatus(503, "Service is busy, try again later")).toBe("busy");
+    expect(kindForStatus(503)).toBe("unavailable");
+    expect(kindForStatus(503, "Bad gateway")).toBe("unavailable");
     expect(kindForStatus(500)).toBe("unavailable");
     expect(kindForStatus(400)).toBe("unavailable");
   });
@@ -77,9 +79,20 @@ describe("aiFailureMessage", () => {
   });
 
   it("gives specific guidance for limits, the spend cap and old builds", () => {
-    expect(aiFailureMessage("rate_limited")).toContain("minute");
+    expect(aiFailureMessage("rate_limited")).toContain("later");
     expect(aiFailureMessage("busy")).toContain("today");
     expect(aiFailureMessage("unauthorized")).toContain("latest version");
+  });
+
+  it("never blames the user or promises a one-minute wait for rate limits", () => {
+    const message = aiFailureMessage("rate_limited") ?? "";
+    expect(message).not.toMatch(/you've|minute/i);
+  });
+
+  it("only promises starter ideas when the AI ideas aren't still on screen", () => {
+    expect(aiFailureMessage("busy", { showingAiIdeas: true })).toContain("Your ideas below still work");
+    expect(aiFailureMessage("busy", { showingAiIdeas: true })).not.toMatch(/starter/i);
+    expect(aiFailureMessage("busy")).toMatch(/starter/i);
   });
 
   it("says nothing when there is no failure", () => {
@@ -95,9 +108,14 @@ describe("restorePlanStatus", () => {
 
   it("keeps ready/error and derives a status for anything else", () => {
     expect(restorePlanStatus("ready", true)).toBe("ready");
-    expect(restorePlanStatus("error", true)).toBe("error");
+    expect(restorePlanStatus("error", true, "timeout")).toBe("error");
     expect(restorePlanStatus(undefined, true)).toBe("ready");
     expect(restorePlanStatus("garbage", false)).toBe("idle");
+  });
+
+  it("doesn't restore an error without a known kind (it would show nothing and never retry)", () => {
+    expect(restorePlanStatus("error", true, "Momentum AI returned an invalid daily plan.")).toBe("ready");
+    expect(restorePlanStatus("error", false, null)).toBe("idle");
   });
 
   it("is applied when loading persisted state", () => {

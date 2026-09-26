@@ -192,7 +192,11 @@ export default function HomeScreen() {
             canRegenerate={canRegenerate}
             regenerating={state.momentumPlanStatus === "loading"}
             failureMessage={
-              state.momentumPlanStatus === "error" ? aiFailureMessage(state.momentumPlanError) : null
+              state.momentumPlanStatus === "error"
+                ? aiFailureMessage(state.momentumPlanError, {
+                    showingAiIdeas: state.momentumPlan?.provider === "ai",
+                  })
+                : null
             }
             onAdd={(text) => {
               impact(Haptics.ImpactFeedbackStyle.Light);

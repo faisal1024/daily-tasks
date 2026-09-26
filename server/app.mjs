@@ -226,6 +226,25 @@ export function createProxyServer({ provider, config, logger = console, now }) {
     now,
   });
 
+  // SECRET_MODE=log: summarize unauthorized requests at most once a minute
+  // instead of one line per request (old builds would flood the logs).
+  const clock = now ?? (() => Date.now());
+  const unauthorizedLog = {
+    count: 0,
+    lastLoggedAt: -Infinity,
+    note() {
+      this.count += 1;
+      const t = clock();
+      if (t - this.lastLoggedAt >= MINUTE_MS) {
+        logger.warn?.(
+          `[momentum-ai] ${this.count} request(s) without a valid secret allowed (SECRET_MODE=log)`,
+        );
+        this.lastLoggedAt = t;
+        this.count = 0;
+      }
+    },
+  };
+
   const server = http.createServer(async (req, res) => {
     setCorsHeaders(res, config.corsOrigin);
 
@@ -246,13 +265,18 @@ export function createProxyServer({ provider, config, logger = console, now }) {
       sendJson(res, 401, { error: "Unauthorized" });
       return;
     }
-    if (!authorized) {
-      logger.warn?.("[momentum-ai] request without a valid secret (SECRET_MODE=log, allowed)");
-    }
+    if (!authorized) unauthorizedLog.note();
 
     const client = clientIpFrom(req, config.trustProxyHops);
 
-    if (config.debugClientIp && authorized && req.method === "GET" && req.url === DEBUG_IP_ROUTE) {
+    // Never exposed without a configured secret, even when enabled.
+    if (
+      config.debugClientIp &&
+      config.sharedSecret &&
+      authorized &&
+      req.method === "GET" &&
+      req.url === DEBUG_IP_ROUTE
+    ) {
       // Only reachable with the secret (when one is set); shows what the proxy
       // sees so TRUST_PROXY_HOPS can be verified on a new host.
       sendJson(res, 200, {
@@ -269,6 +293,8 @@ export function createProxyServer({ provider, config, logger = console, now }) {
       return;
     }
 
+    // admit() checks the daily caps without reserving a slot, so a burst of
+    // concurrent requests can overshoot a cap by a few. Acceptable for a cost cap.
     const limit = limiter.admit(client);
     if (limit === "global") {
       sendJson(res, 503, { error: "Service is busy, try again later" }, { "Retry-After": "3600" });

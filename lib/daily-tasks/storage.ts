@@ -420,6 +420,7 @@ export function normalizeState(value: unknown): AppState | null {
     momentumPlanStatus: restorePlanStatus(
       value.momentumPlanStatus,
       normalizeMomentumPlan(value.momentumPlan) !== null,
+      value.momentumPlanError,
     ),
     // Older builds saved raw error text here; only keep a known failure kind.
     momentumPlanError: isAiFailureKind(value.momentumPlanError) ? value.momentumPlanError : null,

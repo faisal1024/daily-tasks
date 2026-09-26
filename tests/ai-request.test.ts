@@ -111,7 +111,6 @@ describe("requestMomentumAiPlan: request", () => {
     [401, "unauthorized"],
     [403, "unauthorized"],
     [429, "rate_limited"],
-    [503, "busy"],
     [500, "unavailable"],
     [502, "unavailable"],
   ])("classifies HTTP %i as %s", async (status, kind) => {
@@ -120,6 +119,16 @@ describe("requestMomentumAiPlan: request", () => {
     expect(error).toBeInstanceOf(MomentumAiError);
     expect(error.kind).toBe(kind);
     expect(error.status).toBe(status);
+  });
+
+  it("treats a 503 as the daily cap only when the proxy says it's busy", async () => {
+    const fromProxy = vi.fn(async () => jsonResponse({ error: "Service is busy, try again later" }, 503));
+    const busy = await call({ fetchImpl: fromProxy as unknown as typeof fetch }).catch((e) => e);
+    expect(busy.kind).toBe("busy");
+
+    const fromHost = vi.fn(async () => new Response("<html>Service Unavailable</html>", { status: 503 }));
+    const outage = await call({ fetchImpl: fromHost as unknown as typeof fetch }).catch((e) => e);
+    expect(outage.kind).toBe("unavailable");
   });
 
   it("classifies malformed JSON as an invalid response", async () => {

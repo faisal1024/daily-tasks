@@ -201,8 +201,14 @@ export async function requestMomentumAiPlan({
     });
 
     if (!response.ok) {
+      let proxyError: unknown = null;
+      try {
+        proxyError = ((await response.json()) as { error?: unknown } | null)?.error;
+      } catch {
+        // Non-JSON error body (e.g. the host's own error page).
+      }
       throw new MomentumAiError(
-        kindForStatus(response.status),
+        kindForStatus(response.status, proxyError),
         `Momentum AI request failed with ${response.status}.`,
         response.status,
       );

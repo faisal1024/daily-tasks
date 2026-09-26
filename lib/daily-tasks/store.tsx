@@ -90,7 +90,7 @@ type Action =
   | { type: "regenerateMomentumPlan"; now: Date }
   | { type: "requestMomentumPlanStarted" }
   | { type: "requestMomentumPlanSucceeded"; plan: NonNullable<AppState["momentumPlan"]> }
-  | { type: "requestMomentumPlanFailed"; kind: AiFailureKind; now: Date }
+  | { type: "requestMomentumPlanFailed"; kind: AiFailureKind; goalTitle: string | null; now: Date }
   | {
       type: "setMomentumSetting";
       key: keyof AppState["momentumSettings"];
@@ -443,6 +443,11 @@ function reducer(state: AppState, action: Action): AppState {
         momentumPlanError: null,
       };
     case "requestMomentumPlanFailed":
+      // Same stale-goal rule as success: a failure for the old goal says nothing
+      // about the new one.
+      if (action.goalTitle !== state.momentumProfile.goalTitle) {
+        return { ...state, momentumPlanStatus: "ready", momentumPlanError: null };
+      }
       return {
         ...state,
         // Keep whatever ideas are showing; only fall back when there are none.
@@ -758,6 +763,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const regenerateMomentumPlan = useCallback(() => {
     dispatch({ type: "regenerateMomentumPlan", now: new Date() });
   }, []);
+  // In memory only: after a restart a restored transient error retries on the
+  // first foreground, which is intended (the network may have recovered).
   const lastAiFailureAt = useRef<number | null>(null);
   const requestMomentumPlan = useCallback(async () => {
     dispatch({ type: "requestMomentumPlanStarted" });
@@ -772,7 +779,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       dispatch({ type: "requestMomentumPlanSucceeded", plan });
     } catch (error) {
       lastAiFailureAt.current = Date.now();
-      dispatch({ type: "requestMomentumPlanFailed", kind: classifyAiFailure(error), now });
+      dispatch({
+        type: "requestMomentumPlanFailed",
+        kind: classifyAiFailure(error),
+        goalTitle: state.momentumProfile.goalTitle,
+        now,
+      });
     }
   }, [state.history, state.momentumProfile, state.momentumSettings]);
 
