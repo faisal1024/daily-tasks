@@ -19,6 +19,7 @@ import {
 import {
   classifyAiFailure,
   isFreshAiPlan,
+  isLatestRequest,
   planAfterAiFailure,
   shouldRetryAiOnForeground,
   type AiFailureKind,
@@ -101,6 +102,7 @@ type Action =
   | { type: "acknowledgeLevelUp" }
   | { type: "selectJourneyCosmetic"; id: string }
   | { type: "acknowledgeMilestoneCelebration" }
+  | { type: "markReviewPrompted"; at: string }
   | { type: "reset"; state: AppState };
 
 /** Canonical count of today's completions that still map to a current task. */
@@ -129,6 +131,8 @@ function resetMilestonesIfGoalChanged(
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
+    case "markReviewPrompted":
+      return { ...state, lastReviewPromptAt: action.at };
     case "hydrate":
       return action.state;
     case "rollover": {
@@ -566,6 +570,7 @@ interface StoreContextValue {
   momentumMilestones: MilestoneView[];
   pendingMilestoneCelebration: string | null;
   acknowledgeMilestoneCelebration: () => void;
+  markReviewPrompted: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -766,7 +771,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // In memory only: after a restart a restored transient error retries on the
   // first foreground, which is intended (the network may have recovered).
   const lastAiFailureAt = useRef<number | null>(null);
+  // Only the most recent request may update state: an older one that finishes
+  // late (e.g. started before a goal edit) must not overwrite a newer result
+  // or flip "loading" off while the newer request is still in flight.
+  const latestAiRequest = useRef(0);
   const requestMomentumPlan = useCallback(async () => {
+    const requestId = ++latestAiRequest.current;
     dispatch({ type: "requestMomentumPlanStarted" });
     const now = new Date();
     try {
@@ -776,8 +786,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         settings: state.momentumSettings,
         now,
       });
+      if (!isLatestRequest(requestId, latestAiRequest.current)) return;
       dispatch({ type: "requestMomentumPlanSucceeded", plan });
     } catch (error) {
+      if (!isLatestRequest(requestId, latestAiRequest.current)) return;
       lastAiFailureAt.current = Date.now();
       dispatch({
         type: "requestMomentumPlanFailed",
@@ -820,6 +832,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     const onChange = (status: AppStateStatus) => {
       if (status !== "active") return;
+      // A new day is handled by the rollover (which fetches a fresh plan); a
+      // retry for yesterday's failure would just be a wasted call.
+      if (todayKey() !== today) return;
       if (
         shouldRetryAiOnForeground({
           status: state.momentumPlanStatus,
@@ -833,7 +848,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     };
     const sub = RNAppState.addEventListener("change", onChange);
     return () => sub.remove();
-  }, [state.momentumPlanStatus, state.momentumPlanError, requestMomentumPlan]);
+  }, [state.momentumPlanStatus, state.momentumPlanError, requestMomentumPlan, today]);
 
   const setMomentumSetting = useCallback(
     <K extends keyof AppState["momentumSettings"]>(
@@ -862,6 +877,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   }, []);
   const acknowledgeMilestoneCelebration = useCallback(() => {
     dispatch({ type: "acknowledgeMilestoneCelebration" });
+  }, []);
+  const markReviewPrompted = useCallback(() => {
+    dispatch({ type: "markReviewPrompted", at: new Date().toISOString() });
   }, []);
 
   const journeyLevel = levelForXp(state.journey.xp);
@@ -914,6 +932,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       momentumMilestones,
       pendingMilestoneCelebration: state.pendingMilestoneCelebration,
       acknowledgeMilestoneCelebration,
+      markReviewPrompted,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -954,6 +973,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       selectJourneyCosmetic,
       momentumMilestones,
       acknowledgeMilestoneCelebration,
+      markReviewPrompted,
       refreshNotificationPermission,
       requestPermission,
       resetAll,

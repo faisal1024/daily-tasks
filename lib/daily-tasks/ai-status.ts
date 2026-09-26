@@ -189,3 +189,8 @@ export function isFreshAiPlan(
       localDateKey(plan.generatedAt) === today,
   );
 }
+
+/** Whether a finished request is still the newest one and may update state. */
+export function isLatestRequest(requestId: number, latestRequestId: number): boolean {
+  return requestId === latestRequestId;
+}

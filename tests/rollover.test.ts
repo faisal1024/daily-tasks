@@ -43,6 +43,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     completedMilestoneIds: [],
     pendingMilestoneCelebration: null,
     journey: DEFAULT_JOURNEY,
+    lastReviewPromptAt: null,
     ...overrides,
   };
 }

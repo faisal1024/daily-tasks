@@ -1,5 +1,6 @@
 import { MomentumAiError, kindForStatus } from "./ai-status";
 import {
+  MILESTONE_IDS,
   buildMilestones,
   buildMomentumPlan,
   summarizeRecentPerformance,
@@ -68,9 +69,10 @@ export function getMomentumProxySecret(): string | null {
 }
 
 /**
- * AI milestones get positional ids (m1–m3) regardless of what the model sends:
- * completion is tracked by id in completedMilestoneIds across daily plan
- * refreshes, so ids must stay stable from one AI plan to the next. completedAt
+ * AI milestones get the same positional ids as template milestones
+ * (MILESTONE_IDS) regardless of what the model sends: completion is tracked by
+ * id in completedMilestoneIds across daily plan refreshes, whichever source
+ * built the plan, so ids must stay stable. completedAt
  * is never taken from the model (a hallucinated timestamp would mark a
  * milestone done); completion is owned by the app.
  */
@@ -83,7 +85,7 @@ function normalizeMilestones(value: unknown): MomentumMilestone[] {
     const m = item as Partial<MomentumMilestone>;
     if (typeof m.title !== "string" || !m.title.trim()) continue;
     milestones.push({
-      id: `m${milestones.length + 1}`,
+      id: MILESTONE_IDS[milestones.length],
       title: m.title.trim().slice(0, 80),
       description: typeof m.description === "string" ? m.description.trim().slice(0, 200) : "",
       completedAt: null,

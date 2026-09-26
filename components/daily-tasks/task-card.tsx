@@ -7,6 +7,12 @@ import {
   type TextInput as TextInputType,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+} from "react-native-reanimated";
 
 import { BodyFont } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
@@ -55,6 +61,18 @@ export function TaskCard({
     }
   }, [isEditing]);
 
+  // A small bounce when a task is checked off (not on first render).
+  const checkScale = useSharedValue(1);
+  const wasCompleted = useRef(completed);
+  useEffect(() => {
+    if (completed && !wasCompleted.current) {
+      checkScale.value = withSequence(withSpring(1.25, { damping: 6 }), withSpring(1));
+    }
+    wasCompleted.current = completed;
+  }, [completed, checkScale]);
+  const checkStyle = useAnimatedStyle(() => ({ transform: [{ scale: checkScale.value }] }));
+  const position = typeof index === "number" ? `Task ${index + 1}: ` : "";
+
   const commit = () => {
     const trimmed = draft.trim();
     if (trimmed && trimmed !== task.text) onEdit(trimmed);
@@ -88,32 +106,25 @@ export function TaskCard({
         }}
       />
       <View className="flex-row items-center gap-4 pl-1.5">
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: completed }}
-          accessibilityLabel={`Mark ${task.text} as ${completed ? "incomplete" : "complete"}`}
-          onPress={onToggle}
-          hitSlop={8}
-          className="w-9 h-9 rounded-full items-center justify-center border-2"
-          style={{
-            borderColor: completed ? colors.success : colors.border,
-            backgroundColor: completed ? colors.success : "transparent",
-          }}
-        >
-          {completed && (
-            <Ionicons name="checkmark" size={22} color={colors.background} />
-          )}
-        </Pressable>
+        <Animated.View style={checkStyle}>
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: completed }}
+            accessibilityLabel={`${position}${task.text}`}
+            accessibilityHint={completed ? "Marks it not done" : "Marks it done"}
+            onPress={onToggle}
+            hitSlop={6}
+            className="w-11 h-11 rounded-full items-center justify-center border-2"
+            style={{
+              borderColor: completed ? colors.success : colors.border,
+              backgroundColor: completed ? colors.success : "transparent",
+            }}
+          >
+            {completed && <Ionicons name="checkmark" size={26} color={colors.background} />}
+          </Pressable>
+        </Animated.View>
 
         <View className="flex-1 gap-1">
-          {typeof index === "number" && !isEditing && (
-            <Text
-              className="text-sm uppercase tracking-wide font-semibold"
-              style={{ color: colors.primary }}
-            >
-              Focus {index + 1}
-            </Text>
-          )}
           {isEditing ? (
             <TextInput
               ref={inputRef}
@@ -127,9 +138,16 @@ export function TaskCard({
               style={{ color: colors.foreground }}
             />
           ) : (
-            <Pressable onPress={onToggle} hitSlop={4} className="gap-1">
+            <Pressable
+              onPress={onToggle}
+              hitSlop={4}
+              className="gap-1"
+              // The checkbox already announces this task and its state.
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
               <Text
-                className="text-lg text-foreground"
+                className="text-xl text-foreground"
                 style={{
                   fontFamily: BodyFont.bold,
                   textDecorationLine: completed ? "line-through" : "none",
