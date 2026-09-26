@@ -49,6 +49,10 @@ jest.mock("@/lib/daily-tasks/ai-helpers", () => {
   const actual = jest.requireActual("@/lib/daily-tasks/ai-helpers");
   return { ...actual, requestBreakDown: jest.fn(), sortBrainDump: jest.fn() };
 });
+const mockOpenPaywall = jest.fn();
+jest.mock("@/lib/daily-tasks/plus-context", () => ({
+  usePlus: () => ({ paywallEnabled: true, openPaywall: mockOpenPaywall }),
+}));
 jest.mock("@/components/daily-tasks/onboarding-modal", () => ({ OnboardingModal: () => null }));
 jest.mock("@/components/daily-tasks/rollover-modal", () => ({ RolloverModal: () => null }));
 
@@ -963,5 +967,61 @@ describe("perfect-day moment: once per day and one rating at a time", () => {
 
     await act(async () => review.resolve(true));
     expect(markReviewPrompted).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- Phase 4: Plus gates for free users --------------------------------------
+
+describe("Plus gates (free plan)", () => {
+  it("Break it down opens the paywall instead of calling the AI", async () => {
+    jest.useFakeTimers();
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    mockStore = { ...makeStore({ tasks: tasks("Clean kitchen") }), hasPlus: false };
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
+    expect(requestBreakDown).not.toHaveBeenCalled();
+    expect(mockStore.setTaskSteps).not.toHaveBeenCalled();
+    // After any open sheet has animated away (iOS shows one modal at a time).
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(650);
+    });
+    expect(mockOpenPaywall).toHaveBeenCalledWith("break_down");
+  });
+
+  it("brain dump uses the on-device split (no AI call) and offers Plus, which opens the paywall", async () => {
+    jest.useFakeTimers();
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    mockStore = { ...makeStore(), hasPlus: false };
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a\nb\nc\nd");
+    expect(screen.getByTestId("brain-dump-upgrade")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+    expect(sortBrainDump).not.toHaveBeenCalled();
+    expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "D" })).not.toBeChecked();
+    expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
+
+    // Back on the write step the offer is still there for next time; from a
+    // fresh sheet, Get Plus closes it and opens the paywall.
+    await fireEvent.press(screen.getByRole("button", { name: "Add 3 to today" }));
+    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    await fireEvent.press(screen.getByRole("button", { name: "Get AI sorting with Plus" }));
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    await act(async () => {
+      jest.advanceTimersByTime(650);
+    });
+    expect(mockOpenPaywall).toHaveBeenCalledWith("brain_dump");
+  });
+
+  it("Plus users' brain dump still goes through the AI sorter with no upgrade offer", async () => {
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    expect(screen.queryByTestId("brain-dump-upgrade")).toBeNull();
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a");
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+    expect(sortBrainDump).toHaveBeenCalledTimes(1);
   });
 });
