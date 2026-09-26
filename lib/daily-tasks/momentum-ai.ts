@@ -1,3 +1,4 @@
+import { MomentumAiError, kindForStatus } from "./ai-status";
 import {
   buildMilestones,
   buildMomentumPlan,
@@ -23,8 +24,11 @@ interface ProxyResponse {
 /** Header the proxy checks when PROXY_SHARED_SECRET is set server-side. */
 export const PROXY_SECRET_HEADER = "x-momentum-secret";
 
-/** Long enough for a slow model response, short enough not to hang the UI forever. */
-export const AI_REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * Long enough to ride out a Render free-tier cold start (~30–60s) plus a model
+ * response; short enough that a dead network doesn't hang "Refreshing…" forever.
+ */
+export const AI_REQUEST_TIMEOUT_MS = 60_000;
 
 export interface AiPlanRequestPayload {
   profile: {
@@ -63,6 +67,13 @@ export function getMomentumProxySecret(): string | null {
   return secret ? secret : null;
 }
 
+/**
+ * AI milestones get positional ids (m1–m3) regardless of what the model sends:
+ * completion is tracked by id in completedMilestoneIds across daily plan
+ * refreshes, so ids must stay stable from one AI plan to the next. completedAt
+ * is never taken from the model (a hallucinated timestamp would mark a
+ * milestone done); completion is owned by the app.
+ */
 function normalizeMilestones(value: unknown): MomentumMilestone[] {
   if (!Array.isArray(value)) return [];
   const milestones: MomentumMilestone[] = [];
@@ -72,10 +83,10 @@ function normalizeMilestones(value: unknown): MomentumMilestone[] {
     const m = item as Partial<MomentumMilestone>;
     if (typeof m.title !== "string" || !m.title.trim()) continue;
     milestones.push({
-      id: typeof m.id === "string" && m.id ? m.id : `m${milestones.length + 1}`,
-      title: m.title.trim(),
-      description: typeof m.description === "string" ? m.description : "",
-      completedAt: typeof m.completedAt === "string" ? m.completedAt : null,
+      id: `m${milestones.length + 1}`,
+      title: m.title.trim().slice(0, 80),
+      description: typeof m.description === "string" ? m.description.trim().slice(0, 200) : "",
+      completedAt: null,
     });
   }
   return milestones;
@@ -97,11 +108,14 @@ export function nextAiPlanFetchKey(params: {
   today: string;
   goalTitle: string | null;
   lastFetchedKey: string | null;
+  /** Today's AI plan for this goal is already in hand (e.g. restored on launch). */
+  hasFreshAiPlan?: boolean;
 }): string | null {
   if (!params.ready) return null;
   if (!params.proxyUrl) return null;
   if (!params.profileComplete) return null;
   if (params.status === "loading") return null;
+  if (params.hasFreshAiPlan) return null;
   const key = `${params.today}:${params.goalTitle ?? ""}`;
   return key === params.lastFetchedKey ? null : key;
 }
@@ -187,25 +201,39 @@ export async function requestMomentumAiPlan({
     });
 
     if (!response.ok) {
-      throw new Error(`Momentum AI request failed with ${response.status}.`);
+      throw new MomentumAiError(
+        kindForStatus(response.status),
+        `Momentum AI request failed with ${response.status}.`,
+        response.status,
+      );
     }
 
-    const parsed: unknown = await response.json();
+    let parsed: unknown;
+    try {
+      parsed = await response.json();
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+      throw new MomentumAiError("invalid_response", "Momentum AI returned malformed JSON.");
+    }
     data = parsed && typeof parsed === "object" ? (parsed as ProxyResponse) : {};
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error("Momentum AI request timed out.");
+      throw new MomentumAiError("timeout", "Momentum AI request timed out.");
     }
-    throw error;
+    if (error instanceof MomentumAiError) throw error;
+    throw new MomentumAiError(
+      "network",
+      error instanceof Error ? error.message : "Momentum AI network error.",
+    );
   } finally {
     clearTimeout(timer);
   }
 
   // Accept 1–3 usable suggestions: a model occasionally returns fewer than asked,
   // and a short list is better than falling back to templates.
-  const todaySuggestions = validateGeneratedTasks(data.todaySuggestions);
+  const todaySuggestions = validateGeneratedTasks(data.todaySuggestions, "ai_today");
   if (todaySuggestions.length === 0) {
-    throw new Error("Momentum AI returned an invalid daily plan.");
+    throw new MomentumAiError("invalid_response", "Momentum AI returned an invalid daily plan.");
   }
 
   const aiMilestones = normalizeMilestones(data.milestones);
@@ -216,7 +244,7 @@ export async function requestMomentumAiPlan({
     generatedAt,
     provider: "ai",
     milestones: aiMilestones.length > 0 ? aiMilestones : buildMilestones(payload.profile.goalTitle),
-    taskPool: validateGeneratedTasks(data.taskPool ?? data.todaySuggestions),
+    taskPool: validateGeneratedTasks(data.taskPool ?? data.todaySuggestions, "ai_pool"),
     todaySuggestions,
     promptSummary: [
       `Goal: ${payload.profile.goalTitle}`,

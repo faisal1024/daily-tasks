@@ -146,18 +146,34 @@ user's own tasks.
 - Set `PROXY_SHARED_SECRET`; the app sends it as the `x-momentum-secret` header
   (compared in constant time). The server logs a warning on Render if it's unset.
   The secret ships inside the app binary, so treat it as a speed bump, not auth.
-- **Rollout order:** set `EXPO_PUBLIC_MOMENTUM_PROXY_SECRET` in EAS and ship a build,
-  then set `PROXY_SHARED_SECRET` on Render. Builds without the header get 401 and
-  quietly fall back to built-in suggestions.
+- **Rollout order** (so live builds don't lose AI suggestions):
+  1. Add `EXPO_PUBLIC_MOMENTUM_PROXY_SECRET` as an EAS environment variable for
+     **every** environment the build profiles use (production, preview, and the
+     `simulator` profile), then ship a build that sends it.
+  2. Set `PROXY_SHARED_SECRET` on Render with `SECRET_MODE=log`: requests without
+     the header still work and each one is logged.
+  3. When those log lines are rare (most active users updated), set
+     `SECRET_MODE=enforce`. Builds without the header then get 401: builds from
+     this change onward say "Smart suggestions need the latest version of the
+     app."; older builds (1.0.1, 1.0.10) silently keep built-in suggestions.
+- **Verify the client IP once per host** before trusting per-client limits: set
+  `DEBUG_CLIENT_IP=1`, call
+  `curl -H "x-momentum-secret: $SECRET" https://<host>/debug/client-ip` from your
+  own network, and check `resolvedClientIp` is your public IP. If it shows a
+  Render/edge address, raise `TRUST_PROXY_HOPS` until it's correct. Then unset
+  `DEBUG_CLIENT_IP`.
 - Limits (0 disables one), all fixed windows keyed on the client IP:
   | Env var | Default | Response when hit |
   |---|---|---|
   | `RATE_LIMIT_PER_MIN` | 30 | 429, `Retry-After: 60` |
   | `DAILY_LIMIT_PER_CLIENT` | 200 | 429, `Retry-After: 3600` |
   | `GLOBAL_DAILY_LIMIT` | 5000 | 503 for everyone (spend circuit breaker) |
-- `TRUST_PROXY_HOPS` (default 1 = Render) picks the client IP from the right of
+- `TRUST_PROXY_HOPS` (default 0 = trust no forwarding header; Render needs 1) picks the client IP from the right of
   `X-Forwarded-For`, so a client can't dodge limits by sending its own header.
-- Bodies over 20 KB get 413. Malformed AI output is logged by shape only (field
+- Daily limits reset at **UTC midnight**, not the user's local midnight.
+- Only requests that actually call the AI spend the daily/global budgets; bad
+  payloads (400/413) only count toward the per-minute limit.
+- Bodies over 20 KB get 413 and the connection is closed. Malformed AI output is logged by shape only (field
   names), never content, to keep user task titles out of logs.
 - Still set an Anthropic console spend limit; the caps above bound request count,
   not token size.

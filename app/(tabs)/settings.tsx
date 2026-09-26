@@ -21,6 +21,7 @@ import { TimeStepper } from "@/components/daily-tasks/time-stepper";
 import { useColors } from "@/hooks/use-colors";
 import { Fonts } from "@/constants/theme";
 import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
+import { aiFailureMessage } from "@/lib/daily-tasks/ai-status";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type {
   NotificationKey,
@@ -336,9 +337,9 @@ export default function SettingsScreen() {
                   : "Refresh with AI"}
               </Text>
             </Pressable>
-            {state.momentumPlanError && (
+            {state.momentumPlanStatus === "error" && state.momentumPlanError && (
               <Text className="text-xs" style={{ color: colors.muted }}>
-                AI was unavailable, so Momentum kept a local fallback plan.
+                {aiFailureMessage(state.momentumPlanError)}
               </Text>
             )}
           </View>

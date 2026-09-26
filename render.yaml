@@ -24,9 +24,8 @@ services:
       # Set this in the Render dashboard (secret) — never commit a key.
       - key: ANTHROPIC_API_KEY
         sync: false
-      # Lock to your app's origin in production if you have one; "*" is fine for TestFlight.
-      - key: CORS_ORIGIN
-        value: "*"
+      # CORS_ORIGIN is intentionally unset: the native app doesn't need CORS,
+      # and no browser client exists. Set it only if a web client is added.
       - key: RATE_LIMIT_PER_MIN
         value: "30"
       # Cost protection: per-client and global daily request caps. A global cap
@@ -36,12 +35,15 @@ services:
       - key: GLOBAL_DAILY_LIMIT
         value: "5000"
       # Render sits one proxy hop in front of the app; the client IP is the last
-      # X-Forwarded-For entry, which clients cannot spoof.
+      # X-Forwarded-For entry, which clients cannot spoof. VERIFY once after deploy
+      # with DEBUG_CLIENT_IP=1 (see docs/momentum-ai-proxy.md), then remove it.
       - key: TRUST_PROXY_HOPS
         value: "1"
       # Required in production: set the same random value here (dashboard secret)
-      # AND as the EAS env var EXPO_PUBLIC_MOMENTUM_PROXY_SECRET. Requests without
-      # the matching x-momentum-secret header get 401 (older app builds fall back
-      # to built-in suggestions).
+      # AND as the EAS env var EXPO_PUBLIC_MOMENTUM_PROXY_SECRET.
       - key: PROXY_SHARED_SECRET
         sync: false
+      # Start in "log" (old builds without the header still work, and are logged);
+      # switch to "enforce" once most active users run a build that sends it.
+      - key: SECRET_MODE
+        value: log

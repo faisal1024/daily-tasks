@@ -1,3 +1,4 @@
+import type { AiFailureKind } from "./ai-status";
 import type { Journey } from "./journey";
 
 export const MAX_TASKS = 3;
@@ -156,7 +157,8 @@ export interface AppState {
   momentumPlan: MomentumPlan | null;
   momentumSettings: MomentumSettings;
   momentumPlanStatus: "idle" | "loading" | "ready" | "error";
-  momentumPlanError: string | null;
+  // Why the last AI plan request failed (drives friendly copy), or null.
+  momentumPlanError: AiFailureKind | null;
   adaptationSnapshot: AdaptationSnapshot | null;
   // Milestone ids the user has completed. Kept separate from the (regenerated)
   // plan so completion survives daily plan rebuilds.

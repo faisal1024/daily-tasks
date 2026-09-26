@@ -19,6 +19,7 @@ import {
 export const PLAN_ROUTE = "/api/momentum/plan";
 export const HEALTH_ROUTE = "/health";
 export const SECRET_HEADER = "x-momentum-secret";
+export const DEBUG_IP_ROUTE = "/debug/client-ip";
 export const MAX_BODY_BYTES = 20_000;
 
 const MINUTE_MS = 60_000;
@@ -39,14 +40,20 @@ export function readConfig(env = {}) {
     port: positiveInt(env.PORT, 8787),
     providerName: env.MOMENTUM_AI_PROVIDER || undefined,
     sharedSecret: env.PROXY_SHARED_SECRET ?? "",
+    // "enforce" rejects requests without the secret; "log" lets them through
+    // (and logs them) so a secret can be rolled out before old builds age out.
+    secretMode: env.SECRET_MODE === "log" ? "log" : "enforce",
     corsOrigin: env.CORS_ORIGIN ?? "",
+    // Temporary aid to verify TRUST_PROXY_HOPS on a new host; see docs.
+    debugClientIp: env.DEBUG_CLIENT_IP === "1",
     rateLimitPerMinute: positiveInt(env.RATE_LIMIT_PER_MIN, 30),
     dailyLimitPerClient: positiveInt(env.DAILY_LIMIT_PER_CLIENT, 200),
     globalDailyLimit: positiveInt(env.GLOBAL_DAILY_LIMIT, 5_000),
-    // How many reverse proxies sit in front of us (Render = 1). The client IP is
-    // the entry that many positions from the right of X-Forwarded-For, which a
-    // client cannot spoof by prepending its own values.
-    trustProxyHops: positiveInt(env.TRUST_PROXY_HOPS, 1),
+    // How many reverse proxies sit in front of us. The client IP is the entry
+    // that many positions from the right of X-Forwarded-For, which a client can't
+    // spoof by prepending values. Defaults to 0 (trust nothing) so a server with
+    // no proxy in front can't be fooled; render.yaml sets 1.
+    trustProxyHops: positiveInt(env.TRUST_PROXY_HOPS, 0),
   };
 }
 
@@ -77,9 +84,14 @@ export function clientIpFrom(req, trustProxyHops) {
 }
 
 /**
- * Fixed-window limiter: per-client per-minute, per-client per-day, and a global
- * per-day circuit breaker that caps total AI spend. Windows roll over by
- * replacing the maps, so memory never grows past one window of clients.
+ * Fixed-window limiter with two steps so cheap bad requests can't burn the AI
+ * budget:
+ *   admit(client)  — every authorized request: counts toward the per-minute
+ *                    limit and checks (without spending) the daily/global caps.
+ *   record(client) — only right before calling the AI: spends the per-client
+ *                    daily and global daily budget.
+ * Windows are UTC-aligned and roll over by replacing the maps, so memory never
+ * grows past one window of clients.
  */
 export function createRateLimiter({
   perMinute,
@@ -109,18 +121,21 @@ export function createRateLimiter({
   }
 
   return {
-    /** Returns "ok" and records the hit, or the name of the exceeded limit. */
-    check(client) {
+    /** "ok" (and counts the minute hit), or the name of the limit already exceeded. */
+    admit(client) {
       roll();
       if (globalPerDay > 0 && globalCount >= globalPerDay) return "global";
       const minute = minuteCounts.get(client) ?? 0;
       if (perMinute > 0 && minute >= perMinute) return "minute";
-      const day = dayCounts.get(client) ?? 0;
-      if (perDay > 0 && day >= perDay) return "day";
+      if (perDay > 0 && (dayCounts.get(client) ?? 0) >= perDay) return "day";
       minuteCounts.set(client, minute + 1);
-      dayCounts.set(client, day + 1);
-      globalCount += 1;
       return "ok";
+    },
+    /** Spend one unit of the client's daily and the global daily budget. */
+    record(client) {
+      roll();
+      dayCounts.set(client, (dayCounts.get(client) ?? 0) + 1);
+      globalCount += 1;
     },
     /** For tests/diagnostics: how many clients are tracked in each window. */
     size() {
@@ -142,8 +157,9 @@ function readJson(req, maxBytes) {
       bytes += chunk.length;
       if (bytes > maxBytes) {
         settled = true;
-        // Stop buffering but let the socket drain so we can still respond.
-        req.resume();
+        // Stop reading; the caller answers 413 and then destroys the socket so a
+        // client can't keep streaming a huge body into a kept-alive connection.
+        req.pause();
         reject(new BodyTooLargeError("Request body too large"));
         return;
       }
@@ -165,6 +181,11 @@ function readJson(req, maxBytes) {
       reject(error);
     });
   });
+}
+
+function rejectTooLarge(req, res) {
+  sendJson(res, 413, { error: "Request body too large" }, { Connection: "close" });
+  res.on("finish", () => req.destroy());
 }
 
 function sendJson(res, status, body, headers = {}) {
@@ -193,7 +214,7 @@ function summarizeForLog(value) {
  * @param {{
  *   provider: { id: string, isConfigured: () => boolean, missingConfigMessage: () => string, generatePlan: (args: object) => Promise<unknown> },
  *   config: ReturnType<typeof readConfig>,
- *   logger?: { error: (...args: unknown[]) => void },
+ *   logger?: { error: (...args: unknown[]) => void, warn?: (...args: unknown[]) => void },
  *   now?: () => number,
  * }} options
  */
@@ -219,17 +240,36 @@ export function createProxyServer({ provider, config, logger = console, now }) {
       return;
     }
 
+    const authorized =
+      !config.sharedSecret || secretsMatch(req.headers[SECRET_HEADER], config.sharedSecret);
+    if (!authorized && config.secretMode === "enforce") {
+      sendJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    if (!authorized) {
+      logger.warn?.("[momentum-ai] request without a valid secret (SECRET_MODE=log, allowed)");
+    }
+
+    const client = clientIpFrom(req, config.trustProxyHops);
+
+    if (config.debugClientIp && authorized && req.method === "GET" && req.url === DEBUG_IP_ROUTE) {
+      // Only reachable with the secret (when one is set); shows what the proxy
+      // sees so TRUST_PROXY_HOPS can be verified on a new host.
+      sendJson(res, 200, {
+        resolvedClientIp: client,
+        forwardedFor: req.headers["x-forwarded-for"] ?? null,
+        socketAddress: req.socket?.remoteAddress ?? null,
+        trustProxyHops: config.trustProxyHops,
+      });
+      return;
+    }
+
     if (req.method !== "POST" || req.url !== PLAN_ROUTE) {
       sendJson(res, 404, { error: "Not found" });
       return;
     }
 
-    if (config.sharedSecret && !secretsMatch(req.headers[SECRET_HEADER], config.sharedSecret)) {
-      sendJson(res, 401, { error: "Unauthorized" });
-      return;
-    }
-
-    const limit = limiter.check(clientIpFrom(req, config.trustProxyHops));
+    const limit = limiter.admit(client);
     if (limit === "global") {
       sendJson(res, 503, { error: "Service is busy, try again later" }, { "Retry-After": "3600" });
       return;
@@ -245,12 +285,18 @@ export function createProxyServer({ provider, config, logger = console, now }) {
       return;
     }
 
+    const declaredLength = Number(req.headers["content-length"]);
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+      rejectTooLarge(req, res);
+      return;
+    }
+
     let payload;
     try {
       payload = await readJson(req, MAX_BODY_BYTES);
     } catch (error) {
       if (error instanceof BodyTooLargeError) {
-        sendJson(res, 413, { error: "Request body too large" });
+        rejectTooLarge(req, res);
       } else {
         sendJson(res, 400, { error: "Invalid request body" });
       }
@@ -262,6 +308,9 @@ export function createProxyServer({ provider, config, logger = console, now }) {
       sendJson(res, 400, { error: validationError });
       return;
     }
+
+    // Only requests that will actually call the AI spend the daily budgets.
+    limiter.record(client);
 
     try {
       const plan = await provider.generatePlan({
@@ -287,6 +336,8 @@ export function createProxyServer({ provider, config, logger = console, now }) {
     }
   });
 
-  server.limiter = limiter;
-  return server;
+  // Slowloris protection: bound how long a client may take to send a request.
+  server.headersTimeout = 10_000;
+  server.requestTimeout = 15_000;
+  return { server, limiter };
 }

@@ -121,9 +121,24 @@ export function isValidPlan(plan) {
       Array.isArray(plan.milestones) &&
       Array.isArray(plan.todaySuggestions) &&
       Array.isArray(plan.taskPool) &&
-      // At least one usable suggestion, or the app has nothing to show.
-      plan.todaySuggestions.some(
-        (task) => task && typeof task.text === "string" && task.text.trim().length > 0,
-      ),
+      // At least one suggestion the app will accept, or it has nothing to show.
+      plan.todaySuggestions.some(isUsableSuggestion),
+  );
+}
+
+/**
+ * Mirrors the app's validateGeneratedTasks (lib/daily-tasks/momentum.ts) so the
+ * proxy never returns 200 for a plan the client will reject.
+ */
+export function isUsableSuggestion(task) {
+  if (!task || typeof task !== "object" || typeof task.text !== "string") return false;
+  const text = task.text.trim();
+  const minutes = task.estimatedMinutes;
+  return (
+    text.length > 0 &&
+    text.length <= 64 &&
+    Number.isInteger(minutes) &&
+    minutes >= 5 &&
+    minutes <= 60
   );
 }

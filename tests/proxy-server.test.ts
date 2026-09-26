@@ -3,6 +3,7 @@ import type { Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEBUG_IP_ROUTE,
   HEALTH_ROUTE,
   MAX_BODY_BYTES,
   PLAN_ROUTE,
@@ -27,7 +28,14 @@ const VALID_PAYLOAD = {
 const VALID_PLAN = {
   milestones: [{ id: "m1", title: "First mile", description: "", completedAt: null }],
   todaySuggestions: [
-    { id: "t1", text: "Walk 20 minutes", estimatedMinutes: 20, difficulty: "easy", reason: "r", source: "ai" },
+    {
+      id: "t1",
+      text: "Walk 20 minutes",
+      estimatedMinutes: 20,
+      difficulty: "easy",
+      reason: "r",
+      source: "ai",
+    },
   ],
   taskPool: [],
 };
@@ -53,16 +61,14 @@ function fakeProvider(overrides: Partial<FakeProvider> = {}): FakeProvider {
 
 const servers: Server[] = [];
 
-async function start(
-  {
-    provider = fakeProvider(),
-    env = {},
-    now,
-  }: { provider?: FakeProvider; env?: Record<string, string>; now?: () => number } = {},
-) {
+async function start({
+  provider = fakeProvider(),
+  env = {},
+  now,
+}: { provider?: FakeProvider; env?: Record<string, string>; now?: () => number } = {}) {
   const config = readConfig({ RATE_LIMIT_PER_MIN: "1000", ...env });
   const logger = { error: vi.fn(), warn: vi.fn(), log: vi.fn() };
-  const server = createProxyServer({ provider, config, logger, now });
+  const { server, limiter } = createProxyServer({ provider, config, logger, now });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
@@ -73,7 +79,7 @@ async function start(
       headers: { "Content-Type": "application/json", ...headers },
       body: typeof body === "string" ? body : JSON.stringify(body),
     });
-  return { base, post, provider, logger, server };
+  return { base, post, provider, logger, server, limiter, port };
 }
 
 afterEach(async () => {
@@ -91,19 +97,37 @@ describe("readConfig", () => {
       rateLimitPerMinute: 30,
       dailyLimitPerClient: 200,
       globalDailyLimit: 5000,
-      trustProxyHops: 1,
+      trustProxyHops: 0,
+      secretMode: "enforce",
+      debugClientIp: false,
     });
   });
 
+  it("only enters log mode or debug mode when explicitly asked", () => {
+    expect(readConfig({ SECRET_MODE: "log" }).secretMode).toBe("log");
+    expect(readConfig({ SECRET_MODE: "LOG" }).secretMode).toBe("enforce");
+    expect(readConfig({ SECRET_MODE: "off" }).secretMode).toBe("enforce");
+    expect(readConfig({ DEBUG_CLIENT_IP: "1" }).debugClientIp).toBe(true);
+    expect(readConfig({ DEBUG_CLIENT_IP: "true" }).debugClientIp).toBe(false);
+  });
+
   it("parses numeric overrides and allows 0 to disable a limit", () => {
-    const config = readConfig({ RATE_LIMIT_PER_MIN: "5", GLOBAL_DAILY_LIMIT: "0", TRUST_PROXY_HOPS: "2" });
+    const config = readConfig({
+      RATE_LIMIT_PER_MIN: "5",
+      GLOBAL_DAILY_LIMIT: "0",
+      TRUST_PROXY_HOPS: "2",
+    });
     expect(config.rateLimitPerMinute).toBe(5);
     expect(config.globalDailyLimit).toBe(0);
     expect(config.trustProxyHops).toBe(2);
   });
 
   it("falls back to defaults for invalid numbers instead of disabling limits", () => {
-    const config = readConfig({ RATE_LIMIT_PER_MIN: "abc", DAILY_LIMIT_PER_CLIENT: "-4", PORT: "1.5" });
+    const config = readConfig({
+      RATE_LIMIT_PER_MIN: "abc",
+      DAILY_LIMIT_PER_CLIENT: "-4",
+      PORT: "1.5",
+    });
     expect(config.rateLimitPerMinute).toBe(30);
     expect(config.dailyLimitPerClient).toBe(200);
     expect(config.port).toBe(8787);
@@ -127,7 +151,10 @@ describe("secretsMatch", () => {
 
 describe("clientIpFrom", () => {
   const req = (xff?: string | string[], remote = "10.0.0.9") =>
-    ({ headers: xff === undefined ? {} : { "x-forwarded-for": xff }, socket: { remoteAddress: remote } }) as never;
+    ({
+      headers: xff === undefined ? {} : { "x-forwarded-for": xff },
+      socket: { remoteAddress: remote },
+    }) as never;
 
   it("uses the entry appended by the trusted proxy, not a client-supplied one", () => {
     // A client that sends its own X-Forwarded-For gets the real IP appended by Render.
@@ -147,42 +174,69 @@ describe("clientIpFrom", () => {
 });
 
 describe("createRateLimiter", () => {
-  it("limits per client per minute and resets on the next window", () => {
+  const allow = (limiter: ReturnType<typeof createRateLimiter>, client: string) => {
+    const result = limiter.admit(client);
+    if (result === "ok") limiter.record(client);
+    return result;
+  };
+
+  it("limits per client per minute and resets exactly at the window boundary", () => {
     let t = 0;
     const limiter = createRateLimiter({ perMinute: 2, perDay: 0, globalPerDay: 0, now: () => t });
-    expect(limiter.check("a")).toBe("ok");
-    expect(limiter.check("a")).toBe("ok");
-    expect(limiter.check("a")).toBe("minute");
-    expect(limiter.check("b")).toBe("ok");
-    t += 60_000;
-    expect(limiter.check("a")).toBe("ok");
+    expect(allow(limiter, "a")).toBe("ok");
+    expect(allow(limiter, "a")).toBe("ok");
+    expect(allow(limiter, "a")).toBe("minute");
+    expect(allow(limiter, "b")).toBe("ok");
+    t = 59_999;
+    expect(allow(limiter, "a")).toBe("minute");
+    t = 60_000;
+    expect(allow(limiter, "a")).toBe("ok");
   });
 
-  it("does not count rejected requests against the daily budget", () => {
+  it("admit alone never spends the daily or global budget", () => {
+    const limiter = createRateLimiter({ perMinute: 0, perDay: 1, globalPerDay: 1, now: () => 0 });
+    for (let i = 0; i < 10; i++) expect(limiter.admit("a")).toBe("ok");
+    expect(limiter.size()).toMatchObject({ day: 0, global: 0 });
+    limiter.record("a");
+    expect(limiter.admit("a")).toBe("global");
+  });
+
+  it("does not count minute-rejected requests against the daily budget", () => {
     let t = 0;
     const limiter = createRateLimiter({ perMinute: 1, perDay: 2, globalPerDay: 0, now: () => t });
-    expect(limiter.check("a")).toBe("ok");
-    expect(limiter.check("a")).toBe("minute");
-    expect(limiter.check("a")).toBe("minute");
+    expect(allow(limiter, "a")).toBe("ok");
+    expect(allow(limiter, "a")).toBe("minute");
+    expect(allow(limiter, "a")).toBe("minute");
     t += 60_000;
-    expect(limiter.check("a")).toBe("ok");
+    expect(allow(limiter, "a")).toBe("ok");
     t += 60_000;
-    expect(limiter.check("a")).toBe("day");
+    expect(allow(limiter, "a")).toBe("day");
   });
 
-  it("enforces a global daily cap across all clients and resets the next day", () => {
-    let t = 0;
+  it("enforces a global daily cap across all clients and resets at the UTC day boundary", () => {
+    const DAY = 24 * 60 * 60_000;
+    let t = DAY - 1;
     const limiter = createRateLimiter({ perMinute: 0, perDay: 0, globalPerDay: 3, now: () => t });
-    expect(["a", "b", "c"].map((c) => limiter.check(c))).toEqual(["ok", "ok", "ok"]);
-    expect(limiter.check("brand-new-client")).toBe("global");
-    t += 24 * 60 * 60_000;
-    expect(limiter.check("brand-new-client")).toBe("ok");
+    expect(["a", "b", "c"].map((c) => allow(limiter, c))).toEqual(["ok", "ok", "ok"]);
+    expect(allow(limiter, "brand-new-client")).toBe("global");
+    t = DAY;
+    expect(allow(limiter, "brand-new-client")).toBe("ok");
+  });
+
+  it("uses one clock for both windows: a new minute doesn't reset the day", () => {
+    let t = 0;
+    const limiter = createRateLimiter({ perMinute: 5, perDay: 2, globalPerDay: 0, now: () => t });
+    expect(allow(limiter, "a")).toBe("ok");
+    t += 60_000;
+    expect(allow(limiter, "a")).toBe("ok");
+    t += 60_000;
+    expect(allow(limiter, "a")).toBe("day");
   });
 
   it("drops old clients when windows roll over so memory stays bounded", () => {
     let t = 0;
     const limiter = createRateLimiter({ perMinute: 10, perDay: 10, globalPerDay: 0, now: () => t });
-    for (let i = 0; i < 50; i++) limiter.check(`client-${i}`);
+    for (let i = 0; i < 50; i++) allow(limiter, `client-${i}`);
     expect(limiter.size().minute).toBe(50);
     t += 60_000;
     expect(limiter.size().minute).toBe(0);
@@ -198,6 +252,16 @@ describe("isValidPlan", () => {
     expect(isValidPlan({ ...VALID_PLAN, todaySuggestions: [{ text: "   " }, null] })).toBe(false);
     expect(isValidPlan({ ...VALID_PLAN, taskPool: undefined })).toBe(false);
     expect(isValidPlan(null)).toBe(false);
+  });
+
+  it("applies the same rules as the app, so the proxy never 200s a plan the app rejects", () => {
+    const withTask = (task: object) => ({ ...VALID_PLAN, todaySuggestions: [task] });
+    expect(isValidPlan(withTask({ text: "Walk", estimatedMinutes: 4 }))).toBe(false);
+    expect(isValidPlan(withTask({ text: "Walk", estimatedMinutes: 61 }))).toBe(false);
+    expect(isValidPlan(withTask({ text: "Walk", estimatedMinutes: 7.5 }))).toBe(false);
+    expect(isValidPlan(withTask({ text: "Walk", estimatedMinutes: "10" }))).toBe(false);
+    expect(isValidPlan(withTask({ text: "x".repeat(65), estimatedMinutes: 10 }))).toBe(false);
+    expect(isValidPlan(withTask({ text: "Walk", estimatedMinutes: 5 }))).toBe(true);
   });
 });
 
@@ -252,13 +316,40 @@ describe("proxy server", () => {
       expect((await post(VALID_PAYLOAD, { [SECRET_HEADER]: "s3cret" })).status).toBe(200);
     });
 
+    it("lets preflight through without the secret and still sends CORS headers on 401", async () => {
+      const { base, post } = await start({
+        env: { PROXY_SHARED_SECRET: "s3cret", CORS_ORIGIN: "*" },
+      });
+      expect((await fetch(`${base}${PLAN_ROUTE}`, { method: "OPTIONS" })).status).toBe(204);
+      const denied = await post();
+      expect(denied.status).toBe(401);
+      expect(denied.headers.get("access-control-allow-origin")).toBe("*");
+    });
+
+    it("in SECRET_MODE=log, allows requests without the secret but logs them", async () => {
+      const { post, logger } = await start({
+        env: { PROXY_SHARED_SECRET: "s3cret", SECRET_MODE: "log" },
+      });
+      expect((await post()).status).toBe(200);
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("without a valid secret"));
+      expect((await post(VALID_PAYLOAD, { [SECRET_HEADER]: "s3cret" })).status).toBe(200);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("hides unknown routes behind auth", async () => {
+      const { base } = await start({ env: { PROXY_SHARED_SECRET: "s3cret" } });
+      expect((await fetch(`${base}/nope`, { method: "POST" })).status).toBe(401);
+    });
+
     it("does not require a header when no secret is configured (local dev)", async () => {
       const { post } = await start();
       expect((await post()).status).toBe(200);
     });
 
     it("does not let unauthorized requests consume the rate limit", async () => {
-      const { post } = await start({ env: { PROXY_SHARED_SECRET: "s3cret", RATE_LIMIT_PER_MIN: "1" } });
+      const { post } = await start({
+        env: { PROXY_SHARED_SECRET: "s3cret", RATE_LIMIT_PER_MIN: "1" },
+      });
       for (let i = 0; i < 3; i++) expect((await post()).status).toBe(401);
       expect((await post(VALID_PAYLOAD, { [SECRET_HEADER]: "s3cret" })).status).toBe(200);
     });
@@ -287,6 +378,46 @@ describe("proxy server", () => {
       expect((await fetch(`${base}${HEALTH_ROUTE}`)).status).toBe(200);
     });
 
+    it("rejects a declared oversized Content-Length before reading, and closes the connection", async () => {
+      const { post } = await start();
+      const res = await post({
+        ...VALID_PAYLOAD,
+        recentReflection: "x".repeat(MAX_BODY_BYTES + 10),
+      });
+      expect(res.status).toBe(413);
+      expect(res.headers.get("connection")).toBe("close");
+    });
+
+    it("stops a chunked upload that grows past the limit and closes the connection", async () => {
+      const { port } = await start();
+      const net = await import("node:net");
+      const response = await new Promise<string>((resolve, reject) => {
+        const socket = net.connect(port, "127.0.0.1");
+        let data = "";
+        socket.on("data", (chunk) => (data += chunk.toString()));
+        socket.on("close", () => resolve(data));
+        socket.on("error", (error: NodeJS.ErrnoException) =>
+          error.code === "ECONNRESET" || error.code === "EPIPE" ? resolve(data) : reject(error),
+        );
+        socket.write(
+          `POST ${PLAN_ROUTE} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n`,
+        );
+        const chunk = "a".repeat(8_000);
+        // Keep streaming well past the limit; the server should cut us off.
+        let sent = 0;
+        const pump = setInterval(() => {
+          if (socket.destroyed || sent > 50) {
+            clearInterval(pump);
+            return;
+          }
+          socket.write(`${chunk.length.toString(16)}\r\n${chunk}\r\n`);
+          sent += 1;
+        }, 1);
+      });
+      expect(response).toContain("413");
+      expect(response.toLowerCase()).toContain("connection: close");
+    });
+
     it("measures the limit in bytes, not characters", async () => {
       const { post } = await start();
       // Each emoji is 4 bytes but 2 UTF-16 chars: under the char count, over the byte limit.
@@ -304,7 +435,11 @@ describe("proxy server", () => {
     });
 
     it("returns 502 when the provider throws, without leaking the error", async () => {
-      const provider = fakeProvider({ generatePlan: vi.fn(async () => { throw new Error("upstream 529 overloaded"); }) });
+      const provider = fakeProvider({
+        generatePlan: vi.fn(async () => {
+          throw new Error("upstream 529 overloaded");
+        }),
+      });
       const { post, logger } = await start({ provider });
       const res = await post();
       expect(res.status).toBe(502);
@@ -314,13 +449,80 @@ describe("proxy server", () => {
 
     it("returns 502 for an invalid plan and logs only its shape, not user content", async () => {
       const provider = fakeProvider({
-        generatePlan: vi.fn(async () => ({ milestones: [], todaySuggestions: [], taskPool: [], note: "Walk my dog Rex" })),
+        generatePlan: vi.fn(async () => ({
+          milestones: [],
+          todaySuggestions: [],
+          taskPool: [],
+          note: "Walk my dog Rex",
+        })),
       });
       const { post, logger } = await start({ provider });
       expect((await post()).status).toBe(502);
       const logged = logger.error.mock.calls.map((call) => String(call[0])).join("\n");
       expect(logged).toContain("invalid plan");
       expect(logged).not.toContain("Rex");
+    });
+  });
+
+  describe("budgets are only spent on requests that reach the AI", () => {
+    it("400, 413 and missing-key 500 responses don't consume the daily or global budget", async () => {
+      const { post, limiter } = await start({
+        env: { GLOBAL_DAILY_LIMIT: "1", DAILY_LIMIT_PER_CLIENT: "1" },
+      });
+      expect((await post("{bad")).status).toBe(400);
+      expect((await post({ ...VALID_PAYLOAD, profile: null })).status).toBe(400);
+      expect(
+        (await post({ ...VALID_PAYLOAD, recentReflection: "x".repeat(MAX_BODY_BYTES) })).status,
+      ).toBe(413);
+      expect(limiter.size()).toMatchObject({ day: 0, global: 0 });
+      expect((await post()).status).toBe(200);
+      expect(limiter.size().global).toBe(1);
+    });
+
+    it("counts a provider failure against the budget (the AI was actually called)", async () => {
+      const provider = fakeProvider({
+        generatePlan: vi.fn(async () => {
+          throw new Error("boom");
+        }),
+      });
+      const { post, limiter } = await start({ provider });
+      expect((await post()).status).toBe(502);
+      expect(limiter.size().global).toBe(1);
+    });
+
+    it("treats 0 as 'no limit' over HTTP", async () => {
+      const { post } = await start({
+        env: { RATE_LIMIT_PER_MIN: "0", DAILY_LIMIT_PER_CLIENT: "0", GLOBAL_DAILY_LIMIT: "0" },
+      });
+      for (let i = 0; i < 40; i++) expect((await post()).status).toBe(200);
+    });
+  });
+
+  describe("client IP debug endpoint", () => {
+    it("is off by default", async () => {
+      const { base } = await start();
+      expect((await fetch(`${base}${DEBUG_IP_ROUTE}`)).status).toBe(404);
+    });
+
+    it("when enabled, requires the secret even in log mode and reports what the proxy sees", async () => {
+      const { base } = await start({
+        env: {
+          DEBUG_CLIENT_IP: "1",
+          PROXY_SHARED_SECRET: "s3cret",
+          SECRET_MODE: "log",
+          TRUST_PROXY_HOPS: "1",
+        },
+      });
+      expect((await fetch(`${base}${DEBUG_IP_ROUTE}`)).status).toBe(404);
+      const res = await fetch(`${base}${DEBUG_IP_ROUTE}`, {
+        headers: { [SECRET_HEADER]: "s3cret", "x-forwarded-for": "6.6.6.6, 203.0.113.7" },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        resolvedClientIp: "203.0.113.7",
+        forwardedFor: "6.6.6.6, 203.0.113.7",
+        trustProxyHops: 1,
+      });
     });
   });
 
@@ -334,16 +536,31 @@ describe("proxy server", () => {
       expect(limited.headers.get("retry-after")).toBe("60");
     });
 
+    it("ignores X-Forwarded-For entirely with the default of 0 trusted hops", async () => {
+      const { post } = await start({ env: { RATE_LIMIT_PER_MIN: "1" } });
+      expect((await post(VALID_PAYLOAD, { "x-forwarded-for": "203.0.113.1" })).status).toBe(200);
+      expect((await post(VALID_PAYLOAD, { "x-forwarded-for": "203.0.113.2" })).status).toBe(429);
+    });
+
     it("keys the limit on the proxy-appended IP so spoofed headers can't bypass it", async () => {
       const { post } = await start({ env: { RATE_LIMIT_PER_MIN: "1", TRUST_PROXY_HOPS: "1" } });
-      expect((await post(VALID_PAYLOAD, { "x-forwarded-for": "1.1.1.1, 203.0.113.7" })).status).toBe(200);
-      expect((await post(VALID_PAYLOAD, { "x-forwarded-for": "9.9.9.9, 203.0.113.7" })).status).toBe(429);
-      expect((await post(VALID_PAYLOAD, { "x-forwarded-for": "9.9.9.9, 198.51.100.4" })).status).toBe(200);
+      expect(
+        (await post(VALID_PAYLOAD, { "x-forwarded-for": "1.1.1.1, 203.0.113.7" })).status,
+      ).toBe(200);
+      expect(
+        (await post(VALID_PAYLOAD, { "x-forwarded-for": "9.9.9.9, 203.0.113.7" })).status,
+      ).toBe(429);
+      expect(
+        (await post(VALID_PAYLOAD, { "x-forwarded-for": "9.9.9.9, 198.51.100.4" })).status,
+      ).toBe(200);
     });
 
     it("returns 503 once the global daily cap is reached, even for new clients", async () => {
       const t = 1_000;
-      const { post, provider } = await start({ env: { GLOBAL_DAILY_LIMIT: "2" }, now: () => t });
+      const { post, provider } = await start({
+        env: { GLOBAL_DAILY_LIMIT: "2", TRUST_PROXY_HOPS: "1" },
+        now: () => t,
+      });
       expect((await post(VALID_PAYLOAD, { "x-forwarded-for": "203.0.113.1" })).status).toBe(200);
       expect((await post(VALID_PAYLOAD, { "x-forwarded-for": "203.0.113.2" })).status).toBe(200);
       const res = await post(VALID_PAYLOAD, { "x-forwarded-for": "203.0.113.3" });
