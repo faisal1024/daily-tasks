@@ -88,6 +88,7 @@ const actions = {
   setTaskSteps: jest.fn(),
   toggleTaskStep: jest.fn(),
   clearTaskSteps: jest.fn(),
+  hasPlus: true,
 };
 
 function makeStore(overrides: Partial<AppState> = {}, journeyLevel = 4) {

@@ -9,6 +9,8 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ThemeProvider } from "@/lib/theme-provider";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
+import { PlusProvider } from "@/lib/daily-tasks/plus-context";
+import { PaywallHost } from "@/components/daily-tasks/paywall-sheet";
 
 export const unstable_settings = {
   anchor: "(tabs)",
@@ -32,12 +34,15 @@ export default function RootLayout() {
     <ThemeProvider>
       <SafeAreaProvider>
         <GestureHandlerRootView style={{ flex: 1 }}>
-          <DailyTasksProvider>
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" />
-            </Stack>
-            <StatusBar style="auto" />
-          </DailyTasksProvider>
+          <PlusProvider>
+            <DailyTasksProvider>
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="(tabs)" />
+              </Stack>
+              <PaywallHost />
+              <StatusBar style="auto" />
+            </DailyTasksProvider>
+          </PlusProvider>
         </GestureHandlerRootView>
       </SafeAreaProvider>
     </ThemeProvider>

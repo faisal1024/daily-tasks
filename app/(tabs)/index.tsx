@@ -32,7 +32,10 @@ import {
   classifyAiFailure,
 } from "@/lib/daily-tasks/ai-status";
 import { proxyRouteUrl } from "@/lib/daily-tasks/ai-client";
-import { requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import { localBrainDump, requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import { track } from "@/lib/daily-tasks/analytics";
+import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
+import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
@@ -87,7 +90,27 @@ export default function HomeScreen() {
     setTaskSteps,
     toggleTaskStep,
     clearTaskSteps,
+    hasPlus,
   } = useDailyTasks();
+  const { paywallEnabled, openPaywall } = usePlus();
+
+  // iOS shows one modal at a time: close whatever sheet is open first, then
+  // bring up the paywall once it has animated away.
+  const paywallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPaywall = (source: PaywallSource, feature?: PlusFeature) => {
+    if (feature) track("plus_gate_hit", { feature });
+    if (paywallTimer.current) clearTimeout(paywallTimer.current);
+    paywallTimer.current = setTimeout(() => {
+      paywallTimer.current = null;
+      openPaywall(source);
+    }, 650);
+  };
+  useEffect(
+    () => () => {
+      if (paywallTimer.current) clearTimeout(paywallTimer.current);
+    },
+    [],
+  );
   const { update, dismiss: dismissUpdate } = useAppUpdate();
 
   const [showCelebration, setShowCelebration] = useState(false);
@@ -191,6 +214,7 @@ export default function HomeScreen() {
 
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
     setShowCelebration(true);
+    track("perfect_day", { count: total });
     reviewPending.current = !reviewInFlight.current && shouldRequestReview({
       history: state.history,
       lastReviewPromptAt: state.lastReviewPromptAt,
@@ -241,6 +265,10 @@ export default function HomeScreen() {
 
   const handleBreakDown = async (taskId: string, text: string) => {
     if (breakingRef.current) return;
+    if (!hasPlus) {
+      showPaywall("break_down", "break_down");
+      return;
+    }
     breakingRef.current = taskId;
     setBreakingTaskId(taskId);
     try {
@@ -248,6 +276,7 @@ export default function HomeScreen() {
       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
       // Only if the task still reads the same (it may have been edited meanwhile).
       setTaskSteps(taskId, steps, text);
+      track("break_down_used", { count: steps.length });
     } catch (error) {
       Alert.alert("Couldn't break it down", breakDownFailureMessage(classifyAiFailure(error)));
     } finally {
@@ -278,6 +307,7 @@ export default function HomeScreen() {
         : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
     );
     toggleTask(id);
+    if (completing) track("task_completed", { count: completedCount + 1 });
   };
 
   const handleDelete = (id: string, text: string) => {
@@ -461,6 +491,11 @@ export default function HomeScreen() {
         }}
         onRegenerate={() => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+          if (!hasPlus) {
+            setIdeasOpen(false);
+            showPaywall("new_ideas", "ai_ideas");
+            return;
+          }
           void requestMomentumPlan();
         }}
         parked={state.parkedTasks}
@@ -476,12 +511,26 @@ export default function HomeScreen() {
         visible={brainDumpOpen}
         onClose={() => setBrainDumpOpen(false)}
         openSlots={Math.max(1, remainingSlots)}
-        onSort={(text) =>
-          sortBrainDump({
+        onSort={async (text) => {
+          const params = {
             text,
             openSlots: Math.max(1, remainingSlots),
             goalTitle: state.momentumProfile.goalTitle,
-          })
+          };
+          // Free plan: the simple on-device split (no AI call).
+          const sorted = hasPlus
+            ? await sortBrainDump(params)
+            : { result: localBrainDump(params.text, params.openSlots), notice: null };
+          track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
+          return sorted;
+        }}
+        onUpgrade={
+          hasPlus
+            ? undefined
+            : () => {
+                setBrainDumpOpen(false);
+                showPaywall("brain_dump", "brain_dump");
+              }
         }
         onConfirm={(picks, parked) => {
           // A slot may have filled while the sheet was open: park what won't fit.
@@ -503,7 +552,12 @@ export default function HomeScreen() {
       <OnboardingModal
         visible={ready && !state.hasSeenOnboarding && !state.pendingRollover}
         initialProfile={state.momentumProfile}
-        onComplete={completeMomentumOnboarding}
+        onComplete={(profile) => {
+          completeMomentumOnboarding(profile);
+          track("onboarding_completed", { source: profile.goalSource ?? "none" });
+          // Offer the trial once, at the end of first-run onboarding (closable).
+          if (paywallEnabled && !hasPlus) showPaywall("onboarding");
+        }}
       />
 
       <RolloverModal

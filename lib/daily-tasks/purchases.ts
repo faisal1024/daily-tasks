@@ -1,0 +1,156 @@
+// Thin wrapper over RevenueCat (react-native-purchases).
+//
+// - The paywall only exists when EXPO_PUBLIC_REVENUECAT_IOS_KEY is set at build
+//   time. Without it every call here is a no-op and the app behaves exactly as
+//   before (everyone has every feature).
+// - The native module is loaded lazily inside a try, like app-review.ts: a binary
+//   without it degrades to "no paywall" instead of crashing at launch.
+// - SDK objects are converted to the plain types in plus.ts right here, so the
+//   rest of the app never touches RevenueCat types.
+
+import { Platform } from "react-native";
+
+import { freeTrialDays, planKind, PLUS_ENTITLEMENT, type PlusPackage } from "./plus";
+
+type PurchasesModule = typeof import("react-native-purchases");
+type SdkPackage = import("react-native-purchases").PurchasesPackage;
+type SdkCustomerInfo = import("react-native-purchases").CustomerInfo;
+
+/** The public SDK key (safe to ship in the app; it's designed to be public). */
+export function getRevenueCatKey(): string | null {
+  const key = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY?.trim();
+  return key ? key : null;
+}
+
+/** Whether this build has a paywall at all (iOS only for now). */
+export function isPaywallConfigured(): boolean {
+  return Platform.OS === "ios" && getRevenueCatKey() !== null;
+}
+
+function loadSdk(): PurchasesModule | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("react-native-purchases") as PurchasesModule;
+  } catch {
+    return null;
+  }
+}
+
+let configured = false;
+// Last packages loaded, keyed by id, so a purchase can hand the SDK its own object.
+const sdkPackages = new Map<string, SdkPackage>();
+
+/** Configure the SDK once. Returns false when there's no paywall in this build. */
+export function configurePurchases(): boolean {
+  if (configured) return true;
+  const key = getRevenueCatKey();
+  const sdk = loadSdk();
+  if (!key || !sdk || Platform.OS !== "ios") return false;
+  try {
+    // Anonymous RevenueCat id: we never log users in or send personal data.
+    sdk.default.configure({ apiKey: key });
+    configured = true;
+  } catch {
+    return false;
+  }
+  return configured;
+}
+
+export function isPlusActive(info: SdkCustomerInfo | null | undefined): boolean {
+  return Boolean(info?.entitlements?.active?.[PLUS_ENTITLEMENT]);
+}
+
+/** Current entitlement (served from RevenueCat's on-device cache when offline). */
+export async function fetchPlusActive(): Promise<boolean | null> {
+  const sdk = loadSdk();
+  if (!configured || !sdk) return null;
+  try {
+    return isPlusActive(await sdk.default.getCustomerInfo());
+  } catch {
+    return null;
+  }
+}
+
+/** Subscribe to entitlement changes (renewals, refunds, purchases elsewhere). */
+export function onPlusChange(listener: (active: boolean) => void): () => void {
+  const sdk = loadSdk();
+  if (!configured || !sdk) return () => {};
+  const handler = (info: SdkCustomerInfo) => listener(isPlusActive(info));
+  sdk.default.addCustomerInfoUpdateListener(handler);
+  return () => {
+    sdk.default.removeCustomerInfoUpdateListener(handler);
+  };
+}
+
+function toPlusPackage(pkg: SdkPackage, trialEligible: boolean): PlusPackage {
+  return {
+    id: pkg.identifier,
+    kind: planKind(pkg.packageType),
+    priceString: pkg.product.priceString,
+    pricePerMonthString: pkg.product.pricePerMonthString ?? null,
+    trialDays: trialEligible ? freeTrialDays(pkg.product.introPrice) : null,
+  };
+}
+
+/** Packages in the current offering. Throws when they can't be loaded. */
+export async function loadPackages(): Promise<PlusPackage[]> {
+  const sdk = loadSdk();
+  if (!configured || !sdk) throw new Error("Purchases aren't available.");
+  const offerings = await sdk.default.getOfferings();
+  const packages = offerings.current?.availablePackages ?? [];
+  // Someone who already used a trial can't get another: don't promise one.
+  let eligibility: Record<string, { status: number }> = {};
+  try {
+    eligibility = await sdk.default.checkTrialOrIntroductoryPriceEligibility(
+      packages.map((pkg) => pkg.product.identifier),
+    );
+  } catch {
+    eligibility = {};
+  }
+  sdkPackages.clear();
+  return packages.map((pkg) => {
+    sdkPackages.set(pkg.identifier, pkg);
+    // 1 = INTRO_ELIGIBILITY_STATUS_INELIGIBLE. Unknown counts as eligible
+    // (Apple decides at purchase time and shows the real terms).
+    const trialEligible = eligibility[pkg.product.identifier]?.status !== 1;
+    return toPlusPackage(pkg, trialEligible);
+  });
+}
+
+export type PurchaseOutcome = "purchased" | "cancelled" | "pending" | "failed";
+
+/** Buy a package loaded by loadPackages(). Never throws. */
+export async function purchase(packageId: string): Promise<{ outcome: PurchaseOutcome; active: boolean }> {
+  const sdk = loadSdk();
+  const pkg = sdkPackages.get(packageId);
+  if (!configured || !sdk || !pkg) return { outcome: "failed", active: false };
+  try {
+    const { customerInfo } = await sdk.default.purchasePackage(pkg);
+    const active = isPlusActive(customerInfo);
+    return { outcome: active ? "purchased" : "pending", active };
+  } catch (error) {
+    const e = error as { userCancelled?: boolean | null; code?: string };
+    // Codes from PURCHASES_ERROR_CODE: "1" cancelled, "20" payment pending.
+    if (e?.userCancelled || e?.code === "1") return { outcome: "cancelled", active: false };
+    // Ask to Buy / deferred payments finish later via the update listener.
+    if (e?.code === "20") return { outcome: "pending", active: false };
+    return { outcome: "failed", active: false };
+  }
+}
+
+/** Restore earlier purchases. Returns null if the restore itself failed. */
+export async function restore(): Promise<boolean | null> {
+  const sdk = loadSdk();
+  if (!configured || !sdk) return null;
+  try {
+    return isPlusActive(await sdk.default.restorePurchases());
+  } catch {
+    return null;
+  }
+}
+
+/** Test-only: forget configuration between tests. */
+export function __resetPurchasesForTests(): void {
+  configured = false;
+  sdkPackages.clear();
+}

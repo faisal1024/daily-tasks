@@ -104,6 +104,7 @@ function makeStore(overrides: Partial<AppState> = {}) {
     setTaskSteps: jest.fn(),
     toggleTaskStep: jest.fn(),
     clearTaskSteps: jest.fn(),
+    hasPlus: true,
   };
 }
 

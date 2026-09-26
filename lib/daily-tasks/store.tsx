@@ -65,6 +65,9 @@ import {
   nextIncompleteMilestone,
   type MilestoneView,
 } from "./milestones";
+import { setAnalyticsEnabled as applyAnalyticsEnabled, track } from "./analytics";
+import { hasPlusAccess } from "./plus";
+import { usePlus } from "./plus-context";
 import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
 import type {
   AppState,
@@ -123,6 +126,8 @@ type Action =
     }
   | { type: "toggleTaskStep"; taskId: TaskId; stepId: string; today: string }
   | { type: "clearTaskSteps"; taskId: TaskId; today: string }
+  | { type: "grandfatherPlus" }
+  | { type: "setAnalyticsEnabled"; enabled: boolean }
   | { type: "reset"; state: AppState };
 
 /** Canonical count of today's completions that still map to a current task. */
@@ -153,6 +158,12 @@ function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "markReviewPrompted":
       return { ...state, lastReviewPromptAt: action.at };
+    case "grandfatherPlus":
+      return state.plusGrandfathered ? state : { ...state, plusGrandfathered: true };
+    case "setAnalyticsEnabled":
+      return state.analyticsEnabled === action.enabled
+        ? state
+        : { ...state, analyticsEnabled: action.enabled };
     case "parkTasks":
       return parkTasks(state, action.texts, action.at);
     case "removeParkedTask":
@@ -567,7 +578,11 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, journey: { ...state.journey, selectedCosmeticId: action.id } };
     }
     case "reset":
-      return action.state;
+      // Resetting data must not take away an early supporter's free Plus.
+      return {
+        ...action.state,
+        plusGrandfathered: action.state.plusGrandfathered || state.plusGrandfathered,
+      };
   }
 }
 
@@ -617,6 +632,9 @@ interface StoreContextValue {
   setTaskSteps: (taskId: TaskId, texts: string[], forText?: string) => void;
   toggleTaskStep: (taskId: TaskId, stepId: string) => void;
   clearTaskSteps: (taskId: TaskId) => void;
+  /** Plus features (AI helpers) are available: see hasPlusAccess. */
+  hasPlus: boolean;
+  setAnalyticsEnabled: (enabled: boolean) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -631,6 +649,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermissionState>("undetermined");
   const lastReminderSync = useRef<string | null>(null);
+  const plus = usePlus();
+  const hasPlus = hasPlusAccess({
+    paywallEnabled: plus.paywallEnabled,
+    grandfathered: state.plusGrandfathered,
+    entitlementActive: plus.entitlementActive,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -656,6 +680,27 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     if (!ready) return;
     void saveState(state);
   }, [ready, state]);
+
+  // Anyone using a build without a paywall is an early user: once a paywall
+  // build arrives they keep Plus. (Keyed on the build having a RevenueCat key,
+  // not on the SDK starting, so a broken SDK never grants Plus for good.)
+  useEffect(() => {
+    if (!ready || plus.paywallBuild || state.plusGrandfathered) return;
+    dispatch({ type: "grandfatherPlus" });
+  }, [ready, plus.paywallBuild, state.plusGrandfathered]);
+
+  useEffect(() => {
+    if (!ready) return;
+    applyAnalyticsEnabled(state.analyticsEnabled);
+  }, [ready, state.analyticsEnabled]);
+
+  // One "app_opened" per day this app is used (drives D1/D7/D30 retention).
+  const openedTracked = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ready || openedTracked.current === today) return;
+    openedTracked.current = today;
+    track("app_opened", { plus: hasPlus });
+  }, [ready, today, hasPlus]);
 
   const refreshNotificationPermission = useCallback(async () => {
     const status = await getNotificationPermissionStatus();
@@ -819,6 +864,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // or flip "loading" off while the newer request is still in flight.
   const latestAiRequest = useRef(0);
   const requestMomentumPlan = useCallback(async () => {
+    // AI ideas are a Plus feature; free users keep the on-device template plan.
+    if (!hasPlus) return;
     const requestId = ++latestAiRequest.current;
     dispatch({ type: "requestMomentumPlanStarted" });
     const now = new Date();
@@ -841,7 +888,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         now,
       });
     }
-  }, [state.history, state.momentumProfile, state.momentumSettings]);
+  }, [hasPlus, state.history, state.momentumProfile, state.momentumSettings]);
 
   // Auto-generate the AI plan once per (day + goal) when a proxy URL is
   // configured. No URL → this is a no-op and the app stays on the local
@@ -850,7 +897,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     const key = nextAiPlanFetchKey({
       ready,
-      proxyUrl: getMomentumAiProxyUrl(),
+      // Wait for Plus (the entitlement may still be loading at launch).
+      proxyUrl: hasPlus ? getMomentumAiProxyUrl() : null,
       profileComplete: isMomentumProfileComplete(state.momentumProfile),
       status: state.momentumPlanStatus,
       today,
@@ -863,6 +911,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     void requestMomentumPlan();
   }, [
     ready,
+    hasPlus,
     today,
     state.momentumProfile,
     state.momentumPlan,
@@ -949,6 +998,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const clearTaskStepsCb = useCallback((taskId: TaskId) => {
     dispatch({ type: "clearTaskSteps", taskId, today: todayKey() });
   }, []);
+  const setAnalyticsEnabledCb = useCallback((enabled: boolean) => {
+    // Apply immediately so nothing queued is sent after opting out.
+    applyAnalyticsEnabled(enabled);
+    dispatch({ type: "setAnalyticsEnabled", enabled });
+  }, []);
 
   const journeyLevel = levelForXp(state.journey.xp);
   const journeyProgress = levelProgress(state.journey.xp);
@@ -1006,6 +1060,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setTaskSteps: setTaskStepsCb,
       toggleTaskStep: toggleTaskStepCb,
       clearTaskSteps: clearTaskStepsCb,
+      hasPlus,
+      setAnalyticsEnabled: setAnalyticsEnabledCb,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -1052,6 +1108,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setTaskStepsCb,
       toggleTaskStepCb,
       clearTaskStepsCb,
+      hasPlus,
+      setAnalyticsEnabledCb,
       refreshNotificationPermission,
       requestPermission,
       resetAll,
