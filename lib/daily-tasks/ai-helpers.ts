@@ -27,7 +27,9 @@ export function cleanTaskText(value: unknown, max = MAX_TASK_TEXT): string | nul
     .replace(/\s+/g, " ")
     .trim();
   if (!text) return null;
-  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+  // Tasks read as a list of actions: "book dentist" → "Book dentist".
+  const capitalized = text.charAt(0).toUpperCase() + text.slice(1);
+  return capitalized.length > max ? `${capitalized.slice(0, max - 1).trimEnd()}…` : capitalized;
 }
 
 function uniqueTexts(items: unknown[], limit: number, seen = new Set<string>()): string[] {

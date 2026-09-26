@@ -26,7 +26,11 @@ import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
 import { UpdateBanner } from "@/components/daily-tasks/update-banner";
 import { useAppUpdate } from "@/hooks/use-app-update";
-import { aiFailureMessage, classifyAiFailure } from "@/lib/daily-tasks/ai-status";
+import {
+  aiFailureMessage,
+  breakDownFailureMessage,
+  classifyAiFailure,
+} from "@/lib/daily-tasks/ai-status";
 import { requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
@@ -225,10 +229,7 @@ export default function HomeScreen() {
       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
       setTaskSteps(taskId, steps);
     } catch (error) {
-      Alert.alert(
-        "Couldn't break it down",
-        aiFailureMessage(classifyAiFailure(error)) ?? "Try again in a bit.",
-      );
+      Alert.alert("Couldn't break it down", breakDownFailureMessage(classifyAiFailure(error)));
     } finally {
       setBreakingTaskId(null);
     }
