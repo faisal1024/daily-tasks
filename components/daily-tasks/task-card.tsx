@@ -31,6 +31,8 @@ interface TaskCardProps {
   /** Ask the AI to split this task into steps; hidden when not provided. */
   onBreakDown?: () => void;
   breakingDown?: boolean;
+  /** Another card is breaking down; only one runs at a time. */
+  breakDownDisabled?: boolean;
   onToggleStep?: (stepId: string) => void;
   onClearSteps?: () => void;
 }
@@ -46,6 +48,7 @@ export function TaskCard({
   index,
   onBreakDown,
   breakingDown = false,
+  breakDownDisabled = false,
   onToggleStep,
   onClearSteps,
 }: TaskCardProps) {
@@ -189,8 +192,9 @@ export function TaskCard({
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: step.done }}
                   accessibilityLabel={`Step ${stepIndex + 1} of ${task.steps?.length}: ${step.text}`}
-                  hitSlop={4}
-                  className="flex-row items-center gap-2 py-1"
+                  hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+                  className="flex-row items-center gap-2"
+                  style={{ minHeight: 36 }}
                 >
                   <Ionicons
                     name={step.done ? "checkbox" : "square-outline"}
@@ -213,10 +217,10 @@ export function TaskCard({
                   onPress={onClearSteps}
                   accessibilityRole="button"
                   accessibilityLabel="Clear steps"
-                  hitSlop={8}
+                  hitSlop={12}
                   className="self-start mt-1"
                 >
-                  <Text className="text-xs font-semibold" style={{ color: colors.muted }}>
+                  <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
                     Clear steps
                   </Text>
                 </Pressable>
@@ -227,20 +231,24 @@ export function TaskCard({
           {!isEditing && !completed && onBreakDown && !(task.steps && task.steps.length > 0) && (
             <Pressable
               onPress={onBreakDown}
-              disabled={breakingDown}
+              disabled={breakingDown || breakDownDisabled}
               accessibilityRole="button"
               accessibilityLabel={`Break down ${task.text}`}
               accessibilityHint="Splits this task into a few tiny steps"
-              accessibilityState={{ busy: breakingDown, disabled: breakingDown }}
-              hitSlop={10}
+              accessibilityState={{
+                busy: breakingDown,
+                disabled: breakingDown || breakDownDisabled,
+              }}
+              hitSlop={12}
               className="self-start flex-row items-center gap-1.5 mt-1.5"
+              style={{ opacity: breakDownDisabled ? 0.4 : 1 }}
             >
               {breakingDown ? (
-                <ActivityIndicator size="small" color={colors.primary} />
+                <ActivityIndicator size="small" color={colors.muted} />
               ) : (
-                <Ionicons name="git-branch-outline" size={14} color={colors.primary} />
+                <Ionicons name="list-outline" size={14} color={colors.muted} />
               )}
-              <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+              <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
                 {breakingDown ? "Breaking it down…" : "Break it down"}
               </Text>
             </Pressable>

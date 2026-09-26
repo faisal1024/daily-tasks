@@ -24,6 +24,7 @@ function buildDayTaskRecords(
       completed,
       carriedOver: task.carriedOver,
       rolloverOutcome: completed ? null : incompleteOutcome,
+      ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
     };
   });
 }
@@ -77,6 +78,7 @@ function restoreTasksFromRecord(record: DayRecord): Task[] {
     text: task.text,
     createdAt: `${record.date}T00:00:00.000Z`,
     carriedOver: task.carriedOver,
+    ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
   }));
 }
 
@@ -175,6 +177,8 @@ export function resolvePendingRollover(
       text: task.text,
       createdAt: now.toISOString(),
       carriedOver: true,
+      // A carried task is usually the stuck one: keep its steps (and progress).
+      ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
     })),
   ];
 

@@ -16,6 +16,8 @@ import {
   buildBreakDownPrompt,
   isValidBrainDump,
   isValidBreakDown,
+  sanitizeBrainDump,
+  sanitizeBreakDown,
   validateBrainDumpPayload,
   validateBreakDownPayload,
 } from "./providers/helpers-contract.mjs";
@@ -53,6 +55,7 @@ export const ROUTES = {
     toolDescription: BRAIN_DUMP_TOOL_DESCRIPTION,
     validatePayload: validateBrainDumpPayload,
     isValidResult: isValidBrainDump,
+    sanitizeResult: sanitizeBrainDump,
   },
   [BREAK_DOWN_ROUTE]: {
     name: "break-down",
@@ -63,5 +66,6 @@ export const ROUTES = {
     toolDescription: BREAK_DOWN_TOOL_DESCRIPTION,
     validatePayload: validateBreakDownPayload,
     isValidResult: isValidBreakDown,
+    sanitizeResult: sanitizeBreakDown,
   },
 };

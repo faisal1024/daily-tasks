@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -25,7 +25,10 @@ interface BrainDumpSheetProps {
   openSlots: number;
   /** Sort the dump (AI with offline fallback). */
   onSort: (text: string) => Promise<SortedBrainDump>;
-  /** Add the chosen picks to today and park the rest. */
+  /**
+   * Add `picks` to today and save `parked` for later. Also called with no picks
+   * when the user saves everything or closes the review, so nothing is lost.
+   */
   onConfirm: (picks: string[], parked: string[]) => void;
 }
 
@@ -36,9 +39,12 @@ export function BrainDumpSheet({ visible, onClose, openSlots, onSort, onConfirm 
   const [text, setText] = useState("");
   const [sorted, setSorted] = useState<SortedBrainDump | null>(null);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
+  // Bumped on every open/close: a sort that finishes after the sheet closed
+  // (or reopened) belongs to an old session and is ignored.
+  const session = useRef(0);
 
-  // Each opening starts fresh.
   useEffect(() => {
+    session.current += 1;
     if (visible) {
       setStage("write");
       setSorted(null);
@@ -46,39 +52,56 @@ export function BrainDumpSheet({ visible, onClose, openSlots, onSort, onConfirm 
     }
   }, [visible]);
 
+  // Every sorted item, today's suggestions first; any of them can be chosen.
+  const items = sorted ? [...sorted.result.picks, ...sorted.result.parked] : [];
+  const chosenItems = items.filter((item) => chosen.has(item));
+  const full = chosenItems.length >= openSlots;
+
   const sort = async () => {
     if (!text.trim()) return;
+    const mine = session.current;
     setStage("sorting");
     const result = await onSort(text);
+    if (mine !== session.current) return;
     setSorted(result);
-    setChosen(new Set(result.result.picks));
+    setChosen(new Set(result.result.picks.slice(0, openSlots)));
     setStage("review");
   };
 
   const confirm = () => {
     if (!sorted) return;
-    const picks = sorted.result.picks.filter((p) => chosen.has(p)).slice(0, openSlots);
-    // Unticked picks aren't thrown away; they're parked with the rest.
-    const parked = [...sorted.result.picks.filter((p) => !picks.includes(p)), ...sorted.result.parked];
-    onConfirm(picks, parked);
+    onConfirm(
+      chosenItems,
+      items.filter((item) => !chosen.has(item)),
+    );
     setText("");
   };
 
-  const toggle = (pick: string) => {
+  // Closing during review saves everything instead of throwing it away.
+  const close = () => {
+    if (stage === "review" && sorted) {
+      onConfirm([], items);
+      setText("");
+      return;
+    }
+    onClose();
+  };
+
+  const toggle = (item: string) => {
     setChosen((current) => {
       const next = new Set(current);
-      if (next.has(pick)) next.delete(pick);
-      else next.add(pick);
+      if (next.has(item)) next.delete(item);
+      else if (next.size < openSlots) next.add(item);
       return next;
     });
   };
 
-  const chosenCount = sorted ? sorted.result.picks.filter((p) => chosen.has(p)).length : 0;
+  const slotWord = openSlots === 1 ? "1 thing" : `up to ${openSlots}`;
 
   return (
     <Modal
       visible={visible}
-      onRequestClose={onClose}
+      onRequestClose={close}
       animationType="slide"
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
     >
@@ -94,26 +117,33 @@ export function BrainDumpSheet({ visible, onClose, openSlots, onSort, onConfirm 
           <Text accessibilityRole="header" className="text-2xl text-foreground" style={{ fontFamily: Fonts.rounded }}>
             Brain dump
           </Text>
-          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close brain dump" hitSlop={10}>
+          <Pressable
+            onPress={close}
+            accessibilityRole="button"
+            accessibilityLabel={stage === "review" ? "Close and save everything for later" : "Close brain dump"}
+            hitSlop={10}
+          >
             <Ionicons name="close" size={26} color={colors.muted} />
           </Pressable>
         </View>
 
         <ScrollView
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 14 }}
         >
           {stage === "write" && (
             <>
               <Text className="text-base" style={{ color: colors.muted }}>
-                Get it all out of your head: errands, worries, ideas. We'll pick up to {openSlots}{" "}
-                for today and keep the rest for later.
+                Get it all out of your head: errands, worries, ideas. We'll suggest {slotWord} for
+                today and save the rest.
               </Text>
               <TextInput
                 value={text}
                 onChangeText={setText}
                 multiline
                 autoFocus
+                scrollEnabled
                 maxLength={MAX_BRAIN_DUMP_CHARS}
                 placeholder={"Call the dentist\nFinish the report\nBuy running shoes…"}
                 placeholderTextColor={colors.muted}
@@ -121,7 +151,9 @@ export function BrainDumpSheet({ visible, onClose, openSlots, onSort, onConfirm 
                 accessibilityHint="Type or dictate everything on your mind. One per line is fine."
                 className="rounded-2xl border p-4 text-base"
                 style={{
-                  minHeight: 200,
+                  // Fixed range so long dictation scrolls inside the box.
+                  minHeight: 180,
+                  maxHeight: 320,
                   textAlignVertical: "top",
                   color: colors.foreground,
                   borderColor: colors.border,
@@ -138,7 +170,7 @@ export function BrainDumpSheet({ visible, onClose, openSlots, onSort, onConfirm 
                 style={{ backgroundColor: colors.primary, opacity: text.trim() ? 1 : 0.5 }}
               >
                 <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
-                  {openSlots === 1 ? "Pick my one" : `Pick my ${openSlots === 2 ? "two" : "three"}`}
+                  Sort it for me
                 </Text>
               </Pressable>
             </>
@@ -167,20 +199,28 @@ export function BrainDumpSheet({ visible, onClose, openSlots, onSort, onConfirm 
                   </Text>
                 </View>
               )}
-              <Text className="text-sm font-semibold uppercase tracking-wide" style={{ color: colors.muted }}>
-                For today
+              <Text className="text-base" style={{ color: colors.muted }}>
+                Tick {openSlots === 1 ? "1" : `up to ${openSlots}`} for today. Everything else is
+                saved in Ideas for another day.
               </Text>
-              {sorted.result.picks.map((pick) => {
-                const on = chosen.has(pick);
+              {items.map((item) => {
+                const on = chosen.has(item);
+                const blocked = !on && full;
                 return (
                   <Pressable
-                    key={pick}
-                    onPress={() => toggle(pick)}
+                    key={item}
+                    onPress={() => toggle(item)}
+                    disabled={blocked}
                     accessibilityRole="checkbox"
-                    accessibilityState={{ checked: on }}
-                    accessibilityLabel={pick}
+                    accessibilityState={{ checked: on, disabled: blocked }}
+                    accessibilityLabel={item}
+                    accessibilityHint={on ? "Double-tap to save for later instead" : "Double-tap to add to today"}
                     className="rounded-2xl border p-4 flex-row items-center gap-3"
-                    style={{ borderColor: on ? colors.primary : colors.border, backgroundColor: colors.surface }}
+                    style={{
+                      borderColor: on ? colors.primary : colors.border,
+                      backgroundColor: colors.surface,
+                      opacity: blocked ? 0.5 : 1,
+                    }}
                   >
                     <Ionicons
                       name={on ? "checkmark-circle" : "ellipse-outline"}
@@ -188,43 +228,32 @@ export function BrainDumpSheet({ visible, onClose, openSlots, onSort, onConfirm 
                       color={on ? colors.primary : colors.muted}
                     />
                     <Text className="flex-1 text-base text-foreground" style={{ fontFamily: BodyFont.bold }}>
-                      {pick}
+                      {item}
                     </Text>
+                    {!on && (
+                      <Text className="text-xs" style={{ color: colors.muted }}>
+                        Later
+                      </Text>
+                    )}
                   </Pressable>
                 );
               })}
 
-              {sorted.result.parked.length > 0 && (
-                <View className="gap-2 mt-2">
-                  <Text className="text-sm font-semibold uppercase tracking-wide" style={{ color: colors.muted }}>
-                    Parked for later ({sorted.result.parked.length})
-                  </Text>
-                  <Text className="text-sm" style={{ color: colors.muted }}>
-                    You'll find these under Ideas when you have room.
-                  </Text>
-                  {sorted.result.parked.map((item) => (
-                    <Text key={item} className="text-base" style={{ color: colors.foreground }}>
-                      • {item}
-                    </Text>
-                  ))}
-                </View>
-              )}
-
               <Pressable
                 onPress={confirm}
-                disabled={chosenCount === 0}
                 accessibilityRole="button"
-                accessibilityState={{ disabled: chosenCount === 0 }}
                 className="rounded-2xl py-4 items-center mt-2"
-                style={{ backgroundColor: colors.primary, opacity: chosenCount === 0 ? 0.5 : 1 }}
+                style={{ backgroundColor: colors.primary }}
               >
                 <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
-                  {chosenCount === 0 ? "Pick at least one" : `Add ${chosenCount} to today`}
+                  {chosenItems.length === 0 ? "Save all for later" : `Add ${chosenItems.length} to today`}
                 </Text>
               </Pressable>
               <Pressable
                 onPress={() => setStage("write")}
                 accessibilityRole="button"
+                accessibilityLabel="Edit what I wrote"
+                hitSlop={8}
                 className="items-center py-2"
               >
                 <Text className="text-sm font-semibold" style={{ color: colors.primary }}>

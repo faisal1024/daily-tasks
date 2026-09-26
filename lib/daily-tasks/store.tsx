@@ -113,7 +113,7 @@ type Action =
   | { type: "parkTasks"; texts: string[]; at: string }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
-  | { type: "setTaskSteps"; taskId: TaskId; texts: string[]; at: string }
+  | { type: "setTaskSteps"; taskId: TaskId; texts: string[]; at: string; forText?: string }
   | { type: "toggleTaskStep"; taskId: TaskId; stepId: string }
   | { type: "clearTaskSteps"; taskId: TaskId }
   | { type: "reset"; state: AppState };
@@ -157,7 +157,7 @@ function reducer(state: AppState, action: Action): AppState {
       return withTask === state ? state : removeParkedTask(withTask, action.id);
     }
     case "setTaskSteps":
-      return setTaskSteps(state, action.taskId, action.texts, action.at);
+      return setTaskSteps(state, action.taskId, action.texts, action.at, action.forText);
     case "toggleTaskStep":
       return toggleTaskStep(state, action.taskId, action.stepId);
     case "clearTaskSteps":
@@ -599,7 +599,7 @@ interface StoreContextValue {
   parkTasks: (texts: string[]) => void;
   removeParkedTask: (id: string) => void;
   addParkedTask: (id: string) => void;
-  setTaskSteps: (taskId: TaskId, texts: string[]) => void;
+  setTaskSteps: (taskId: TaskId, texts: string[], forText?: string) => void;
   toggleTaskStep: (taskId: TaskId, stepId: string) => void;
   clearTaskSteps: (taskId: TaskId) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
@@ -918,8 +918,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const addParkedTask = useCallback((id: string) => {
     dispatch({ type: "addParkedTask", id, today: todayKey() });
   }, []);
-  const setTaskStepsCb = useCallback((taskId: TaskId, texts: string[]) => {
-    dispatch({ type: "setTaskSteps", taskId, texts, at: new Date().toISOString() });
+  const setTaskStepsCb = useCallback((taskId: TaskId, texts: string[], forText?: string) => {
+    dispatch({ type: "setTaskSteps", taskId, texts, at: new Date().toISOString(), forText });
   }, []);
   const toggleTaskStepCb = useCallback((taskId: TaskId, stepId: string) => {
     dispatch({ type: "toggleTaskStep", taskId, stepId });

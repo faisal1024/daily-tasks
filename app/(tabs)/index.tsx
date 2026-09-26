@@ -31,6 +31,7 @@ import {
   breakDownFailureMessage,
   classifyAiFailure,
 } from "@/lib/daily-tasks/ai-status";
+import { proxyRouteUrl } from "@/lib/daily-tasks/ai-client";
 import { requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
@@ -40,6 +41,7 @@ import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { computeDayStreak } from "@/lib/daily-tasks/streaks";
 import {
+  brainDumpToast,
   clockTimeOf,
   formatClockTime,
   ideasEntry,
@@ -91,8 +93,24 @@ export default function HomeScreen() {
   const [showCelebration, setShowCelebration] = useState(false);
   const [ideasOpen, setIdeasOpen] = useState(false);
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
+  // Short confirmation after a brain dump, so saved items aren't a mystery.
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (message: string) => {
+    setToast(message);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 4000);
+  };
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
   const [breakingTaskId, setBreakingTaskId] = useState<string | null>(null);
-  const aiAvailable = getMomentumAiProxyUrl() != null;
+  // A ref, not just state: two quick taps in one render must not both start.
+  const breakingRef = useRef<string | null>(null);
+  const breakDownAvailable = proxyRouteUrl(getMomentumAiProxyUrl(), "break-down") != null;
 
   const total = state.tasks.length;
   const progress = todayProgress(completedCount, total, { locked: state.todayLocked });
@@ -222,15 +240,18 @@ export default function HomeScreen() {
   }, [state.todayLocked, state.pendingRollover, state.hasSeenOnboarding]);
 
   const handleBreakDown = async (taskId: string, text: string) => {
-    if (breakingTaskId) return;
+    if (breakingRef.current) return;
+    breakingRef.current = taskId;
     setBreakingTaskId(taskId);
     try {
       const steps = await requestBreakDown({ task: text, goalTitle: state.momentumProfile.goalTitle });
       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-      setTaskSteps(taskId, steps);
+      // Only if the task still reads the same (it may have been edited meanwhile).
+      setTaskSteps(taskId, steps, text);
     } catch (error) {
       Alert.alert("Couldn't break it down", breakDownFailureMessage(classifyAiFailure(error)));
     } finally {
+      breakingRef.current = null;
       setBreakingTaskId(null);
     }
   };
@@ -298,6 +319,17 @@ export default function HomeScreen() {
 
           <View style={{ paddingHorizontal: 20, paddingTop: 20, gap: 14 }}>
             {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
+            {toast && (
+              <View
+                className="flex-row items-center gap-2 rounded-2xl p-3"
+                style={{ backgroundColor: `${colors.success}18` }}
+                accessibilityLiveRegion="polite"
+                testID="today-toast"
+              >
+                <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                <Text className="flex-1 text-sm text-foreground">{toast}</Text>
+              </View>
+            )}
 
             <View className="gap-3" testID="today-tasks">
               {Array.from({ length: MAX_TASKS }).map((_, index) => {
@@ -315,11 +347,15 @@ export default function HomeScreen() {
                       canEdit={!state.todayLocked}
                       canDelete={!state.todayLocked}
                       onBreakDown={
-                        aiAvailable ? () => void handleBreakDown(task.id, task.text) : undefined
+                        breakDownAvailable
+                          ? () => void handleBreakDown(task.id, task.text)
+                          : undefined
                       }
                       breakingDown={breakingTaskId === task.id}
+                      breakDownDisabled={breakingTaskId !== null && breakingTaskId !== task.id}
                       onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
-                      onClearSteps={state.todayLocked ? undefined : () => clearTaskSteps(task.id)}
+                      // Steps are a finishing aid, so clearing them is fine on a locked day.
+                      onClearSteps={() => clearTaskSteps(task.id)}
                     />
                   );
                 }
@@ -338,12 +374,12 @@ export default function HomeScreen() {
             <StatusLine status={status} onLock={confirmLock} />
 
             {showIdeasEntry({ locked: state.todayLocked, remainingSlots }) && (
-              <View className="gap-2">
+              <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
                 <Pressable
                   onPress={() => setIdeasOpen(true)}
                   accessibilityRole="button"
                   accessibilityLabel={`${entry.label}. Opens suggestions`}
-                  className="flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
+                  className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
                   style={
                     entry.prominent
                       ? { borderColor: colors.primary, backgroundColor: colors.primary }
@@ -367,11 +403,11 @@ export default function HomeScreen() {
                   onPress={() => setBrainDumpOpen(true)}
                   accessibilityRole="button"
                   accessibilityLabel="Brain dump. Write everything down and pick today's tasks"
-                  className="flex-row items-center justify-center gap-2 rounded-2xl py-3 border"
+                  className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
                   style={{ borderColor: colors.border }}
                   testID="brain-dump-entry"
                 >
-                  <Ionicons name="cloud-outline" size={18} color={colors.primary} />
+                  <Ionicons name="create-outline" size={18} color={colors.primary} />
                   <Text className="text-base font-semibold" style={{ color: colors.primary }}>
                     {total === 0 ? "Brain dump everything" : "Brain dump"}
                   </Text>
@@ -448,10 +484,17 @@ export default function HomeScreen() {
           })
         }
         onConfirm={(picks, parked) => {
-          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
-          addTasks(picks);
-          parkTasks(parked);
+          // A slot may have filled while the sheet was open: park what won't fit.
+          const accepted = picks.slice(0, remainingSlots);
+          const saved = [...picks.slice(remainingSlots), ...parked];
+          if (accepted.length > 0) {
+            haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+            addTasks(accepted);
+          }
+          parkTasks(saved);
           setBrainDumpOpen(false);
+          const message = brainDumpToast(accepted.length, saved.length);
+          if (message) showToast(message);
         }}
       />
 

@@ -27,7 +27,8 @@ export interface ParkedTask {
   parkedAt: string;
 }
 
-export const MAX_PARKED_TASKS = 20;
+// Generous so a brain dump never silently drops what someone typed.
+export const MAX_PARKED_TASKS = 50;
 
 export type LockSource = "manual" | "auto";
 
@@ -39,6 +40,8 @@ export interface DayTaskRecord {
   completed: boolean;
   carriedOver: boolean;
   rolloverOutcome: RolloverOutcome | null;
+  /** Step checklist, kept so a carried-over (stuck) task keeps its steps. */
+  steps?: TaskStep[];
 }
 
 export interface DayRecord {

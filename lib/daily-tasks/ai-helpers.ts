@@ -8,7 +8,7 @@ import { MAX_TASKS } from "./types";
 
 export const MAX_BRAIN_DUMP_CHARS = 2000;
 export const MAX_TASK_TEXT = 64;
-export const MAX_PARKED = 10;
+export const MAX_PARKED = 20;
 export const MAX_STEPS = 5;
 export const MAX_STEP_TEXT = 60;
 
@@ -22,16 +22,19 @@ export interface BrainDumpResult {
 /** Trim, collapse whitespace, strip list markers, and cap length. */
 export function cleanTaskText(value: unknown, max = MAX_TASK_TEXT): string | null {
   if (typeof value !== "string") return null;
-  const text = value
-    // Bullets may hug the text ("-walk"); numbered markers need a space so
-    // "1.5 mile walk" isn't read as item "1." + "5 mile walk".
-    .replace(/^\s*(?:[-*•·]\s*|\d+[.)](?:\s+|$)|\[\s?\]\s*)/, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  // Bullets may hug the text ("-walk"); numbered markers need a space so
+  // "1.5 mile walk" isn't read as item "1." + "5 mile walk". Strip repeatedly
+  // for stacked markers like "- [ ] call mum".
+  const marker = /^\s*(?:[-*•·]\s*|\d+[.)](?:\s+|$)|\[\s?[xX]?\s?\]\s*)/;
+  let text = value;
+  for (let i = 0; i < 3 && marker.test(text); i++) text = text.replace(marker, "");
+  text = text.replace(/\s+/g, " ").trim();
   if (!text) return null;
   // Tasks read as a list of actions: "book dentist" → "Book dentist".
   const capitalized = text.charAt(0).toUpperCase() + text.slice(1);
-  return capitalized.length > max ? `${capitalized.slice(0, max - 1).trimEnd()}…` : capitalized;
+  // Count by code points so an emoji is never cut in half.
+  const chars = Array.from(capitalized);
+  return chars.length > max ? `${chars.slice(0, max - 1).join("").trimEnd()}…` : capitalized;
 }
 
 function uniqueTexts(items: unknown[], limit: number, seen = new Set<string>()): string[] {

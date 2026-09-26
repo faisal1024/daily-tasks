@@ -282,7 +282,12 @@ export function createProxyServer({ provider, config, logger = console, now }) {
       return;
     }
 
-    const route = req.method === "POST" ? ROUTES[req.url ?? ""] : undefined;
+    // Own-property lookup only, so names like "__proto__" can never resolve.
+    const url = req.url ?? "";
+    const route =
+      req.method === "POST" && Object.prototype.hasOwnProperty.call(ROUTES, url)
+        ? ROUTES[url]
+        : undefined;
     if (!route) {
       sendJson(res, 404, { error: "Not found" });
       return;
@@ -350,7 +355,8 @@ export function createProxyServer({ provider, config, logger = console, now }) {
         return;
       }
 
-      sendJson(res, 200, result);
+      // Return only validated fields, never raw model output.
+      sendJson(res, 200, route.sanitizeResult ? route.sanitizeResult(result) : result);
     } catch (error) {
       logger.error(
         `[momentum-ai] ${provider.id} proxy error: ${error instanceof Error ? error.message : String(error)}`,

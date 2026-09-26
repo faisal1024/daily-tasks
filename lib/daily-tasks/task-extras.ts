@@ -52,8 +52,22 @@ function updateTask(state: AppState, taskId: string, update: (task: Task) => Tas
   return changed ? { ...state, tasks } : state;
 }
 
-/** Replace a task's step checklist (at most 5 non-empty, de-duplicated steps). */
-export function setTaskSteps(state: AppState, taskId: string, texts: string[], now: string): AppState {
+/**
+ * Replace a task's step checklist (at most 5 non-empty, de-duplicated steps).
+ * With `forText`, only applies if the task still has that text: a slow AI
+ * response mustn't attach steps written for wording the user has since edited.
+ */
+export function setTaskSteps(
+  state: AppState,
+  taskId: string,
+  texts: string[],
+  now: string,
+  forText?: string,
+): AppState {
+  if (forText !== undefined) {
+    const task = state.tasks.find((t) => t.id === taskId);
+    if (!task || task.text !== forText) return state;
+  }
   const seen = new Set<string>();
   const steps: TaskStep[] = [];
   texts.forEach((raw, index) => {

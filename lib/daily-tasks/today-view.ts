@@ -96,7 +96,11 @@ export function todayStatus(params: {
     return { kind: "set", text: `Today is set.${tail}`, canLock: false };
   }
   if (taskCount === 0) {
-    return { kind: "empty", text: "Pick what matters, or grab an idea below.", canLock: false };
+    return {
+      kind: "empty",
+      text: "Pick what matters, grab an idea, or brain dump it all.",
+      canLock: false,
+    };
   }
   return {
     kind: "choosing",
@@ -205,4 +209,12 @@ export function clockTimeOf(iso: string | null): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
   return formatClockTime(date.getHours(), date.getMinutes());
+}
+
+/** Confirmation after a brain dump, e.g. "Added 2. 3 saved for later in Ideas." */
+export function brainDumpToast(added: number, saved: number): string | null {
+  const parts: string[] = [];
+  if (added > 0) parts.push(`Added ${added}.`);
+  if (saved > 0) parts.push(`${saved} saved for later in Ideas.`);
+  return parts.length > 0 ? parts.join(" ") : null;
 }

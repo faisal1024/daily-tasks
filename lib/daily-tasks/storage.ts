@@ -42,6 +42,15 @@ function normalizeTaskStep(value: unknown): TaskStep | null {
   return { id: value.id, text: value.text, done: value.done === true };
 }
 
+function normalizeStepsField(value: unknown): { steps?: TaskStep[] } {
+  if (!Array.isArray(value)) return {};
+  const steps = value
+    .map((step) => normalizeTaskStep(step))
+    .filter((step): step is TaskStep => step !== null)
+    .slice(0, 5);
+  return steps.length > 0 ? { steps } : {};
+}
+
 /** Validate saved tasks (previously cast blindly), including optional steps. */
 function normalizeTasks(value: unknown): Task[] {
   if (!Array.isArray(value)) return [];
@@ -54,14 +63,7 @@ function normalizeTasks(value: unknown): Task[] {
       createdAt: typeof item.createdAt === "string" ? item.createdAt : "",
       carriedOver: item.carriedOver === true,
     };
-    if (Array.isArray(item.steps)) {
-      const steps = item.steps
-        .map((step) => normalizeTaskStep(step))
-        .filter((step): step is TaskStep => step !== null)
-        .slice(0, 5);
-      if (steps.length > 0) task.steps = steps;
-    }
-    tasks.push(task);
+    tasks.push({ ...task, ...normalizeStepsField(item.steps) });
   }
   return tasks;
 }
@@ -97,6 +99,7 @@ function normalizeDayTaskRecord(value: unknown): DayTaskRecord | null {
       value.rolloverOutcome === "unresolved"
         ? value.rolloverOutcome
         : null,
+    ...normalizeStepsField(value.steps),
   };
 }
 

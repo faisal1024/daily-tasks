@@ -91,10 +91,10 @@ export function AddTaskRow({
             className="text-base font-semibold"
             style={{ color: disabled ? colors.muted : colors.foreground }}
           >
-            {disabled ? "Left open" : "Add a task"}
+            {disabled ? "Left open on purpose" : "Add a task"}
           </Text>
           <Text className="text-sm" style={{ color: colors.muted }}>
-            {disabled ? "Nothing added today." : "Something you'll stand behind today."}
+            {disabled ? "Room to breathe." : "Something you'll stand behind today."}
           </Text>
         </View>
       </Pressable>

@@ -96,6 +96,21 @@ function isShortTask(item, max) {
   return Boolean(item) && typeof item === "object" && nonEmptyString(item.text, max);
 }
 
+function textItems(list, max, limit) {
+  return (Array.isArray(list) ? list : [])
+    .filter((item) => isShortTask(item, max))
+    .slice(0, limit)
+    .map((item) => ({ text: item.text.trim(), ...(typeof item.reason === "string" ? { reason: item.reason.slice(0, 200) } : {}) }));
+}
+
+/** Rebuild the brain-dump response from validated fields only. */
+export function sanitizeBrainDump(result) {
+  return {
+    picks: textItems(result.picks, MAX_TASK_TEXT, 3),
+    parked: textItems(result.parked, MAX_TASK_TEXT, MAX_PARKED).map(({ text }) => ({ text })),
+  };
+}
+
 export function isValidBrainDump(result) {
   return Boolean(
     result &&
@@ -151,6 +166,13 @@ export function buildBreakDownPrompt(payload) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** Rebuild the break-down response from validated fields only. */
+export function sanitizeBreakDown(result) {
+  return {
+    steps: textItems(result.steps, MAX_STEP_TEXT, MAX_STEPS).map(({ text }) => ({ text })),
+  };
 }
 
 export function isValidBreakDown(result) {
