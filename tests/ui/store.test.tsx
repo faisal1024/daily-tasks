@@ -457,6 +457,36 @@ describe("store: task steps", () => {
     expect(result.current.state.tasks[0].steps).toHaveLength(2);
   });
 
+  it("a carried-over task keeps the steps and ticks made after its last other change", async () => {
+    const appState = listenToAppState();
+    fakeClockAt(new Date(2026, 8, 26, 10, 0));
+    try {
+      const { result } = await seedWith({ lastOpenedDate: "2026-09-26" });
+      await act(async () => result.current.addTasks(["Clean kitchen"]));
+      const id = result.current.state.tasks[0].id;
+      // Only step actions after the add: history must be synced by them.
+      await act(async () => result.current.setTaskSteps(id, ["Clear counter", "Wipe", "Sweep"]));
+      const stepId = result.current.state.tasks[0].steps![1].id;
+      await act(async () => result.current.toggleTaskStep(id, stepId));
+
+      jest.setSystemTime(new Date(2026, 8, 27, 8, 0));
+      await act(async () => appState.emit("active"));
+      await waitFor(() => expect(result.current.state.pendingRollover).not.toBeNull());
+      await act(async () => result.current.resolveRollover([id]));
+
+      const carried = result.current.state.tasks.find((t) => t.text === "Clean kitchen");
+      expect(carried?.carriedOver).toBe(true);
+      expect(carried?.steps?.map((st) => [st.text, st.done])).toEqual([
+        ["Clear counter", false],
+        ["Wipe", true],
+        ["Sweep", false],
+      ]);
+    } finally {
+      jest.useRealTimers();
+      appState.restore();
+    }
+  });
+
   it("step checklists still work after the day is locked", async () => {
     const { result } = await seedWith();
     await act(async () => result.current.addTasks(["Clean"]));

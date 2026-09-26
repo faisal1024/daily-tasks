@@ -313,17 +313,31 @@ describe("helper routes over HTTP", () => {
             debug: { prompt: "system prompt" },
           }
         : {
-            steps: [{ text: "Clear", extra: 1 }, { text: "Wipe" }, { text: "" }],
+            steps: [
+              { text: "Clear", extra: 1 },
+              { text: "Wipe" },
+              { text: "" },
+              { text: `${"s".repeat(MAX_STEP_TEXT - 2)}🎉🎉🎉` },
+            ],
             usage: { tokens: 99 },
           },
     );
     const { post } = await start({ provider });
     expect(await (await post(BRAIN_DUMP_ROUTE)).json()).toEqual({
-      picks: [{ text: "Finish report", reason: "due" }],
+      // Over-long items are shortened (never dropped); non-text items are.
+      picks: [
+        { text: "Finish report", reason: "due" },
+        { text: `${"x".repeat(MAX_TASK_TEXT - 1)}…` },
+      ],
       parked: [{ text: "Buy shoes" }],
     });
     expect(await (await post(BREAK_DOWN_ROUTE)).json()).toEqual({
-      steps: [{ text: "Clear" }, { text: "Wipe" }],
+      steps: [
+        { text: "Clear" },
+        { text: "Wipe" },
+        // Counted by code points, so the emoji isn't cut in half.
+        { text: `${"s".repeat(MAX_STEP_TEXT - 2)}🎉…` },
+      ],
     });
   });
 
