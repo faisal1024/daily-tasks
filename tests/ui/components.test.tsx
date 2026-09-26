@@ -210,7 +210,7 @@ describe("IdeasSheet", () => {
 
   it("uses count-aware copy for fewer than three ideas", async () => {
     await render(<IdeasSheet {...props()} ideas={ideas.slice(0, 1)} />);
-    expect(screen.getByText("Add it if it fits, or write your own below.")).toBeOnTheScreen();
+    expect(screen.getByText("Add it if it fits.")).toBeOnTheScreen();
     expect(screen.queryByText(/Add all/)).toBeNull();
   });
 });

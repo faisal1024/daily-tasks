@@ -260,5 +260,7 @@ describe("suggestionsHint", () => {
     expect(suggestionsHint(2)).toContain("both");
     expect(suggestionsHint(3)).toContain("all three");
     expect(suggestionsHint(0)).not.toMatch(/three|both/);
+    // The sheet has no text field, so the hint must not point "below".
+    for (const n of [1, 2, 3]) expect(suggestionsHint(n)).not.toMatch(/below/);
   });
 });
