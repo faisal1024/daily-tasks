@@ -92,6 +92,22 @@ period has a cold-start delay. Use a paid instance to avoid that.
    deployed HTTPS URL and `EXPO_PUBLIC_MOMENTUM_PROXY_SECRET` to the same secret
    as EAS environment variables (not in `eas.json`), then build.
 
+## Routes
+
+All POST routes share the same auth (`x-momentum-secret`), rate limits and
+daily budgets. The route table lives in `server/routes.mjs`; each route has a
+payload validator, prompt, structured-output schema and response validator.
+
+| Route | Payload | Returns |
+|---|---|---|
+| `/api/momentum/plan` | goal profile, recent performance, recent task titles, reflection | milestones, today's suggestions, task pool |
+| `/api/momentum/brain-dump` | `text` (≤2000 chars), `openSlots` (1–3), `goalTitle?` | `picks` (≤ openSlots), `parked` (≤10) |
+| `/api/momentum/break-down` | `task` (≤120 chars), `goalTitle?` | `steps` (3–5 tiny steps) |
+
+The app derives sibling route URLs from `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL`
+(which points at `/plan`). Brain dump falls back to a simple on-device split
+when the proxy is unreachable; break-down has no offline fallback.
+
 ## Architecture
 
 ```

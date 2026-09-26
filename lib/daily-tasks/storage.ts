@@ -18,18 +18,67 @@ import type {
   PendingRollover,
   ReflectionResult,
   Task,
+  ParkedTask,
+  TaskStep,
 } from "./types";
 import {
   DEFAULT_AUTO_LOCK,
   DEFAULT_MOMENTUM_PROFILE,
   DEFAULT_MOMENTUM_SETTINGS,
   DEFAULT_NOTIFICATIONS,
+  MAX_PARKED_TASKS,
 } from "./types";
 
 const STORAGE_KEY = "daily-tasks/state/v1";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function normalizeTaskStep(value: unknown): TaskStep | null {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.text !== "string") {
+    return null;
+  }
+  return { id: value.id, text: value.text, done: value.done === true };
+}
+
+/** Validate saved tasks (previously cast blindly), including optional steps. */
+function normalizeTasks(value: unknown): Task[] {
+  if (!Array.isArray(value)) return [];
+  const tasks: Task[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.text !== "string") continue;
+    const task: Task = {
+      id: item.id,
+      text: item.text,
+      createdAt: typeof item.createdAt === "string" ? item.createdAt : "",
+      carriedOver: item.carriedOver === true,
+    };
+    if (Array.isArray(item.steps)) {
+      const steps = item.steps
+        .map((step) => normalizeTaskStep(step))
+        .filter((step): step is TaskStep => step !== null)
+        .slice(0, 5);
+      if (steps.length > 0) task.steps = steps;
+    }
+    tasks.push(task);
+  }
+  return tasks;
+}
+
+function normalizeParkedTasks(value: unknown): ParkedTask[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (item): item is Record<string, unknown> =>
+        isRecord(item) && typeof item.id === "string" && typeof item.text === "string",
+    )
+    .map((item) => ({
+      id: item.id as string,
+      text: item.text as string,
+      parkedAt: typeof item.parkedAt === "string" ? item.parkedAt : "",
+    }))
+    .slice(-MAX_PARKED_TASKS);
 }
 
 function normalizeDayTaskRecord(value: unknown): DayTaskRecord | null {
@@ -388,7 +437,7 @@ export function normalizeState(value: unknown): AppState | null {
   if (!isRecord(value)) return null;
 
   return {
-    tasks: Array.isArray(value.tasks) ? (value.tasks as Task[]) : [],
+    tasks: normalizeTasks(value.tasks),
     todayCompletions: Array.isArray(value.todayCompletions)
       ? value.todayCompletions.filter((id): id is string => typeof id === "string")
       : [],
@@ -399,8 +448,8 @@ export function normalizeState(value: unknown): AppState | null {
       value.todayLockSource === "manual" || value.todayLockSource === "auto"
         ? value.todayLockSource
         : null,
-    autoLockNoticeDate:
-      typeof value.autoLockNoticeDate === "string" ? value.autoLockNoticeDate : null,
+    // Replaces the old autoLockNoticeDate (a date key, not a time), which is dropped.
+    todayLockedAt: typeof value.todayLockedAt === "string" ? value.todayLockedAt : null,
     manualUnlockDate:
       typeof value.manualUnlockDate === "string" ? value.manualUnlockDate : null,
     pendingRollover: normalizePendingRollover(value.pendingRollover),
@@ -438,6 +487,7 @@ export function normalizeState(value: unknown): AppState | null {
     journey: normalizeJourney(value.journey),
     lastReviewPromptAt:
       typeof value.lastReviewPromptAt === "string" ? value.lastReviewPromptAt : null,
+    parkedTasks: normalizeParkedTasks(value.parkedTasks),
   };
 }
 
@@ -454,7 +504,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     lastOpenedDate: today,
     todayLocked: false,
     todayLockSource: null,
-    autoLockNoticeDate: null,
+    todayLockedAt: null,
     manualUnlockDate: null,
     pendingRollover: null,
     history: {
@@ -484,6 +534,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     pendingMilestoneCelebration: null,
     journey: DEFAULT_JOURNEY,
     lastReviewPromptAt: null,
+    parkedTasks: [],
   };
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   Text,
   TextInput,
@@ -27,6 +28,11 @@ interface TaskCardProps {
   canEdit?: boolean;
   canDelete?: boolean;
   index?: number;
+  /** Ask the AI to split this task into steps; hidden when not provided. */
+  onBreakDown?: () => void;
+  breakingDown?: boolean;
+  onToggleStep?: (stepId: string) => void;
+  onClearSteps?: () => void;
 }
 
 export function TaskCard({
@@ -38,6 +44,10 @@ export function TaskCard({
   canEdit = true,
   canDelete = true,
   index,
+  onBreakDown,
+  breakingDown = false,
+  onToggleStep,
+  onClearSteps,
 }: TaskCardProps) {
   const colors = useColors();
   const [isEditing, setIsEditing] = useState(false);
@@ -168,6 +178,72 @@ export function TaskCard({
             <Text className="text-xs" style={{ color: colors.warning }}>
               Carried forward
             </Text>
+          )}
+
+          {!isEditing && task.steps && task.steps.length > 0 && (
+            <View className="gap-1.5 mt-2" testID={`steps-${task.id}`}>
+              {task.steps.map((step, stepIndex) => (
+                <Pressable
+                  key={step.id}
+                  onPress={() => onToggleStep?.(step.id)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: step.done }}
+                  accessibilityLabel={`Step ${stepIndex + 1} of ${task.steps?.length}: ${step.text}`}
+                  hitSlop={4}
+                  className="flex-row items-center gap-2 py-1"
+                >
+                  <Ionicons
+                    name={step.done ? "checkbox" : "square-outline"}
+                    size={20}
+                    color={step.done ? colors.success : colors.muted}
+                  />
+                  <Text
+                    className="flex-1 text-sm text-foreground"
+                    style={{
+                      textDecorationLine: step.done ? "line-through" : "none",
+                      opacity: step.done ? 0.6 : 1,
+                    }}
+                  >
+                    {step.text}
+                  </Text>
+                </Pressable>
+              ))}
+              {onClearSteps && (
+                <Pressable
+                  onPress={onClearSteps}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear steps"
+                  hitSlop={8}
+                  className="self-start mt-1"
+                >
+                  <Text className="text-xs font-semibold" style={{ color: colors.muted }}>
+                    Clear steps
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+
+          {!isEditing && !completed && onBreakDown && !(task.steps && task.steps.length > 0) && (
+            <Pressable
+              onPress={onBreakDown}
+              disabled={breakingDown}
+              accessibilityRole="button"
+              accessibilityLabel={`Break down ${task.text}`}
+              accessibilityHint="Splits this task into a few tiny steps"
+              accessibilityState={{ busy: breakingDown, disabled: breakingDown }}
+              hitSlop={10}
+              className="self-start flex-row items-center gap-1.5 mt-1.5"
+            >
+              {breakingDown ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="git-branch-outline" size={14} color={colors.primary} />
+              )}
+              <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                {breakingDown ? "Breaking it down…" : "Break it down"}
+              </Text>
+            </Pressable>
           )}
         </View>
 

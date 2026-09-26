@@ -125,7 +125,7 @@ export function applyRollover(state: AppState, today: string): AppState {
       lastOpenedDate: today,
       todayLocked: existingTodayRecord?.locked ?? false,
       todayLockSource: existingTodayRecord?.lockSource ?? null,
-      autoLockNoticeDate: null,
+      todayLockedAt: null,
       manualUnlockDate: null,
       todayReflection: existingTodayRecord?.reflection ?? null,
       todayReflectionResult: existingTodayRecord?.reflectionResult ?? null,

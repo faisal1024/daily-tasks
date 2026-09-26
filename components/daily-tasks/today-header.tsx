@@ -92,7 +92,7 @@ export function TodayHeader({ greeting, progress, dayStreak, level }: TodayHeade
             accessibilityRole="progressbar"
             accessibilityLabel="Today's progress"
             // Spoken as "0 of 1 done · 2 open" rather than a bare percentage.
-            accessibilityValue={{ text: progress.label }}
+            accessibilityValue={{ text: progress.spokenLabel }}
             style={{
               flex: 1,
               height: 10,

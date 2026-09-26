@@ -15,6 +15,8 @@ export interface TodayProgress {
   headline: string;
   /** Short line under the headline, e.g. "2 of 3 done". */
   label: string;
+  /** The same for VoiceOver, without symbols it would read aloud ("dot"). */
+  spokenLabel: string;
   isPerfect: boolean;
 }
 
@@ -48,6 +50,7 @@ export function todayProgress(
     ratio: Math.min(safeCompleted / slots, 1),
     headline,
     label,
+    spokenLabel: label.replace(" · ", ", "),
     isPerfect,
   };
 }
@@ -93,7 +96,7 @@ export function todayStatus(params: {
     return { kind: "set", text: `Today is set.${tail}`, canLock: false };
   }
   if (taskCount === 0) {
-    return { kind: "empty", text: "Add up to three things you'll stand behind.", canLock: false };
+    return { kind: "empty", text: "Pick what matters, or grab an idea below.", canLock: false };
   }
   return {
     kind: "choosing",
@@ -172,8 +175,14 @@ export function ideasEntry(taskCount: number, goalTitle: string | null): IdeasEn
 /** Copy for the lock confirmation; mentions empty slots when there are any. */
 export function lockConfirmation(taskCount: number): { title: string; message: string } {
   const open = Math.max(0, MAX_TASKS - taskCount);
-  const slots =
-    open === 0 ? "" : open === 1 ? " Your empty slot stays empty." : " Your empty slots stay empty.";
+  if (open === 0) {
+    // All three chosen: nothing is lost by locking, so keep it light.
+    return {
+      title: "Lock in today?",
+      message: "You can still check tasks off. Editing pauses until tomorrow (unlock in Settings).",
+    };
+  }
+  const slots = open === 1 ? " Your empty slot stays empty." : " Your empty slots stay empty.";
   return {
     title: "Lock in today?",
     message:
@@ -188,4 +197,12 @@ export function formatClockTime(hour: number, minute: number): string {
   const h = ((hour + 11) % 12) + 1;
   const m = String(minute).padStart(2, "0");
   return `${h}:${m} ${hour < 12 ? "AM" : "PM"}`;
+}
+
+/** Local clock time ("12:03 PM") for an ISO timestamp, or null if invalid. */
+export function clockTimeOf(iso: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return formatClockTime(date.getHours(), date.getMinutes());
 }

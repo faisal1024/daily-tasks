@@ -94,7 +94,7 @@ export function AddTaskRow({
             {disabled ? "Left open" : "Add a task"}
           </Text>
           <Text className="text-sm" style={{ color: colors.muted }}>
-            {disabled ? "Today is set." : "Something you'll stand behind today."}
+            {disabled ? "Nothing added today." : "Something you'll stand behind today."}
           </Text>
         </View>
       </Pressable>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   AppState as RNAppState,
@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/use-colors";
 import { ScreenContainer } from "@/components/screen-container";
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
+import { BrainDumpSheet } from "@/components/daily-tasks/brain-dump-sheet";
 import { CompletionReflection } from "@/components/daily-tasks/completion-reflection";
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
@@ -25,7 +26,8 @@ import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
 import { UpdateBanner } from "@/components/daily-tasks/update-banner";
 import { useAppUpdate } from "@/hooks/use-app-update";
-import { aiFailureMessage } from "@/lib/daily-tasks/ai-status";
+import { aiFailureMessage, classifyAiFailure } from "@/lib/daily-tasks/ai-status";
+import { requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
@@ -34,6 +36,7 @@ import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { computeDayStreak } from "@/lib/daily-tasks/streaks";
 import {
+  clockTimeOf,
   formatClockTime,
   ideasEntry,
   ideasSource,
@@ -72,11 +75,20 @@ export default function HomeScreen() {
     requestMomentumPlan,
     journeyLevel,
     markReviewPrompted,
+    parkTasks,
+    removeParkedTask,
+    addParkedTask,
+    setTaskSteps,
+    toggleTaskStep,
+    clearTaskSteps,
   } = useDailyTasks();
   const { update, dismiss: dismissUpdate } = useAppUpdate();
 
   const [showCelebration, setShowCelebration] = useState(false);
   const [ideasOpen, setIdeasOpen] = useState(false);
+  const [brainDumpOpen, setBrainDumpOpen] = useState(false);
+  const [breakingTaskId, setBreakingTaskId] = useState<string | null>(null);
+  const aiAvailable = getMomentumAiProxyUrl() != null;
 
   const total = state.tasks.length;
   const progress = todayProgress(completedCount, total, { locked: state.todayLocked });
@@ -85,7 +97,10 @@ export default function HomeScreen() {
     lockSource: state.todayLockSource,
     taskCount: total,
     completedCount,
-    autoLockTime: formatClockTime(state.autoLock.hour, state.autoLock.minute),
+    // The actual lock time when known; the configured time for older saves.
+    autoLockTime:
+      clockTimeOf(state.todayLockedAt) ??
+      formatClockTime(state.autoLock.hour, state.autoLock.minute),
   });
   const entry = ideasEntry(total, state.momentumProfile.goalTitle);
   const dayStreak = computeDayStreak(state.history, today);
@@ -129,7 +144,9 @@ export default function HomeScreen() {
   // Celebrate (and maybe ask for a rating) only at the moment the third task is
   // checked off, never just because the app opened on a finished day.
   const previousCompleted = useRef<number | null>(null);
+  const celebratedDay = useRef<string | null>(null);
   const reviewPending = useRef(false);
+  const reviewInFlight = useRef(false);
   const reviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!ready) return;
@@ -146,21 +163,25 @@ export default function HomeScreen() {
       if (reviewTimer.current) clearTimeout(reviewTimer.current);
       reviewTimer.current = null;
     }
-    if (!transition) return;
+    // Once per day: un-checking and re-checking the third task doesn't replay it.
+    if (!transition || celebratedDay.current === today) return;
+    celebratedDay.current = today;
 
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
     setShowCelebration(true);
-    reviewPending.current = shouldRequestReview({
+    reviewPending.current = !reviewInFlight.current && shouldRequestReview({
       history: state.history,
       lastReviewPromptAt: state.lastReviewPromptAt,
       now: new Date(),
       justCompletedPerfectDay: true,
     });
-  }, [ready, completedCount, total, state.history, state.lastReviewPromptAt]);
+  }, [ready, completedCount, total, today, state.history, state.lastReviewPromptAt]);
 
   // The rating sheet waits until the celebration is dismissed, and the cooldown
   // is only spent if the prompt was actually requested while the app is active.
-  const dismissCelebration = () => {
+  // Stable identity: the overlay restarts its auto-dismiss timer whenever
+  // onDismiss changes, which would delay (or repeat) the rating flow.
+  const dismissCelebration = useCallback(() => {
     setShowCelebration(false);
     if (!reviewPending.current) return;
     reviewPending.current = false;
@@ -170,9 +191,16 @@ export default function HomeScreen() {
       // mustn't spend the cooldown then. ("unknown" can occur briefly at launch.)
       const appState = RNAppState.currentState;
       if (appState === "background" || appState === "inactive") return;
-      if (await requestAppReview()) markReviewPrompted();
+      // Guard against a second perfect-day transition while this is in flight
+      // (lastReviewPromptAt isn't updated until it resolves).
+      reviewInFlight.current = true;
+      try {
+        if (await requestAppReview()) markReviewPrompted();
+      } finally {
+        reviewInFlight.current = false;
+      }
     }, 600);
-  };
+  }, [markReviewPrompted]);
   useEffect(
     () => () => {
       if (reviewTimer.current) clearTimeout(reviewTimer.current);
@@ -185,8 +213,26 @@ export default function HomeScreen() {
   useEffect(() => {
     if (state.todayLocked || state.pendingRollover || !state.hasSeenOnboarding) {
       setIdeasOpen(false);
+      setBrainDumpOpen(false);
     }
   }, [state.todayLocked, state.pendingRollover, state.hasSeenOnboarding]);
+
+  const handleBreakDown = async (taskId: string, text: string) => {
+    if (breakingTaskId) return;
+    setBreakingTaskId(taskId);
+    try {
+      const steps = await requestBreakDown({ task: text, goalTitle: state.momentumProfile.goalTitle });
+      haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+      setTaskSteps(taskId, steps);
+    } catch (error) {
+      Alert.alert(
+        "Couldn't break it down",
+        aiFailureMessage(classifyAiFailure(error)) ?? "Try again in a bit.",
+      );
+    } finally {
+      setBreakingTaskId(null);
+    }
+  };
 
   const confirmLock = () => {
     const { title, message } = lockConfirmation(total);
@@ -267,6 +313,12 @@ export default function HomeScreen() {
                       onDelete={() => handleDelete(task.id, task.text)}
                       canEdit={!state.todayLocked}
                       canDelete={!state.todayLocked}
+                      onBreakDown={
+                        aiAvailable ? () => void handleBreakDown(task.id, task.text) : undefined
+                      }
+                      breakingDown={breakingTaskId === task.id}
+                      onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
+                      onClearSteps={state.todayLocked ? undefined : () => clearTaskSteps(task.id)}
                     />
                   );
                 }
@@ -285,30 +337,45 @@ export default function HomeScreen() {
             <StatusLine status={status} onLock={confirmLock} />
 
             {showIdeasEntry({ locked: state.todayLocked, remainingSlots }) && (
-              <Pressable
-                onPress={() => setIdeasOpen(true)}
-                accessibilityRole="button"
-                accessibilityLabel={`${entry.label}. Opens suggestions`}
-                className="flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
-                style={
-                  entry.prominent
-                    ? { borderColor: colors.primary, backgroundColor: colors.primary }
-                    : { borderColor: colors.border, backgroundColor: colors.surface }
-                }
-                testID="need-ideas"
-              >
-                <Ionicons
-                  name={source.personalized || entry.prominent ? "sparkles" : "bulb-outline"}
-                  size={18}
-                  color={entry.prominent ? "#fff" : colors.primary}
-                />
-                <Text
-                  className="text-base font-semibold"
-                  style={{ color: entry.prominent ? "#fff" : colors.primary }}
+              <View className="gap-2">
+                <Pressable
+                  onPress={() => setIdeasOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${entry.label}. Opens suggestions`}
+                  className="flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
+                  style={
+                    entry.prominent
+                      ? { borderColor: colors.primary, backgroundColor: colors.primary }
+                      : { borderColor: colors.border, backgroundColor: colors.surface }
+                  }
+                  testID="need-ideas"
                 >
-                  {entry.label}
-                </Text>
-              </Pressable>
+                  <Ionicons
+                    name={source.personalized || entry.prominent ? "sparkles" : "bulb-outline"}
+                    size={18}
+                    color={entry.prominent ? "#fff" : colors.primary}
+                  />
+                  <Text
+                    className="text-base font-semibold"
+                    style={{ color: entry.prominent ? "#fff" : colors.primary }}
+                  >
+                    {entry.label}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setBrainDumpOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Brain dump. Write everything down and pick today's tasks"
+                  className="flex-row items-center justify-center gap-2 rounded-2xl py-3 border"
+                  style={{ borderColor: colors.border }}
+                  testID="brain-dump-entry"
+                >
+                  <Ionicons name="cloud-outline" size={18} color={colors.primary} />
+                  <Text className="text-base font-semibold" style={{ color: colors.primary }}>
+                    {total === 0 ? "Brain dump everything" : "Brain dump"}
+                  </Text>
+                </Pressable>
+              </View>
             )}
 
             {progress.isPerfect && (
@@ -358,6 +425,32 @@ export default function HomeScreen() {
         onRegenerate={() => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
           void requestMomentumPlan();
+        }}
+        parked={state.parkedTasks}
+        onAddParked={(id) => {
+          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+          addParkedTask(id);
+        }}
+        onRemoveParked={removeParkedTask}
+        onLock={total > 0 ? confirmLock : undefined}
+      />
+
+      <BrainDumpSheet
+        visible={brainDumpOpen}
+        onClose={() => setBrainDumpOpen(false)}
+        openSlots={Math.max(1, remainingSlots)}
+        onSort={(text) =>
+          sortBrainDump({
+            text,
+            openSlots: Math.max(1, remainingSlots),
+            goalTitle: state.momentumProfile.goalTitle,
+          })
+        }
+        onConfirm={(picks, parked) => {
+          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+          addTasks(picks);
+          parkTasks(parked);
+          setBrainDumpOpen(false);
         }}
       />
 

@@ -26,6 +26,14 @@ import {
 } from "./ai-status";
 import { autoLockEligibleTaskCount, shouldAutoLockToday } from "./locking";
 import {
+  canTakeParkedTask,
+  clearTaskSteps,
+  parkTasks,
+  removeParkedTask,
+  setTaskSteps,
+  toggleTaskStep,
+} from "./task-extras";
+import {
   buildFallbackMomentumPlan,
   getMomentumAiProxyUrl,
   nextAiPlanFetchKey,
@@ -76,10 +84,9 @@ type Action =
   | { type: "editTask"; id: TaskId; text: string; today: string }
   | { type: "deleteTask"; id: TaskId; today: string }
   | { type: "toggleTask"; id: TaskId; today: string }
-  | { type: "lockToday"; today: string }
+  | { type: "lockToday"; today: string; at: string }
   | { type: "unlockToday"; today: string }
-  | { type: "autoLockToday"; today: string }
-  | { type: "dismissAutoLockNotice"; today: string }
+  | { type: "autoLockToday"; today: string; at: string }
   | { type: "resolveRollover"; carriedTaskIds: TaskId[]; today: string; now: Date }
   | { type: "setNotificationsEnabled"; enabled: boolean }
   | { type: "setNotificationEnabled"; key: NotificationKey; enabled: boolean }
@@ -103,6 +110,12 @@ type Action =
   | { type: "selectJourneyCosmetic"; id: string }
   | { type: "acknowledgeMilestoneCelebration" }
   | { type: "markReviewPrompted"; at: string }
+  | { type: "parkTasks"; texts: string[]; at: string }
+  | { type: "removeParkedTask"; id: string }
+  | { type: "addParkedTask"; id: string; today: string }
+  | { type: "setTaskSteps"; taskId: TaskId; texts: string[]; at: string }
+  | { type: "toggleTaskStep"; taskId: TaskId; stepId: string }
+  | { type: "clearTaskSteps"; taskId: TaskId }
   | { type: "reset"; state: AppState };
 
 /** Canonical count of today's completions that still map to a current task. */
@@ -133,6 +146,22 @@ function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "markReviewPrompted":
       return { ...state, lastReviewPromptAt: action.at };
+    case "parkTasks":
+      return parkTasks(state, action.texts, action.at);
+    case "removeParkedTask":
+      return removeParkedTask(state, action.id);
+    case "addParkedTask": {
+      const parked = state.parkedTasks.find((p) => p.id === action.id);
+      if (!parked || !canTakeParkedTask(state)) return state;
+      const withTask = reducer(state, { type: "addTask", text: parked.text, today: action.today });
+      return withTask === state ? state : removeParkedTask(withTask, action.id);
+    }
+    case "setTaskSteps":
+      return setTaskSteps(state, action.taskId, action.texts, action.at);
+    case "toggleTaskStep":
+      return toggleTaskStep(state, action.taskId, action.stepId);
+    case "clearTaskSteps":
+      return clearTaskSteps(state, action.taskId);
     case "hydrate":
       return action.state;
     case "rollover": {
@@ -287,7 +316,7 @@ function reducer(state: AppState, action: Action): AppState {
           ...state,
           todayLocked: true,
           todayLockSource: "manual",
-          autoLockNoticeDate: null,
+          todayLockedAt: action.at,
         },
         action.today,
       );
@@ -298,7 +327,7 @@ function reducer(state: AppState, action: Action): AppState {
           ...state,
           todayLocked: false,
           todayLockSource: null,
-          autoLockNoticeDate: null,
+          todayLockedAt: null,
           // Don't let auto-lock immediately re-lock the rest of today.
           manualUnlockDate: action.today,
         },
@@ -316,16 +345,10 @@ function reducer(state: AppState, action: Action): AppState {
           ...state,
           todayLocked: true,
           todayLockSource: "auto",
-          autoLockNoticeDate: action.today,
+          todayLockedAt: action.at,
         },
         action.today,
       );
-    case "dismissAutoLockNotice":
-      if (state.autoLockNoticeDate !== action.today) return state;
-      return {
-        ...state,
-        autoLockNoticeDate: null,
-      };
     case "resolveRollover":
       return resolvePendingRollover(state, action.carriedTaskIds, action.now);
     case "setNotificationsEnabled":
@@ -545,7 +568,6 @@ interface StoreContextValue {
   toggleTask: (id: TaskId) => void;
   lockToday: () => void;
   unlockToday: () => void;
-  dismissAutoLockNotice: () => void;
   resolveRollover: (carriedTaskIds: TaskId[]) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
@@ -571,6 +593,12 @@ interface StoreContextValue {
   pendingMilestoneCelebration: string | null;
   acknowledgeMilestoneCelebration: () => void;
   markReviewPrompted: () => void;
+  parkTasks: (texts: string[]) => void;
+  removeParkedTask: (id: string) => void;
+  addParkedTask: (id: string) => void;
+  setTaskSteps: (taskId: TaskId, texts: string[]) => void;
+  toggleTaskStep: (taskId: TaskId, stepId: string) => void;
+  clearTaskSteps: (taskId: TaskId) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -630,7 +658,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     if (!ready) return;
     const eligible = autoLockEligibleTaskCount(state.tasks, today, state.autoLock);
     if (!shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) return;
-    dispatch({ type: "autoLockToday", today });
+    dispatch({ type: "autoLockToday", today, at: new Date().toISOString() });
   }, [ready, state.autoLock, state.tasks, state.todayLocked, today]);
 
   useEffect(() => {
@@ -684,7 +712,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       }
       const eligible = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
       if (shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) {
-        dispatch({ type: "autoLockToday", today: fresh });
+        dispatch({ type: "autoLockToday", today: fresh, at: new Date().toISOString() });
       }
     };
     const sub = RNAppState.addEventListener("change", onChange);
@@ -701,7 +729,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       }
       const eligible = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
       if (shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) {
-        dispatch({ type: "autoLockToday", today: fresh });
+        dispatch({ type: "autoLockToday", today: fresh, at: new Date().toISOString() });
       }
     }, 60_000);
     return () => clearInterval(id);
@@ -728,13 +756,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "toggleTask", id, today: todayKey() });
   }, []);
   const lockToday = useCallback(() => {
-    dispatch({ type: "lockToday", today: todayKey() });
+    dispatch({ type: "lockToday", today: todayKey(), at: new Date().toISOString() });
   }, []);
   const unlockToday = useCallback(() => {
     dispatch({ type: "unlockToday", today: todayKey() });
-  }, []);
-  const dismissAutoLockNotice = useCallback(() => {
-    dispatch({ type: "dismissAutoLockNotice", today: todayKey() });
   }, []);
   const resolveRollover = useCallback((carriedTaskIds: TaskId[]) => {
     dispatch({
@@ -881,6 +906,24 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const markReviewPrompted = useCallback(() => {
     dispatch({ type: "markReviewPrompted", at: new Date().toISOString() });
   }, []);
+  const parkTasksCb = useCallback((texts: string[]) => {
+    dispatch({ type: "parkTasks", texts, at: new Date().toISOString() });
+  }, []);
+  const removeParkedTaskCb = useCallback((id: string) => {
+    dispatch({ type: "removeParkedTask", id });
+  }, []);
+  const addParkedTask = useCallback((id: string) => {
+    dispatch({ type: "addParkedTask", id, today: todayKey() });
+  }, []);
+  const setTaskStepsCb = useCallback((taskId: TaskId, texts: string[]) => {
+    dispatch({ type: "setTaskSteps", taskId, texts, at: new Date().toISOString() });
+  }, []);
+  const toggleTaskStepCb = useCallback((taskId: TaskId, stepId: string) => {
+    dispatch({ type: "toggleTaskStep", taskId, stepId });
+  }, []);
+  const clearTaskStepsCb = useCallback((taskId: TaskId) => {
+    dispatch({ type: "clearTaskSteps", taskId });
+  }, []);
 
   const journeyLevel = levelForXp(state.journey.xp);
   const journeyProgress = levelProgress(state.journey.xp);
@@ -910,7 +953,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       toggleTask,
       lockToday,
       unlockToday,
-      dismissAutoLockNotice,
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
@@ -933,6 +975,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       pendingMilestoneCelebration: state.pendingMilestoneCelebration,
       acknowledgeMilestoneCelebration,
       markReviewPrompted,
+      parkTasks: parkTasksCb,
+      removeParkedTask: removeParkedTaskCb,
+      addParkedTask,
+      setTaskSteps: setTaskStepsCb,
+      toggleTaskStep: toggleTaskStepCb,
+      clearTaskSteps: clearTaskStepsCb,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -952,7 +1000,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       toggleTask,
       lockToday,
       unlockToday,
-      dismissAutoLockNotice,
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
@@ -974,6 +1021,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       momentumMilestones,
       acknowledgeMilestoneCelebration,
       markReviewPrompted,
+      parkTasksCb,
+      removeParkedTaskCb,
+      addParkedTask,
+      setTaskStepsCb,
+      toggleTaskStepCb,
+      clearTaskStepsCb,
       refreshNotificationPermission,
       requestPermission,
       resetAll,
