@@ -339,7 +339,10 @@ export default function SettingsScreen() {
             </Pressable>
             {state.momentumPlanStatus === "error" && state.momentumPlanError && (
               <Text className="text-xs" style={{ color: colors.muted }}>
-                {aiFailureMessage(state.momentumPlanError)}
+                {aiFailureMessage(state.momentumPlanError, {
+                  showingAiIdeas: state.momentumPlan?.provider === "ai",
+                  surface: "settings",
+                })}
               </Text>
             )}
           </View>

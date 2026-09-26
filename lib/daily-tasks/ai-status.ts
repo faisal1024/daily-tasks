@@ -68,7 +68,10 @@ export function isAiFailureKind(value: unknown): value is AiFailureKind {
  */
 export function aiFailureMessage(
   kind: AiFailureKind | null,
-  { showingAiIdeas = false }: { showingAiIdeas?: boolean } = {},
+  {
+    showingAiIdeas = false,
+    surface = "card",
+  }: { showingAiIdeas?: boolean; surface?: "card" | "settings" } = {},
 ): string | null {
   switch (kind) {
     case null:
@@ -78,6 +81,12 @@ export function aiFailureMessage(
       // this, and the daily limit lasts longer than a minute.
       return "Lots of requests right now. Try again a little later.";
     case "busy":
+      // Settings shows no ideas, so point at the Tasks tab instead of "below".
+      if (surface === "settings") {
+        return showingAiIdeas
+          ? "Smart suggestions are taking a break for today. Your ideas on the Tasks tab still work."
+          : "Smart suggestions are taking a break for today. Starter ideas are on the Tasks tab.";
+      }
       return showingAiIdeas
         ? "Smart suggestions are taking a break for today. Your ideas below still work."
         : "Smart suggestions are taking a break for today. Try these starters.";

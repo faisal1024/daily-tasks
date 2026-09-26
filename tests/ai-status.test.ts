@@ -95,6 +95,17 @@ describe("aiFailureMessage", () => {
     expect(aiFailureMessage("busy")).toMatch(/starter/i);
   });
 
+  it("in Settings, points at the Tasks tab instead of ideas that aren't on screen", () => {
+    const kept = aiFailureMessage("busy", { surface: "settings", showingAiIdeas: true }) ?? "";
+    const starters = aiFailureMessage("busy", { surface: "settings" }) ?? "";
+    for (const message of [kept, starters]) {
+      expect(message).toContain("Tasks tab");
+      expect(message).not.toMatch(/below|these/i);
+    }
+    expect(kept).not.toMatch(/starter/i);
+    expect(starters).toMatch(/starter/i);
+  });
+
   it("says nothing when there is no failure", () => {
     expect(aiFailureMessage(null)).toBeNull();
   });
