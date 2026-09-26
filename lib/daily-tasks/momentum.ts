@@ -1,6 +1,7 @@
 import type {
   AdaptationSnapshot,
   GeneratedTask,
+  MomentumMilestone,
   GeneratedTaskDifficulty,
   History,
   ExperienceLevel,
@@ -135,20 +136,41 @@ export function buildMomentumPlan({
   };
 }
 
-export function validateGeneratedTasks(tasks: GeneratedTask[]): GeneratedTask[] {
+/**
+ * Keep at most 3 well-formed, de-duplicated tasks. Input may come straight from
+ * an AI response, so anything malformed is dropped rather than trusted.
+ */
+export function validateGeneratedTasks(tasks: unknown): GeneratedTask[] {
+  if (!Array.isArray(tasks)) return [];
   const seen = new Set<string>();
+  const valid: GeneratedTask[] = [];
 
-  return tasks
-    .filter((task) => {
-      const text = task.text.trim();
-      const key = text.toLowerCase();
-      if (!text || text.length > 64 || seen.has(key)) return false;
-      if (!Number.isInteger(task.estimatedMinutes) || task.estimatedMinutes < 5) return false;
-      if (task.estimatedMinutes > 60) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 3);
+  for (const candidate of tasks) {
+    if (valid.length >= 3) break;
+    if (!candidate || typeof candidate !== "object") continue;
+    const task = candidate as Partial<GeneratedTask>;
+    if (typeof task.text !== "string") continue;
+    const text = task.text.trim();
+    const key = text.toLowerCase();
+    if (!text || text.length > 64 || seen.has(key)) continue;
+    const minutes = task.estimatedMinutes;
+    if (typeof minutes !== "number" || !Number.isInteger(minutes)) continue;
+    if (minutes < 5 || minutes > 60) continue;
+    seen.add(key);
+    valid.push({
+      id: typeof task.id === "string" && task.id ? task.id : `task_${valid.length + 1}`,
+      text,
+      estimatedMinutes: minutes,
+      difficulty:
+        task.difficulty === "easy" || task.difficulty === "medium" || task.difficulty === "stretch"
+          ? task.difficulty
+          : "easy",
+      reason: typeof task.reason === "string" ? task.reason : "",
+      source: task.source === "template" ? "template" : "ai",
+    });
+  }
+
+  return valid;
 }
 
 export function summarizeRecentPerformance(history: History, now: Date): RecentPerformance {
@@ -320,7 +342,7 @@ function adaptationReason(
   return "Recent rhythm looks steady enough to maintain.";
 }
 
-function buildMilestones(goalTitle: string) {
+export function buildMilestones(goalTitle: string): MomentumMilestone[] {
   return [
     {
       id: "milestone_start",

@@ -29,7 +29,19 @@ services:
         value: "*"
       - key: RATE_LIMIT_PER_MIN
         value: "30"
-      # Optional: set a random value here AND as an EAS secret to require the
-      # x-momentum-secret header. Leave unset for the simplest setup.
-      # - key: PROXY_SHARED_SECRET
-      #   sync: false
+      # Cost protection: per-client and global daily request caps. A global cap
+      # of 5000 Haiku calls is roughly $20/day worst case. 0 disables a cap.
+      - key: DAILY_LIMIT_PER_CLIENT
+        value: "200"
+      - key: GLOBAL_DAILY_LIMIT
+        value: "5000"
+      # Render sits one proxy hop in front of the app; the client IP is the last
+      # X-Forwarded-For entry, which clients cannot spoof.
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      # Required in production: set the same random value here (dashboard secret)
+      # AND as the EAS env var EXPO_PUBLIC_MOMENTUM_PROXY_SECRET. Requests without
+      # the matching x-momentum-secret header get 401 (older app builds fall back
+      # to built-in suggestions).
+      - key: PROXY_SHARED_SECRET
+        sync: false

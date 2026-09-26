@@ -87,14 +87,15 @@ period has a cold-start delay. Use a paid instance to avoid that.
      (the request/response logic is standard `node:http`).
 2. Set env in the host (NOT in the repo): `MOMENTUM_AI_PROVIDER=anthropic`,
    `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `CORS_ORIGIN=<app origin>`,
-   `PROXY_SHARED_SECRET=<random>`, `RATE_LIMIT_PER_MIN` (optional, default 30).
+   `PROXY_SHARED_SECRET=<random>`, and optionally the limits below.
 3. Point the app build at it: set `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL` to the
-   deployed HTTPS URL (e.g. in EAS build env), then build.
+   deployed HTTPS URL and `EXPO_PUBLIC_MOMENTUM_PROXY_SECRET` to the same secret
+   as EAS environment variables (not in `eas.json`), then build.
 
 ## Architecture
 
 ```
-app  ──POST /api/momentum/plan──▶  momentum-proxy.mjs  ──▶  provider adapter  ──▶  AI API
+app  ──POST /api/momentum/plan──▶  app.mjs (via momentum-proxy.mjs)  ──▶  provider adapter  ──▶  AI API
                                          │                        │
                                    shared contract          openai.mjs / anthropic.mjs
                                   (plan-contract.mjs)      (holds the key, talks to the API)
@@ -142,6 +143,22 @@ user's own tasks.
 - Store the provider key only in the hosting provider's secret manager.
 - Set `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL` to the production HTTPS endpoint for EAS builds.
 - Set `CORS_ORIGIN` to the app's origin in production — do **not** ship `*`.
-- Set `PROXY_SHARED_SECRET`; the app sends it as the `x-momentum-secret` header.
-- The proxy applies a simple per-IP rate limit (`RATE_LIMIT_PER_MIN`, default 30);
-  put it behind your host's rate limiting / app attestation for a paid feature.
+- Set `PROXY_SHARED_SECRET`; the app sends it as the `x-momentum-secret` header
+  (compared in constant time). The server logs a warning on Render if it's unset.
+  The secret ships inside the app binary, so treat it as a speed bump, not auth.
+- **Rollout order:** set `EXPO_PUBLIC_MOMENTUM_PROXY_SECRET` in EAS and ship a build,
+  then set `PROXY_SHARED_SECRET` on Render. Builds without the header get 401 and
+  quietly fall back to built-in suggestions.
+- Limits (0 disables one), all fixed windows keyed on the client IP:
+  | Env var | Default | Response when hit |
+  |---|---|---|
+  | `RATE_LIMIT_PER_MIN` | 30 | 429, `Retry-After: 60` |
+  | `DAILY_LIMIT_PER_CLIENT` | 200 | 429, `Retry-After: 3600` |
+  | `GLOBAL_DAILY_LIMIT` | 5000 | 503 for everyone (spend circuit breaker) |
+- `TRUST_PROXY_HOPS` (default 1 = Render) picks the client IP from the right of
+  `X-Forwarded-For`, so a client can't dodge limits by sending its own header.
+- Bodies over 20 KB get 413. Malformed AI output is logged by shape only (field
+  names), never content, to keep user task titles out of logs.
+- Still set an Anthropic console spend limit; the caps above bound request count,
+  not token size.
+- Server behaviour is covered end-to-end in `tests/proxy-server.test.ts`.

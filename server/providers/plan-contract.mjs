@@ -120,6 +120,10 @@ export function isValidPlan(plan) {
       typeof plan === "object" &&
       Array.isArray(plan.milestones) &&
       Array.isArray(plan.todaySuggestions) &&
-      Array.isArray(plan.taskPool),
+      Array.isArray(plan.taskPool) &&
+      // At least one usable suggestion, or the app has nothing to show.
+      plan.todaySuggestions.some(
+        (task) => task && typeof task.text === "string" && task.text.trim().length > 0,
+      ),
   );
 }
