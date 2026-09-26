@@ -96,11 +96,20 @@ function isShortTask(item, max) {
   return Boolean(item) && typeof item === "object" && nonEmptyString(item.text, max);
 }
 
+/** Shorten (never drop) over-long text, counting whole characters. */
+function shorten(text, max) {
+  const chars = Array.from(text.trim());
+  return chars.length > max ? `${chars.slice(0, max - 1).join("").trimEnd()}…` : chars.join("");
+}
+
 function textItems(list, max, limit) {
   return (Array.isArray(list) ? list : [])
-    .filter((item) => isShortTask(item, max))
+    .filter((item) => item && typeof item === "object" && typeof item.text === "string" && item.text.trim())
     .slice(0, limit)
-    .map((item) => ({ text: item.text.trim(), ...(typeof item.reason === "string" ? { reason: item.reason.slice(0, 200) } : {}) }));
+    .map((item) => ({
+      text: shorten(item.text, max),
+      ...(typeof item.reason === "string" ? { reason: item.reason.slice(0, 200) } : {}),
+    }));
 }
 
 /** Rebuild the brain-dump response from validated fields only. */

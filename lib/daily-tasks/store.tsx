@@ -113,9 +113,16 @@ type Action =
   | { type: "parkTasks"; texts: string[]; at: string }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
-  | { type: "setTaskSteps"; taskId: TaskId; texts: string[]; at: string; forText?: string }
-  | { type: "toggleTaskStep"; taskId: TaskId; stepId: string }
-  | { type: "clearTaskSteps"; taskId: TaskId }
+  | {
+      type: "setTaskSteps";
+      taskId: TaskId;
+      texts: string[];
+      at: string;
+      forText?: string;
+      today: string;
+    }
+  | { type: "toggleTaskStep"; taskId: TaskId; stepId: string; today: string }
+  | { type: "clearTaskSteps"; taskId: TaskId; today: string }
   | { type: "reset"; state: AppState };
 
 /** Canonical count of today's completions that still map to a current task. */
@@ -156,12 +163,20 @@ function reducer(state: AppState, action: Action): AppState {
       const withTask = reducer(state, { type: "addTask", text: parked.text, today: action.today });
       return withTask === state ? state : removeParkedTask(withTask, action.id);
     }
-    case "setTaskSteps":
-      return setTaskSteps(state, action.taskId, action.texts, action.at, action.forText);
-    case "toggleTaskStep":
-      return toggleTaskStep(state, action.taskId, action.stepId);
-    case "clearTaskSteps":
-      return clearTaskSteps(state, action.taskId);
+    // Step changes also sync today's history record: tomorrow's carry-over is
+    // built from it, so it must hold the current steps and their progress.
+    case "setTaskSteps": {
+      const next = setTaskSteps(state, action.taskId, action.texts, action.at, action.forText);
+      return next === state ? state : syncTodayHistory(next, action.today);
+    }
+    case "toggleTaskStep": {
+      const next = toggleTaskStep(state, action.taskId, action.stepId);
+      return next === state ? state : syncTodayHistory(next, action.today);
+    }
+    case "clearTaskSteps": {
+      const next = clearTaskSteps(state, action.taskId);
+      return next === state ? state : syncTodayHistory(next, action.today);
+    }
     case "hydrate":
       return action.state;
     case "rollover": {
@@ -919,13 +934,20 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "addParkedTask", id, today: todayKey() });
   }, []);
   const setTaskStepsCb = useCallback((taskId: TaskId, texts: string[], forText?: string) => {
-    dispatch({ type: "setTaskSteps", taskId, texts, at: new Date().toISOString(), forText });
+    dispatch({
+      type: "setTaskSteps",
+      taskId,
+      texts,
+      at: new Date().toISOString(),
+      forText,
+      today: todayKey(),
+    });
   }, []);
   const toggleTaskStepCb = useCallback((taskId: TaskId, stepId: string) => {
-    dispatch({ type: "toggleTaskStep", taskId, stepId });
+    dispatch({ type: "toggleTaskStep", taskId, stepId, today: todayKey() });
   }, []);
   const clearTaskStepsCb = useCallback((taskId: TaskId) => {
-    dispatch({ type: "clearTaskSteps", taskId });
+    dispatch({ type: "clearTaskSteps", taskId, today: todayKey() });
   }, []);
 
   const journeyLevel = levelForXp(state.journey.xp);
