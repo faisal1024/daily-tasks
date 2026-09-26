@@ -175,6 +175,7 @@ export function TaskCard({
           {canEdit && isEditing ? (
             <Pressable
               onPress={commit}
+              accessibilityRole="button"
               accessibilityLabel="Save task"
               hitSlop={8}
               className="p-2"
@@ -184,6 +185,7 @@ export function TaskCard({
           ) : canEdit ? (
             <Pressable
               onPress={() => setIsEditing(true)}
+              accessibilityRole="button"
               accessibilityLabel="Edit task"
               hitSlop={8}
               className="p-2"
@@ -194,6 +196,7 @@ export function TaskCard({
           {canDelete ? (
             <Pressable
               onPress={onDelete}
+              accessibilityRole="button"
               accessibilityLabel="Delete task"
               hitSlop={8}
               className="p-2"

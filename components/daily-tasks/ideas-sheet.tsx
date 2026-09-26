@@ -76,7 +76,6 @@ export function IdeasSheet({
       onRequestClose={onClose}
       animationType="slide"
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
-      transparent={Platform.OS !== "ios"}
     >
       <View
         className="flex-1"
@@ -132,7 +131,7 @@ export function IdeasSheet({
                 accessibilityRole="button"
                 accessibilityLabel="Get new ideas"
                 accessibilityState={{ busy: regenerating, disabled: regenerating }}
-                hitSlop={8}
+                hitSlop={12}
                 className="flex-row items-center gap-1"
                 style={{ opacity: regenerating ? 0.5 : 1 }}
               >
@@ -165,7 +164,9 @@ export function IdeasSheet({
           )}
 
           <Text className="text-base" style={{ color: colors.muted }}>
-            {full ? "Today's three are picked. Nice." : suggestionsHint(ideas.length)}
+            {full
+              ? "Today's three are picked. Nice."
+              : suggestionsHint(Math.min(available.length, remainingSlots))}
           </Text>
           {adaptationReason && !full && (
             <Text className="text-xs" style={{ color: colors.muted }}>
@@ -225,7 +226,9 @@ export function IdeasSheet({
               style={{ backgroundColor: colors.primary }}
             >
               <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
-                {available.length > remainingSlots ? `Add ${remainingSlots} more ✨` : "Add all ✨"}
+                {available.length > remainingSlots
+                  ? `Add the first ${remainingSlots} ✨`
+                  : "Add all ✨"}
               </Text>
             </Pressable>
           )}

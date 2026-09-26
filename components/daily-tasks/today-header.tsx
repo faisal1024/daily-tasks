@@ -38,8 +38,15 @@ export function TodayHeader({ greeting, progress, dayStreak, level }: TodayHeade
       <View style={{ paddingTop: insets.top + 10, paddingHorizontal: 22, paddingBottom: 20 }}>
         <View className="flex-row items-center justify-between">
           <Text
-            style={{ color: "rgba(255,255,255,0.92)", fontWeight: "700", fontSize: 16 }}
+            style={{
+              flex: 1,
+              marginRight: 12,
+              color: "rgba(255,255,255,0.92)",
+              fontWeight: "700",
+              fontSize: 16,
+            }}
             numberOfLines={1}
+            maxFontSizeMultiplier={1.6}
           >
             {greeting}
           </Text>
@@ -55,7 +62,10 @@ export function TodayHeader({ greeting, progress, dayStreak, level }: TodayHeade
               borderRadius: 16,
             }}
           >
-            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}>
+            <Text
+              style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}
+              maxFontSizeMultiplier={1.4}
+            >
               {streakChipText(dayStreak, level)}
             </Text>
           </View>
@@ -63,6 +73,7 @@ export function TodayHeader({ greeting, progress, dayStreak, level }: TodayHeade
 
         <Text
           accessibilityRole="header"
+          maxFontSizeMultiplier={1.4}
           style={{
             color: "#fff",
             fontFamily: Fonts.rounded,
@@ -80,7 +91,8 @@ export function TodayHeader({ greeting, progress, dayStreak, level }: TodayHeade
             accessible
             accessibilityRole="progressbar"
             accessibilityLabel="Today's progress"
-            accessibilityValue={{ min: 0, max: 100, now: Math.round(progress.ratio * 100) }}
+            // Spoken as "0 of 1 done · 2 open" rather than a bare percentage.
+            accessibilityValue={{ text: progress.label }}
             style={{
               flex: 1,
               height: 10,
@@ -98,7 +110,14 @@ export function TodayHeader({ greeting, progress, dayStreak, level }: TodayHeade
               }}
             />
           </View>
-          <Text style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}>{progress.label}</Text>
+          <Text
+            style={{ color: "#fff", fontWeight: "800", fontSize: 14, flexShrink: 1 }}
+            maxFontSizeMultiplier={1.4}
+            importantForAccessibility="no"
+            accessibilityElementsHidden
+          >
+            {progress.label}
+          </Text>
         </View>
       </View>
     </View>

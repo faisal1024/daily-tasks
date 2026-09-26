@@ -30,9 +30,12 @@ export function StatusLine({ status, onLock }: StatusLineProps) {
           className="rounded-full px-4 py-2"
           style={{ backgroundColor: `${colors.primary}18` }}
         >
-          <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-            Lock in
-          </Text>
+          <View className="flex-row items-center gap-1">
+            <Ionicons name="lock-closed-outline" size={13} color={colors.primary} />
+            <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+              Lock in
+            </Text>
+          </View>
         </Pressable>
       )}
     </View>

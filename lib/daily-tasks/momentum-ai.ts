@@ -80,7 +80,7 @@ function normalizeMilestones(value: unknown): MomentumMilestone[] {
   if (!Array.isArray(value)) return [];
   const milestones: MomentumMilestone[] = [];
   for (const item of value) {
-    if (milestones.length >= 3) break;
+    if (milestones.length >= MILESTONE_IDS.length) break;
     if (!item || typeof item !== "object") continue;
     const m = item as Partial<MomentumMilestone>;
     if (typeof m.title !== "string" || !m.title.trim()) continue;

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  AppState as RNAppState,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -33,8 +34,11 @@ import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { computeDayStreak } from "@/lib/daily-tasks/streaks";
 import {
+  formatClockTime,
+  ideasEntry,
   ideasSource,
   isPerfectDayTransition,
+  lockConfirmation,
   showIdeasEntry,
   todayProgress,
   todayStatus,
@@ -75,13 +79,15 @@ export default function HomeScreen() {
   const [ideasOpen, setIdeasOpen] = useState(false);
 
   const total = state.tasks.length;
-  const progress = todayProgress(completedCount, total);
+  const progress = todayProgress(completedCount, total, { locked: state.todayLocked });
   const status = todayStatus({
     locked: state.todayLocked,
     lockSource: state.todayLockSource,
     taskCount: total,
     completedCount,
+    autoLockTime: formatClockTime(state.autoLock.hour, state.autoLock.minute),
   });
+  const entry = ideasEntry(total, state.momentumProfile.goalTitle);
   const dayStreak = computeDayStreak(state.history, today);
   const firstName = state.momentumProfile.name?.trim().split(/\s+/)[0] ?? "";
   const greeting = firstName
@@ -95,19 +101,23 @@ export default function HomeScreen() {
 
   // AI (or template-plan) suggestions when a goal plan exists, otherwise the
   // generic starters for the user's goal.
-  const planIdeas = state.momentumPlan?.todaySuggestions ?? [];
+  const planIdeas = state.momentumPlan?.todaySuggestions;
+  const hasPlanIdeas = (planIdeas?.length ?? 0) > 0;
   const genericIdeas = useMemo(
     () => generateMomentumSuggestions(state.momentumProfile),
     [state.momentumProfile],
   );
-  const ideas: IdeaItem[] =
-    planIdeas.length > 0
-      ? planIdeas.map((task) => ({
-          id: task.id,
-          text: task.text,
-          estimatedMinutes: task.estimatedMinutes,
-        }))
-      : genericIdeas.map((text, index) => ({ id: `starter_${index}`, text }));
+  const ideas: IdeaItem[] = useMemo(
+    () =>
+      planIdeas && planIdeas.length > 0
+        ? planIdeas.map((task) => ({
+            id: task.id,
+            text: task.text,
+            estimatedMinutes: task.estimatedMinutes,
+          }))
+        : genericIdeas.map((text, index) => ({ id: `starter_${index}`, text })),
+    [planIdeas, genericIdeas],
+  );
   const source = ideasSource(state.momentumPlan, state.momentumProfile.goalTitle);
   const failureMessage =
     state.momentumPlanStatus === "error"
@@ -119,6 +129,8 @@ export default function HomeScreen() {
   // Celebrate (and maybe ask for a rating) only at the moment the third task is
   // checked off, never just because the app opened on a finished day.
   const previousCompleted = useRef<number | null>(null);
+  const reviewPending = useRef(false);
+  const reviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!ready) return;
     const transition = isPerfectDayTransition({
@@ -127,28 +139,68 @@ export default function HomeScreen() {
       total,
     });
     previousCompleted.current = completedCount;
+
+    // Unchecking cancels a rating request that hasn't shown yet.
+    if (completedCount < MAX_TASKS) {
+      reviewPending.current = false;
+      if (reviewTimer.current) clearTimeout(reviewTimer.current);
+      reviewTimer.current = null;
+    }
     if (!transition) return;
 
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
     setShowCelebration(true);
-    if (
-      shouldRequestReview({
-        history: state.history,
-        lastReviewPromptAt: state.lastReviewPromptAt,
-        now: new Date(),
-        justCompletedPerfectDay: true,
-      })
-    ) {
-      markReviewPrompted();
-      // Let the celebration land first; the system sheet would cover it.
-      setTimeout(() => void requestAppReview(), 2500);
-    }
-  }, [ready, completedCount, total, state.history, state.lastReviewPromptAt, markReviewPrompted]);
+    reviewPending.current = shouldRequestReview({
+      history: state.history,
+      lastReviewPromptAt: state.lastReviewPromptAt,
+      now: new Date(),
+      justCompletedPerfectDay: true,
+    });
+  }, [ready, completedCount, total, state.history, state.lastReviewPromptAt]);
 
-  // The sheet has nothing to add once the day is locked.
+  // The rating sheet waits until the celebration is dismissed, and the cooldown
+  // is only spent if the prompt was actually requested while the app is active.
+  const dismissCelebration = () => {
+    setShowCelebration(false);
+    if (!reviewPending.current) return;
+    reviewPending.current = false;
+    reviewTimer.current = setTimeout(async () => {
+      reviewTimer.current = null;
+      // iOS ignores the request when the app isn't in the foreground, and we
+      // mustn't spend the cooldown then. ("unknown" can occur briefly at launch.)
+      const appState = RNAppState.currentState;
+      if (appState === "background" || appState === "inactive") return;
+      if (await requestAppReview()) markReviewPrompted();
+    }, 600);
+  };
+  useEffect(
+    () => () => {
+      if (reviewTimer.current) clearTimeout(reviewTimer.current);
+    },
+    [],
+  );
+
+  // The sheet has nothing to add once the day is locked, and it must not block
+  // the rollover or onboarding modals (iOS shows one modal at a time).
   useEffect(() => {
-    if (state.todayLocked) setIdeasOpen(false);
-  }, [state.todayLocked]);
+    if (state.todayLocked || state.pendingRollover || !state.hasSeenOnboarding) {
+      setIdeasOpen(false);
+    }
+  }, [state.todayLocked, state.pendingRollover, state.hasSeenOnboarding]);
+
+  const confirmLock = () => {
+    const { title, message } = lockConfirmation(total);
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Lock in",
+        onPress: () => {
+          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+          lockToday();
+        },
+      },
+    ]);
+  };
 
   const handleToggle = (id: string) => {
     const completing = !isCompleted(id);
@@ -230,30 +282,31 @@ export default function HomeScreen() {
               })}
             </View>
 
-            <StatusLine
-              status={status}
-              onLock={() => {
-                haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
-                lockToday();
-              }}
-            />
+            <StatusLine status={status} onLock={confirmLock} />
 
             {showIdeasEntry({ locked: state.todayLocked, remainingSlots }) && (
               <Pressable
                 onPress={() => setIdeasOpen(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Need ideas? Open suggestions"
+                accessibilityLabel={`${entry.label}. Opens suggestions`}
                 className="flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
-                style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+                style={
+                  entry.prominent
+                    ? { borderColor: colors.primary, backgroundColor: colors.primary }
+                    : { borderColor: colors.border, backgroundColor: colors.surface }
+                }
                 testID="need-ideas"
               >
                 <Ionicons
-                  name={source.personalized ? "sparkles" : "bulb-outline"}
+                  name={source.personalized || entry.prominent ? "sparkles" : "bulb-outline"}
                   size={18}
-                  color={colors.primary}
+                  color={entry.prominent ? "#fff" : colors.primary}
                 />
-                <Text className="text-base font-semibold" style={{ color: colors.primary }}>
-                  Need ideas?
+                <Text
+                  className="text-base font-semibold"
+                  style={{ color: entry.prominent ? "#fff" : colors.primary }}
+                >
+                  {entry.label}
                 </Text>
               </Pressable>
             )}
@@ -294,7 +347,7 @@ export default function HomeScreen() {
         addedTexts={addedTexts}
         remainingSlots={remainingSlots}
         adaptationReason={state.adaptationSnapshot?.reason ?? null}
-        canRegenerate={getMomentumAiProxyUrl() != null && planIdeas.length > 0}
+        canRegenerate={getMomentumAiProxyUrl() != null && hasPlanIdeas}
         regenerating={state.momentumPlanStatus === "loading"}
         failureMessage={failureMessage}
         onAdd={handleAdd}
@@ -308,7 +361,7 @@ export default function HomeScreen() {
         }}
       />
 
-      <CelebrationOverlay visible={showCelebration} onDismiss={() => setShowCelebration(false)} />
+      <CelebrationOverlay visible={showCelebration} onDismiss={dismissCelebration} />
 
       <OnboardingModal
         visible={ready && !state.hasSeenOnboarding && !state.pendingRollover}

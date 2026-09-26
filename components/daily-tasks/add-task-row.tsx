@@ -91,12 +91,10 @@ export function AddTaskRow({
             className="text-base font-semibold"
             style={{ color: disabled ? colors.muted : colors.foreground }}
           >
-            {disabled ? "Left intentionally open" : "Choose this focus"}
+            {disabled ? "Left open" : "Add a task"}
           </Text>
           <Text className="text-sm" style={{ color: colors.muted }}>
-            {disabled
-              ? "Today's Three is already set."
-              : "Add one meaningful thing for today."}
+            {disabled ? "Today is set." : "Something you'll stand behind today."}
           </Text>
         </View>
       </Pressable>
@@ -119,7 +117,7 @@ export function AddTaskRow({
         onChangeText={setText}
         onSubmitEditing={submit}
         onBlur={submit}
-        placeholder="What deserves this focus slot?"
+        placeholder="What's one thing for today?"
         placeholderTextColor={colors.muted}
         returnKeyType="done"
         maxLength={80}
