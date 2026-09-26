@@ -147,6 +147,23 @@ describe("applyRollover", () => {
   });
 });
 
+describe("rollover keeps a carried task's steps", () => {
+  it("carries the step checklist (and its progress) with the task", () => {
+    const steps = [
+      { id: "s1", text: "Open the doc", done: true },
+      { id: "s2", text: "Write one line", done: false },
+    ];
+    const start = makeState();
+    const withSteps = { ...start, tasks: start.tasks.map((t) => (t.id === "b" ? { ...t, steps } : t)) };
+    const rolled = applyRollover(withSteps, "2026-04-18");
+    expect(rolled.pendingRollover?.tasks.find((t) => t.id === "b")?.steps).toEqual(steps);
+    const resolved = resolvePendingRollover(rolled, ["b", "c"], new Date("2026-04-18T09:00:00Z"));
+    // Carried tasks get fresh ids; find them by text.
+    expect(resolved.tasks.find((t) => t.text === "B")?.steps).toEqual(steps);
+    expect(resolved.tasks.find((t) => t.text === "C")).not.toHaveProperty("steps");
+  });
+});
+
 describe("rollover keeps brain-dump leftovers", () => {
   it("parked tasks survive the day change and the carry-forward choice", () => {
     const parkedTasks = [{ id: "p1", text: "Buy shoes", parkedAt: "2026-04-17T09:00:00.000Z" }];

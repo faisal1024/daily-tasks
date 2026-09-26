@@ -61,7 +61,8 @@ describe("parkTasks", () => {
     expect(next.parkedTasks).toHaveLength(MAX_PARKED_TASKS);
     expect(next.parkedTasks[0].text).toBe("old 2");
     expect(next.parkedTasks.slice(-2).map((p) => p.text)).toEqual(["new a", "new b"]);
-    expect(MAX_PARKED_TASKS).toBe(20);
+    // Generous, so a brain dump never silently drops what someone typed.
+    expect(MAX_PARKED_TASKS).toBe(50);
   });
 
   it("doesn't touch anything else in state", () => {
@@ -122,6 +123,14 @@ describe("setTaskSteps", () => {
       ["d", false],
       ["e", false],
     ]);
+  });
+
+  it("with forText, only attaches steps if the task still has that text (stale AI response)", () => {
+    const s = start();
+    expect(setTaskSteps(s, "t1", ["a", "b"], NOW, "Clean the kitchen")).toBe(s);
+    const applied = setTaskSteps(s, "t1", ["a", "b"], NOW, "Clean kitchen");
+    expect(applied.tasks[0].steps?.map((st) => st.text)).toEqual(["a", "b"]);
+    expect(setTaskSteps(s, "nope", ["a", "b"], NOW, "Clean kitchen")).toBe(s);
   });
 
   it("is a no-op for no usable steps or an unknown task", () => {

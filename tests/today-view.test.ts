@@ -16,6 +16,7 @@ import {
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
 import {
   THINKING_HINT_DELAY_MS,
+  brainDumpToast,
   clockTimeOf,
   formatClockTime,
   ideasEntry,
@@ -87,9 +88,9 @@ describe("todayStatus", () => {
     expect(todayStatus({ ...base, taskCount: 0 })).toMatchObject({ kind: "empty", canLock: false });
   });
 
-  it("points an empty day at picking or the ideas below", () => {
+  it("points an empty day at picking, ideas, or a brain dump", () => {
     expect(todayStatus({ ...base, taskCount: 0 }).text).toBe(
-      "Pick what matters, or grab an idea below.",
+      "Pick what matters, grab an idea, or brain dump it all.",
     );
   });
 
@@ -396,5 +397,14 @@ describe("formatClockTime", () => {
     expect(formatClockTime(9, 5)).toBe("9:05 AM");
     expect(formatClockTime(12, 0)).toBe("12:00 PM");
     expect(formatClockTime(23, 30)).toBe("11:30 PM");
+  });
+});
+
+describe("brainDumpToast", () => {
+  it("says what was added and what was saved, or nothing", () => {
+    expect(brainDumpToast(2, 3)).toBe("Added 2. 3 saved for later in Ideas.");
+    expect(brainDumpToast(1, 0)).toBe("Added 1.");
+    expect(brainDumpToast(0, 4)).toBe("4 saved for later in Ideas.");
+    expect(brainDumpToast(0, 0)).toBeNull();
   });
 });

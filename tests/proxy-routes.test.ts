@@ -38,6 +38,7 @@ import {
   validateBrainDumpPayload,
   validateBreakDownPayload,
 } from "../server/providers/helpers-contract.mjs";
+import { MAX_PARKED as APP_MAX_PARKED } from "../lib/daily-tasks/ai-helpers";
 import {
   PLAN_TOOL_DESCRIPTION,
   PLAN_TOOL_NAME,
@@ -299,6 +300,33 @@ describe("helper routes over HTTP", () => {
     expect((await post(PLAN_ROUTE)).status).toBe(200);
   });
 
+  it("returns only sanitized, validated fields from helper routes (never raw model output)", async () => {
+    const provider = fakeProvider(async (args) =>
+      args.toolName === BRAIN_DUMP_TOOL_NAME
+        ? {
+            picks: [
+              { text: "  Finish report  ", reason: "due", secret: "leak" },
+              { text: "x".repeat(MAX_TASK_TEXT + 1) },
+              { text: 5 },
+            ],
+            parked: [{ text: "Buy shoes", reason: "drop me" }, "bare string"],
+            debug: { prompt: "system prompt" },
+          }
+        : {
+            steps: [{ text: "Clear", extra: 1 }, { text: "Wipe" }, { text: "" }],
+            usage: { tokens: 99 },
+          },
+    );
+    const { post } = await start({ provider });
+    expect(await (await post(BRAIN_DUMP_ROUTE)).json()).toEqual({
+      picks: [{ text: "Finish report", reason: "due" }],
+      parked: [{ text: "Buy shoes" }],
+    });
+    expect(await (await post(BREAK_DOWN_ROUTE)).json()).toEqual({
+      steps: [{ text: "Clear" }, { text: "Wipe" }],
+    });
+  });
+
   it("returns a generic 502 when the provider throws on a helper route", async () => {
     const provider = fakeProvider(async () => {
       throw new Error("upstream said: sk-live-secret");
@@ -420,6 +448,14 @@ describe("brain-dump contract", () => {
     expect(BRAIN_DUMP_SCHEMA.properties.picks.minItems).toBe(1);
     expect(BRAIN_DUMP_SCHEMA.properties.parked.maxItems).toBe(MAX_PARKED);
     expect(BRAIN_DUMP_SCHEMA.required).toEqual(["picks", "parked"]);
+  });
+
+  // BUG (9a54d19): the app now keeps up to 20 parked items per dump
+  // (ai-helpers MAX_PARKED) so nothing typed is silently dropped, but the
+  // server schema and sanitizer still cap parked at 10, so an AI-sorted dump
+  // loses everything past 10. Remove `.fails` when the caps agree.
+  it("server parked cap matches the app's (20)", () => {
+    expect(MAX_PARKED).toBe(APP_MAX_PARKED);
   });
 });
 

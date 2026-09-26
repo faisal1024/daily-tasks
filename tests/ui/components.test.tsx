@@ -56,8 +56,8 @@ describe("AddTaskRow", () => {
     expect(screen.getByText("Add a task")).toBeOnTheScreen();
     expect(screen.getByText("Something you'll stand behind today.")).toBeOnTheScreen();
     await rerender(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} disabled />);
-    expect(screen.getByText("Left open")).toBeOnTheScreen();
-    expect(screen.getByText("Nothing added today.")).toBeOnTheScreen();
+    expect(screen.getByText("Left open on purpose")).toBeOnTheScreen();
+    expect(screen.getByText("Room to breathe.")).toBeOnTheScreen();
     expect(screen.queryByText("Today is set.")).toBeNull();
   });
 

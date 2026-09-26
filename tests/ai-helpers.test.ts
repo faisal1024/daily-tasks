@@ -56,6 +56,19 @@ describe("cleanTaskText", () => {
     expect(cleanTaskText("   call \n\t  mum   ")).toBe("Call mum");
   });
 
+  it("strips stacked markers like '- [ ] call mum'", () => {
+    expect(cleanTaskText("- [ ] call mum")).toBe("Call mum");
+    expect(cleanTaskText("1. [x] call mum")).toBe("Call mum");
+    expect(cleanTaskText("* 2) call mum")).toBe("Call mum");
+  });
+
+  it("never cuts an emoji in half when truncating", () => {
+    const out = cleanTaskText(`${"a".repeat(8)}🎉🎉🎉🎉`, 10) ?? "";
+    expect(out).toBe(`A${"a".repeat(7)}🎉…`);
+    expect(Array.from(out)).toHaveLength(10);
+    expect(out).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
+
   it("capitalizes the first letter only", () => {
     expect(cleanTaskText("book dentist")).toBe("Book dentist");
     expect(cleanTaskText("Email Sam about API")).toBe("Email Sam about API");
@@ -108,6 +121,7 @@ describe("localBrainDump", () => {
     const result = localBrainDump(lines, 3);
     expect(result.picks).toHaveLength(3);
     expect(result.parked).toHaveLength(MAX_PARKED);
+    expect(MAX_PARKED).toBe(20);
     expect(result.parked[0]).toBe("Task 3");
   });
 

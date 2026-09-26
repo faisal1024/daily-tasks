@@ -34,29 +34,19 @@ describe("BrainDumpSheet", () => {
 
   async function writeAndSort(text = "finish report\ncall mum\nbuy shoes") {
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), text);
-    await fireEvent.press(screen.getByRole("button", { name: /^Pick my/ }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
   }
 
   it("starts on the write stage with the slot count, and can't sort an empty dump", async () => {
     const p = props({ openSlots: 2 });
     await render(<BrainDumpSheet {...p} />);
-    expect(screen.getByText(/We'll pick up to 2 for today/)).toBeOnTheScreen();
-    const sort = screen.getByRole("button", { name: "Pick my two" });
+    expect(screen.getByText(/We'll suggest up to 2 for today/)).toBeOnTheScreen();
+    const sort = screen.getByRole("button", { name: "Sort it for me" });
     expect(sort).toBeDisabled();
     await fireEvent.press(sort);
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "   \n ");
-    expect(screen.getByRole("button", { name: "Pick my two" })).toBeDisabled();
-    await fireEvent.press(screen.getByRole("button", { name: "Pick my two" }));
+    expect(screen.getByRole("button", { name: "Sort it for me" })).toBeDisabled();
     expect(p.onSort).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    [1, "Pick my one"],
-    [2, "Pick my two"],
-    [3, "Pick my three"],
-  ])("names the sort button for %i open slot(s)", async (openSlots, label) => {
-    await render(<BrainDumpSheet {...props({ openSlots })} />);
-    expect(screen.getByRole("button", { name: label })).toBeOnTheScreen();
   });
 
   it("shows a sorting state while waiting, then the review", async () => {
@@ -73,65 +63,64 @@ describe("BrainDumpSheet", () => {
     expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
   });
 
-  it("reviews picks as ticked checkboxes and lists what's parked", async () => {
+  it("reviews one list: suggested picks ticked, saved items unticked", async () => {
     await render(<BrainDumpSheet {...props()} />);
     await writeAndSort();
-    expect(screen.getByText("For today")).toBeOnTheScreen();
     expect(screen.getByRole("checkbox", { name: "Finish report" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Call mum" })).toBeChecked();
-    expect(screen.getByText("Parked for later (1)")).toBeOnTheScreen();
-    expect(screen.getByText("• Buy shoes")).toBeOnTheScreen();
+    expect(screen.getByRole("checkbox", { name: "Buy shoes" })).not.toBeChecked();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Add 2 to today" })).toBeEnabled();
     expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
   });
 
-  it("hides the parked section when nothing is parked", async () => {
-    await render(<BrainDumpSheet {...props({ onSort: jest.fn(async () => sorted(["A"], [])) })} />);
-    await writeAndSort();
-    expect(screen.queryByText(/Parked for later/)).toBeNull();
-  });
-
-  it("parks unticked picks along with the rest when confirming", async () => {
+  it("an unticked pick is saved for later with the rest; a saved item can be picked instead", async () => {
     const p = props();
     await render(<BrainDumpSheet {...p} />);
     await writeAndSort();
     await fireEvent.press(screen.getByRole("checkbox", { name: "Finish report" }));
-    expect(screen.getByRole("checkbox", { name: "Finish report" })).not.toBeChecked();
-    await fireEvent.press(screen.getByRole("button", { name: "Add 1 to today" }));
-    expect(p.onConfirm).toHaveBeenCalledWith(["Call mum"], ["Finish report", "Buy shoes"]);
-  });
-
-  it("re-ticking a pick puts it back", async () => {
-    const p = props();
-    await render(<BrainDumpSheet {...p} />);
-    await writeAndSort();
-    await fireEvent.press(screen.getByRole("checkbox", { name: "Call mum" }));
-    await fireEvent.press(screen.getByRole("checkbox", { name: "Call mum" }));
+    await fireEvent.press(screen.getByRole("checkbox", { name: "Buy shoes" }));
     await fireEvent.press(screen.getByRole("button", { name: "Add 2 to today" }));
-    expect(p.onConfirm).toHaveBeenCalledWith(["Finish report", "Call mum"], ["Buy shoes"]);
+    expect(p.onConfirm).toHaveBeenCalledWith(["Call mum", "Buy shoes"], ["Finish report"]);
   });
 
-  it("can't confirm with nothing ticked", async () => {
+  it("caps ticks at the open slots: other rows are disabled until one is unticked", async () => {
+    const p = props({ openSlots: 1, onSort: jest.fn(async () => sorted(["A", "B"], ["C"])) });
+    await render(<BrainDumpSheet {...p} />);
+    await writeAndSort();
+    // Only the first suggestion is pre-ticked when there's one slot.
+    expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "B" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "C" })).toBeDisabled();
+    await fireEvent.press(screen.getByRole("checkbox", { name: "C" }));
+    expect(screen.getByRole("checkbox", { name: "C" })).not.toBeChecked();
+
+    await fireEvent.press(screen.getByRole("checkbox", { name: "A" }));
+    await fireEvent.press(screen.getByRole("checkbox", { name: "C" }));
+    expect(screen.getByRole("checkbox", { name: "A" })).toBeDisabled();
+    await fireEvent.press(screen.getByRole("button", { name: "Add 1 to today" }));
+    expect(p.onConfirm).toHaveBeenCalledWith(["C"], ["A", "B"]);
+  });
+
+  it("saves everything for later when nothing is ticked", async () => {
     const p = props();
     await render(<BrainDumpSheet {...p} />);
     await writeAndSort();
     await fireEvent.press(screen.getByRole("checkbox", { name: "Finish report" }));
     await fireEvent.press(screen.getByRole("checkbox", { name: "Call mum" }));
-    const button = screen.getByRole("button", { name: "Pick at least one" });
-    expect(button).toBeDisabled();
-    await fireEvent.press(button);
-    expect(p.onConfirm).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByRole("button", { name: "Save all for later" }));
+    expect(p.onConfirm).toHaveBeenCalledWith([], ["Finish report", "Call mum", "Buy shoes"]);
   });
 
-  it("never adds more picks than open slots; the overflow is parked, not lost", async () => {
-    const p = props({
-      openSlots: 1,
-      onSort: jest.fn(async () => sorted(["A", "B"], ["C"])),
-    });
+  it("closing at review saves everything instead of throwing it away", async () => {
+    const p = props();
     await render(<BrainDumpSheet {...p} />);
     await writeAndSort();
-    await fireEvent.press(screen.getByRole("button", { name: /^Add \d to today$/ }));
-    expect(p.onConfirm).toHaveBeenCalledWith(["A"], ["B", "C"]);
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Close and save everything for later" }),
+    );
+    expect(p.onConfirm).toHaveBeenCalledWith([], ["Finish report", "Call mum", "Buy shoes"]);
+    expect(p.onClose).not.toHaveBeenCalled();
   });
 
   it("shows the fallback notice when sorting fell back to the simple split", async () => {
@@ -142,6 +131,18 @@ describe("BrainDumpSheet", () => {
     await writeAndSort();
     expect(screen.getByTestId("brain-dump-notice")).toBeOnTheScreen();
     expect(screen.getByText(notice)).toBeOnTheScreen();
+  });
+
+  it("ignores a sort that finishes after the sheet was closed and reopened", async () => {
+    const pending = deferred<SortedBrainDump>();
+    const p = props({ onSort: jest.fn(() => pending.promise) });
+    const { rerender } = await render(<BrainDumpSheet {...p} />);
+    await writeAndSort("old dump");
+    await rerender(<BrainDumpSheet {...p} visible={false} />);
+    await rerender(<BrainDumpSheet {...p} visible />);
+    await act(async () => pending.resolve(sorted(["Old pick"], ["Old saved"])));
+    expect(screen.queryByRole("checkbox", { name: "Old pick" })).toBeNull();
+    expect(screen.getByLabelText("Brain dump text")).toBeOnTheScreen();
   });
 
   it("goes back to edit with the text kept", async () => {
@@ -158,15 +159,16 @@ describe("BrainDumpSheet", () => {
     await fireEvent.press(screen.getByRole("button", { name: "Add 2 to today" }));
     await rerender(<BrainDumpSheet {...p} visible={false} />);
     await rerender(<BrainDumpSheet {...p} visible />);
-    expect(screen.queryByText("For today")).toBeNull();
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
     expect(screen.getByLabelText("Brain dump text")).toHaveDisplayValue("");
   });
 
-  it("closes from the close button", async () => {
+  it("closes from the close button on the write stage", async () => {
     const p = props();
     await render(<BrainDumpSheet {...p} />);
     await fireEvent.press(screen.getByRole("button", { name: "Close brain dump" }));
     expect(p.onClose).toHaveBeenCalledTimes(1);
+    expect(p.onConfirm).not.toHaveBeenCalled();
   });
 
   it("renders nothing while hidden", async () => {

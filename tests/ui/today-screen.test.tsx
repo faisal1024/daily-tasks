@@ -229,7 +229,9 @@ describe("Today screen layout", () => {
   it("invites picking or ideas on an empty day", async () => {
     mockStore = makeStore();
     await render(<HomeScreen />);
-    expect(screen.getByText("Pick what matters, or grab an idea below.")).toBeOnTheScreen();
+    expect(
+      screen.getByText("Pick what matters, grab an idea, or brain dump it all."),
+    ).toBeOnTheScreen();
   });
 
   it("explains an automatic lock with its time and where to change it", async () => {
@@ -278,7 +280,7 @@ describe("Today screen layout", () => {
     expect(quiet).not.toHaveStyle({ backgroundColor: themeColors.primary.light });
   });
 
-  it("uses the new empty-slot copy, and 'Left open' once locked", async () => {
+  it("uses the new empty-slot copy, and 'Left open on purpose' once locked", async () => {
     mockStore = makeStore({ tasks: tasks("Walk") });
     const { rerender } = await render(<HomeScreen />);
     expect(screen.getAllByText("Add a task")).toHaveLength(2);
@@ -287,8 +289,8 @@ describe("Today screen layout", () => {
     mockStore = makeStore({ tasks: tasks("Walk"), todayLocked: true, todayLockSource: "manual" });
     await rerender(<HomeScreen />);
     expect(screen.queryByText("Add a task")).toBeNull();
-    expect(screen.getAllByText("Left open")).toHaveLength(2);
-    expect(screen.getAllByText("Nothing added today.")).toHaveLength(2);
+    expect(screen.getAllByText("Left open on purpose")).toHaveLength(2);
+    expect(screen.getAllByText("Room to breathe.")).toHaveLength(2);
   });
 });
 
@@ -612,10 +614,10 @@ describe("Brain dump flow", () => {
     await fireEvent.press(screen.getByTestId("brain-dump-entry"));
     expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), text);
-    await fireEvent.press(screen.getByRole("button", { name: /^Pick my/ }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
   }
 
-  it("sorts with the open slots and goal, adds the ticked picks, parks the rest, and closes", async () => {
+  it("sorts with the open slots and goal, adds the ticked picks, saves the rest, confirms, and closes", async () => {
     (sortBrainDump as jest.Mock).mockResolvedValue({
       result: { picks: ["Finish report", "Call mum"], parked: ["Buy shoes"], source: "ai" },
       notice: null,
@@ -638,6 +640,27 @@ describe("Brain dump flow", () => {
     expect(mockStore.addTasks).toHaveBeenCalledWith(["Finish report"]);
     expect(mockStore.parkTasks).toHaveBeenCalledWith(["Call mum", "Buy shoes"]);
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(
+      /Added 1\. 2 saved for later in Ideas\./,
+    );
+  });
+
+  it("saves picks that no longer fit (a slot filled while the sheet was open), and says so", async () => {
+    (sortBrainDump as jest.Mock).mockResolvedValue({
+      result: { picks: ["Finish report", "Call mum"], parked: ["Buy shoes"], source: "ai" },
+      notice: null,
+    });
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    const { rerender } = await render(<HomeScreen />);
+    await openAndWrite("all my stuff");
+    mockStore = makeStore({ tasks: tasks("Walk", "Stretch") });
+    await rerender(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Add 2 to today" }));
+    expect(mockStore.addTasks).toHaveBeenCalledWith(["Finish report"]);
+    expect(mockStore.parkTasks).toHaveBeenCalledWith(["Call mum", "Buy shoes"]);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(
+      /Added 1\. 2 saved for later in Ideas\./,
+    );
   });
 
   it("works offline end to end: the simple split, with the fallback notice when AI fails", async () => {
@@ -648,7 +671,8 @@ describe("Brain dump flow", () => {
     expect(screen.getByRole("checkbox", { name: "Book dentist" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Finish report" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Buy shoes" })).toBeChecked();
-    expect(screen.getByText("Parked for later (2)")).toBeOnTheScreen();
+    expect(screen.getByRole("checkbox", { name: "Water plants" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Call mum" })).not.toBeChecked();
     expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "Add 3 to today" }));
     expect(mockStore.addTasks).toHaveBeenCalledWith(["Book dentist", "Finish report", "Buy shoes"]);
@@ -666,9 +690,10 @@ describe("Brain dump flow", () => {
     await render(<HomeScreen />);
     await openAndWrite("a\nb\nc");
     expect(screen.getByTestId("brain-dump-notice")).toBeOnTheScreen();
-    // One open slot: one pick, the rest parked.
-    expect(screen.getAllByRole("checkbox", { name: /^[ABC]$/ })).toHaveLength(1);
-    expect(screen.getByText("Parked for later (2)")).toBeOnTheScreen();
+    // One open slot: one pick ticked, the rest saved (and blocked until unticked).
+    expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "B" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "C" })).toBeDisabled();
   });
 
   it.each([
@@ -770,11 +795,18 @@ describe("Break it down", () => {
     expect(requestBreakDown).toHaveBeenCalledWith({ task: "Clean kitchen", goalTitle: "Tidy home" });
     expect(screen.getByRole("button", { name: "Break down Clean kitchen" })).toBeDisabled();
     expect(screen.getByText("Breaking it down…")).toBeOnTheScreen();
-    // Only the task being broken down looks busy.
-    expect(screen.getByRole("button", { name: "Break down Walk" })).toBeEnabled();
+    // One at a time: the other card's link is disabled (but not busy) meanwhile.
+    expect(screen.getByRole("button", { name: "Break down Walk" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Break down Walk" })).not.toBeBusy();
 
     await act(async () => pending.resolve(["Clear counter", "Wipe"]));
-    expect(mockStore.setTaskSteps).toHaveBeenCalledWith("t0", ["Clear counter", "Wipe"]);
+    // Passes the text it was asked about, so an edit meanwhile drops the steps.
+    expect(mockStore.setTaskSteps).toHaveBeenCalledWith(
+      "t0",
+      ["Clear counter", "Wipe"],
+      "Clean kitchen",
+    );
+    expect(screen.getByRole("button", { name: "Break down Walk" })).toBeEnabled();
     expect(screen.queryByText("Breaking it down…")).toBeNull();
   });
 
@@ -813,7 +845,7 @@ describe("Break it down", () => {
     (requestBreakDown as jest.Mock).mockResolvedValueOnce(["c", "d"]);
     await fireEvent.press(screen.getByRole("button", { name: "Break down Walk" }));
     expect(requestBreakDown).toHaveBeenCalledTimes(2);
-    expect(mockStore.setTaskSteps).toHaveBeenLastCalledWith("t1", ["c", "d"]);
+    expect(mockStore.setTaskSteps).toHaveBeenLastCalledWith("t1", ["c", "d"], "Walk");
   });
 
   it("shows saved steps; toggling and clearing go to the store", async () => {
@@ -831,7 +863,7 @@ describe("Break it down", () => {
     expect(mockStore.clearTaskSteps).toHaveBeenCalledWith("t0");
   });
 
-  it("keeps steps tickable but not clearable once the day is locked", async () => {
+  it("keeps steps tickable and clearable once the day is locked", async () => {
     const withSteps = tasks("Clean kitchen");
     withSteps[0].steps = [
       { id: "s1", text: "Clear counter", done: false },
@@ -839,9 +871,10 @@ describe("Break it down", () => {
     ];
     mockStore = makeStore({ tasks: withSteps, todayLocked: true, todayLockSource: "manual" });
     await render(<HomeScreen />);
-    expect(screen.queryByRole("button", { name: "Clear steps" })).toBeNull();
     await fireEvent.press(screen.getByRole("checkbox", { name: "Step 2 of 2: Wipe" }));
     expect(mockStore.toggleTaskStep).toHaveBeenCalledWith("t0", "s2");
+    await fireEvent.press(screen.getByRole("button", { name: "Clear steps" }));
+    expect(mockStore.clearTaskSteps).toHaveBeenCalledWith("t0");
   });
 });
 

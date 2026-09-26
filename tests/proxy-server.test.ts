@@ -416,17 +416,14 @@ describe("proxy server", () => {
         socket.write(
           `POST ${PLAN_ROUTE} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n`,
         );
+        // Send just past the limit in one write and then keep the request open
+        // (no terminating chunk): only the server can end this exchange. We stop
+        // writing so no client bytes are in flight when the server closes; a
+        // close with unread data sends a TCP RST that can discard the 413 before
+        // we read it (the old interval pump flaked that way).
         const chunk = "a".repeat(8_000);
-        // Keep streaming well past the limit; the server should cut us off.
-        let sent = 0;
-        const pump = setInterval(() => {
-          if (socket.destroyed || sent > 50) {
-            clearInterval(pump);
-            return;
-          }
-          socket.write(`${chunk.length.toString(16)}\r\n${chunk}\r\n`);
-          sent += 1;
-        }, 1);
+        const chunks = Math.ceil((MAX_BODY_BYTES + 1) / chunk.length);
+        socket.write(`${chunk.length.toString(16)}\r\n${chunk}\r\n`.repeat(chunks));
       });
       expect(response).toContain("413");
       expect(response.toLowerCase()).toContain("connection: close");

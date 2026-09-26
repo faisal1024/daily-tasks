@@ -446,6 +446,17 @@ describe("store: task steps", () => {
     expect(result.current.state.tasks[1].steps).toHaveLength(2);
   });
 
+  it("drops steps from a slow break-down if the task was edited meanwhile", async () => {
+    const { result } = await seedWith();
+    await act(async () => result.current.addTasks(["Clean kitchen"]));
+    const id = result.current.state.tasks[0].id;
+    await act(async () => result.current.editTask(id, "Clean bathroom"));
+    await act(async () => result.current.setTaskSteps(id, ["a", "b"], "Clean kitchen"));
+    expect(result.current.state.tasks[0]).not.toHaveProperty("steps");
+    await act(async () => result.current.setTaskSteps(id, ["a", "b"], "Clean bathroom"));
+    expect(result.current.state.tasks[0].steps).toHaveLength(2);
+  });
+
   it("step checklists still work after the day is locked", async () => {
     const { result } = await seedWith();
     await act(async () => result.current.addTasks(["Clean"]));
