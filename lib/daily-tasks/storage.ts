@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import { isAiFailureKind, restorePlanStatus } from "./ai-status";
 import { todayKey } from "./date";
 import { DEFAULT_JOURNEY, type Journey } from "./journey";
 import type {
@@ -381,7 +382,8 @@ function normalizeJourney(value: unknown): Journey {
   };
 }
 
-function normalizeState(value: unknown): AppState | null {
+/** Validate and repair persisted state (exported for tests). */
+export function normalizeState(value: unknown): AppState | null {
   if (!isRecord(value)) return null;
 
   return {
@@ -413,16 +415,15 @@ function normalizeState(value: unknown): AppState | null {
     momentumProfile: normalizeMomentumProfile(value.momentumProfile),
     momentumPlan: normalizeMomentumPlan(value.momentumPlan),
     momentumSettings: normalizeMomentumSettings(value.momentumSettings),
-    momentumPlanStatus:
-      value.momentumPlanStatus === "loading" ||
-      value.momentumPlanStatus === "ready" ||
-      value.momentumPlanStatus === "error"
-        ? value.momentumPlanStatus
-        : normalizeMomentumPlan(value.momentumPlan)
-          ? "ready"
-          : "idle",
-    momentumPlanError:
-      typeof value.momentumPlanError === "string" ? value.momentumPlanError : null,
+    // A saved "loading" means the app died mid-request; restorePlanStatus turns
+    // it back into ready/idle so "New ideas" and the daily auto-fetch work.
+    momentumPlanStatus: restorePlanStatus(
+      value.momentumPlanStatus,
+      normalizeMomentumPlan(value.momentumPlan) !== null,
+      value.momentumPlanError,
+    ),
+    // Older builds saved raw error text here; only keep a known failure kind.
+    momentumPlanError: isAiFailureKind(value.momentumPlanError) ? value.momentumPlanError : null,
     adaptationSnapshot: normalizeAdaptationSnapshot(value.adaptationSnapshot),
     completedMilestoneIds: Array.isArray(value.completedMilestoneIds)
       ? value.completedMilestoneIds.filter((id): id is string => typeof id === "string")

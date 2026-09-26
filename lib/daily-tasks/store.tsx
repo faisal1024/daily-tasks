@@ -16,6 +16,13 @@ import {
   requestNotificationPermission,
   syncNotifications,
 } from "./notifications";
+import {
+  classifyAiFailure,
+  isFreshAiPlan,
+  planAfterAiFailure,
+  shouldRetryAiOnForeground,
+  type AiFailureKind,
+} from "./ai-status";
 import { autoLockEligibleTaskCount, shouldAutoLockToday } from "./locking";
 import {
   buildFallbackMomentumPlan,
@@ -83,7 +90,7 @@ type Action =
   | { type: "regenerateMomentumPlan"; now: Date }
   | { type: "requestMomentumPlanStarted" }
   | { type: "requestMomentumPlanSucceeded"; plan: NonNullable<AppState["momentumPlan"]> }
-  | { type: "requestMomentumPlanFailed"; message: string; now: Date }
+  | { type: "requestMomentumPlanFailed"; kind: AiFailureKind; goalTitle: string | null; now: Date }
   | {
       type: "setMomentumSetting";
       key: keyof AppState["momentumSettings"];
@@ -127,6 +134,11 @@ function reducer(state: AppState, action: Action): AppState {
     case "rollover": {
       const next = applyRollover(state, action.today);
       if (!isMomentumProfileComplete(next.momentumProfile)) return next;
+      // Launching again on the same day keeps today's AI plan instead of
+      // flashing a template and paying for a fresh AI call.
+      if (isFreshAiPlan(next.momentumPlan, next.momentumProfile.goalTitle, action.today)) {
+        return { ...next, momentumPlanStatus: "ready", momentumPlanError: null };
+      }
       return {
         ...next,
         momentumPlan: buildMomentumPlan({
@@ -419,6 +431,11 @@ function reducer(state: AppState, action: Action): AppState {
         momentumPlanError: null,
       };
     case "requestMomentumPlanSucceeded":
+      // The goal changed while this request was in flight: drop the stale plan.
+      // Going back to "ready" lets the auto-fetch run for the new goal.
+      if (action.plan.goalTitle !== state.momentumProfile.goalTitle) {
+        return { ...state, momentumPlanStatus: "ready", momentumPlanError: null };
+      }
       return {
         ...state,
         momentumPlan: action.plan,
@@ -426,17 +443,24 @@ function reducer(state: AppState, action: Action): AppState {
         momentumPlanError: null,
       };
     case "requestMomentumPlanFailed":
+      // Same stale-goal rule as success: a failure for the old goal says nothing
+      // about the new one.
+      if (action.goalTitle !== state.momentumProfile.goalTitle) {
+        return { ...state, momentumPlanStatus: "ready", momentumPlanError: null };
+      }
       return {
         ...state,
-        momentumPlan:
+        // Keep whatever ideas are showing; only fall back when there are none.
+        momentumPlan: planAfterAiFailure(state.momentumPlan, () =>
           buildFallbackMomentumPlan({
             profile: state.momentumProfile,
             history: state.history,
             settings: state.momentumSettings,
             now: action.now,
-          }) ?? state.momentumPlan,
+          }),
+        ),
         momentumPlanStatus: "error",
-        momentumPlanError: action.message,
+        momentumPlanError: action.kind,
       };
     case "setMomentumSetting": {
       const momentumSettings = {
@@ -739,6 +763,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const regenerateMomentumPlan = useCallback(() => {
     dispatch({ type: "regenerateMomentumPlan", now: new Date() });
   }, []);
+  // In memory only: after a restart a restored transient error retries on the
+  // first foreground, which is intended (the network may have recovered).
+  const lastAiFailureAt = useRef<number | null>(null);
   const requestMomentumPlan = useCallback(async () => {
     dispatch({ type: "requestMomentumPlanStarted" });
     const now = new Date();
@@ -751,9 +778,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       });
       dispatch({ type: "requestMomentumPlanSucceeded", plan });
     } catch (error) {
+      lastAiFailureAt.current = Date.now();
       dispatch({
         type: "requestMomentumPlanFailed",
-        message: error instanceof Error ? error.message : "Momentum AI is unavailable.",
+        kind: classifyAiFailure(error),
+        goalTitle: state.momentumProfile.goalTitle,
         now,
       });
     }
@@ -772,11 +801,39 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       today,
       goalTitle: state.momentumProfile.goalTitle,
       lastFetchedKey: lastAiPlanFetch.current,
+      hasFreshAiPlan: isFreshAiPlan(state.momentumPlan, state.momentumProfile.goalTitle, today),
     });
     if (!key) return;
     lastAiPlanFetch.current = key;
     void requestMomentumPlan();
-  }, [ready, today, state.momentumProfile, state.momentumPlanStatus, requestMomentumPlan]);
+  }, [
+    ready,
+    today,
+    state.momentumProfile,
+    state.momentumPlan,
+    state.momentumPlanStatus,
+    requestMomentumPlan,
+  ]);
+
+  // After a transient failure (timeout, network, cold server), retry when the
+  // user comes back to the app, at most once per cooldown.
+  useEffect(() => {
+    const onChange = (status: AppStateStatus) => {
+      if (status !== "active") return;
+      if (
+        shouldRetryAiOnForeground({
+          status: state.momentumPlanStatus,
+          failureKind: state.momentumPlanError,
+          lastFailureAt: lastAiFailureAt.current,
+          now: Date.now(),
+        })
+      ) {
+        void requestMomentumPlan();
+      }
+    };
+    const sub = RNAppState.addEventListener("change", onChange);
+    return () => sub.remove();
+  }, [state.momentumPlanStatus, state.momentumPlanError, requestMomentumPlan]);
 
   const setMomentumSetting = useCallback(
     <K extends keyof AppState["momentumSettings"]>(

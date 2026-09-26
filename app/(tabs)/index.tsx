@@ -26,6 +26,7 @@ import { TaskSuggestions } from "@/components/daily-tasks/task-suggestions";
 import { UpdateBanner } from "@/components/daily-tasks/update-banner";
 import { useAppUpdate } from "@/hooks/use-app-update";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
+import { aiFailureMessage, suggestionsHint } from "@/lib/daily-tasks/ai-status";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
@@ -190,6 +191,13 @@ export default function HomeScreen() {
             remainingSlots={remainingSlots}
             canRegenerate={canRegenerate}
             regenerating={state.momentumPlanStatus === "loading"}
+            failureMessage={
+              state.momentumPlanStatus === "error"
+                ? aiFailureMessage(state.momentumPlanError, {
+                    showingAiIdeas: state.momentumPlan?.provider === "ai",
+                  })
+                : null
+            }
             onAdd={(text) => {
               impact(Haptics.ImpactFeedbackStyle.Light);
               addTask(text);
@@ -419,6 +427,7 @@ function MomentumSuggestionCard({
   remainingSlots,
   canRegenerate,
   regenerating,
+  failureMessage,
   onAdd,
   onAddAll,
   onRegenerate,
@@ -430,6 +439,7 @@ function MomentumSuggestionCard({
   remainingSlots: number;
   canRegenerate: boolean;
   regenerating: boolean;
+  failureMessage: string | null;
   onAdd: (text: string) => void;
   onAddAll: () => void;
   onRegenerate: () => void;
@@ -469,11 +479,18 @@ function MomentumSuggestionCard({
         >
           Pick what works toward {goalTitle ?? "your goal"}
         </Text>
-        <Text className="text-base text-muted">
-          Add any you like — one, two, or all three. You can also write your own below.
-        </Text>
+        <Text className="text-base text-muted">{suggestionsHint(suggestions.length)}</Text>
         {adaptationReason && (
           <Text className="text-xs text-muted">{adaptationReason}</Text>
+        )}
+        {failureMessage && (
+          <Text
+            className="text-xs"
+            style={{ color: colors.muted }}
+            accessibilityLiveRegion="polite"
+          >
+            {failureMessage}
+          </Text>
         )}
       </View>
 

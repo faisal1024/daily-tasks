@@ -9,165 +9,42 @@
 //
 // Adding a provider does not touch this file — see server/providers/index.mjs.
 
-import http from "node:http";
-
 import { loadLocalEnv } from "./load-env.mjs";
-import {
-  RESPONSE_SCHEMA,
-  SYSTEM_PROMPT,
-  buildPrompt,
-  isValidPlan,
-  validatePayload,
-} from "./providers/plan-contract.mjs";
+import { PLAN_ROUTE, createProxyServer, readConfig } from "./app.mjs";
 import { DEFAULT_PROVIDER_ID, getProvider } from "./providers/index.mjs";
 
 // Pick up .env.local / .env for local dev before reading any config.
 loadLocalEnv();
 
-const PORT = Number(process.env.PORT ?? 8787);
-const PROVIDER_NAME = process.env.MOMENTUM_AI_PROVIDER ?? DEFAULT_PROVIDER_ID;
-const ROUTE = "/api/momentum/plan";
+const config = readConfig(process.env);
+const providerName = config.providerName ?? DEFAULT_PROVIDER_ID;
 
 let provider;
 try {
-  provider = getProvider(PROVIDER_NAME);
+  provider = getProvider(providerName);
 } catch (error) {
   console.error(`[momentum-ai] ${error.message}`);
   process.exit(1);
 }
 
-// Optional shared secret: when PROXY_SHARED_SECRET is set, requests must send a
-// matching `x-momentum-secret` header. Left unset for local dev.
-const SHARED_SECRET = process.env.PROXY_SHARED_SECRET ?? "";
-// Simple in-memory fixed-window rate limit per client IP.
-const RATE_LIMIT = Number(process.env.RATE_LIMIT_PER_MIN ?? 30);
-const rateWindow = new Map();
-
-function isRateLimited(ip) {
-  const now = Date.now();
-  const windowStart = now - (now % 60_000);
-  const entry = rateWindow.get(ip);
-  if (!entry || entry.windowStart !== windowStart) {
-    rateWindow.set(ip, { windowStart, count: 1 });
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > RATE_LIMIT;
+// Hosted deploys (Render sets RENDER=true) should always require the shared
+// secret; without it the endpoint is open to anyone who finds the URL.
+if (!config.sharedSecret && (process.env.RENDER || process.env.NODE_ENV === "production")) {
+  console.warn(
+    "[momentum-ai] WARNING: PROXY_SHARED_SECRET is not set; the AI endpoint is open to anyone.",
+  );
 }
 
-const server = http.createServer(async (req, res) => {
-  setCorsHeaders(res);
+if (config.sharedSecret && config.secretMode === "log") {
+  console.warn("[momentum-ai] SECRET_MODE=log: requests without the secret are allowed (rollout mode).");
+}
+if (config.debugClientIp) {
+  console.warn("[momentum-ai] DEBUG_CLIENT_IP=1: /debug/client-ip is enabled. Turn it off after verifying.");
+}
 
-  if (req.method === "OPTIONS") {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-
-  // Health check for hosting platforms (GET, unauthenticated).
-  if (req.method === "GET" && req.url === "/health") {
-    sendJson(res, 200, { ok: true, provider: provider.id });
-    return;
-  }
-
-  if (req.method !== "POST" || req.url !== ROUTE) {
-    sendJson(res, 404, { error: "Not found" });
-    return;
-  }
-
-  if (SHARED_SECRET && req.headers["x-momentum-secret"] !== SHARED_SECRET) {
-    sendJson(res, 401, { error: "Unauthorized" });
-    return;
-  }
-
-  const clientIp =
-    (req.headers["x-forwarded-for"]?.toString().split(",")[0].trim()) ||
-    req.socket.remoteAddress ||
-    "unknown";
-  if (isRateLimited(clientIp)) {
-    sendJson(res, 429, { error: "Too many requests" });
-    return;
-  }
-
-  if (!provider.isConfigured()) {
-    sendJson(res, 500, { error: provider.missingConfigMessage() });
-    return;
-  }
-
-  try {
-    let payload;
-    try {
-      payload = await readJson(req);
-    } catch {
-      // Body too large or malformed JSON is a client error, not a provider one.
-      sendJson(res, 400, { error: "Invalid request body" });
-      return;
-    }
-    const validationError = validatePayload(payload);
-    if (validationError) {
-      sendJson(res, 400, { error: validationError });
-      return;
-    }
-
-    const plan = await provider.generatePlan({
-      system: SYSTEM_PROMPT,
-      user: buildPrompt(payload),
-      schema: RESPONSE_SCHEMA,
-    });
-
-    if (!isValidPlan(plan)) {
-      console.error(`[momentum-ai] ${provider.id} returned an invalid plan`, plan);
-      sendJson(res, 502, { error: "AI response did not include a valid plan" });
-      return;
-    }
-
-    sendJson(res, 200, plan);
-  } catch (error) {
-    console.error(`[momentum-ai] ${provider.id} proxy error`, error);
-    sendJson(res, 502, { error: "Momentum AI request failed" });
-  }
-});
-
-server.listen(PORT, () => {
+const { server } = createProxyServer({ provider, config });
+server.listen(config.port, () => {
   console.log(
-    `Momentum AI proxy listening on http://localhost:${PORT}${ROUTE} (provider: ${provider.describe()})`,
+    `Momentum AI proxy listening on http://localhost:${config.port}${PLAN_ROUTE} (provider: ${provider.describe()})`,
   );
 });
-
-function readJson(req) {
-  return new Promise((resolve, reject) => {
-    let raw = "";
-    req.setEncoding("utf8");
-    req.on("data", (chunk) => {
-      raw += chunk;
-      if (raw.length > 20_000) {
-        reject(new Error("Request body too large"));
-        req.destroy();
-      }
-    });
-    req.on("end", () => {
-      try {
-        resolve(JSON.parse(raw || "{}"));
-      } catch (error) {
-        reject(error);
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
-function sendJson(res, status, body) {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
-}
-
-function setCorsHeaders(res) {
-  // No wildcard default: set CORS_ORIGIN explicitly (e.g. "*" for local dev, or
-  // the app's origin in production). When unset, no cross-origin header is sent.
-  const origin = process.env.CORS_ORIGIN ?? "";
-  if (origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-momentum-secret");
-}
