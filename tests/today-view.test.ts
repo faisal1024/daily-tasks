@@ -16,6 +16,7 @@ import {
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
 import {
   THINKING_HINT_DELAY_MS,
+  clockTimeOf,
   formatClockTime,
   ideasEntry,
   ideasSource,
@@ -57,6 +58,21 @@ describe("todayProgress", () => {
     expect(todayProgress(0, 1, { locked: true }).label).toBe("0 of 1 done");
   });
 
+  it("gives VoiceOver a spoken label with a comma instead of the middle dot", () => {
+    expect(todayProgress(0, 1).spokenLabel).toBe("0 of 1 done, 2 open");
+    expect(todayProgress(1, 2).spokenLabel).toBe("1 of 2 done, 1 open");
+    expect(todayProgress(2, 3).spokenLabel).toBe("2 of 3 done");
+    expect(todayProgress(0, 1, { locked: true }).spokenLabel).toBe("0 of 1 done");
+    expect(todayProgress(0, 0).spokenLabel).toBe(todayProgress(0, 0).label);
+    for (const [c, t] of [
+      [0, 1],
+      [1, 2],
+      [0, 2],
+    ]) {
+      expect(todayProgress(c, t).spokenLabel).not.toMatch(/·/);
+    }
+  });
+
   it("labels progress and clamps bad counts", () => {
     expect(todayProgress(2, 3).label).toBe("2 of 3 done");
     expect(todayProgress(5, 3)).toMatchObject({ completed: 3, label: "3 of 3 done" });
@@ -69,6 +85,12 @@ describe("todayStatus", () => {
 
   it("doesn't offer to lock an empty day", () => {
     expect(todayStatus({ ...base, taskCount: 0 })).toMatchObject({ kind: "empty", canLock: false });
+  });
+
+  it("points an empty day at picking or the ideas below", () => {
+    expect(todayStatus({ ...base, taskCount: 0 }).text).toBe(
+      "Pick what matters, or grab an idea below.",
+    );
   });
 
   it("offers Lock in while choosing, with copy for a full list", () => {
@@ -331,17 +353,40 @@ describe("ideasEntry", () => {
 
 describe("lockConfirmation", () => {
   it("explains what locking does and how to undo it", () => {
-    const { title, message } = lockConfirmation(3);
+    const { title, message } = lockConfirmation(2);
     expect(title).toBe("Lock in today?");
     expect(message).toMatch(/still check tasks off/);
     expect(message).toMatch(/add, edit or remove/);
     expect(message).toMatch(/Settings/);
+  });
+
+  it("keeps it light when all three are chosen (nothing is lost by locking)", () => {
+    const { title, message } = lockConfirmation(3);
+    expect(title).toBe("Lock in today?");
+    expect(message).toBe(
+      "You can still check tasks off. Editing pauses until tomorrow (unlock in Settings).",
+    );
     expect(message).not.toMatch(/empty slot/);
+    expect(message).not.toMatch(/won't be able/);
   });
 
   it("warns that empty slots stay empty", () => {
     expect(lockConfirmation(2).message).toContain("Your empty slot stays empty.");
     expect(lockConfirmation(1).message).toContain("Your empty slots stay empty.");
+  });
+});
+
+describe("clockTimeOf", () => {
+  it("formats an ISO timestamp as the local clock time", () => {
+    expect(clockTimeOf(new Date(2026, 8, 26, 12, 3).toISOString())).toBe("12:03 PM");
+    expect(clockTimeOf(new Date(2026, 8, 26, 0, 0).toISOString())).toBe("12:00 AM");
+    expect(clockTimeOf(new Date(2026, 8, 26, 21, 45).toISOString())).toBe("9:45 PM");
+  });
+
+  it("returns null for missing or invalid timestamps", () => {
+    expect(clockTimeOf(null)).toBeNull();
+    expect(clockTimeOf("")).toBeNull();
+    expect(clockTimeOf("not a date")).toBeNull();
   });
 });
 

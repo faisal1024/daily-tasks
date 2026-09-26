@@ -1,0 +1,251 @@
+// Shared proxy transport (postToProxy) and sibling-route URL derivation.
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  AI_REQUEST_TIMEOUT_MS,
+  PROXY_SECRET_HEADER,
+  getMomentumAiProxyUrl,
+  getMomentumProxySecret,
+  postToProxy,
+  proxyRouteUrl,
+} from "../lib/daily-tasks/ai-client";
+import { MomentumAiError } from "../lib/daily-tasks/ai-status";
+import * as momentumAi from "../lib/daily-tasks/momentum-ai";
+
+const PLAN_URL = "https://momentum.onrender.com/api/momentum/plan";
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
+
+describe("proxyRouteUrl", () => {
+  it("returns null when no proxy is configured", () => {
+    expect(proxyRouteUrl(null, "brain-dump")).toBeNull();
+    expect(proxyRouteUrl("", "break-down")).toBeNull();
+    expect(proxyRouteUrl(null, "plan")).toBeNull();
+  });
+
+  it("swaps the plan segment for a sibling route", () => {
+    expect(proxyRouteUrl(PLAN_URL, "brain-dump")).toBe(
+      "https://momentum.onrender.com/api/momentum/brain-dump",
+    );
+    expect(proxyRouteUrl(PLAN_URL, "break-down")).toBe(
+      "https://momentum.onrender.com/api/momentum/break-down",
+    );
+    expect(proxyRouteUrl(PLAN_URL, "plan")).toBe(PLAN_URL);
+  });
+
+  it("keeps a path prefix, port and http scheme", () => {
+    expect(proxyRouteUrl("http://192.168.1.5:8787/v2/api/momentum/plan", "break-down")).toBe(
+      "http://192.168.1.5:8787/v2/api/momentum/break-down",
+    );
+  });
+
+  it("drops a trailing slash after plan", () => {
+    expect(proxyRouteUrl(`${PLAN_URL}/`, "brain-dump")).toBe(
+      "https://momentum.onrender.com/api/momentum/brain-dump",
+    );
+  });
+
+  it("carries a query string over to the sibling route", () => {
+    expect(proxyRouteUrl(`${PLAN_URL}?region=eu&v=2`, "brain-dump")).toBe(
+      "https://momentum.onrender.com/api/momentum/brain-dump?region=eu&v=2",
+    );
+    expect(proxyRouteUrl(`${PLAN_URL}/?v=2`, "break-down")).toBe(
+      "https://momentum.onrender.com/api/momentum/break-down?v=2",
+    );
+  });
+
+  it("returns a non-plan URL unchanged for the plan route but null for helpers", () => {
+    const custom = "https://example.com/custom-endpoint";
+    expect(proxyRouteUrl(custom, "plan")).toBe(custom);
+    expect(proxyRouteUrl(custom, "brain-dump")).toBeNull();
+    expect(proxyRouteUrl(custom, "break-down")).toBeNull();
+  });
+
+  it("doesn't treat look-alike paths as the plan route", () => {
+    for (const url of [
+      "https://x.test/api/momentum/planner",
+      "https://x.test/api/momentum/plans",
+      "https://x.test/api/momentum",
+      "https://x.test/api/momentum/brain-dump",
+      "https://x.test/api/momentum/plan/extra",
+      "https://x.test/",
+    ]) {
+      expect(proxyRouteUrl(url, "brain-dump"), url).toBeNull();
+    }
+  });
+
+  // Regression (fixed in 0420e91): only the path may name the plan route.
+  it("doesn't match /api/momentum/plan inside a query string", () => {
+    expect(proxyRouteUrl("https://x.test/gateway?to=/api/momentum/plan", "brain-dump")).toBeNull();
+  });
+});
+
+describe("proxy URL and secret from the build env", () => {
+  it("reads the proxy URL, or null when unset", () => {
+    vi.stubEnv("EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL", PLAN_URL);
+    expect(getMomentumAiProxyUrl()).toBe(PLAN_URL);
+    vi.stubEnv("EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL", undefined);
+    expect(getMomentumAiProxyUrl()).toBeNull();
+  });
+
+  it("treats an empty secret as unset", () => {
+    vi.stubEnv("EXPO_PUBLIC_MOMENTUM_PROXY_SECRET", "");
+    expect(getMomentumProxySecret()).toBeNull();
+    vi.stubEnv("EXPO_PUBLIC_MOMENTUM_PROXY_SECRET", "abc");
+    expect(getMomentumProxySecret()).toBe("abc");
+  });
+
+  it("momentum-ai re-exports the same helpers and constants (one source of truth)", () => {
+    expect(momentumAi.getMomentumAiProxyUrl).toBe(getMomentumAiProxyUrl);
+    expect(momentumAi.getMomentumProxySecret).toBe(getMomentumProxySecret);
+    expect(momentumAi.PROXY_SECRET_HEADER).toBe(PROXY_SECRET_HEADER);
+    expect(momentumAi.AI_REQUEST_TIMEOUT_MS).toBe(AI_REQUEST_TIMEOUT_MS);
+    expect(PROXY_SECRET_HEADER).toBe("x-momentum-secret");
+    expect(AI_REQUEST_TIMEOUT_MS).toBe(60_000);
+  });
+});
+
+describe("postToProxy", () => {
+  const post = (fetchImpl: unknown, extra: Partial<Parameters<typeof postToProxy>[0]> = {}) =>
+    postToProxy({
+      url: "https://proxy.test/api/momentum/break-down",
+      payload: { task: "Clean" },
+      proxySecret: null,
+      fetchImpl: fetchImpl as typeof fetch,
+      ...extra,
+    });
+
+  it("POSTs JSON to the given URL and returns the parsed object", async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({ steps: [] }));
+    await expect(post(fetchImpl)).resolves.toEqual({ steps: [] });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://proxy.test/api/momentum/break-down");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({ task: "Clean" }));
+    expect(init.headers).toEqual({ "Content-Type": "application/json" });
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("sends the secret header only when a secret is given", async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({}));
+    await post(fetchImpl, { proxySecret: "s3cret" });
+    expect(fetchImpl.mock.calls[0][1].headers).toEqual({
+      "Content-Type": "application/json",
+      [PROXY_SECRET_HEADER]: "s3cret",
+    });
+    await post(fetchImpl, { proxySecret: "" });
+    expect(fetchImpl.mock.calls[1][1].headers).not.toHaveProperty(PROXY_SECRET_HEADER);
+  });
+
+  it("defaults the secret to the build env", async () => {
+    vi.stubEnv("EXPO_PUBLIC_MOMENTUM_PROXY_SECRET", "from-env");
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({}));
+    await postToProxy({ url: "https://p.test/x", payload: {}, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect((fetchImpl.mock.calls[0][1].headers as Record<string, string>)[PROXY_SECRET_HEADER]).toBe(
+      "from-env",
+    );
+  });
+
+  it.each([
+    [401, { error: "Unauthorized" }, "unauthorized"],
+    [403, null, "unauthorized"],
+    [429, { error: "Too many requests" }, "rate_limited"],
+    [503, { error: "Service is busy, try again later" }, "busy"],
+    [503, { error: "Down for maintenance" }, "unavailable"],
+    [502, { error: "AI response did not include a valid break-down" }, "unavailable"],
+    [500, { error: "OPENAI_API_KEY is not configured" }, "unavailable"],
+    [400, { error: "Missing or too long task" }, "unavailable"],
+  ])("maps HTTP %i to a typed error", async (status, body, kind) => {
+    const fetchImpl = vi.fn(async () => jsonResponse(body, status));
+    const error = await post(fetchImpl).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(MomentumAiError);
+    expect(error).toMatchObject({ kind, status });
+  });
+
+  it("handles a non-JSON error page from the host", async () => {
+    const fetchImpl = vi.fn(async () => new Response("<html>Bad gateway</html>", { status: 503 }));
+    await expect(post(fetchImpl)).rejects.toMatchObject({ kind: "unavailable", status: 503 });
+  });
+
+  it("classifies a malformed success body as an invalid response", async () => {
+    const fetchImpl = vi.fn(async () => new Response("{nope", { status: 200 }));
+    await expect(post(fetchImpl)).rejects.toMatchObject({ kind: "invalid_response" });
+  });
+
+  it("returns {} for JSON that isn't an object", async () => {
+    for (const body of [null, "text", 42, true]) {
+      const fetchImpl = vi.fn(async () => jsonResponse(body));
+      await expect(post(fetchImpl)).resolves.toEqual({});
+    }
+  });
+
+  it("maps a thrown fetch to a network error keeping its message", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError("Network request failed");
+    });
+    await expect(post(fetchImpl)).rejects.toMatchObject({
+      kind: "network",
+      message: "Network request failed",
+    });
+    const weird = vi.fn(async () => {
+      throw "string thrown";
+    });
+    await expect(post(weird)).rejects.toMatchObject({ kind: "network" });
+  });
+
+  it("aborts after the timeout and reports it as a timeout", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const fetchImpl = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          signal = init.signal ?? undefined;
+          init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        }),
+    );
+    const pending = post(fetchImpl, { timeoutMs: 5_000 });
+    const assertion = expect(pending).rejects.toMatchObject({ kind: "timeout" });
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await assertion;
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("uses the 60s default timeout", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        }),
+    );
+    let settled = false;
+    const pending = post(fetchImpl).finally(() => {
+      settled = true;
+    });
+    pending.catch(() => {});
+    await vi.advanceTimersByTimeAsync(AI_REQUEST_TIMEOUT_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(pending).rejects.toMatchObject({ kind: "timeout" });
+  });
+
+  it("clears its timer after success and after failure", async () => {
+    vi.useFakeTimers();
+    await post(vi.fn(async () => jsonResponse({})));
+    expect(vi.getTimerCount()).toBe(0);
+    await post(vi.fn(async () => jsonResponse({}, 429))).catch(() => {});
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});

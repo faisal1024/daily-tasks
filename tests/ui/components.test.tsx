@@ -37,8 +37,9 @@ describe("TodayHeader progress label", () => {
     await render(
       <TodayHeader greeting="Hi" progress={todayProgress(0, 1)} dayStreak={0} level={1} />,
     );
+    // Spoken with a comma: VoiceOver would read the middle dot aloud.
     expect(screen.getByRole("progressbar")).toHaveAccessibilityValue({
-      text: "0 of 1 done · 2 open",
+      text: "0 of 1 done, 2 open",
     });
     // The visible label is hidden from VoiceOver so it isn't read twice.
     expect(screen.queryByText("0 of 1 done · 2 open")).toBeNull();
@@ -56,7 +57,8 @@ describe("AddTaskRow", () => {
     expect(screen.getByText("Something you'll stand behind today.")).toBeOnTheScreen();
     await rerender(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} disabled />);
     expect(screen.getByText("Left open")).toBeOnTheScreen();
-    expect(screen.getByText("Today is set.")).toBeOnTheScreen();
+    expect(screen.getByText("Nothing added today.")).toBeOnTheScreen();
+    expect(screen.queryByText("Today is set.")).toBeNull();
   });
 
   it("adds trimmed text typed into the slot", async () => {
