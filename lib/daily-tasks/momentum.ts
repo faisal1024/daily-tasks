@@ -355,22 +355,29 @@ function adaptationReason(
   return "Recent rhythm looks steady enough to maintain.";
 }
 
+/**
+ * Milestone ids by position, shared by template and AI plans. Completion is
+ * tracked by id across daily plan refreshes, so a plan's 1st/2nd/3rd milestone
+ * must always carry the same id whichever source built it.
+ */
+export const MILESTONE_IDS = ["milestone_start", "milestone_repeat", "milestone_grow"] as const;
+
 export function buildMilestones(goalTitle: string): MomentumMilestone[] {
   return [
     {
-      id: "milestone_start",
+      id: MILESTONE_IDS[0],
       title: "Start small",
       description: `Build the first visible rhythm for ${goalTitle}.`,
       completedAt: null,
     },
     {
-      id: "milestone_repeat",
+      id: MILESTONE_IDS[1],
       title: "Repeat the rhythm",
       description: "Use a few steady days to make progress feel normal.",
       completedAt: null,
     },
     {
-      id: "milestone_grow",
+      id: MILESTONE_IDS[2],
       title: "Grow the challenge",
       description: "Increase the size only after the habit has evidence.",
       completedAt: null,

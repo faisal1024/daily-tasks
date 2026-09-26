@@ -259,8 +259,8 @@ describe("requestMomentumAiPlan: response parsing", () => {
       ...PLAN,
       milestones: [{ id: "q", title: "One (reworded)" }, { title: "Two" }],
     });
-    expect(first.milestones.map((m) => m.id)).toEqual(["m1", "m2"]);
-    expect(second.milestones.map((m) => m.id)).toEqual(["m1", "m2"]);
+    expect(first.milestones.map((m) => m.id)).toEqual(["milestone_start", "milestone_repeat"]);
+    expect(second.milestones.map((m) => m.id)).toEqual(["milestone_start", "milestone_repeat"]);
   });
 
   it("caps milestone title and description length", async () => {
@@ -297,9 +297,9 @@ describe("requestMomentumAiPlan: response parsing", () => {
       ],
     });
     expect(plan.milestones).toEqual([
-      { id: "m1", title: "One", description: "", completedAt: null },
-      { id: "m2", title: "Two", description: "", completedAt: null },
-      { id: "m3", title: "Three", description: "", completedAt: null },
+      { id: "milestone_start", title: "One", description: "", completedAt: null },
+      { id: "milestone_repeat", title: "Two", description: "", completedAt: null },
+      { id: "milestone_grow", title: "Three", description: "", completedAt: null },
     ]);
   });
 

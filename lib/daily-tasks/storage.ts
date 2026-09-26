@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { isAiFailureKind, restorePlanStatus } from "./ai-status";
 import { todayKey } from "./date";
+import { migrateCompletedMilestoneIds, migrateMilestoneId } from "./milestones";
 import { DEFAULT_JOURNEY, type Journey } from "./journey";
 import type {
   AppState,
@@ -257,7 +258,7 @@ function normalizeMilestone(value: unknown): MomentumMilestone | null {
   }
 
   return {
-    id: value.id,
+    id: migrateMilestoneId(value.id),
     title: value.title,
     description: typeof value.description === "string" ? value.description : "",
     completedAt: typeof value.completedAt === "string" ? value.completedAt : null,
@@ -426,13 +427,17 @@ export function normalizeState(value: unknown): AppState | null {
     momentumPlanError: isAiFailureKind(value.momentumPlanError) ? value.momentumPlanError : null,
     adaptationSnapshot: normalizeAdaptationSnapshot(value.adaptationSnapshot),
     completedMilestoneIds: Array.isArray(value.completedMilestoneIds)
-      ? value.completedMilestoneIds.filter((id): id is string => typeof id === "string")
+      ? migrateCompletedMilestoneIds(
+          value.completedMilestoneIds.filter((id): id is string => typeof id === "string"),
+        )
       : [],
     pendingMilestoneCelebration:
       typeof value.pendingMilestoneCelebration === "string"
         ? value.pendingMilestoneCelebration
         : null,
     journey: normalizeJourney(value.journey),
+    lastReviewPromptAt:
+      typeof value.lastReviewPromptAt === "string" ? value.lastReviewPromptAt : null,
   };
 }
 
@@ -478,6 +483,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     completedMilestoneIds: [],
     pendingMilestoneCelebration: null,
     journey: DEFAULT_JOURNEY,
+    lastReviewPromptAt: null,
   };
 }
 

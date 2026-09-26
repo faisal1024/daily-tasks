@@ -166,6 +166,8 @@ export interface AppState {
   // Title of a just-completed milestone awaiting a celebration, or null.
   pendingMilestoneCelebration: string | null;
   journey: Journey;
+  // When we last asked for an App Store rating (ISO), or null if never.
+  lastReviewPromptAt: string | null;
 }
 
 export const GOAL_OPTIONS: string[] = [

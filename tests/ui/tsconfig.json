@@ -1,0 +1,10 @@
+{
+  // Jest globals (describe/it/expect/jest) are only in scope for the UI tests.
+  // The root tsconfig excludes tests/ui; `npm run check` typechecks both.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "jest", "nativewind/types"]
+  },
+  "include": ["./**/*.ts", "./**/*.tsx", "../../expo-env.d.ts", "../../nativewind-env.d.ts"],
+  "exclude": []
+}

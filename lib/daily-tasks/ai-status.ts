@@ -133,9 +133,10 @@ export function planAfterAiFailure(
 
 /** Copy under the suggestions header, adapted to how many ideas are showing. */
 export function suggestionsHint(count: number): string {
-  if (count <= 1) return "Add it if it fits, or write your own below.";
-  if (count === 2) return "Add one or both, or write your own below.";
-  return "Add any you like — one, two, or all three. You can also write your own below.";
+  // Shown in the Ideas sheet, which has no text field, so no "write your own below".
+  if (count <= 1) return "Add it if it fits.";
+  if (count === 2) return "Add one or both.";
+  return "Add any you like — one, two, or all three.";
 }
 
 /** Failures worth retrying automatically; limits and auth problems are not. */
@@ -188,4 +189,9 @@ export function isFreshAiPlan(
       plan.goalTitle === goalTitle &&
       localDateKey(plan.generatedAt) === today,
   );
+}
+
+/** Whether a finished request is still the newest one and may update state. */
+export function isLatestRequest(requestId: number, latestRequestId: number): boolean {
+  return requestId === latestRequestId;
 }

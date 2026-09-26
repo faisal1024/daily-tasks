@@ -6,6 +6,24 @@ import type { MomentumMilestone } from "./types";
 
 export type MilestoneView = MomentumMilestone & { done: boolean };
 
+// Builds before the milestone-id unification gave AI milestones m1–m3 while
+// template plans used milestone_start/_repeat/_grow. Map the old AI ids onto
+// the shared positional ids so saved progress carries over.
+const LEGACY_MILESTONE_IDS: Record<string, string> = {
+  m1: "milestone_start",
+  m2: "milestone_repeat",
+  m3: "milestone_grow",
+};
+
+export function migrateMilestoneId(id: string): string {
+  return LEGACY_MILESTONE_IDS[id] ?? id;
+}
+
+/** Migrate and de-duplicate saved completed-milestone ids. */
+export function migrateCompletedMilestoneIds(ids: string[]): string[] {
+  return Array.from(new Set(ids.map(migrateMilestoneId)));
+}
+
 /** Overlay completion state onto a plan's milestones for display. */
 export function milestonesWithCompletion(
   milestones: MomentumMilestone[],
