@@ -37,7 +37,9 @@ export type ProxyRoute = "plan" | "brain-dump" | "break-down";
  */
 export function proxyRouteUrl(planUrl: string | null, route: ProxyRoute): string | null {
   if (!planUrl) return null;
-  const match = /^(.*\/api\/momentum)\/plan\/?(\?.*)?$/.exec(planUrl);
+  // [^?]* keeps the match in the path: a query string that happens to contain
+  // "/api/momentum/plan" must not count.
+  const match = /^([^?]*\/api\/momentum)\/plan\/?(\?.*)?$/.exec(planUrl);
   if (!match) return route === "plan" ? planUrl : null;
   return `${match[1]}/${route}${match[2] ?? ""}`;
 }

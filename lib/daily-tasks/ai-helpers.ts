@@ -23,7 +23,9 @@ export interface BrainDumpResult {
 export function cleanTaskText(value: unknown, max = MAX_TASK_TEXT): string | null {
   if (typeof value !== "string") return null;
   const text = value
-    .replace(/^\s*(?:[-*•·]|\d+[.)]|\[\s?\])\s*/, "")
+    // Bullets may hug the text ("-walk"); numbered markers need a space so
+    // "1.5 mile walk" isn't read as item "1." + "5 mile walk".
+    .replace(/^\s*(?:[-*•·]\s*|\d+[.)](?:\s+|$)|\[\s?\]\s*)/, "")
     .replace(/\s+/g, " ")
     .trim();
   if (!text) return null;

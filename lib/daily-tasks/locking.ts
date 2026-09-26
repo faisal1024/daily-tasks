@@ -35,3 +35,13 @@ export function shouldAutoLockToday(
   const lockMinutes = settings.hour * 60 + settings.minute;
   return nowMinutes >= lockMinutes;
 }
+
+/**
+ * The moment today's auto-lock was due (local time), as ISO. The app may only
+ * notice later (e.g. when reopened in the evening); the status line should
+ * still say it locked at the configured time.
+ */
+export function scheduledAutoLockAt(today: string, autoLock: AutoLockConfig): string {
+  const [y, m, d] = today.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1, autoLock.hour, autoLock.minute).toISOString();
+}

@@ -24,7 +24,7 @@ import {
   shouldRetryAiOnForeground,
   type AiFailureKind,
 } from "./ai-status";
-import { autoLockEligibleTaskCount, shouldAutoLockToday } from "./locking";
+import { autoLockEligibleTaskCount, scheduledAutoLockAt, shouldAutoLockToday } from "./locking";
 import {
   canTakeParkedTask,
   clearTaskSteps,
@@ -236,9 +236,12 @@ function reducer(state: AppState, action: Action): AppState {
       return syncTodayHistory(
         {
           ...state,
-          tasks: state.tasks.map((task) =>
-            task.id === action.id ? { ...task, text } : task,
-          ),
+          tasks: state.tasks.map((task) => {
+            if (task.id !== action.id || task.text === text) return task;
+            // Steps were written for the old wording; drop them when it changes.
+            const { steps: _staleSteps, ...rest } = task;
+            return { ...rest, text };
+          }),
         },
         action.today,
       );
@@ -658,7 +661,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     if (!ready) return;
     const eligible = autoLockEligibleTaskCount(state.tasks, today, state.autoLock);
     if (!shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) return;
-    dispatch({ type: "autoLockToday", today, at: new Date().toISOString() });
+    dispatch({ type: "autoLockToday", today, at: scheduledAutoLockAt(today, state.autoLock) });
   }, [ready, state.autoLock, state.tasks, state.todayLocked, today]);
 
   useEffect(() => {
@@ -712,7 +715,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       }
       const eligible = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
       if (shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) {
-        dispatch({ type: "autoLockToday", today: fresh, at: new Date().toISOString() });
+        dispatch({ type: "autoLockToday", today: fresh, at: scheduledAutoLockAt(fresh, state.autoLock) });
       }
     };
     const sub = RNAppState.addEventListener("change", onChange);
@@ -729,7 +732,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       }
       const eligible = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
       if (shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) {
-        dispatch({ type: "autoLockToday", today: fresh, at: new Date().toISOString() });
+        dispatch({ type: "autoLockToday", today: fresh, at: scheduledAutoLockAt(fresh, state.autoLock) });
       }
     }, 60_000);
     return () => clearInterval(id);
