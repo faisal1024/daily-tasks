@@ -58,72 +58,74 @@ export function CalendarGrid({
         ))}
       </View>
 
-      {weeks.map((week) => (
-        <View key={week[0].key} className="flex-row">
-          {week.map((cell) => {
-            if (!cell.day || !cell.dateKey) {
-              return <View key={cell.key} className="p-1" style={{ flex: 1, aspectRatio: 1 }} />;
-            }
-            const dateKey = cell.dateKey;
-            const record = history[dateKey];
-            const isToday = dateKey === today;
-            const isSelected = dateKey === selectedDate;
-            const completed = record?.completed ?? 0;
-            const total = record?.total ?? 0;
-            const isPerfect = total === MAX_TASKS && completed === MAX_TASKS;
-            const isPartial = completed > 0 && !isPerfect;
+      <View>
+        {weeks.map((week) => (
+          <View key={week[0].key} className="flex-row">
+            {week.map((cell) => {
+              if (!cell.day || !cell.dateKey) {
+                return <View key={cell.key} className="p-1" style={{ flex: 1, aspectRatio: 1 }} />;
+              }
+              const dateKey = cell.dateKey;
+              const record = history[dateKey];
+              const isToday = dateKey === today;
+              const isSelected = dateKey === selectedDate;
+              const completed = record?.completed ?? 0;
+              const total = record?.total ?? 0;
+              const isPerfect = total === MAX_TASKS && completed === MAX_TASKS;
+              const isPartial = completed > 0 && !isPerfect;
 
-            let bg: string = "transparent";
-            let textColor: string = colors.foreground;
-            let dot: string | null = null;
-            if (isPerfect) {
-              bg = colors.success;
-              textColor = colors.background;
-            } else if (isPartial) {
-              bg = `${colors.primary}22`;
-              dot = colors.primary;
-            }
+              let bg: string = "transparent";
+              let textColor: string = colors.foreground;
+              let dot: string | null = null;
+              if (isPerfect) {
+                bg = colors.success;
+                textColor = colors.background;
+              } else if (isPartial) {
+                bg = `${colors.primary}22`;
+                dot = colors.primary;
+              }
 
-            return (
-              <Pressable
-                key={cell.key}
-                onPress={() => onSelectDate(dateKey)}
-                accessibilityRole="button"
-                accessibilityLabel={`View ${dateKey}`}
-                style={{ flex: 1, aspectRatio: 1 }}
-                className="items-center justify-center p-1"
-              >
-                <View
-                  className="rounded-full items-center justify-center"
-                  style={{
-                    width: 36,
-                    height: 36,
-                    backgroundColor: bg,
-                    borderWidth: isSelected ? 3 : isToday ? 2 : 0,
-                    borderColor: isSelected ? colors.foreground : colors.primary,
-                  }}
+              return (
+                <Pressable
+                  key={cell.key}
+                  onPress={() => onSelectDate(dateKey)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${dateKey}`}
+                  style={{ flex: 1, aspectRatio: 1 }}
+                  className="items-center justify-center p-1"
                 >
-                  <Text className="text-sm font-medium" style={{ color: textColor }}>
-                    {cell.day}
-                  </Text>
-                  {dot && (
-                    <View
-                      style={{
-                        width: 4,
-                        height: 4,
-                        borderRadius: 2,
-                        backgroundColor: dot,
-                        position: "absolute",
-                        bottom: 4,
-                      }}
-                    />
-                  )}
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-      ))}
+                  <View
+                    className="rounded-full items-center justify-center"
+                    style={{
+                      width: 36,
+                      height: 36,
+                      backgroundColor: bg,
+                      borderWidth: isSelected ? 3 : isToday ? 2 : 0,
+                      borderColor: isSelected ? colors.foreground : colors.primary,
+                    }}
+                  >
+                    <Text className="text-sm font-medium" style={{ color: textColor }}>
+                      {cell.day}
+                    </Text>
+                    {dot && (
+                      <View
+                        style={{
+                          width: 4,
+                          height: 4,
+                          borderRadius: 2,
+                          backgroundColor: dot,
+                          position: "absolute",
+                          bottom: 4,
+                        }}
+                      />
+                    )}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
