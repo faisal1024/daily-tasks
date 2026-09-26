@@ -101,6 +101,18 @@ export function aiFailureMessage(
   }
 }
 
+/**
+ * Copy for a failed "Break it down". Limits and auth reuse the shared copy;
+ * everything else gets step-specific wording (the shared copy talks about ideas).
+ */
+export function breakDownFailureMessage(kind: AiFailureKind): string {
+  if (kind === "rate_limited" || kind === "unauthorized") {
+    return aiFailureMessage(kind) ?? "Try again in a bit.";
+  }
+  if (kind === "busy") return "Smart steps are taking a break for today. Try again tomorrow.";
+  return "Couldn't reach smart steps right now. Try again in a bit.";
+}
+
 export type PlanStatus = "idle" | "loading" | "ready" | "error";
 
 /**

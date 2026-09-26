@@ -318,3 +318,243 @@ describe("store: AI plan requests", () => {
     expect(Number.isNaN(Date.parse(result.current.state.lastReviewPromptAt ?? ""))).toBe(false);
   });
 });
+
+// --- Phase 3: parked brain-dump items, task steps, lock time -----------------
+
+async function seedWith(overrides: Record<string, unknown> = {}) {
+  await AsyncStorage.setItem(
+    "daily-tasks/state/v1",
+    JSON.stringify({
+      ...buildInitialState(),
+      hasSeenOnboarding: true,
+      momentumProfile: PROFILE,
+      ...overrides,
+    }),
+  );
+  const hook = await renderHook(() => useDailyTasks(), { wrapper });
+  await waitFor(() => expect(hook.result.current.ready).toBe(true));
+  await waitFor(() => expect(mockRequests.length).toBe(1));
+  return hook;
+}
+
+async function savedState() {
+  return JSON.parse((await AsyncStorage.getItem("daily-tasks/state/v1")) ?? "null");
+}
+
+describe("store: brain dump parking", () => {
+  it("parks leftovers, skipping ones already on today's list, and saves them", async () => {
+    const { result } = await seedWith();
+    await act(async () => result.current.addTasks(["Call mum"]));
+    await act(async () => result.current.parkTasks(["call mum", "Buy shoes", "Water plants"]));
+    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Buy shoes", "Water plants"]);
+    await waitFor(async () =>
+      expect((await savedState())?.parkedTasks.map((p: { text: string }) => p.text)).toEqual([
+        "Buy shoes",
+        "Water plants",
+      ]),
+    );
+  });
+
+  it("addParkedTask moves an item onto today's list and out of parked", async () => {
+    const { result } = await seedWith();
+    await act(async () => result.current.parkTasks(["Buy shoes", "Water plants"]));
+    const id = result.current.state.parkedTasks[0].id;
+    await act(async () => result.current.addParkedTask(id));
+    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Buy shoes"]);
+    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Water plants"]);
+    // Today's history is kept in sync like any other add.
+    expect(result.current.state.history[result.current.today]?.total).toBe(1);
+  });
+
+  it("addParkedTask is a no-op (item stays parked) when the day is locked or full", async () => {
+    const { result } = await seedWith();
+    await act(async () => result.current.parkTasks(["Buy shoes"]));
+    const id = result.current.state.parkedTasks[0].id;
+
+    await act(async () => result.current.addTasks(["A", "B", "C"]));
+    await act(async () => result.current.addParkedTask(id));
+    expect(result.current.state.tasks).toHaveLength(3);
+    expect(result.current.state.parkedTasks.map((p) => p.id)).toEqual([id]);
+
+    await act(async () => result.current.deleteTask(result.current.state.tasks[2].id));
+    await act(async () => result.current.lockToday());
+    await act(async () => result.current.addParkedTask(id));
+    expect(result.current.state.tasks).toHaveLength(2);
+    expect(result.current.state.parkedTasks.map((p) => p.id)).toEqual([id]);
+  });
+
+  it("addParkedTask ignores an unknown id; removeParkedTask removes one", async () => {
+    const { result } = await seedWith();
+    await act(async () => result.current.parkTasks(["Buy shoes", "Swim"]));
+    await act(async () => result.current.addParkedTask("nope"));
+    expect(result.current.state.tasks).toHaveLength(0);
+    await act(async () => result.current.removeParkedTask(result.current.state.parkedTasks[0].id));
+    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Swim"]);
+  });
+
+  it("parked items survive an app restart", async () => {
+    const first = await seedWith();
+    await act(async () => first.result.current.parkTasks(["Buy shoes"]));
+    await waitFor(async () => expect((await savedState())?.parkedTasks).toHaveLength(1));
+    await first.unmount();
+
+    mockRequests.length = 0;
+    const hook = await renderHook(() => useDailyTasks(), { wrapper });
+    await waitFor(() => expect(hook.result.current.ready).toBe(true));
+    expect(hook.result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Buy shoes"]);
+  });
+});
+
+describe("store: task steps", () => {
+  it("sets, toggles and clears steps on a task, and saves them", async () => {
+    const { result } = await seedWith();
+    await act(async () => result.current.addTasks(["Clean kitchen", "Walk"]));
+    const [clean, walk] = result.current.state.tasks;
+    await act(async () => result.current.setTaskSteps(clean.id, ["Clear counter", "Wipe", "Sweep"]));
+    const steps = result.current.state.tasks[0].steps ?? [];
+    expect(steps.map((s) => s.text)).toEqual(["Clear counter", "Wipe", "Sweep"]);
+    expect(result.current.state.tasks[1].steps).toBeUndefined();
+
+    await act(async () => result.current.toggleTaskStep(clean.id, steps[1].id));
+    expect(result.current.state.tasks[0].steps?.map((s) => s.done)).toEqual([false, true, false]);
+    // Steps don't complete the task.
+    expect(result.current.isCompleted(clean.id)).toBe(false);
+    await waitFor(async () =>
+      expect((await savedState())?.tasks[0].steps.map((s: { done: boolean }) => s.done)).toEqual([
+        false,
+        true,
+        false,
+      ]),
+    );
+
+    await act(async () => result.current.clearTaskSteps(clean.id));
+    expect(result.current.state.tasks[0].steps).toBeUndefined();
+    expect(result.current.state.tasks[1].id).toBe(walk.id);
+  });
+
+  it("editing a task's text drops its steps; saving the same text keeps them", async () => {
+    const { result } = await seedWith();
+    await act(async () => result.current.addTasks(["Clean kitchen", "Walk"]));
+    const [clean, walk] = result.current.state.tasks;
+    await act(async () => result.current.setTaskSteps(clean.id, ["a", "b"]));
+    await act(async () => result.current.setTaskSteps(walk.id, ["c", "d"]));
+    await act(async () => result.current.editTask(clean.id, "  Clean kitchen  "));
+    expect(result.current.state.tasks[0].steps).toHaveLength(2);
+    await act(async () => result.current.editTask(clean.id, "Clean bathroom"));
+    expect(result.current.state.tasks[0]).not.toHaveProperty("steps");
+    expect(result.current.state.tasks[0].text).toBe("Clean bathroom");
+    expect(result.current.state.tasks[1].steps).toHaveLength(2);
+  });
+
+  it("drops steps from a slow break-down if the task was edited meanwhile", async () => {
+    const { result } = await seedWith();
+    await act(async () => result.current.addTasks(["Clean kitchen"]));
+    const id = result.current.state.tasks[0].id;
+    await act(async () => result.current.editTask(id, "Clean bathroom"));
+    await act(async () => result.current.setTaskSteps(id, ["a", "b"], "Clean kitchen"));
+    expect(result.current.state.tasks[0]).not.toHaveProperty("steps");
+    await act(async () => result.current.setTaskSteps(id, ["a", "b"], "Clean bathroom"));
+    expect(result.current.state.tasks[0].steps).toHaveLength(2);
+  });
+
+  it("a carried-over task keeps the steps and ticks made after its last other change", async () => {
+    const appState = listenToAppState();
+    fakeClockAt(new Date(2026, 8, 26, 10, 0));
+    try {
+      const { result } = await seedWith({ lastOpenedDate: "2026-09-26" });
+      await act(async () => result.current.addTasks(["Clean kitchen"]));
+      const id = result.current.state.tasks[0].id;
+      // Only step actions after the add: history must be synced by them.
+      await act(async () => result.current.setTaskSteps(id, ["Clear counter", "Wipe", "Sweep"]));
+      const stepId = result.current.state.tasks[0].steps![1].id;
+      await act(async () => result.current.toggleTaskStep(id, stepId));
+
+      jest.setSystemTime(new Date(2026, 8, 27, 8, 0));
+      await act(async () => appState.emit("active"));
+      await waitFor(() => expect(result.current.state.pendingRollover).not.toBeNull());
+      await act(async () => result.current.resolveRollover([id]));
+
+      const carried = result.current.state.tasks.find((t) => t.text === "Clean kitchen");
+      expect(carried?.carriedOver).toBe(true);
+      expect(carried?.steps?.map((st) => [st.text, st.done])).toEqual([
+        ["Clear counter", false],
+        ["Wipe", true],
+        ["Sweep", false],
+      ]);
+    } finally {
+      jest.useRealTimers();
+      appState.restore();
+    }
+  });
+
+  it("step checklists still work after the day is locked", async () => {
+    const { result } = await seedWith();
+    await act(async () => result.current.addTasks(["Clean"]));
+    const id = result.current.state.tasks[0].id;
+    await act(async () => result.current.setTaskSteps(id, ["a", "b"]));
+    await act(async () => result.current.lockToday());
+    await act(async () =>
+      result.current.toggleTaskStep(id, result.current.state.tasks[0].steps![0].id),
+    );
+    expect(result.current.state.tasks[0].steps?.[0].done).toBe(true);
+  });
+});
+
+describe("store: when today was locked", () => {
+  it("records the manual lock time and clears it on unlock", async () => {
+    fakeClockAt(new Date(2026, 8, 26, 9, 41));
+    try {
+      const { result } = await seedWith({ lastOpenedDate: "2026-09-26" });
+      await act(async () => result.current.addTasks(["Walk"]));
+      await act(async () => result.current.lockToday());
+      expect(result.current.state.todayLockSource).toBe("manual");
+      expect(result.current.state.todayLockedAt).toBe(new Date(2026, 8, 26, 9, 41).toISOString());
+      await act(async () => result.current.unlockToday());
+      expect(result.current.state.todayLockedAt).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("records the configured auto-lock time, even when the app notices later", async () => {
+    fakeClockAt(new Date(2026, 8, 26, 12, 17));
+    try {
+      const { result } = await seedWith({
+        lastOpenedDate: "2026-09-26",
+        autoLock: { enabled: true, hour: 12, minute: 0 },
+        tasks: [
+          {
+            id: "t1",
+            text: "Walk",
+            createdAt: new Date(2026, 8, 26, 8, 0).toISOString(),
+            carriedOver: false,
+          },
+        ],
+      });
+      await waitFor(() => expect(result.current.state.todayLocked).toBe(true));
+      expect(result.current.state.todayLockSource).toBe("auto");
+      expect(result.current.state.todayLockedAt).toBe(new Date(2026, 8, 26, 12, 0).toISOString());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("a new day starts unlocked with no lock time", async () => {
+    const appState = listenToAppState();
+    fakeClockAt(new Date(2026, 8, 26, 10, 0));
+    try {
+      const { result } = await seedWith({ lastOpenedDate: "2026-09-26" });
+      await act(async () => result.current.addTasks(["Walk"]));
+      await act(async () => result.current.lockToday());
+      expect(result.current.state.todayLockedAt).not.toBeNull();
+      jest.setSystemTime(new Date(2026, 8, 27, 8, 0));
+      await act(async () => appState.emit("active"));
+      await waitFor(() => expect(result.current.today).toBe("2026-09-27"));
+      expect(result.current.state.todayLocked).toBe(false);
+      expect(result.current.state.todayLockedAt).toBeNull();
+    } finally {
+      jest.useRealTimers();
+      appState.restore();
+    }
+  });
+});

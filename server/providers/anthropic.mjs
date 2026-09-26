@@ -34,7 +34,17 @@ export function describe() {
   return `anthropic:${model()}`;
 }
 
-export async function generatePlan({ system, user, schema }) {
+/**
+ * Generate structured output for any route. `toolName`/`toolDescription` name
+ * the forced tool call; they default to the plan tool for backward compatibility.
+ */
+export async function generatePlan({
+  system,
+  user,
+  schema,
+  toolName = PLAN_TOOL_NAME,
+  toolDescription = PLAN_TOOL_DESCRIPTION,
+}) {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -53,12 +63,12 @@ export async function generatePlan({ system, user, schema }) {
       messages: [{ role: "user", content: user }],
       tools: [
         {
-          name: PLAN_TOOL_NAME,
-          description: PLAN_TOOL_DESCRIPTION,
+          name: toolName,
+          description: toolDescription,
           input_schema: schema,
         },
       ],
-      tool_choice: { type: "tool", name: PLAN_TOOL_NAME },
+      tool_choice: { type: "tool", name: toolName },
     }),
   });
 
@@ -69,10 +79,10 @@ export async function generatePlan({ system, user, schema }) {
   }
 
   const toolUse = (data.content ?? []).find(
-    (block) => block.type === "tool_use" && block.name === PLAN_TOOL_NAME,
+    (block) => block.type === "tool_use" && block.name === toolName,
   );
   if (!toolUse || typeof toolUse.input !== "object") {
-    throw new Error("Anthropic response did not include the plan tool call");
+    throw new Error(`Anthropic response did not include the ${toolName} tool call`);
   }
 
   return toolUse.input;

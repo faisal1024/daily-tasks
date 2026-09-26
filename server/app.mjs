@@ -8,15 +8,9 @@ import http from "node:http";
 import { Buffer } from "node:buffer";
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import {
-  RESPONSE_SCHEMA,
-  SYSTEM_PROMPT,
-  buildPrompt,
-  isValidPlan,
-  validatePayload,
-} from "./providers/plan-contract.mjs";
+import { ROUTES } from "./routes.mjs";
 
-export const PLAN_ROUTE = "/api/momentum/plan";
+export { BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, PLAN_ROUTE, ROUTES } from "./routes.mjs";
 export const HEALTH_ROUTE = "/health";
 export const SECRET_HEADER = "x-momentum-secret";
 export const DEBUG_IP_ROUTE = "/debug/client-ip";
@@ -288,7 +282,13 @@ export function createProxyServer({ provider, config, logger = console, now }) {
       return;
     }
 
-    if (req.method !== "POST" || req.url !== PLAN_ROUTE) {
+    // Own-property lookup only, so names like "__proto__" can never resolve.
+    const url = req.url ?? "";
+    const route =
+      req.method === "POST" && Object.prototype.hasOwnProperty.call(ROUTES, url)
+        ? ROUTES[url]
+        : undefined;
+    if (!route) {
       sendJson(res, 404, { error: "Not found" });
       return;
     }
@@ -329,7 +329,7 @@ export function createProxyServer({ provider, config, logger = console, now }) {
       return;
     }
 
-    const validationError = validatePayload(payload);
+    const validationError = route.validatePayload(payload);
     if (validationError) {
       sendJson(res, 400, { error: validationError });
       return;
@@ -339,21 +339,24 @@ export function createProxyServer({ provider, config, logger = console, now }) {
     limiter.record(client);
 
     try {
-      const plan = await provider.generatePlan({
-        system: SYSTEM_PROMPT,
-        user: buildPrompt(payload),
-        schema: RESPONSE_SCHEMA,
+      const result = await provider.generatePlan({
+        system: route.system,
+        user: route.buildPrompt(payload),
+        schema: route.schema,
+        toolName: route.toolName,
+        toolDescription: route.toolDescription,
       });
 
-      if (!isValidPlan(plan)) {
+      if (!route.isValidResult(result)) {
         logger.error(
-          `[momentum-ai] ${provider.id} returned an invalid plan; keys=${summarizeForLog(plan)}`,
+          `[momentum-ai] ${provider.id} returned an invalid ${route.name}; keys=${summarizeForLog(result)}`,
         );
-        sendJson(res, 502, { error: "AI response did not include a valid plan" });
+        sendJson(res, 502, { error: `AI response did not include a valid ${route.name}` });
         return;
       }
 
-      sendJson(res, 200, plan);
+      // Return only validated fields, never raw model output.
+      sendJson(res, 200, route.sanitizeResult ? route.sanitizeResult(result) : result);
     } catch (error) {
       logger.error(
         `[momentum-ai] ${provider.id} proxy error: ${error instanceof Error ? error.message : String(error)}`,

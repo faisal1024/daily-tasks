@@ -5,12 +5,30 @@ export const MAX_TASKS = 3;
 
 export type TaskId = string;
 
+export interface TaskStep {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 export interface Task {
   id: TaskId;
   text: string;
   createdAt: string;
   carriedOver: boolean;
+  /** Optional "break it down" checklist; doesn't change the task's own status. */
+  steps?: TaskStep[];
 }
+
+/** Brain-dump leftovers kept for another day (shown in the Ideas sheet). */
+export interface ParkedTask {
+  id: string;
+  text: string;
+  parkedAt: string;
+}
+
+// Generous so a brain dump never silently drops what someone typed.
+export const MAX_PARKED_TASKS = 50;
 
 export type LockSource = "manual" | "auto";
 
@@ -22,6 +40,8 @@ export interface DayTaskRecord {
   completed: boolean;
   carriedOver: boolean;
   rolloverOutcome: RolloverOutcome | null;
+  /** Step checklist, kept so a carried-over (stuck) task keeps its steps. */
+  steps?: TaskStep[];
 }
 
 export interface DayRecord {
@@ -143,7 +163,8 @@ export interface AppState {
   lastOpenedDate: string;
   todayLocked: boolean;
   todayLockSource: LockSource | null;
-  autoLockNoticeDate: string | null;
+  // When today was locked (ISO), shown in the status line; null when unlocked.
+  todayLockedAt: string | null;
   // Date the user manually unlocked; suppresses auto-lock for that day only.
   manualUnlockDate: string | null;
   pendingRollover: PendingRollover | null;
@@ -168,6 +189,7 @@ export interface AppState {
   journey: Journey;
   // When we last asked for an App Store rating (ISO), or null if never.
   lastReviewPromptAt: string | null;
+  parkedTasks: ParkedTask[];
 }
 
 export const GOAL_OPTIONS: string[] = [

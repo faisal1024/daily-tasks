@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   Text,
   TextInput,
@@ -27,6 +28,13 @@ interface TaskCardProps {
   canEdit?: boolean;
   canDelete?: boolean;
   index?: number;
+  /** Ask the AI to split this task into steps; hidden when not provided. */
+  onBreakDown?: () => void;
+  breakingDown?: boolean;
+  /** Another card is breaking down; only one runs at a time. */
+  breakDownDisabled?: boolean;
+  onToggleStep?: (stepId: string) => void;
+  onClearSteps?: () => void;
 }
 
 export function TaskCard({
@@ -38,6 +46,11 @@ export function TaskCard({
   canEdit = true,
   canDelete = true,
   index,
+  onBreakDown,
+  breakingDown = false,
+  breakDownDisabled = false,
+  onToggleStep,
+  onClearSteps,
 }: TaskCardProps) {
   const colors = useColors();
   const [isEditing, setIsEditing] = useState(false);
@@ -168,6 +181,77 @@ export function TaskCard({
             <Text className="text-xs" style={{ color: colors.warning }}>
               Carried forward
             </Text>
+          )}
+
+          {!isEditing && task.steps && task.steps.length > 0 && (
+            <View className="gap-1.5 mt-2" testID={`steps-${task.id}`}>
+              {task.steps.map((step, stepIndex) => (
+                <Pressable
+                  key={step.id}
+                  onPress={() => onToggleStep?.(step.id)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: step.done }}
+                  accessibilityLabel={`Step ${stepIndex + 1} of ${task.steps?.length}: ${step.text}`}
+                  hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+                  className="flex-row items-center gap-2"
+                  style={{ minHeight: 36 }}
+                >
+                  <Ionicons
+                    name={step.done ? "checkbox" : "square-outline"}
+                    size={20}
+                    color={step.done ? colors.success : colors.muted}
+                  />
+                  <Text
+                    className="flex-1 text-sm text-foreground"
+                    style={{
+                      textDecorationLine: step.done ? "line-through" : "none",
+                      opacity: step.done ? 0.6 : 1,
+                    }}
+                  >
+                    {step.text}
+                  </Text>
+                </Pressable>
+              ))}
+              {onClearSteps && (
+                <Pressable
+                  onPress={onClearSteps}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear steps"
+                  hitSlop={12}
+                  className="self-start mt-1"
+                >
+                  <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
+                    Clear steps
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+
+          {!isEditing && !completed && onBreakDown && !(task.steps && task.steps.length > 0) && (
+            <Pressable
+              onPress={onBreakDown}
+              disabled={breakingDown || breakDownDisabled}
+              accessibilityRole="button"
+              accessibilityLabel={`Break down ${task.text}`}
+              accessibilityHint="Splits this task into a few tiny steps"
+              accessibilityState={{
+                busy: breakingDown,
+                disabled: breakingDown || breakDownDisabled,
+              }}
+              hitSlop={12}
+              className="self-start flex-row items-center gap-1.5 mt-1.5"
+              style={{ opacity: breakDownDisabled ? 0.4 : 1 }}
+            >
+              {breakingDown ? (
+                <ActivityIndicator size="small" color={colors.muted} />
+              ) : (
+                <Ionicons name="list-outline" size={14} color={colors.muted} />
+              )}
+              <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
+                {breakingDown ? "Breaking it down…" : "Break it down"}
+              </Text>
+            </Pressable>
           )}
         </View>
 

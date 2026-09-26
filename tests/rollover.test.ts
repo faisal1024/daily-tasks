@@ -25,7 +25,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     lastOpenedDate: "2026-04-17",
     todayLocked: false,
     todayLockSource: null,
-    autoLockNoticeDate: null,
+    todayLockedAt: null,
     manualUnlockDate: null,
     pendingRollover: null,
     history: {},
@@ -44,6 +44,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     pendingMilestoneCelebration: null,
     journey: DEFAULT_JOURNEY,
     lastReviewPromptAt: null,
+    parkedTasks: [],
     ...overrides,
   };
 }
@@ -69,13 +70,17 @@ describe("applyRollover", () => {
 
   it("resets the new day to unlocked", () => {
     const next = applyRollover(
-      makeState({ todayLocked: true, todayLockSource: "manual", autoLockNoticeDate: "2026-04-17" }),
+      makeState({
+        todayLocked: true,
+        todayLockSource: "manual",
+        todayLockedAt: "2026-04-17T12:03:00.000Z",
+      }),
       "2026-04-18",
     );
 
     expect(next.todayLocked).toBe(false);
     expect(next.todayLockSource).toBeNull();
-    expect(next.autoLockNoticeDate).toBeNull();
+    expect(next.todayLockedAt).toBeNull();
   });
 
   it("preserves tasks already added for today while creating yesterday's rollover", () => {
@@ -139,6 +144,33 @@ describe("applyRollover", () => {
       next.history["2026-04-17"]?.tasks.find((task) => task.id === "unfinished-yesterday")
         ?.rolloverOutcome,
     ).toBe("unresolved");
+  });
+});
+
+describe("rollover keeps a carried task's steps", () => {
+  it("carries the step checklist (and its progress) with the task", () => {
+    const steps = [
+      { id: "s1", text: "Open the doc", done: true },
+      { id: "s2", text: "Write one line", done: false },
+    ];
+    const start = makeState();
+    const withSteps = { ...start, tasks: start.tasks.map((t) => (t.id === "b" ? { ...t, steps } : t)) };
+    const rolled = applyRollover(withSteps, "2026-04-18");
+    expect(rolled.pendingRollover?.tasks.find((t) => t.id === "b")?.steps).toEqual(steps);
+    const resolved = resolvePendingRollover(rolled, ["b", "c"], new Date("2026-04-18T09:00:00Z"));
+    // Carried tasks get fresh ids; find them by text.
+    expect(resolved.tasks.find((t) => t.text === "B")?.steps).toEqual(steps);
+    expect(resolved.tasks.find((t) => t.text === "C")).not.toHaveProperty("steps");
+  });
+});
+
+describe("rollover keeps brain-dump leftovers", () => {
+  it("parked tasks survive the day change and the carry-forward choice", () => {
+    const parkedTasks = [{ id: "p1", text: "Buy shoes", parkedAt: "2026-04-17T09:00:00.000Z" }];
+    const rolled = applyRollover(makeState({ parkedTasks }), "2026-04-18");
+    expect(rolled.parkedTasks).toEqual(parkedTasks);
+    const resolved = resolvePendingRollover(rolled, ["b"], new Date("2026-04-18T09:00:00Z"));
+    expect(resolved.parkedTasks).toEqual(parkedTasks);
   });
 });
 

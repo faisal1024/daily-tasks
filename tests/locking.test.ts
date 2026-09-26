@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   autoLockEligibleTaskCount,
+  scheduledAutoLockAt,
   shouldAutoLockToday,
 } from "../lib/daily-tasks/locking";
 import { DEFAULT_AUTO_LOCK } from "../lib/daily-tasks/types";
@@ -61,5 +62,16 @@ describe("shouldAutoLockToday", () => {
     const settings = { enabled: true, hour: 15, minute: 30 };
     expect(shouldAutoLockToday(new Date(2026, 3, 18, 15, 29), 1, false, settings)).toBe(false);
     expect(shouldAutoLockToday(new Date(2026, 3, 18, 15, 30), 1, false, settings)).toBe(true);
+  });
+});
+
+describe("scheduledAutoLockAt", () => {
+  it("is today's configured lock time as an ISO timestamp (local time)", () => {
+    expect(scheduledAutoLockAt("2026-09-26", { enabled: true, hour: 12, minute: 0 })).toBe(
+      new Date(2026, 8, 26, 12, 0).toISOString(),
+    );
+    expect(scheduledAutoLockAt("2026-01-05", { enabled: true, hour: 21, minute: 45 })).toBe(
+      new Date(2026, 0, 5, 21, 45).toISOString(),
+    );
   });
 });

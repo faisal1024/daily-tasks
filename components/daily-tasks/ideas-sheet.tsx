@@ -37,6 +37,12 @@ interface IdeasSheetProps {
   onAdd: (text: string) => void;
   onAddAll: (texts: string[]) => void;
   onRegenerate: () => void;
+  /** Brain-dump leftovers saved for later. */
+  parked?: { id: string; text: string }[];
+  onAddParked?: (id: string) => void;
+  onRemoveParked?: (id: string) => void;
+  /** Offered in the "full" state so the next step is one tap away. */
+  onLock?: () => void;
 }
 
 const keyOf = (text: string) => text.trim().toLowerCase();
@@ -56,6 +62,10 @@ export function IdeasSheet({
   onAdd,
   onAddAll,
   onRegenerate,
+  parked = [],
+  onAddParked,
+  onRemoveParked,
+  onLock,
 }: IdeasSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -233,17 +243,79 @@ export function IdeasSheet({
             </Pressable>
           )}
 
-          {full && (
-            <Pressable
-              onPress={onClose}
-              accessibilityRole="button"
-              className="rounded-2xl py-4 items-center"
-              style={{ backgroundColor: colors.primary }}
-            >
-              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
-                Done
+          {parked.length > 0 && (
+            <View className="gap-2 mt-2" testID="parked-ideas">
+              <Text
+                className="text-sm font-semibold uppercase tracking-wide"
+                style={{ color: colors.muted }}
+              >
+                Saved from your brain dump
               </Text>
-            </Pressable>
+              {parked.map((item) => (
+                <View
+                  key={item.id}
+                  className="rounded-2xl border p-3 flex-row items-center gap-3"
+                  style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+                >
+                  <Pressable
+                    onPress={() => onAddParked?.(item.id)}
+                    disabled={full}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Add ${item.text}`}
+                    accessibilityState={{ disabled: full }}
+                    hitSlop={6}
+                    className="flex-1 flex-row items-center gap-3"
+                    style={{ opacity: full ? 0.5 : 1 }}
+                  >
+                    <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
+                    <Text className="flex-1 text-base text-foreground">{item.text}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => onRemoveParked?.(item.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${item.text} from saved`}
+                    hitSlop={10}
+                  >
+                    <Ionicons name="close-circle-outline" size={20} color={colors.muted} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {full && (
+            <View className="gap-2">
+              {onLock && (
+                <Pressable
+                  onPress={onLock}
+                  accessibilityRole="button"
+                  accessibilityLabel="Lock them in"
+                  className="rounded-2xl py-4 items-center"
+                  style={{ backgroundColor: colors.primary }}
+                >
+                  <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
+                    Lock them in
+                  </Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={onClose}
+                accessibilityRole="button"
+                className="rounded-2xl py-4 items-center"
+                style={
+                  onLock
+                    ? { borderWidth: 1, borderColor: colors.border }
+                    : { backgroundColor: colors.primary }
+                }
+              >
+                <Text
+                  className="text-lg"
+                  style={{ fontFamily: Fonts.rounded, color: onLock ? colors.primary : "#fff" }}
+                >
+                  Done
+                </Text>
+              </Pressable>
+            </View>
           )}
         </ScrollView>
       </View>
