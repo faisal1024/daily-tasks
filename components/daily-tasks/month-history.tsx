@@ -33,8 +33,11 @@ export function MonthHistory() {
   const stats = monthlyStats(state.history, month.getFullYear(), month.getMonth());
 
   const shift = (delta: number) => {
-    navigated.current = true;
-    setMonth((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1));
+    const next = new Date(month.getFullYear(), month.getMonth() + delta, 1);
+    // Back on the current month counts as not navigated: keep following it.
+    navigated.current =
+      next.getFullYear() !== todayDate.getFullYear() || next.getMonth() !== todayDate.getMonth();
+    setMonth(next);
     setSelectedDate(null);
   };
 
@@ -58,8 +61,8 @@ export function MonthHistory() {
             <Ionicons name="chevron-back" size={22} color={colors.foreground} />
           </Pressable>
           <Pressable
-            onPress={jumpToThisMonth}
-            disabled={onThisMonth}
+            // Not `disabled` (VoiceOver would say "dimmed" on the header).
+            onPress={onThisMonth ? undefined : jumpToThisMonth}
             hitSlop={8}
             accessibilityRole={onThisMonth ? "header" : "button"}
             // Includes the counts: a label replaces the text inside it for VoiceOver.

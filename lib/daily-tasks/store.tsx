@@ -525,8 +525,12 @@ function reducer(state: AppState, action: Action): AppState {
         autoLock: {
           ...state.autoLock,
           // Whole, in-range values only, whatever the picker sends.
-          hour: Math.min(23, Math.max(0, Math.round(action.hour))),
-          minute: Math.min(59, Math.max(0, Math.round(action.minute))),
+          hour: Number.isFinite(action.hour)
+            ? Math.min(23, Math.max(0, Math.round(action.hour)))
+            : state.autoLock.hour,
+          minute: Number.isFinite(action.minute)
+            ? Math.min(59, Math.max(0, Math.round(action.minute)))
+            : state.autoLock.minute,
         },
       };
     case "markOnboardingSeen":
