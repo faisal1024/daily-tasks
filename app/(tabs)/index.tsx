@@ -664,7 +664,7 @@ export default function HomeScreen() {
                     remainingSlots={remainingSlots}
                     onUse={() => {
                       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
-                      applyTomorrowDraft(draft.tasks.slice(0, remainingSlots));
+                      applyTomorrowDraft(draft.tasks.slice(0, remainingSlots), draft.tasks);
                       track("tomorrow_draft_used", { count: Math.min(draft.tasks.length, remainingSlots), source: draft.source });
                     }}
                     onChange={() => setBrainDumpOpen(true)}

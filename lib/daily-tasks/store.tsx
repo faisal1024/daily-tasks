@@ -84,7 +84,7 @@ import {
 } from "./storage";
 import { computeDayStreak } from "./streaks";
 import type { EveningClose } from "./evening";
-import { draftForTomorrow } from "./evening";
+import { draftForNotification, draftForTomorrow } from "./evening";
 import {
   invalidateWidgetSnapshot,
   markWidgetTogglesProcessed,
@@ -159,7 +159,7 @@ type Action =
   | { type: "applyWidgetToggles"; toggles: WidgetToggle[] }
   | { type: "grandfatherPlus" }
   | { type: "setEveningClose"; close: EveningClose; day: string; result: ReflectionResult }
-  | { type: "applyTomorrowDraft"; tasks: string[]; today: string; at: string }
+  | { type: "applyTomorrowDraft"; tasks: string[]; shown: string[]; today: string; at: string }
   | { type: "dismissTomorrowDraft" }
   | { type: "completeMilestone"; id: string }
   | { type: "uncompleteMilestone"; id: string }
@@ -227,7 +227,9 @@ function reducer(state: AppState, action: Action): AppState {
         eveningClose: { date: action.day, result: action.result, note: action.close.note },
       };
     case "applyTomorrowDraft": {
-      const leftovers = (state.tomorrowDraft?.tasks ?? []).filter((text) => !action.tasks.includes(text));
+      // Only what the card offered: tasks already on the list, finished or
+      // dropped were filtered out of it and must not come back as saved.
+      const leftovers = action.shown.filter((text) => !action.tasks.includes(text));
       const next = reducer(state, { type: "addTasks", texts: action.tasks, today: action.today });
       // What didn't fit is saved for later rather than lost.
       const withLeftovers = leftovers.length > 0 ? parkTasks(next, leftovers, action.at) : next;
@@ -729,7 +731,8 @@ interface StoreContextValue {
   markReviewPrompted: () => void;
   markReviewDue: () => void;
   setEveningClose: (close: EveningClose, day: string, result: ReflectionResult) => void;
-  applyTomorrowDraft: (tasks: string[]) => void;
+  /** `shown` is what the card offered; the unused rest is saved for later. */
+  applyTomorrowDraft: (tasks: string[], shown: string[]) => void;
   dismissTomorrowDraft: () => void;
   completeMilestone: (id: string) => void;
   uncompleteMilestone: (id: string) => void;
@@ -939,6 +942,17 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "regenerateMomentumPlan", now: new Date() });
   }, [ready, state.momentumPlan, state.momentumProfile]);
 
+  // Tomorrow's notification leaves out anything finished since the close.
+  const notificationDraft = useMemo(
+    () =>
+      draftForNotification(state.tomorrowDraft, {
+        today,
+        tasks: state.tasks,
+        completedIds: state.todayCompletions,
+      }),
+    [state.tomorrowDraft, state.tasks, state.todayCompletions, today],
+  );
+
   useEffect(() => {
     if (!ready) return;
     const signature = JSON.stringify({
@@ -951,7 +965,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       todayCompletions: [...state.todayCompletions].sort(),
       notifications: state.notifications,
       notificationPermission,
-      draft: state.tomorrowDraft,
+      draft: notificationDraft,
     });
     if (lastReminderSync.current === signature) return;
     lastReminderSync.current = signature;
@@ -961,10 +975,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       permissionState: notificationPermission,
       taskCount: state.tasks.length,
       completedCount,
-      draft: state.tomorrowDraft,
+      draft: notificationDraft,
     });
   }, [
-    state.tomorrowDraft,
+    notificationDraft,
     completedCount,
     notificationPermission,
     ready,
@@ -1209,10 +1223,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     },
     [],
   );
-  const applyTomorrowDraft = useCallback((tasks: string[]) => {
+  const applyTomorrowDraft = useCallback((tasks: string[], shown: string[]) => {
     dispatch({
       type: "applyTomorrowDraft",
       tasks,
+      shown,
       today: ensureDay(),
       at: new Date().toISOString(),
     });

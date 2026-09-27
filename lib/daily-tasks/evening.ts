@@ -157,6 +157,9 @@ export function isDayClosed(
   return result === undefined || record.result === result;
 }
 
+// Draft tasks match list tasks ignoring case and spacing.
+const draftKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
 /**
  * The draft to show this morning: only for today, when there's room, and
  * without anything already on today's list, anything finished after the
@@ -167,14 +170,30 @@ export function draftToShow(
   input: { today: string; locked: boolean; taskTexts: string[]; sourceDay?: DayRecord | null },
 ): TomorrowDraft | null {
   if (!draft || draft.forDate !== input.today || input.locked) return null;
-  const key = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
-  const have = new Set(input.taskTexts.map(key));
+  const have = new Set(input.taskTexts.map(draftKey));
   for (const task of input.sourceDay?.tasks ?? []) {
-    if (task.completed || task.rolloverOutcome === "dropped") have.add(key(task.text));
+    if (task.completed || task.rolloverOutcome === "dropped") have.add(draftKey(task.text));
   }
-  const remaining = draft.tasks.filter((text) => !have.has(key(text)));
+  const remaining = draft.tasks.filter((text) => !have.has(draftKey(text)));
   if (remaining.length === 0 || input.taskTexts.length >= MAX_TASKS) return null;
   return { ...draft, tasks: remaining };
+}
+
+/**
+ * The draft for tomorrow morning's notification: the same filter the card
+ * applies, so a task finished after the close isn't announced. Null when
+ * nothing is left (the plain morning nudge is used then).
+ */
+export function draftForNotification(
+  draft: TomorrowDraft | null,
+  input: { today: string; tasks: { id: string; text: string }[]; completedIds: string[] },
+): TomorrowDraft | null {
+  if (!draft || draft.forDate !== addDays(input.today, 1)) return draft;
+  const completed = new Set(input.completedIds);
+  const done = new Set(input.tasks.filter((task) => completed.has(task.id)).map((task) => draftKey(task.text)));
+  const remaining = draft.tasks.filter((text) => !done.has(draftKey(text)));
+  if (remaining.length === 0) return null;
+  return remaining.length === draft.tasks.length ? draft : { ...draft, tasks: remaining };
 }
 
 /** "Tuesday" for the morning notification. */
