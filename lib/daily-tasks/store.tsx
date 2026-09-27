@@ -75,6 +75,13 @@ import { GRANDFATHER_BEFORE_VERSION, hasPlusAccess } from "./plus";
 import { compareVersions } from "./version";
 import { usePlus } from "./plus-context";
 import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
+import { computeDayStreak } from "./streaks";
+import {
+  markWidgetTogglesProcessed,
+  readWidgetToggles,
+  writeWidgetSnapshot,
+} from "./widget-bridge";
+import { buildWidgetSnapshot, lastSeq, parseWidgetToggles, tasksToFlip } from "./widget-snapshot";
 import type {
   AppState,
   MomentumProfile,
@@ -710,6 +717,41 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     if (!ready) return;
     applyAnalyticsEnabled(state.analyticsEnabled);
   }, [ready, state.analyticsEnabled]);
+
+  // Keep the home/lock-screen widget in step with today's tasks.
+  const widgetStreak = useMemo(() => computeDayStreak(state.history, today), [state.history, today]);
+  useEffect(() => {
+    if (!ready) return;
+    writeWidgetSnapshot(
+      buildWidgetSnapshot({ state, today, streak: widgetStreak, plus: hasPlus }),
+    );
+    // Only these fields feed the snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, state.tasks, state.todayCompletions, today, widgetStreak, hasPlus]);
+
+  // Apply ticks made in the widget while the app was closed: on launch and
+  // whenever the app comes back to the foreground. Toggles carry the wanted
+  // state (not a flip), so applying one twice is harmless.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const applyWidgetToggles = useCallback(() => {
+    const { raw, processedSeq } = readWidgetToggles();
+    const toggles = parseWidgetToggles(raw, processedSeq);
+    if (toggles.length === 0) return;
+    const day = todayKey();
+    for (const id of tasksToFlip(stateRef.current, toggles, day)) {
+      dispatch({ type: "toggleTask", id, today: day });
+    }
+    markWidgetTogglesProcessed(lastSeq(toggles, processedSeq));
+  }, []);
+  useEffect(() => {
+    if (!ready) return;
+    applyWidgetToggles();
+    const sub = RNAppState.addEventListener("change", (status) => {
+      if (status === "active") applyWidgetToggles();
+    });
+    return () => sub.remove();
+  }, [ready, applyWidgetToggles]);
 
   // One "app_opened" per day this app is used (drives D1/D7/D30 retention).
   const openedTracked = useRef<string | null>(null);

@@ -11,6 +11,7 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 | Today's three, lock, rollover, calendar, streaks, reminders, journey | AI brain dump sorting, Break it down, AI goal ideas ("New ideas", "Refresh with AI") |
 | Brain dump with the simple on-device split | |
 | Goal ideas from the on-device template plan | |
+| Home/lock-screen widgets (view today, progress, next task) | Tick tasks off from the widget |
 
 - **Grandfathering:** anyone whose saved data predates the paywall, or who used an iOS
   build older than `GRANDFATHER_BEFORE_VERSION` (1.1.0) without a RevenueCat key, keeps

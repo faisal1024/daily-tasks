@@ -23,6 +23,10 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: env.iosBundleId,
+    // Shared with the home/lock-screen widget (targets/widget).
+    entitlements: {
+      "com.apple.security.application-groups": [`group.${env.iosBundleId}`],
+    },
     "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -59,6 +63,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    "@bacons/apple-targets",
     "expo-notifications",
     [
       "expo-font",
@@ -89,6 +94,11 @@ const config: ExpoConfig = {
     [
       "expo-build-properties",
       {
+        // 16.4 is the minimum for the widget's App Group storage module
+        // (@bacons/apple-targets). The widget itself needs iOS 17.
+        ios: {
+          deploymentTarget: "16.4",
+        },
         android: {
           buildArchs: ["armeabi-v7a", "arm64-v8a"],
           minSdkVersion: 24,
