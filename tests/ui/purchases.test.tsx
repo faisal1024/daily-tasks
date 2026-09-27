@@ -21,6 +21,15 @@ const mockSdk = {
 };
 jest.mock("react-native-purchases", () => ({ __esModule: true, default: mockSdk }));
 
+const mockSetProxyUserId = jest.fn();
+jest.mock("@/lib/daily-tasks/ai-client", () => ({
+  ...jest.requireActual("@/lib/daily-tasks/ai-client"),
+  setProxyUserId: (id: string | null) => mockSetProxyUserId(id),
+}));
+// Optional on the SDK mock so tests can remove it (older native builds).
+const sdkWithId = mockSdk as typeof mockSdk & { getAppUserID?: jest.Mock };
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 const ANNUAL = {
   identifier: "$rc_annual",
   packageType: "ANNUAL",
@@ -134,5 +143,46 @@ describe("purchases", () => {
     expect(listener).toHaveBeenCalledWith({ active: true, trialEndsAt: null, lapsedAt: null });
     off();
     expect(mockSdk.removeCustomerInfoUpdateListener).toHaveBeenCalledWith(handler);
+  });
+
+  describe("proxy user id", () => {
+    beforeEach(() => {
+      process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+    });
+    afterEach(() => {
+      delete sdkWithId.getAppUserID;
+    });
+
+    it("hands the anonymous RevenueCat id to the proxy client", async () => {
+      sdkWithId.getAppUserID = jest.fn().mockResolvedValue("$RCAnonymousID:abc");
+      expect(configurePurchases()).toBe(true);
+      await flush();
+      expect(mockSetProxyUserId).toHaveBeenCalledWith("$RCAnonymousID:abc");
+    });
+
+    it("still configures when getAppUserID is missing", async () => {
+      expect(configurePurchases()).toBe(true);
+      await flush();
+      expect(mockSetProxyUserId).not.toHaveBeenCalled();
+    });
+
+    it("still configures when getAppUserID throws or rejects", async () => {
+      sdkWithId.getAppUserID = jest.fn(() => {
+        throw new Error("native crash");
+      });
+      expect(configurePurchases()).toBe(true);
+      __resetPurchasesForTests();
+      sdkWithId.getAppUserID = jest.fn().mockRejectedValue(new Error("offline"));
+      expect(configurePurchases()).toBe(true);
+      await flush();
+      expect(mockSetProxyUserId).not.toHaveBeenCalled();
+    });
+
+    it("sends no id when the SDK returns a non-string", async () => {
+      sdkWithId.getAppUserID = jest.fn().mockResolvedValue(undefined);
+      configurePurchases();
+      await flush();
+      expect(mockSetProxyUserId).toHaveBeenCalledWith(null);
+    });
   });
 });

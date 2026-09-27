@@ -48,6 +48,9 @@ describe("failure classification", () => {
     expect(kindForStatus(401)).toBe("unauthorized");
     expect(kindForStatus(403)).toBe("unauthorized");
     expect(kindForStatus(429)).toBe("rate_limited");
+    // The proxy's Plus check (402) falls back like any unavailable AI.
+    expect(kindForStatus(402)).toBe("unavailable");
+    expect(kindForStatus(402, "Plus required")).toBe("unavailable");
     expect(kindForStatus(503, "Service is busy, try again later")).toBe("busy");
     expect(kindForStatus(503)).toBe("unavailable");
     expect(kindForStatus(503, "Bad gateway")).toBe("unavailable");

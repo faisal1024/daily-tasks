@@ -4,10 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AI_REQUEST_TIMEOUT_MS,
   PROXY_SECRET_HEADER,
+  PROXY_USER_HEADER,
   getMomentumAiProxyUrl,
   getMomentumProxySecret,
   postToProxy,
   proxyRouteUrl,
+  setProxyUserId,
 } from "../lib/daily-tasks/ai-client";
 import { MomentumAiError } from "../lib/daily-tasks/ai-status";
 import * as momentumAi from "../lib/daily-tasks/momentum-ai";
@@ -247,5 +249,38 @@ describe("postToProxy", () => {
     expect(vi.getTimerCount()).toBe(0);
     await post(vi.fn(async () => jsonResponse({}, 429))).catch(() => {});
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("setProxyUserId", () => {
+  afterEach(() => setProxyUserId(null));
+  const headersOf = async (fetchImpl: ReturnType<typeof vi.fn>) => {
+    await postToProxy({ url: "https://p.test/x", payload: {}, proxySecret: null, fetchImpl: fetchImpl as unknown as typeof fetch });
+    return fetchImpl.mock.calls.at(-1)![1].headers as Record<string, string>;
+  };
+
+  it("sends the RevenueCat id as x-rc-user once set", async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({}));
+    expect(PROXY_USER_HEADER).toBe("x-rc-user");
+    expect(await headersOf(fetchImpl)).not.toHaveProperty(PROXY_USER_HEADER);
+    setProxyUserId("$RCAnonymousID:abc");
+    expect((await headersOf(fetchImpl))[PROXY_USER_HEADER]).toBe("$RCAnonymousID:abc");
+  });
+
+  it.each([
+    ["null", null],
+    ["empty", ""],
+    ["over 100 chars", "x".repeat(101)],
+  ])("clears the header when the id is %s", async (_why, id) => {
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({}));
+    setProxyUserId("someone");
+    setProxyUserId(id);
+    expect(await headersOf(fetchImpl)).not.toHaveProperty(PROXY_USER_HEADER);
+  });
+
+  it("accepts an id of exactly 100 chars", async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({}));
+    setProxyUserId("y".repeat(100));
+    expect((await headersOf(fetchImpl))[PROXY_USER_HEADER]).toHaveLength(100);
   });
 });
