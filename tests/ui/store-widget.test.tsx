@@ -1,15 +1,18 @@
 // The real DailyTasksProvider with the widget bridge mocked: the snapshot the
-// widget gets, and ticks made in the widget applied like in-app taps.
+// widget gets, and taps made in the widget applied like in-app taps, on the
+// day they were made (even when the app is only opened the next day).
 import type { ReactNode } from "react";
 import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 
 import { todayKey } from "@/lib/daily-tasks/date";
+import type { PlusContextValue } from "@/lib/daily-tasks/plus-context";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
-import type { Task } from "@/lib/daily-tasks/types";
+import type { AppState as DailyState, Task } from "@/lib/daily-tasks/types";
 import {
+  invalidateWidgetSnapshot,
   markWidgetTogglesProcessed,
   writeWidgetSnapshot,
 } from "@/lib/daily-tasks/widget-bridge";
@@ -18,11 +21,23 @@ import type { WidgetSnapshot, WidgetToggle } from "@/lib/daily-tasks/widget-snap
 let mockQueue: { raw: string | null; processedSeq: number } = { raw: null, processedSeq: 0 };
 jest.mock("@/lib/daily-tasks/widget-bridge", () => ({
   writeWidgetSnapshot: jest.fn(),
+  invalidateWidgetSnapshot: jest.fn(),
   readWidgetToggles: jest.fn(() => mockQueue),
   markWidgetTogglesProcessed: jest.fn((seq: number) => {
     mockQueue = { ...mockQueue, processedSeq: seq };
   }),
 }));
+
+/** No paywall in this build (everyone has Plus) unless a test says otherwise. */
+const NO_PAYWALL: Partial<PlusContextValue> = {
+  paywallBuild: false,
+  paywallEnabled: false,
+  entitlementActive: false,
+  entitlementKnown: true,
+};
+let mockPlus: Partial<PlusContextValue> = NO_PAYWALL;
+jest.mock("@/lib/daily-tasks/plus-context", () => ({ usePlus: () => mockPlus }));
+
 jest.mock("expo-notifications", () => ({
   getPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
   requestPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
@@ -64,14 +79,38 @@ function listenToAppState() {
   };
 }
 
+/** Fake only the clock; real timers keep RNTL's async waits working. */
+function fakeClockAt(now: Date) {
+  jest.useFakeTimers({
+    now,
+    doNotFake: [
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
+      "setImmediate",
+      "clearImmediate",
+      "queueMicrotask",
+      "nextTick",
+    ],
+  });
+}
+
 const wrapper = ({ children }: { children: ReactNode }) => (
   <DailyTasksProvider>{children}</DailyTasksProvider>
 );
 
-async function renderStore() {
+/** Saved state for the day of `now`, with the three tasks and some done. */
+async function renderStore(opts: { now?: Date; done?: string[]; saved?: Partial<DailyState> } = {}) {
   await AsyncStorage.setItem(
     "daily-tasks/state/v1",
-    JSON.stringify({ ...buildInitialState(), hasSeenOnboarding: true, tasks: TASKS }),
+    JSON.stringify({
+      ...buildInitialState(opts.now ?? new Date()),
+      hasSeenOnboarding: true,
+      tasks: TASKS,
+      todayCompletions: opts.done ?? [],
+      ...opts.saved,
+    }),
   );
   const hook = await renderHook(() => useDailyTasks(), { wrapper });
   await waitFor(() => expect(hook.result.current.ready).toBe(true));
@@ -80,27 +119,43 @@ async function renderStore() {
 
 beforeEach(async () => {
   mockQueue = { raw: null, processedSeq: 0 };
+  mockPlus = NO_PAYWALL;
   jest.clearAllMocks();
   await AsyncStorage.clear();
 });
 
-describe("store: widget", () => {
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+describe("store: widget snapshot", () => {
   it("writes today's tasks to the widget once loaded, and again when one is completed", async () => {
     const { result } = await renderStore();
-    const today = todayKey();
     expect(lastSnapshot()).toMatchObject({
-      date: today,
+      date: todayKey(),
       tasks: [
         { id: "t0", text: "Walk", done: false },
         { id: "t1", text: "Read", done: false },
         { id: "t2", text: "Stretch", done: false },
       ],
+      plus: true,
     });
     await act(async () => result.current.toggleTask("t1"));
     expect(lastSnapshot().tasks[1]).toEqual({ id: "t1", text: "Read", done: true });
   });
 
-  it("applies ticks made in the widget on launch like in-app taps (a perfect day included), then marks them processed", async () => {
+  it("doesn't make a free user's widget interactive while RevenueCat is still checking", async () => {
+    mockPlus = { paywallBuild: true, paywallEnabled: true, entitlementActive: false, entitlementKnown: false };
+    const { result } = await renderStore({ saved: { plusGrandfathered: false } });
+    // The app itself doesn't gate while waiting...
+    expect(result.current.hasPlus).toBe(true);
+    // ...but the widget only gets confirmed Plus.
+    expect(lastSnapshot().plus).toBe(false);
+  });
+});
+
+describe("store: widget taps", () => {
+  it("applies taps on launch like in-app taps (a perfect day included), then marks them processed", async () => {
     const today = todayKey();
     queue([
       { seq: 1, id: "t0", date: today, done: true },
@@ -108,30 +163,63 @@ describe("store: widget", () => {
       { seq: 3, id: "t2", date: today, done: true },
     ]);
     const { result } = await renderStore();
-    await waitFor(() => expect(result.current.completedCount).toBe(3));
     expect(result.current.state.todayCompletions).toEqual(["t0", "t1", "t2"]);
     expect(result.current.state.history[today]).toMatchObject({ total: 3, completed: 3 });
     expect(result.current.state.journey.perfectAwarded).toBe(true);
     expect(markWidgetTogglesProcessed).toHaveBeenCalledWith(3);
   });
 
-  it("applies new ticks when the app comes to the foreground; replaying the queue or a stale day changes nothing", async () => {
+  it("lands an evening tap on its own day when the app is only opened the next morning", async () => {
+    const evening = new Date(2026, 8, 25, 23, 0);
+    const day = todayKey(evening);
+    fakeClockAt(new Date(2026, 8, 26, 9, 0));
+    queue([{ seq: 1, id: "t2", date: day, done: true }]);
+    const { result } = await renderStore({ now: evening, done: ["t0", "t1"] });
+
+    expect(result.current.state.lastOpenedDate).toBe("2026-09-26");
+    expect(result.current.state.history[day]).toMatchObject({ total: 3, completed: 3 });
+    // Nothing left over from that day to carry into today.
+    expect(result.current.state.pendingRollover).toBeNull();
+    // XP and the perfect-day bonus go to that day, as if tapped in the app.
+    expect(result.current.state.journey).toMatchObject({ awardDate: day, perfectAwarded: true });
+    expect(result.current.state.journey.awardedTaskIds).toContain("t2");
+    expect(markWidgetTogglesProcessed).toHaveBeenCalledWith(1);
+  });
+
+  it("lands an evening tap on its own day when the app comes back to the foreground after midnight", async () => {
+    const appState = listenToAppState();
+    try {
+      fakeClockAt(new Date(2026, 8, 25, 22, 0));
+      const { result } = await renderStore({ now: new Date(2026, 8, 25, 22, 0), done: ["t0", "t1"] });
+      expect(result.current.state.lastOpenedDate).toBe("2026-09-25");
+
+      queue([{ seq: 1, id: "t2", date: "2026-09-25", done: true }]);
+      jest.setSystemTime(new Date(2026, 8, 26, 8, 0));
+      await act(async () => appState.emit("active"));
+
+      expect(result.current.state.lastOpenedDate).toBe("2026-09-26");
+      expect(result.current.state.history["2026-09-25"]).toMatchObject({ total: 3, completed: 3 });
+      expect(result.current.state.pendingRollover).toBeNull();
+      expect(markWidgetTogglesProcessed).toHaveBeenCalledWith(1);
+    } finally {
+      appState.restore();
+    }
+  });
+
+  it("replaying the same queue doesn't un-tick or award twice; other days are ignored", async () => {
     const appState = listenToAppState();
     try {
       const today = todayKey();
       const { result } = await renderStore();
-      expect(result.current.state.todayCompletions).toEqual([]);
-
       queue([
-        { seq: 1, id: "t0", date: "2000-01-01", done: true }, // an old day's widget
+        { seq: 1, id: "t0", date: "2000-01-01", done: true },
         { seq: 2, id: "t2", date: today, done: true },
       ]);
       await act(async () => appState.emit("active"));
       expect(result.current.state.todayCompletions).toEqual(["t2"]);
-      expect(markWidgetTogglesProcessed).toHaveBeenLastCalledWith(2);
       const xp = result.current.state.journey.xp;
 
-      // The same queue again (e.g. processedSeq wasn't saved): no double award.
+      // processedSeq wasn't saved: the same taps arrive again.
       mockQueue = { ...mockQueue, processedSeq: 0 };
       await act(async () => appState.emit("active"));
       expect(result.current.state.todayCompletions).toEqual(["t2"]);
@@ -141,12 +229,19 @@ describe("store: widget", () => {
     }
   });
 
-  // BUG (reported, not fixed): a tick made in the widget late in the evening is
-  // lost if the app isn't opened before midnight. On the next launch/foreground
-  // the toggle's date is yesterday, so tasksToFlip drops it and it's marked
-  // processed; yesterday's history never gets the completion (and a streak
-  // kept alive only by that widget tick breaks).
-  it.todo(
-    "applies a widget tick from before midnight to yesterday's record when the app next opens",
-  );
+  it("rewrites the snapshot after applying taps even when nothing changed (undoes the widget's optimistic tick)", async () => {
+    const appState = listenToAppState();
+    try {
+      const { result } = await renderStore();
+      const writes = (writeWidgetSnapshot as jest.Mock).mock.calls.length;
+      queue([{ seq: 1, id: "deleted-task", date: todayKey(), done: true }]);
+      await act(async () => appState.emit("active"));
+      expect(result.current.state.todayCompletions).toEqual([]);
+      expect(invalidateWidgetSnapshot).toHaveBeenCalled();
+      expect((writeWidgetSnapshot as jest.Mock).mock.calls.length).toBe(writes + 1);
+      expect(lastSnapshot().tasks.every((task) => !task.done)).toBe(true);
+    } finally {
+      appState.restore();
+    }
+  });
 });
