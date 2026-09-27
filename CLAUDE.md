@@ -16,7 +16,7 @@ auto-incremented. Apple closes old version "trains" once a version is approved,
 and rejects a build whose version isn't higher (errors 90062 / 90478 / 90186).
 - When cutting a new release, set `version` higher than every version previously
   uploaded to App Store Connect (not just the current one).
-- Current version: **1.0.2** (1.0.0 and 1.0.1 trains are closed).
+- Current version: **1.0.11** (1.0.10 was approved 2026-09-26; everything up to it is closed).
 
 **Build + submit (from `main`):**
 ```sh
