@@ -183,12 +183,12 @@ export async function requestMomentumAiPlan({
   fetchImpl?: typeof fetch;
 }): Promise<MomentumPlan> {
   if (!proxyUrl) {
-    throw new Error("Momentum AI proxy URL is not configured.");
+    throw new Error("AI proxy URL is not configured.");
   }
 
   const payload = buildAiPlanRequestPayload({ profile, history, settings, coachMemory, agenda, now });
   if (!payload) {
-    throw new Error("Momentum profile is incomplete.");
+    throw new Error("Profile is incomplete.");
   }
 
   const data = (await postToProxy({
@@ -203,7 +203,7 @@ export async function requestMomentumAiPlan({
   // and a short list is better than falling back to templates.
   const todaySuggestions = validateGeneratedTasks(data.todaySuggestions, "ai_today");
   if (todaySuggestions.length === 0) {
-    throw new MomentumAiError("invalid_response", "Momentum AI returned an invalid daily plan.");
+    throw new MomentumAiError("invalid_response", "AI returned an invalid daily plan.");
   }
 
   const aiMilestones = normalizeMilestones(data.milestones);

@@ -139,6 +139,8 @@ export default function HomeScreen() {
     dismissTomorrowDraft,
   } = useDailyTasks();
   const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue } = usePlus();
+  const winBackDueRef = useRef(winBackDue);
+  winBackDueRef.current = winBackDue;
 
   // First run stays up until its last step; onboarding is marked seen only
   // then, so a relaunch mid-way resumes (at the nudge once tasks are set).
@@ -554,7 +556,7 @@ export default function HomeScreen() {
     // launch). Skipped if anything else is on screen, e.g. the celebration.
     if (completing && winBackDue && paywallEnabled && !hasPlus) {
       setTimeout(() => {
-        if (!busyRef.current) openPaywall("win_back");
+        if (!busyRef.current && winBackDueRef.current) openPaywall("win_back");
       }, 1200);
     }
   };

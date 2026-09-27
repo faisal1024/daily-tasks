@@ -93,12 +93,12 @@ export async function postToProxy({
       parsed = await response.json();
     } catch (error) {
       if (controller.signal.aborted) throw error;
-      throw new MomentumAiError("invalid_response", "Momentum AI returned malformed JSON.");
+      throw new MomentumAiError("invalid_response", "AI returned malformed JSON.");
     }
     return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new MomentumAiError("timeout", "Momentum AI request timed out.");
+      throw new MomentumAiError("timeout", "AI request timed out.");
     }
     if (error instanceof MomentumAiError) throw error;
     throw new MomentumAiError(
