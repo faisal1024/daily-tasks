@@ -65,39 +65,27 @@ export const Fonts = Platform.select({
     sans: "system-ui",
     /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: "ui-serif",
-    /** Bundled Fredoka (loaded in app/_layout.tsx). */
-    rounded: "Fredoka-Bold",
+    /** SF Pro Rounded (`UIFontDescriptorSystemDesignRounded`): titles only. */
+    rounded: "ui-rounded",
     /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: "ui-monospace",
   },
   default: {
     sans: "normal",
     serif: "serif",
-    rounded: "Fredoka-Bold",
+    rounded: "sans-serif",
     mono: "monospace",
   },
   web: {
     sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
     serif: "Georgia, 'Times New Roman', serif",
-    rounded: "Fredoka-Bold, 'SF Pro Rounded', system-ui, sans-serif",
+    rounded: "ui-rounded, 'SF Pro Rounded', system-ui, sans-serif",
     mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
   },
 });
 
 /**
- * Bundled font families. RN custom fonts do NOT respond to fontWeight — each
- * weight is a separate family — so use these explicit names. Display = Fredoka
- * (playful, rounded). Body = Nunito (friendly, readable). Both load in
- * app/_layout.tsx.
+ * One family: the system font (SF Pro) for everything, with SF Pro Rounded
+ * (Fonts.rounded) for titles. Weight comes from fontWeight, and both scale
+ * with Dynamic Type.
  */
-export const DisplayFont = {
-  medium: "Fredoka-Medium",
-  semibold: "Fredoka-SemiBold",
-  bold: "Fredoka-Bold",
-} as const;
-
-export const BodyFont = {
-  semibold: "Nunito-SemiBold",
-  bold: "Nunito-Bold",
-  extrabold: "Nunito-ExtraBold",
-} as const;

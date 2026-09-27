@@ -16,8 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { ScreenContainer } from "@/components/screen-container";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
-import { TaskCard } from "@/components/daily-tasks/task-card";
-import { TimeStepper } from "@/components/daily-tasks/time-stepper";
+import { TimePickerRow } from "@/components/daily-tasks/time-picker-row";
 import { useColors } from "@/hooks/use-colors";
 import { Fonts } from "@/constants/theme";
 import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
@@ -62,12 +61,6 @@ export default function SettingsScreen() {
   const {
     state,
     notificationPermission,
-    isCompleted,
-    editTask,
-    deleteTask,
-    toggleTask,
-    lockToday,
-    unlockToday,
     setAutoLockEnabled,
     setAutoLockTime,
     setNotificationsEnabled,
@@ -490,66 +483,6 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
-          icon="list-outline"
-          title="Today's Three"
-          subtitle="Review or finish the tasks you chose for today."
-        >
-          <View className="gap-3">
-            {state.tasks.length > 0 && (
-              <View className="rounded-2xl border border-border bg-surface p-4 flex-row items-center justify-between gap-4">
-                <View className="flex-1">
-                  <Text className="text-base font-semibold text-foreground">
-                    {state.todayLocked ? "Today's three are set" : "Set today's three"}
-                  </Text>
-                  <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                    {state.todayLocked
-                      ? "You can check things off. Turn this off to add, edit, or swap a task."
-                      : "Set your three to commit to them. You can change them here anytime."}
-                  </Text>
-                </View>
-                <Switch
-                  value={state.todayLocked}
-                  onValueChange={(value) => (value ? lockToday() : unlockToday())}
-                  accessibilityLabel="Set today's three"
-                  trackColor={{ true: colors.primary }}
-                />
-              </View>
-            )}
-            {state.tasks.length === 0 ? (
-              <Text className="text-sm text-muted">
-                No tasks yet. Choose them on the Today tab.
-              </Text>
-            ) : (
-              state.tasks.map((task) => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  completed={isCompleted(task.id)}
-                  onToggle={() => toggleTask(task.id)}
-                  onEdit={(text) => editTask(task.id, text)}
-                  onDelete={() =>
-                    Alert.alert(
-                      "Release this focus?",
-                      `Remove "${task.text}" from Today's Three?`,
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: "Delete",
-                          style: "destructive",
-                          onPress: () => deleteTask(task.id),
-                        },
-                      ],
-                    )
-                  }
-                  canEdit={!state.todayLocked}
-                  canDelete={!state.todayLocked}
-                />
-              ))
-            )}
-          </View>
-        </Section>
-
-        <Section
           icon="checkmark-done-outline"
           title="Setting the day"
           subtitle="Choose whether Today's Three sets itself automatically."
@@ -571,7 +504,8 @@ export default function SettingsScreen() {
                 trackColor={{ true: colors.primary }}
               />
             </View>
-            <TimeStepper
+            <TimePickerRow
+              label="Set the day at"
               hour={state.autoLock.hour}
               minute={state.autoLock.minute}
               disabled={!state.autoLock.enabled}

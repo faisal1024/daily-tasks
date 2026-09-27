@@ -13,8 +13,9 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BodyFont, Fonts } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
 import { PRIVACY_URL, TERMS_URL } from "@/lib/daily-tasks/links";
 import {
@@ -55,6 +56,7 @@ export function PaywallSheet({
   onRestore,
 }: PaywallSheetProps) {
   const colors = useColors();
+  const sheetAnimation = useSheetAnimation();
   // White on the light-mode indigo passes contrast; on the lighter dark-mode
   // indigo it doesn't, so use the dark background colour for text there.
   const onPrimary = useColorScheme() === "dark" ? colors.background : "#fff";
@@ -155,7 +157,7 @@ export function PaywallSheet({
       // through RevenueCat's listener, so nobody can get stuck here.
       onRequestClose={onClose}
       onShow={onShown}
-      animationType="slide"
+      animationType={sheetAnimation}
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
     >
       <View style={{ flex: 1, backgroundColor: colors.background }} testID="paywall-sheet">
@@ -203,7 +205,7 @@ export function PaywallSheet({
                   color={colors.primary}
                 />
                 <View className="flex-1">
-                  <Text className="text-base text-foreground" style={{ fontFamily: BodyFont.bold }}>
+                  <Text className="text-base text-foreground" style={{ fontWeight: "700" }}>
                     {benefit.title}
                   </Text>
                   <Text className="text-sm" style={{ color: colors.muted }}>
@@ -266,7 +268,7 @@ export function PaywallSheet({
                       color={on ? colors.primary : colors.muted}
                     />
                     <View className="flex-1">
-                      <Text className="text-base text-foreground" style={{ fontFamily: BodyFont.bold }}>
+                      <Text className="text-base text-foreground" style={{ fontWeight: "700" }}>
                         {label.title}
                       </Text>
                       {label.detail && (

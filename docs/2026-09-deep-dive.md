@@ -26,7 +26,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⏸ blocked on the ow
 |---|---|---|
 | 8 — Foundation fixes | ✅ done | PR #44; TestFlight build after merge |
 | 9 — The ritual | ✅ Done (PRs #47, #48) | 9a: morning hero + draft, evening close, coach memory, Day N, milestones; 9b: onboarding + Calendar/Reminders |
-| 10 — Today revamp + IA | 🔄 10a done (PR #49), 10b next | decisions made (§6) |
+| 10 — Today revamp + IA | 🔄 10a done (PR #49), 10b in review | decisions made (§6) |
 | 11 — Money & cost controls | ⏸ | code can start; going live needs App Store Connect setup (Paid Apps agreement, tax form, In-App Purchase key) and a Cloudflare account |
 | 12 — Name, listing, launch | ⬜ | name chosen: **Three Today** (§6) |
 

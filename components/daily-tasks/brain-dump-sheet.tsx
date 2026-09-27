@@ -13,7 +13,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BodyFont, Fonts } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
+import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
 import { MAX_BRAIN_DUMP_CHARS, type SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
 
@@ -46,6 +47,7 @@ export function BrainDumpSheet({
   onUpgrade,
 }: BrainDumpSheetProps) {
   const colors = useColors();
+  const sheetAnimation = useSheetAnimation();
   const insets = useSafeAreaInsets();
   const [stage, setStage] = useState<Stage>("write");
   const [text, setText] = useState("");
@@ -114,7 +116,7 @@ export function BrainDumpSheet({
     <Modal
       visible={visible}
       onRequestClose={close}
-      animationType="slide"
+      animationType={sheetAnimation}
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
     >
       <KeyboardAvoidingView
@@ -170,7 +172,7 @@ export function BrainDumpSheet({
                   color: colors.foreground,
                   borderColor: colors.border,
                   backgroundColor: colors.surface,
-                  fontFamily: BodyFont.semibold,
+                  fontWeight: "600",
                 }}
               />
               <Pressable
@@ -261,7 +263,7 @@ export function BrainDumpSheet({
                       size={24}
                       color={on ? colors.primary : colors.muted}
                     />
-                    <Text className="flex-1 text-base text-foreground" style={{ fontFamily: BodyFont.bold }}>
+                    <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "700" }}>
                       {item}
                     </Text>
                     {!on && (

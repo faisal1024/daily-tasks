@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { BodyFont, Fonts } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import type { PendingRollover, TaskId } from "@/lib/daily-tasks/types";
 
@@ -90,7 +90,7 @@ export function RolloverModal({ visible, pending, remainingSlots, onApply }: Rol
                         color={on ? colors.primary : colors.muted}
                         accessibilityElementsHidden
                       />
-                      <Text className="flex-1 text-base text-foreground" style={{ fontFamily: BodyFont.semibold }}>
+                      <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "600" }}>
                         {task.text}
                       </Text>
                     </Pressable>
@@ -107,7 +107,7 @@ export function RolloverModal({ visible, pending, remainingSlots, onApply }: Rol
               style={{ borderRadius: 999, paddingVertical: 16, alignItems: "center", backgroundColor: colors.primary }}
               testID="rollover-apply"
             >
-              <Text style={{ color: "#fff", fontFamily: BodyFont.bold, fontSize: 17 }}>
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 17 }}>
                 {!hasRoom ? "Got it" : count === 0 ? "Start fresh" : count === 1 ? "Bring 1 into today" : `Bring ${count} into today`}
               </Text>
             </Pressable>

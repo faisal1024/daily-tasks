@@ -11,7 +11,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BodyFont, Fonts } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
+import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
 import { suggestionsHint } from "@/lib/daily-tasks/ai-status";
 import { THINKING_HINT_DELAY_MS, type IdeasSource } from "@/lib/daily-tasks/today-view";
@@ -71,6 +72,7 @@ export function IdeasSheet({
   onLock,
 }: IdeasSheetProps) {
   const colors = useColors();
+  const sheetAnimation = useSheetAnimation();
   const insets = useSafeAreaInsets();
   const stillThinking = useStillThinking(regenerating);
   const available = ideas.filter((idea) => !addedTexts.has(keyOf(idea.text)));
@@ -87,7 +89,7 @@ export function IdeasSheet({
     <Modal
       visible={visible}
       onRequestClose={onClose}
-      animationType="slide"
+      animationType={sheetAnimation}
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
     >
       <View
@@ -215,7 +217,7 @@ export function IdeasSheet({
                     color={added ? colors.success : colors.primary}
                   />
                   <View className="flex-1 gap-0.5">
-                    <Text className="text-base text-foreground" style={{ fontFamily: BodyFont.bold }}>
+                    <Text className="text-base text-foreground" style={{ fontWeight: "700" }}>
                       {idea.text}
                     </Text>
                     {typeof idea.estimatedMinutes === "number" && (
