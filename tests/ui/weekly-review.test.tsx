@@ -1,7 +1,7 @@
-// Weekly review card (Phase 6) and its Plus gate on the Journey screen.
+// Weekly review card (Phase 6), free for everyone on the Progress screen (11a).
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Alert } from "react-native";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 
 import JourneyScreen from "@/app/(tabs)/journey";
 import { WeeklyReviewCard } from "@/components/daily-tasks/weekly-review-card";
@@ -93,9 +93,12 @@ describe("WeeklyReviewCard", () => {
   });
 });
 
-describe("Journey: weekly review gate", () => {
-  it("a confirmed free user's unlock opens the weekly_review paywall and logs the gate hit", async () => {
-    mockPlus = { paywallBuild: true, paywallEnabled: true, entitlementActive: false, entitlementKnown: true };
+describe("Progress: weekly review for everyone", () => {
+  it.each([
+    ["a confirmed free user", { entitlementActive: false, entitlementKnown: true }],
+    ["someone whose Plus is still being checked", { entitlementActive: false, entitlementKnown: false }],
+  ])("shows %s the patterns, with no unlock row and no paywall", async (_who, plus) => {
+    mockPlus = { paywallBuild: true, paywallEnabled: true, ...plus };
     const today = todayKey();
     await AsyncStorage.setItem(
       "daily-tasks/state/v1",
@@ -111,14 +114,73 @@ describe("Journey: weekly review gate", () => {
         <JourneyScreen />
       </DailyTasksProvider>,
     );
-    await waitFor(() => expect(screen.getByTestId("weekly-review-unlock")).toBeOnTheScreen());
-    await fireEvent.press(screen.getByTestId("weekly-review-unlock"));
-    expect(track).toHaveBeenCalledWith("plus_gate_hit", { feature: "weekly_review" });
-    expect(mockOpenPaywall).toHaveBeenCalledWith("weekly_review");
+    await waitFor(() => expect(screen.getByTestId("weekly-review-insights")).toBeOnTheScreen());
+    expect(screen.getByTestId("weekly-review-insights")).toHaveTextContent(/up from 3 last week/);
+    expect(screen.queryByTestId("weekly-review-unlock")).toBeNull();
+    expect(track).not.toHaveBeenCalledWith("plus_gate_hit", expect.anything());
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 });
 
 describe("Progress: milestones are ticked by hand", () => {
+  it("unfinished milestones all look unstarted; only the next one says Up next", async () => {
+    const ms = (id: string, title: string, completedAt: string | null) => ({ id, title, description: "", completedAt });
+    await AsyncStorage.setItem(
+      "daily-tasks/state/v1",
+      JSON.stringify({
+        ...buildInitialState(),
+        hasSeenOnboarding: true,
+        momentumPlan: {
+          id: "plan",
+          goalTitle: "Run a 5K",
+          generatedAt: new Date().toISOString(),
+          provider: "template",
+          milestones: [
+            ms("walk_1", "Walk 1 mile", null),
+            ms("run_1", "Run 1 mile", null),
+            ms("run_3", "Run 3 miles", null),
+          ],
+          taskPool: [],
+          todaySuggestions: [],
+          promptSummary: "",
+          version: 1,
+        },
+        completedMilestoneIds: ["walk_1"],
+      }),
+    );
+    await render(
+      <DailyTasksProvider>
+        <JourneyScreen />
+      </DailyTasksProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("milestone-reach-run_1")).toBeOnTheScreen());
+    // One "Up next", on the first unreached milestone.
+    const upNext = screen.getAllByText("Up next", { includeHiddenElements: true });
+    expect(upNext).toHaveLength(1);
+    // The milestone's card: the nearest host View with a border colour.
+    const card = (id: string, action = "reach") => {
+      let node = screen.getByTestId(`milestone-${action}-${id}`).parent;
+      while (node && !(typeof node.type === "string" && node.props.style?.borderColor)) node = node.parent;
+      return node!;
+    };
+    expect(within(card("run_1")).queryByText("Up next", { includeHiddenElements: true })).not.toBeNull();
+    expect(within(card("run_3")).queryByText("Up next", { includeHiddenElements: true })).toBeNull();
+    // Both unfinished ones: same empty circle, same neutral border, "Mark reached".
+    for (const id of ["run_1", "run_3"]) {
+      expect(within(screen.getByTestId(`milestone-reach-${id}`)).getByText("Mark reached")).toBeOnTheScreen();
+      expect(screen.getByTestId(`milestone-reach-${id}`)).toHaveAccessibleName(/^Mark ".+" as reached$/);
+    }
+    // The icon is the card's first child (an icon-font glyph): the next
+    // milestone's must match a later one's, not the reached one's.
+    const icon = (c: ReturnType<typeof card>) => {
+      const first = c.children[0] as unknown as { props: { children: unknown; style: unknown } };
+      return { glyph: first.props.children, style: first.props.style };
+    };
+    expect(icon(card("run_1"))).toEqual(icon(card("run_3")));
+    expect(icon(card("run_1")).glyph).not.toEqual(icon(card("walk_1", "done")).glyph);
+    expect(card("run_1").props.style).toEqual(card("run_3").props.style);
+  });
+
   it("Reached asks first, then marks the milestone done", async () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     await AsyncStorage.setItem(

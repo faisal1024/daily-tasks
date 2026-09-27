@@ -3,7 +3,9 @@
 import {
   __resetPurchasesForTests,
   configurePurchases,
+  fetchPlusStatus,
   loadPackages,
+  onPlusStatusChange,
   purchase,
 } from "@/lib/daily-tasks/purchases";
 
@@ -104,5 +106,33 @@ describe("purchases", () => {
     await configuredWithAnnual();
     mockSdk.purchasePackage.mockRejectedValue(error);
     expect(await purchase("$rc_annual")).toEqual({ outcome, active: false });
+  });
+
+  it("fetchPlusStatus reports the entitlement, trial end and lapse, or null when it can't check", async () => {
+    expect(await fetchPlusStatus()).toBeNull(); // not configured
+    process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+    configurePurchases();
+    const trial = { identifier: "plus", isActive: true, periodType: "TRIAL", willRenew: true, expirationDate: "2099-10-04T12:00:00Z" };
+    mockSdk.getCustomerInfo.mockResolvedValueOnce({ entitlements: { active: { plus: trial }, all: { plus: trial } } });
+    expect(await fetchPlusStatus()).toEqual({ active: true, trialEndsAt: "2099-10-04T12:00:00Z", lapsedAt: null });
+    const expired = { identifier: "plus", isActive: false, periodType: "NORMAL", expirationDate: "2020-01-01T00:00:00Z" };
+    mockSdk.getCustomerInfo.mockResolvedValueOnce({ entitlements: { active: {}, all: { plus: expired } } });
+    expect(await fetchPlusStatus()).toEqual({ active: false, trialEndsAt: null, lapsedAt: "2020-01-01T00:00:00Z" });
+    mockSdk.getCustomerInfo.mockRejectedValueOnce(new Error("offline"));
+    expect(await fetchPlusStatus()).toBeNull();
+  });
+
+  it("onPlusStatusChange passes the full status and unsubscribes the same handler", () => {
+    expect(onPlusStatusChange(jest.fn())).toEqual(expect.any(Function)); // not configured: no-op
+    expect(mockSdk.addCustomerInfoUpdateListener).not.toHaveBeenCalled();
+    process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+    configurePurchases();
+    const listener = jest.fn();
+    const off = onPlusStatusChange(listener);
+    const handler = mockSdk.addCustomerInfoUpdateListener.mock.calls[0][0];
+    handler(ACTIVE);
+    expect(listener).toHaveBeenCalledWith({ active: true, trialEndsAt: null, lapsedAt: null });
+    off();
+    expect(mockSdk.removeCustomerInfoUpdateListener).toHaveBeenCalledWith(handler);
   });
 });

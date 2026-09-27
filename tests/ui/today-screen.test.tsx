@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AccessibilityInfo, ActionSheetIOS, Alert, AppState as RNAppState } from "react-native";
 import { act, fireEvent, screen, within } from "@testing-library/react-native";
 
@@ -55,6 +56,7 @@ let mockPaywall: {
   paywallSource: string | null;
   entitlementActive: boolean;
   purchaseCount?: number;
+  winBackDue?: boolean;
 } = {
   paywallSource: null,
   entitlementActive: false,
@@ -163,6 +165,7 @@ afterEach(() => {
   mockProxyUrl = null;
   mockWindow = PHONE;
   mockPaywall = { paywallSource: null, entitlementActive: false };
+  void AsyncStorage.clear();
 });
 
 describe("Today screen layout", () => {
@@ -1007,16 +1010,21 @@ describe("Plus gates (free plan)", () => {
     expect(requestBreakDown).toHaveBeenCalledWith(expect.objectContaining({ task: "Clean kitchen" }));
   });
 
-  it("brain dump uses the on-device split (no AI call) and offers Plus, which opens the paywall", async () => {
+  it("after the free AI sorts, brain dump uses the on-device split (no AI call), logs the gate, and offers Plus", async () => {
     jest.useFakeTimers();
     mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    await AsyncStorage.setItem(FREE_DUMPS_KEY, "3");
     mockStore = { ...makeStore(), hasPlus: false };
     const { rerender } = await render(<HomeScreen />);
     await openBrainDump();
+    await act(async () => {}); // the free count loads when the sheet opens
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a\nb\nc\nd");
-    expect(screen.getByTestId("brain-dump-upgrade")).toBeOnTheScreen();
+    expect(screen.getByTestId("brain-dump-upgrade")).toHaveTextContent(
+      /This uses a simple split\. Plus lets AI pick what matters most\./,
+    );
     await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
     expect(sortBrainDump).not.toHaveBeenCalled();
+    expect(mockTrack).toHaveBeenCalledWith("plus_gate_hit", { feature: "brain_dump", source: "free_exhausted" });
     expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "D" })).not.toBeChecked();
     expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
@@ -1025,6 +1033,7 @@ describe("Plus gates (free plan)", () => {
     // fresh sheet, Get Plus closes it and opens the paywall.
     await fireEvent.press(screen.getByRole("button", { name: "Add 3 to today" }));
     await openBrainDump();
+    await act(async () => {});
     await fireEvent.press(screen.getByRole("button", { name: "Get AI sorting with Plus" }));
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
     // Waits for the sheet to animate away before the paywall.
@@ -1065,6 +1074,201 @@ describe("Plus gates (free plan)", () => {
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a");
     await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
     expect(sortBrainDump).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- Phase 11a: free AI brain dumps, win-back paywall ----------------------
+
+const FREE_DUMPS_KEY = "daily-tasks/free-ai-dumps-used";
+
+describe("Free AI brain dumps (free plan)", () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+  });
+
+  async function openAsFree() {
+    await openBrainDump();
+    await act(async () => {}); // the free count loads when the sheet opens
+  }
+
+  async function sortAsFree(text: string) {
+    await openAsFree();
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), text);
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+    // Let the fire-and-forget refund settle.
+    await act(async () => {});
+  }
+
+  it.each([
+    [null, /AI will sort this one\. You have 3 free AI sorts to try\./],
+    ["1", /AI will sort this one\. 2 free AI sorts left\./],
+    ["2", /AI will sort this one\. 1 free AI sort left\./],
+  ])("with %s used, says AI will sort it, with no Get Plus during the taste", async (used, copy) => {
+    if (used) await AsyncStorage.setItem(FREE_DUMPS_KEY, used);
+    mockStore = { ...makeStore(), hasPlus: false };
+    await render(<HomeScreen />);
+    await openAsFree();
+    expect(screen.getByTestId("brain-dump-upgrade")).toHaveTextContent(copy);
+    expect(screen.queryByRole("button", { name: "Get AI sorting with Plus" })).toBeNull();
+  });
+
+  it("when they're used up, says it's a simple split and offers Plus", async () => {
+    await AsyncStorage.setItem(FREE_DUMPS_KEY, "3");
+    mockStore = { ...makeStore(), hasPlus: false };
+    await render(<HomeScreen />);
+    await openAsFree();
+    expect(screen.getByTestId("brain-dump-upgrade")).toHaveTextContent(
+      /This uses a simple split\. Plus lets AI pick what matters most\./,
+    );
+    expect(screen.getByRole("button", { name: "Get AI sorting with Plus" })).toBeOnTheScreen();
+  });
+
+  it("sorts with the AI (no agenda) and says how many free sorts are left, without a gate hit", async () => {
+    (sortBrainDump as jest.Mock).mockResolvedValue({
+      result: { picks: ["Finish report"], parked: ["Buy shoes"], source: "ai" },
+      notice: null,
+    });
+    mockStore = { ...makeStore({ agendaEnabled: true }), hasPlus: false };
+    await render(<HomeScreen />);
+    await sortAsFree("finish report, buy shoes");
+    expect(sortBrainDump).toHaveBeenCalledWith({ text: "finish report, buy shoes", openSlots: 3, goalTitle: null });
+    expect(screen.getByTestId("brain-dump-notice")).toHaveTextContent(/Sorted by AI · 2 free sorts left\./);
+    expect(await AsyncStorage.getItem(FREE_DUMPS_KEY)).toBe("1");
+    expect(mockTrack).not.toHaveBeenCalledWith("plus_gate_hit", expect.anything());
+    expect(mockTrack).toHaveBeenCalledWith("brain_dump_sorted", { source: "ai", count: 1, plus: false });
+  });
+
+  it("says so on the last free sort", async () => {
+    await AsyncStorage.setItem(FREE_DUMPS_KEY, "2");
+    (sortBrainDump as jest.Mock).mockResolvedValue({
+      result: { picks: ["A"], parked: [], source: "ai" },
+      notice: null,
+    });
+    mockStore = { ...makeStore(), hasPlus: false };
+    await render(<HomeScreen />);
+    await sortAsFree("a");
+    expect(screen.getByTestId("brain-dump-notice")).toHaveTextContent(
+      /That was your last free AI sort\. Next time we'll use a simple split, or Plus keeps AI sorting on\./,
+    );
+    expect(await AsyncStorage.getItem(FREE_DUMPS_KEY)).toBe("3");
+  });
+
+  it("gives the free sort back when the AI can't be reached, and shows the fallback notice", async () => {
+    await AsyncStorage.setItem(FREE_DUMPS_KEY, "1");
+    const actual = jest.requireActual("@/lib/daily-tasks/ai-helpers");
+    (sortBrainDump as jest.Mock).mockImplementation((params) =>
+      actual.sortBrainDump(params, async () => {
+        throw new MomentumAiError("network", "offline");
+      }),
+    );
+    mockStore = { ...makeStore(), hasPlus: false };
+    await render(<HomeScreen />);
+    await sortAsFree("a\nb");
+    expect(sortBrainDump).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("brain-dump-notice")).toHaveTextContent(/Couldn't reach smart sorting/);
+    expect(await AsyncStorage.getItem(FREE_DUMPS_KEY)).toBe("1");
+    expect(mockTrack).not.toHaveBeenCalledWith("plus_gate_hit", expect.anything());
+    expect(mockTrack).toHaveBeenCalledWith("brain_dump_sorted", { source: "local", count: 2, plus: false });
+  });
+
+  it("uses the AI three times, then the fourth is the local split with the gate logged", async () => {
+    (sortBrainDump as jest.Mock).mockResolvedValue({
+      result: { picks: ["A"], parked: [], source: "ai" },
+      notice: null,
+    });
+    mockStore = { ...makeStore(), hasPlus: false };
+    await render(<HomeScreen />);
+    for (let i = 0; i < 3; i += 1) {
+      await sortAsFree("a");
+      await fireEvent.press(screen.getByRole("button", { name: "Add 1 to today" }));
+    }
+    expect(sortBrainDump).toHaveBeenCalledTimes(3);
+    expect(mockTrack).not.toHaveBeenCalledWith("plus_gate_hit", expect.anything());
+    await sortAsFree("a\nb");
+    expect(sortBrainDump).toHaveBeenCalledTimes(3);
+    expect(mockTrack).toHaveBeenCalledWith("plus_gate_hit", { feature: "brain_dump", source: "free_exhausted" });
+    expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
+  });
+
+  it("never touches the free count for Plus users", async () => {
+    (sortBrainDump as jest.Mock).mockResolvedValue({
+      result: { picks: ["A"], parked: [], source: "ai" },
+      notice: null,
+    });
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await sortAsFree("a");
+    expect(await AsyncStorage.getItem(FREE_DUMPS_KEY)).toBeNull();
+    expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
+  });
+});
+
+describe("Win-back paywall on Today", () => {
+  const lapsedFree = () => {
+    mockPaywall = { paywallSource: null, entitlementActive: false, winBackDue: true };
+    mockStore = { ...makeStore({ ...SET, tasks: tasks("Walk", "Read") }), hasPlus: false };
+  };
+
+  it("never opens on launch, only a moment after a task is completed", async () => {
+    jest.useFakeTimers();
+    lapsedFree();
+    await render(<HomeScreen />);
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+    await act(async () => {
+      jest.advanceTimersByTime(1100);
+    });
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(100);
+    });
+    expect(mockOpenPaywall).toHaveBeenCalledTimes(1);
+    expect(mockOpenPaywall).toHaveBeenCalledWith("win_back");
+  });
+
+  it("not when a task is unticked", async () => {
+    jest.useFakeTimers();
+    lapsedFree();
+    mockStore = { ...mockStore, isCompleted: () => true };
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+  });
+
+  it("not when something else is on screen by then (a sheet opened)", async () => {
+    jest.useFakeTimers();
+    lapsedFree();
+    mockStore = { ...makeStore({ tasks: tasks("Walk") }), hasPlus: false };
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+    await openBrainDump();
+    await act(async () => {
+      jest.advanceTimersByTime(1500);
+    });
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["it isn't due", () => (mockPaywall = { paywallSource: null, entitlementActive: false, winBackDue: false })],
+    ["the user has Plus", () => (mockStore = { ...mockStore, hasPlus: true })],
+  ])("not when %s", async (_why, tweak) => {
+    jest.useFakeTimers();
+    lapsedFree();
+    tweak();
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 });
 
