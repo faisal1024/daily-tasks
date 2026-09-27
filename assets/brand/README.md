@@ -11,4 +11,5 @@
 Generated app assets (`assets/images/`): `icon.png`, `splash-icon.png`, `favicon.png`,
 `android-icon-background.png` (artwork padded so the adaptive mask keeps the rays),
 `android-icon-foreground.png` (transparent), `android-icon-monochrome.png` (sun
-silhouette for themed icons). Adaptive icon background colour: `#022266`.
+silhouette for themed icons). Adaptive icon `backgroundColor` `#022266` is only a
+fallback (Expo uses the background image when one is set).
