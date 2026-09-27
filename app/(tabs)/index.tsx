@@ -44,7 +44,7 @@ import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
-import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
+import { addDays, greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
@@ -118,6 +118,7 @@ export default function HomeScreen() {
     toggleTaskStep,
     clearTaskSteps,
     hasPlus,
+    plusConfirmed,
     daysShowedUp,
     setEveningClose,
     applyTomorrowDraft,
@@ -167,9 +168,8 @@ export default function HomeScreen() {
 
   const [showCelebration, setShowCelebration] = useState(false);
   const [ideasOpen, setIdeasOpen] = useState(false);
-  // Evening close in flight, and its note when it drafted nothing for tomorrow.
+  // Evening close in flight.
   const [closingDay, setClosingDay] = useState(false);
-  const [eveningNote, setEveningNote] = useState<string | null>(null);
   const closingRef = useRef(false);
   // Opened from "Saved for later" (full day): show just the saved items.
   const [ideasSavedOnly, setIdeasSavedOnly] = useState(false);
@@ -217,6 +217,8 @@ export default function HomeScreen() {
     today,
     locked: state.todayLocked,
     taskTexts: state.tasks.map((task) => task.text),
+    // Yesterday: anything finished after the close, or dropped at rollover.
+    sourceDay: state.tomorrowDraft ? state.history[addDays(state.tomorrowDraft.forDate, -1)] : null,
   });
   // An empty day opens on the morning ritual: last night's draft, or the prompt.
   const morning = total === 0 && !state.todayLocked;
@@ -452,17 +454,21 @@ export default function HomeScreen() {
 
   // The evening check-in: record how the day felt, then (once a day) let the
   // coach close it: a note and tomorrow's draft. AI for Plus, on-device otherwise.
-  const handleEveningResult = (result: ReflectionResult) => {
+  const handleEveningResult = (result: ReflectionResult, typedNote?: string | null) => {
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     setTodayReflectionResult(result);
-    if (closingRef.current || isDayClosed(state.tomorrowDraft, today)) return;
+    // Closed once per answer: picking a different answer re-closes the day
+    // (the note and draft should match it); the same answer doesn't.
+    if (closingRef.current || isDayClosed(state.eveningClose, today, result)) return;
     closingRef.current = true;
     setClosingDay(true);
-    const input = buildEveningInput(state, result);
-    void closeDay(input, { useAi: hasPlus && getMomentumAiProxyUrl() != null })
+    // The day being closed is the one on screen now, whenever the reply lands.
+    const day = today;
+    const input = buildEveningInput(state, result, typedNote);
+    // Confirmed Plus only: "still checking" must not spend an AI call on a free user.
+    void closeDay(input, { useAi: plusConfirmed && getMomentumAiProxyUrl() != null })
       .then((close) => {
-        setEveningClose(close);
-        setEveningNote(close.note);
+        setEveningClose(close, day, result);
         track("evening_closed", { source: close.source, count: close.tomorrow.length });
       })
       .finally(() => {
@@ -734,8 +740,13 @@ export default function HomeScreen() {
                     />
                     <EveningResult
                       closing={closingDay}
-                      note={isDayClosed(state.tomorrowDraft, today) ? state.tomorrowDraft?.note ?? null : eveningNote}
-                      draft={isDayClosed(state.tomorrowDraft, today) ? state.tomorrowDraft : null}
+                      note={isDayClosed(state.eveningClose, today) ? state.eveningClose?.note ?? null : null}
+                      draft={
+                        isDayClosed(state.eveningClose, today) &&
+                        state.tomorrowDraft?.forDate === addDays(today, 1)
+                          ? state.tomorrowDraft
+                          : null
+                      }
                     />
                   </>
                 )}

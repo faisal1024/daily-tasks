@@ -22,6 +22,7 @@ export default function JourneyScreen() {
     state,
     daysShowedUp,
     completeMilestone,
+    uncompleteMilestone,
     momentumMilestones,
     pendingMilestoneCelebration,
     acknowledgeMilestoneCelebration,
@@ -41,6 +42,13 @@ export default function JourneyScreen() {
   // Levels are no longer shown, so only milestones celebrate here.
   const celebration = pickCelebration({ pendingMilestoneCelebration, pendingLevelUp: null });
   const showMilestoneCelebration = celebration === "milestone";
+
+  const markNotReached = (id: string, title: string) => {
+    Alert.alert("Mark as not reached?", `"${title}"`, [
+      { text: "Keep it", style: "cancel" },
+      { text: "Not reached yet", onPress: () => uncompleteMilestone(id) },
+    ]);
+  };
 
   const markReached = (id: string, title: string) => {
     Alert.alert("Reached this milestone?", `"${title}"`, [
@@ -158,7 +166,7 @@ export default function JourneyScreen() {
               </Text>
             </View>
             <Text className="text-sm" style={{ color: colors.muted }}>
-              Tick one off when you've really got there.
+              Tick one off when you get there.
             </Text>
             {momentumMilestones.map((milestone, index) => {
               const isNext = !milestone.done && index === nextMilestoneIndex;
@@ -197,9 +205,18 @@ export default function JourneyScreen() {
                     ) : null}
                   </View>
                   {milestone.done ? (
-                    <Text className="text-sm font-bold" style={{ color: colors.success }}>
-                      Done
-                    </Text>
+                    <Pressable
+                      onPress={() => markNotReached(milestone.id, milestone.title)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`"${milestone.title}" reached`}
+                      accessibilityHint="Double-tap to mark it as not reached"
+                      hitSlop={8}
+                      testID={`milestone-done-${milestone.id}`}
+                    >
+                      <Text className="text-sm font-bold" style={{ color: colors.success }}>
+                        Done
+                      </Text>
+                    </Pressable>
                   ) : (
                     <Pressable
                       onPress={() => markReached(milestone.id, milestone.title)}

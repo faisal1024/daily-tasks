@@ -158,10 +158,11 @@ type Action =
   | { type: "clearTaskSteps"; taskId: TaskId; today: string }
   | { type: "applyWidgetToggles"; toggles: WidgetToggle[] }
   | { type: "grandfatherPlus" }
-  | { type: "setEveningClose"; close: EveningClose; today: string }
-  | { type: "applyTomorrowDraft"; tasks: string[]; today: string }
+  | { type: "setEveningClose"; close: EveningClose; day: string; result: ReflectionResult }
+  | { type: "applyTomorrowDraft"; tasks: string[]; today: string; at: string }
   | { type: "dismissTomorrowDraft" }
   | { type: "completeMilestone"; id: string }
+  | { type: "uncompleteMilestone"; id: string }
   | { type: "setAnalyticsEnabled"; enabled: boolean }
   | { type: "reset"; state: AppState };
 
@@ -216,15 +217,21 @@ function reducer(state: AppState, action: Action): AppState {
       );
     }
     case "setEveningClose":
+      // `day` is the day the user closed (captured at the tap), so a reply
+      // that lands after midnight still drafts for the right morning.
       return {
         ...state,
-        tomorrowDraft: draftForTomorrow(action.close, action.today),
+        tomorrowDraft: draftForTomorrow(action.close, action.day),
         // The on-device close has no memory to add; keep what the coach knows.
         coachMemory: action.close.memory ?? state.coachMemory,
+        eveningClose: { date: action.day, result: action.result, note: action.close.note },
       };
     case "applyTomorrowDraft": {
+      const leftovers = (state.tomorrowDraft?.tasks ?? []).filter((text) => !action.tasks.includes(text));
       const next = reducer(state, { type: "addTasks", texts: action.tasks, today: action.today });
-      return { ...next, tomorrowDraft: null };
+      // What didn't fit is saved for later rather than lost.
+      const withLeftovers = leftovers.length > 0 ? parkTasks(next, leftovers, action.at) : next;
+      return { ...withLeftovers, tomorrowDraft: null };
     }
     case "dismissTomorrowDraft":
       return state.tomorrowDraft ? { ...state, tomorrowDraft: null } : state;
@@ -242,6 +249,14 @@ function reducer(state: AppState, action: Action): AppState {
         completedMilestoneIds: advanced.completedMilestoneIds,
         journey: advanced.journey,
         pendingMilestoneCelebration: advanced.pendingMilestoneCelebration,
+      };
+    }
+    case "uncompleteMilestone": {
+      // A mistaken tap should be reversible.
+      if (!state.completedMilestoneIds.includes(action.id)) return state;
+      return {
+        ...state,
+        completedMilestoneIds: state.completedMilestoneIds.filter((id) => id !== action.id),
       };
     }
     case "grandfatherPlus":
@@ -456,8 +471,14 @@ function reducer(state: AppState, action: Action): AppState {
         },
         action.today,
       );
-    case "resolveRollover":
-      return resolvePendingRollover(state, action.carriedTaskIds, action.now);
+    case "resolveRollover": {
+      const next = resolvePendingRollover(state, action.carriedTaskIds, action.now);
+      // Carrying tasks into today is planning the day: it counts as showing up
+      // (the "stuck" user carrying the same three is exactly who this is for).
+      return next.tasks.length > state.tasks.length
+        ? { ...next, journey: registerShowedUp(next.journey, action.today) }
+        : next;
+    }
     case "setNotificationsEnabled":
       return {
         ...state,
@@ -707,10 +728,11 @@ interface StoreContextValue {
   acknowledgeMilestoneCelebration: () => void;
   markReviewPrompted: () => void;
   markReviewDue: () => void;
-  setEveningClose: (close: EveningClose) => void;
+  setEveningClose: (close: EveningClose, day: string, result: ReflectionResult) => void;
   applyTomorrowDraft: (tasks: string[]) => void;
   dismissTomorrowDraft: () => void;
   completeMilestone: (id: string) => void;
+  uncompleteMilestone: (id: string) => void;
   /** Days with a plan (today included): the "Day N" chip. */
   daysShowedUp: number;
   parkTasks: (texts: string[]) => void;
@@ -1181,18 +1203,28 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const markReviewDue = useCallback(() => {
     dispatch({ type: "markReviewDue", at: new Date().toISOString() });
   }, []);
-  const setEveningClose = useCallback((close: EveningClose) => {
-    // The close is about the day on screen, even if the clock just passed midnight.
-    dispatch({ type: "setEveningClose", close, today: todayRef.current });
-  }, []);
+  const setEveningClose = useCallback(
+    (close: EveningClose, day: string, result: ReflectionResult) => {
+      dispatch({ type: "setEveningClose", close, day, result });
+    },
+    [],
+  );
   const applyTomorrowDraft = useCallback((tasks: string[]) => {
-    dispatch({ type: "applyTomorrowDraft", tasks, today: ensureDay() });
+    dispatch({
+      type: "applyTomorrowDraft",
+      tasks,
+      today: ensureDay(),
+      at: new Date().toISOString(),
+    });
   }, [ensureDay]);
   const dismissTomorrowDraft = useCallback(() => {
     dispatch({ type: "dismissTomorrowDraft" });
   }, []);
   const completeMilestone = useCallback((id: string) => {
     dispatch({ type: "completeMilestone", id });
+  }, []);
+  const uncompleteMilestone = useCallback((id: string) => {
+    dispatch({ type: "uncompleteMilestone", id });
   }, []);
   const daysShowedUp = useMemo(
     () => countDaysShowedUp(state.history, today),
@@ -1284,6 +1316,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       applyTomorrowDraft,
       dismissTomorrowDraft,
       completeMilestone,
+      uncompleteMilestone,
       daysShowedUp,
       parkTasks: parkTasksCb,
       removeParkedTask: removeParkedTaskCb,
@@ -1339,6 +1372,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       applyTomorrowDraft,
       dismissTomorrowDraft,
       completeMilestone,
+      uncompleteMilestone,
       daysShowedUp,
       parkTasksCb,
       removeParkedTaskCb,

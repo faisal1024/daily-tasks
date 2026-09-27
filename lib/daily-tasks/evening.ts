@@ -9,7 +9,7 @@ import { getMomentumAiProxyUrl, postToProxy, proxyRouteUrl } from "./ai-client";
 import { cleanTaskText } from "./ai-helpers";
 import { MomentumAiError } from "./ai-status";
 import { addDays, fromDateKey } from "./date";
-import type { AppState, ReflectionResult, TomorrowDraft } from "./types";
+import type { AppState, DayRecord, EveningCloseRecord, ReflectionResult, TomorrowDraft } from "./types";
 import { MAX_TASKS } from "./types";
 
 export const MAX_EVENING_NOTE = 160;
@@ -45,12 +45,15 @@ function capText(value: unknown, max: number): string | null {
 export function buildEveningInput(
   state: Pick<AppState, "tasks" | "todayCompletions" | "todayReflection" | "momentumProfile" | "coachMemory">,
   result: ReflectionResult,
+  /** The note as typed right now (it may not be saved to state yet). */
+  note?: string | null,
 ): EveningInput {
   const done = new Set(state.todayCompletions);
+  const typed = typeof note === "string" && note.trim() ? note.trim() : null;
   return {
     result,
     tasks: state.tasks.slice(0, MAX_TASKS).map((task) => ({ text: task.text, done: done.has(task.id) })),
-    note: state.todayReflection,
+    note: typed ?? state.todayReflection,
     goalTitle: state.momentumProfile.goalTitle,
     memory: state.coachMemory,
   };
@@ -144,19 +147,32 @@ export function draftForTomorrow(close: EveningClose, today: string): TomorrowDr
   };
 }
 
-/** Whether today's evening close has already run (tomorrow's draft exists). */
-export function isDayClosed(draft: TomorrowDraft | null, today: string): boolean {
-  return draft?.forDate === addDays(today, 1);
+/** Whether `day` has been closed (for this answer, when one is given). */
+export function isDayClosed(
+  record: EveningCloseRecord | null,
+  day: string,
+  result?: ReflectionResult,
+): boolean {
+  if (!record || record.date !== day) return false;
+  return result === undefined || record.result === result;
 }
 
-/** The draft to show this morning, if it's for today and there's room for it. */
+/**
+ * The draft to show this morning: only for today, when there's room, and
+ * without anything already on today's list, anything finished after the
+ * close yesterday, or anything dropped at the rollover.
+ */
 export function draftToShow(
   draft: TomorrowDraft | null,
-  input: { today: string; locked: boolean; taskTexts: string[] },
+  input: { today: string; locked: boolean; taskTexts: string[]; sourceDay?: DayRecord | null },
 ): TomorrowDraft | null {
   if (!draft || draft.forDate !== input.today || input.locked) return null;
-  const have = new Set(input.taskTexts.map((text) => text.trim().toLowerCase()));
-  const remaining = draft.tasks.filter((text) => !have.has(text.trim().toLowerCase()));
+  const key = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+  const have = new Set(input.taskTexts.map(key));
+  for (const task of input.sourceDay?.tasks ?? []) {
+    if (task.completed || task.rolloverOutcome === "dropped") have.add(key(task.text));
+  }
+  const remaining = draft.tasks.filter((text) => !have.has(key(text)));
   if (remaining.length === 0 || input.taskTexts.length >= MAX_TASKS) return null;
   return { ...draft, tasks: remaining };
 }
@@ -169,11 +185,13 @@ export function weekdayName(dateKey: string): string {
 /** Evening check-in is offered once there are tasks and the day is winding down. */
 export function showEveningCheckIn(input: {
   taskCount: number;
-  locked: boolean;
+  locked?: boolean;
   perfect: boolean;
   hour: number;
   enabled: boolean;
 }): boolean {
   if (!input.enabled || input.taskCount === 0) return false;
-  return input.perfect || input.locked || input.hour >= 17;
+  // Not just because the day is locked (auto-lock is around noon): closing
+  // the day at lunch would draft tomorrow from a half-finished snapshot.
+  return input.perfect || input.hour >= 17;
 }

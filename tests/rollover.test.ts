@@ -50,6 +50,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     analyticsEnabled: true,
     coachMemory: null,
     tomorrowDraft: null,
+    eveningClose: null,
     ...overrides,
   };
 }

@@ -54,8 +54,14 @@ export const EVENING_SCHEMA = {
 
 const RESULTS = new Set(["easy", "good", "hard", "missed"]);
 
+// Lengths are whole characters (code points), matching the app, so an emoji
+// near a limit can't get a request rejected.
+function charLength(value) {
+  return Array.from(value).length;
+}
+
 function isShortString(value, max) {
-  return typeof value === "string" && value.length <= max;
+  return typeof value === "string" && charLength(value) <= max;
 }
 
 export function validateEveningPayload(payload) {
@@ -67,13 +73,14 @@ export function validateEveningPayload(payload) {
     if (!isShortString(task.text, 120) || !task.text.trim()) return "Invalid task text";
     if (typeof task.done !== "boolean") return "Invalid task done";
   }
-  if (payload.note !== undefined && payload.note !== null && !isShortString(payload.note, 500)) {
+  // note and memory are shortened (not rejected) when long: see buildEveningPrompt.
+  if (payload.note !== undefined && payload.note !== null && !isShortString(payload.note, 2000)) {
     return "Invalid note";
   }
   if (payload.goalTitle !== undefined && payload.goalTitle !== null && !isShortString(payload.goalTitle, 120)) {
     return "Invalid goalTitle";
   }
-  if (payload.memory !== undefined && payload.memory !== null && !isShortString(payload.memory, MAX_MEMORY)) {
+  if (payload.memory !== undefined && payload.memory !== null && !isShortString(payload.memory, 2000)) {
     return "Invalid memory";
   }
   return null;
@@ -88,9 +95,12 @@ export function buildEveningPrompt(payload) {
     payload.goalTitle ? `Their bigger goal: ${payload.goalTitle}` : "No specific goal set.",
     `How today felt: ${payload.result}`,
     `Today's tasks:\n${tasks}`,
-    `Their note about today: ${payload.note?.trim() || "none"}`,
-    `What you remember about them so far: ${payload.memory?.trim() || "nothing yet"}`,
+    `Their note about today: ${payload.note?.trim() ? shorten(payload.note, 500) : "none"}`,
+    `What you remember about them so far: ${payload.memory?.trim() ? shorten(payload.memory, MAX_MEMORY) : "nothing yet"}`,
     "Write the note, tomorrow's draft (at most three tasks, 64 characters each), the because line, and the updated memory.",
+    "If the day was hard or missed, draft fewer or smaller tasks; one is fine.",
+    "Never list in the note what they didn't do.",
+    "Only draft tasks related to today's tasks or their goal.",
   ].join("\n");
 }
 

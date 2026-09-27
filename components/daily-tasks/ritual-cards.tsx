@@ -85,7 +85,7 @@ export function TomorrowDraftCard({
       <View className="flex-row items-start gap-2">
         <View className="flex-1 gap-1">
           <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 20 }}>
-            Your three for today
+            {tasks.length >= 3 ? "Your three for today" : "Ready for today"}
           </Text>
           {draft.because ? (
             <Text className="text-sm" style={{ color: colors.muted }}>
@@ -96,7 +96,8 @@ export function TomorrowDraftCard({
         <Pressable
           onPress={onDismiss}
           accessibilityRole="button"
-          accessibilityLabel="Dismiss this draft"
+          accessibilityLabel="Dismiss"
+          accessibilityHint="Hides last night's plan"
           hitSlop={10}
         >
           <Ionicons name="close" size={20} color={colors.muted} />

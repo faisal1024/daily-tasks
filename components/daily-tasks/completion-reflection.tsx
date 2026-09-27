@@ -14,7 +14,8 @@ import type { ReflectionResult } from "@/lib/daily-tasks/types";
 interface CompletionReflectionProps {
   value: string | null;
   result: ReflectionResult | null;
-  onSelectResult: (result: ReflectionResult) => void;
+  /** Also passes a note typed but not saved yet, so the close can use it. */
+  onSelectResult: (result: ReflectionResult, typedNote?: string | null) => void;
   onSave: (text: string) => void;
   /** Offer "Didn't get to it" (not on a day where everything got done). */
   allowMissed?: boolean;
@@ -76,14 +77,19 @@ export function CompletionReflection({
           return (
             <Pressable
               key={choice.value}
-              onPress={() => onSelectResult(choice.value)}
+              onPress={() => {
+                // A note being typed counts: save it, and pass it along.
+                if (editing) save();
+                onSelectResult(choice.value, editing ? draft : null);
+              }}
               className="rounded-full px-3 py-2 border"
               style={{
                 borderColor: selected ? colors.primary : colors.border,
                 backgroundColor: selected ? `${colors.primary}16` : colors.background,
               }}
               accessibilityRole="button"
-              accessibilityLabel={`Reflect that today felt ${choice.label}`}
+              accessibilityLabel={choice.a11y}
+              accessibilityState={{ selected }}
             >
               <Text
                 className="text-sm font-semibold"
@@ -102,7 +108,7 @@ export function CompletionReflection({
             ref={inputRef}
             value={draft}
             onChangeText={setDraft}
-            placeholder="What helped you finish?"
+            placeholder={allowMissed ? "Anything worth remembering about today?" : "What helped you finish?"}
             placeholderTextColor={colors.muted}
             multiline
             maxLength={160}
@@ -146,14 +152,15 @@ export function CompletionReflection({
   );
 }
 
-const REFLECTION_CHOICES: { value: ReflectionResult; label: string }[] = [
-  { value: "easy", label: "Easy" },
-  { value: "good", label: "Good" },
-  { value: "hard", label: "Hard" },
+const REFLECTION_CHOICES: { value: ReflectionResult; label: string; a11y: string }[] = [
+  { value: "easy", label: "Easy", a11y: "Today felt easy" },
+  { value: "good", label: "Good", a11y: "Today felt good" },
+  { value: "hard", label: "Hard", a11y: "Today felt hard" },
 ];
 
 // Only offered when something is still open (never on a finished day).
-const MISSED_CHOICE: { value: ReflectionResult; label: string } = {
+const MISSED_CHOICE: { value: ReflectionResult; label: string; a11y: string } = {
   value: "missed",
-  label: "Didn't get to it",
+  label: "Didn't get to it today",
+  a11y: "I didn't get to it today",
 };

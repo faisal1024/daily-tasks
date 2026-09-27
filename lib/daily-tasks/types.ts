@@ -32,6 +32,12 @@ export interface TomorrowDraft {
   source: "ai" | "local";
 }
 
+export interface EveningCloseRecord {
+  date: string;
+  result: ReflectionResult;
+  note: string;
+}
+
 /** Brain-dump leftovers kept for another day (shown in the Ideas sheet). */
 export interface ParkedTask {
   id: string;
@@ -213,6 +219,9 @@ export interface AppState {
   coachMemory: string | null;
   // Tomorrow's three from the last evening close, or null.
   tomorrowDraft: TomorrowDraft | null;
+  // The last evening close: which day, the answer it was for, and the note.
+  // (Kept even when nothing was drafted, so a closed day stays closed.)
+  eveningClose: EveningCloseRecord | null;
 }
 
 export const GOAL_OPTIONS: string[] = [
