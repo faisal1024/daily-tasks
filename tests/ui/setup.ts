@@ -6,8 +6,9 @@ import "react-native-gesture-handler/jestSetup";
 jest.mock("react-native-reanimated", () => ({
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- hoisted jest.mock factory
   ...require("react-native-reanimated/mock"),
-  // Not in the library's mock; the app reads it for Reduce Motion.
-  useReducedMotion: () => false,
+  // Not in the library's mock; the app reads it for Reduce Motion. A jest.fn so
+  // a test can turn Reduce Motion on (mockReturnValue(true)).
+  useReducedMotion: jest.fn(() => false),
 }));
 
 jest.mock("expo-haptics", () => ({
@@ -46,3 +47,11 @@ jest.mock("expo-calendar", () => {
     }),
   };
 });
+
+// The native time picker (TimePickerRow): a host View that keeps the props, so
+// tests can read `value` and fire `onChange(event, date)`. Android's dialog is a
+// jest.fn (DateTimePickerAndroid.open).
+jest.mock("@react-native-community/datetimepicker", () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- hoisted jest.mock factory
+  require("./mocks/datetimepicker"),
+);

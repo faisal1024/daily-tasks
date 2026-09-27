@@ -1,10 +1,10 @@
 // Phase 3 components: BrainDumpSheet, the parked section + Set these three of the
-// IdeasSheet, and TaskCard's step checklist / Break it down link.
+// IdeasSheet, and TaskRow's step checklist / Break it down link.
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
 import { BrainDumpSheet } from "@/components/daily-tasks/brain-dump-sheet";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
-import { TaskCard } from "@/components/daily-tasks/task-card";
+import { TaskRow } from "@/components/daily-tasks/task-row";
 import type { SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import type { Task } from "@/lib/daily-tasks/types";
 
@@ -249,7 +249,8 @@ describe("IdeasSheet: saved from your brain dump", () => {
   });
 });
 
-describe("TaskCard: steps and Break it down", () => {
+describe("TaskRow: steps and Break it down", () => {
+  // TaskCard (Settings' old list) is gone; the step checklist lives on TaskRow.
   const base: Task = { id: "t1", text: "Clean kitchen", createdAt: "", carriedOver: false };
   const withSteps: Task = {
     ...base,
@@ -261,81 +262,63 @@ describe("TaskCard: steps and Break it down", () => {
   };
   const props = () => ({
     completed: false,
+    editable: true,
     onToggle: jest.fn(),
     onEdit: jest.fn(),
     onDelete: jest.fn(),
+    onNotToday: jest.fn(),
     index: 0,
   });
 
-  it("hides Break it down when no handler is given (AI unavailable)", async () => {
-    await render(<TaskCard {...props()} task={base} />);
-    expect(screen.queryByText("Break it down")).toBeNull();
-  });
-
-  it("offers Break it down and calls the handler", async () => {
+  it("the hero offers Break it down only with a handler, and calls it", async () => {
+    const { rerender } = await render(<TaskRow {...props()} hero task={base} />);
+    expect(screen.queryByRole("button", { name: "Break down Clean kitchen" })).toBeNull();
     const onBreakDown = jest.fn();
-    await render(<TaskCard {...props()} task={base} onBreakDown={onBreakDown} />);
-    const link = screen.getByRole("button", { name: "Break down Clean kitchen" });
-    expect(link).toBeEnabled();
-    await fireEvent.press(link);
+    await rerender(<TaskRow {...props()} hero task={base} onBreakDown={onBreakDown} />);
+    await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
     expect(onBreakDown).toHaveBeenCalledTimes(1);
   });
 
-  it("shows a busy, disabled state while breaking down", async () => {
-    const onBreakDown = jest.fn();
-    await render(<TaskCard {...props()} task={base} onBreakDown={onBreakDown} breakingDown />);
-    const link = screen.getByRole("button", { name: "Break down Clean kitchen" });
-    expect(link).toBeDisabled();
-    expect(link).toBeBusy();
+  it("shows progress while breaking down, with no Break it down link", async () => {
+    await render(<TaskRow {...props()} hero task={base} onBreakDown={jest.fn()} breakingDown />);
     expect(screen.getByText("Breaking it down…")).toBeOnTheScreen();
-    await fireEvent.press(link);
-    expect(onBreakDown).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Break down Clean kitchen" })).toBeNull();
   });
 
-  it("hides Break it down for a finished task or one that already has steps", async () => {
+  it("drops Break it down once the task has steps (an empty list counts as none)", async () => {
     const { rerender } = await render(
-      <TaskCard {...props()} task={base} completed onBreakDown={jest.fn()} />,
+      <TaskRow {...props()} hero task={withSteps} onBreakDown={jest.fn()} />,
     );
-    expect(screen.queryByText("Break it down")).toBeNull();
-    await rerender(<TaskCard {...props()} task={withSteps} onBreakDown={jest.fn()} />);
-    expect(screen.queryByText("Break it down")).toBeNull();
-    // An empty list counts as no steps.
-    await rerender(<TaskCard {...props()} task={{ ...base, steps: [] }} onBreakDown={jest.fn()} />);
-    expect(screen.getByText("Break it down")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Break down Clean kitchen" })).toBeNull();
+    await rerender(<TaskRow {...props()} hero task={{ ...base, steps: [] }} onBreakDown={jest.fn()} />);
+    expect(screen.getByRole("button", { name: "Break down Clean kitchen" })).toBeOnTheScreen();
   });
 
-  it("shows steps as a checklist with position and state, and toggles one", async () => {
+  it("shows steps as a checklist with position and state, and toggles one (not the task)", async () => {
+    const p = props();
     const onToggleStep = jest.fn();
-    await render(<TaskCard {...props()} task={withSteps} onToggleStep={onToggleStep} />);
+    await render(<TaskRow {...p} task={withSteps} onToggleStep={onToggleStep} />);
     expect(screen.getByRole("checkbox", { name: "Step 1 of 3: Clear counter" })).toBeChecked();
     const second = screen.getByRole("checkbox", { name: "Step 2 of 3: Load dishwasher" });
     expect(second).not.toBeChecked();
     await fireEvent.press(second);
     expect(onToggleStep).toHaveBeenCalledWith("s2");
-    // The task's own checkbox is untouched.
-    expect(props().onToggle).not.toHaveBeenCalled();
-  });
-
-  it("toggling a step doesn't toggle the task", async () => {
-    const p = props();
-    await render(<TaskCard {...p} task={withSteps} onToggleStep={jest.fn()} />);
-    await fireEvent.press(screen.getByRole("checkbox", { name: "Step 3 of 3: Wipe surfaces" }));
     expect(p.onToggle).not.toHaveBeenCalled();
   });
 
   it("offers Clear steps only with a handler", async () => {
     const onClearSteps = jest.fn();
-    const { rerender } = await render(<TaskCard {...props()} task={withSteps} />);
+    const { rerender } = await render(<TaskRow {...props()} task={withSteps} />);
     expect(screen.queryByRole("button", { name: "Clear steps" })).toBeNull();
-    await rerender(<TaskCard {...props()} task={withSteps} onClearSteps={onClearSteps} />);
+    await rerender(<TaskRow {...props()} task={withSteps} onClearSteps={onClearSteps} />);
     await fireEvent.press(screen.getByRole("button", { name: "Clear steps" }));
     expect(onClearSteps).toHaveBeenCalledTimes(1);
   });
 
-  it("hides the steps while the task is being edited", async () => {
-    await render(<TaskCard {...props()} task={withSteps} onToggleStep={jest.fn()} />);
+  it("hides the steps once the task is done", async () => {
+    const { rerender } = await render(<TaskRow {...props()} task={withSteps} />);
     expect(screen.getByTestId("steps-t1")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByLabelText("Edit task"));
+    await rerender(<TaskRow {...props()} task={withSteps} completed />);
     expect(screen.queryByTestId("steps-t1")).toBeNull();
   });
 });
