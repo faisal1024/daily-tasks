@@ -199,7 +199,7 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
         noIdLog.note();
         free = [{ key: "noid:all", cap: config.noIdDailyLimit }];
       } else {
-        const status = userId ? await entitlements.check(userId, { fresh: route.plusOnly }) : "free";
+        const status = userId ? await entitlements.check(userId, { fresh: route.plusOnly === true }) : "free";
         if (status === "unknown") {
           // RevenueCat is down: never lock paying users out.
           unknownLog.note();

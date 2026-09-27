@@ -76,7 +76,9 @@ export class Limits extends DurableObject {
   spend({ keys, free }, now = Date.now()) {
     const { dailyLimitPerClient, globalDailyLimit } = this.config;
     const day = this.today(now);
-    if (globalDailyLimit > 0 && this.count(day, GLOBAL_KEY) >= globalDailyLimit) return "global";
+    // No keys = not an AI call (a supporter grant): the global AI budget doesn't apply.
+    const countsGlobal = keys.length > 0;
+    if (countsGlobal && globalDailyLimit > 0 && this.count(day, GLOBAL_KEY) >= globalDailyLimit) return "global";
     for (const key of keys) {
       if (dailyLimitPerClient > 0 && this.count(day, key) >= dailyLimitPerClient) return "day";
     }
@@ -84,7 +86,7 @@ export class Limits extends DurableObject {
       // 0 means "no free AI", never "unlimited".
       if (this.count(day, key) >= cap) return "free";
     }
-    this.add(day, GLOBAL_KEY);
+    if (countsGlobal) this.add(day, GLOBAL_KEY);
     for (const key of keys) this.add(day, key);
     for (const { key } of free) this.add(day, key);
     return "ok";

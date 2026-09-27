@@ -142,6 +142,21 @@ export function createRateLimiter({
       minuteCounts.set(client, minute + 1);
       return "ok";
     },
+    /** The status admit() would give, without counting anything. */
+    peek(client) {
+      roll();
+      if (globalPerDay > 0 && globalCount >= globalPerDay) return "global";
+      if (perMinute > 0 && (minuteCounts.get(client) ?? 0) >= perMinute) return "minute";
+      if (perDay > 0 && (dayCounts.get(client) ?? 0) >= perDay) return "day";
+      return "ok";
+    },
+    /** Just the daily and global caps (for the final check before spending). */
+    peekDay(client) {
+      roll();
+      if (globalPerDay > 0 && globalCount >= globalPerDay) return "global";
+      if (perDay > 0 && (dayCounts.get(client) ?? 0) >= perDay) return "day";
+      return "ok";
+    },
     /** Spend one unit of the client's daily and the global daily budget. */
     record(client) {
       roll();
@@ -177,13 +192,20 @@ export function createBudget(config, { now } = {}) {
   return {
     limiter,
     admit(keys) {
+      // Check every key before counting any (a refusal costs no minute).
       for (const key of keys) {
-        const result = limiter.admit(key);
+        const result = limiter.peek(key);
         if (result !== "ok") return result;
       }
+      for (const key of keys) limiter.admit(key);
       return "ok";
     },
     spend({ keys, free }) {
+      // Re-check the caps: other requests may have spent since admit().
+      for (const key of keys) {
+        const result = limiter.peekDay(key);
+        if (result !== "ok") return result;
+      }
       for (const { key, cap } of free) {
         // 0 means "no free AI", never "unlimited".
         if (cap <= 0 || freeLimiter(cap).admit(key) !== "ok") return "free";

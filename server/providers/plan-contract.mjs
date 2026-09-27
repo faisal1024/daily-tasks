@@ -138,7 +138,7 @@ const str = (value, max) => (typeof value === "string" ? value.slice(0, max) : "
 function cleanTask(task) {
   return {
     text: str(task?.text, 200),
-    estimatedMinutes: task?.estimatedMinutes,
+    estimatedMinutes: Number.isInteger(task?.estimatedMinutes) ? task.estimatedMinutes : null,
     difficulty: str(task?.difficulty, 16),
     reason: str(task?.reason, 300),
   };

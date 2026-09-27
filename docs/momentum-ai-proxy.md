@@ -138,7 +138,10 @@ On a paywall build their install asks the proxy once
 lifetime promotional Plus in RevenueCat; after that it sends its id. The
 proxy only grants while `GRANDFATHER_GRANTS_UNTIL` (a date, e.g. `2026-12-31`)
 is in the future, at most 3 per network per day. Keep the window open for a
-few weeks after the paywall release, then let it close.
+few weeks after the paywall release, then let it close. Trade-off: the server
+can't prove a caller was an early supporter (the shared secret ships in the
+app), so while the window is open someone who extracts it could claim Plus
+for made-up ids, a few per network per day. A short window keeps that small.
 
 **Don't set `ENTITLEMENT_REQUIRE_ID=1` until** the grant window has closed and
 the "without an app user id" count in the logs is close to zero; setting it

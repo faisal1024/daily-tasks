@@ -163,7 +163,16 @@ export async function requestSupporterGrant({
   fetchImpl?: typeof fetch;
 } = {}): Promise<"granted" | "closed" | "retry"> {
   const url = proxyRouteUrl(planUrl, "grandfather");
-  if (proxyUserIdPending && !proxyUserId) await proxyUserIdPending.catch(() => {});
+  if (proxyUserIdPending && !proxyUserId) {
+    let waitTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      proxyUserIdPending.catch(() => {}),
+      new Promise((resolve) => {
+        waitTimer = setTimeout(resolve, 5_000);
+      }),
+    ]);
+    clearTimeout(waitTimer);
+  }
   if (!url || !proxyUserId || !proxySecret) return "retry";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
