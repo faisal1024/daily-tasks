@@ -28,7 +28,7 @@ export function MorningHero({
       >
         <View className="flex-row items-center gap-2">
           <Ionicons name="sparkles" size={20} color="#fff" accessibilityElementsHidden />
-          <Text style={{ color: "#fff", fontFamily: Fonts.rounded, fontSize: 22 }}>
+          <Text style={{ color: "#fff", fontFamily: Fonts.rounded, fontWeight: "700", fontSize: 22 }}>
             What&apos;s on your mind today?
           </Text>
         </View>
@@ -84,7 +84,7 @@ export function TomorrowDraftCard({
     >
       <View className="flex-row items-start gap-2">
         <View className="flex-1 gap-1">
-          <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 20 }}>
+          <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontWeight: "700", fontSize: 20 }}>
             {tasks.length >= 3 ? "Your three for today" : "Ready for today"}
           </Text>
           {draft.because ? (

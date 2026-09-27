@@ -1,139 +1,104 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { CalendarGrid } from "@/components/daily-tasks/calendar-grid";
 import { DayDetailCard } from "@/components/daily-tasks/day-detail-card";
 import { useColors } from "@/hooks/use-colors";
-import { formatMonthLabel, todayKey } from "@/lib/daily-tasks/date";
+import { formatMonthLabel, fromDateKey } from "@/lib/daily-tasks/date";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { monthlyStats } from "@/lib/daily-tasks/streaks";
 
 /**
- * Month-by-month history (the old Calendar tab), now a section of Progress:
- * month switcher, the grid, the chosen day, and the month's counts.
+ * Month-by-month history (the old Calendar tab), now a compact section of
+ * Progress: month switcher with the month's counts, the grid, a one-line key,
+ * and a day's details once one is tapped.
  */
 export function MonthHistory() {
   const colors = useColors();
   const { state, today } = useDailyTasks();
-  const [selectedDate, setSelectedDate] = useState(() => today);
-  const [month, setMonth] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // The app's day (the store's), not the raw clock: they can differ briefly.
+  const todayDate = fromDateKey(today);
+  const monthOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
+  const [month, setMonth] = useState(() => monthOf(fromDateKey(today)));
+  // Until the user moves, follow the current month (e.g. across midnight on the 1st).
+  const navigated = useRef(false);
+  useEffect(() => {
+    if (!navigated.current) setMonth(monthOf(fromDateKey(today)));
+  }, [today]);
 
-  const stats = monthlyStats(
-    state.history,
-    month.getFullYear(),
-    month.getMonth(),
-  );
+  const onThisMonth =
+    month.getFullYear() === todayDate.getFullYear() && month.getMonth() === todayDate.getMonth();
+  const stats = monthlyStats(state.history, month.getFullYear(), month.getMonth());
 
   const shift = (delta: number) => {
-    setMonth((m) => {
-      const next = new Date(m.getFullYear(), m.getMonth() + delta, 1);
-      setSelectedDate(todayKey(next));
-      return next;
-    });
+    navigated.current = true;
+    setMonth((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1));
+    setSelectedDate(null);
   };
 
-  const jumpToToday = () => {
-    const d = new Date();
-    setMonth(new Date(d.getFullYear(), d.getMonth(), 1));
-    setSelectedDate(todayKey(d));
-  };
-
-  const selectDate = (dateKey: string) => {
-    setSelectedDate(dateKey);
+  const jumpToThisMonth = () => {
+    navigated.current = false;
+    setMonth(monthOf(todayDate));
+    setSelectedDate(null);
   };
 
   return (
-    <View className="gap-4" testID="month-history">
-      <View className="flex-row items-center justify-between">
-        <Pressable
-          onPress={() => shift(-1)}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Previous month"
-          className="p-2"
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.foreground} />
-        </Pressable>
-        <Pressable
-          onPress={jumpToToday}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={`${formatMonthLabel(month)}. Go to this month`}
-        >
-          <Text className="text-lg font-semibold text-foreground">
-            {formatMonthLabel(month)}
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={() => shift(1)}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Next month"
-          className="p-2"
-        >
-          <Ionicons
-            name="chevron-forward"
-            size={22}
-            color={colors.foreground}
-          />
-        </Pressable>
-      </View>
+    <View className="gap-3" testID="month-history">
+      <View className="bg-surface rounded-2xl p-4 border border-border gap-3">
+        <View className="flex-row items-center justify-between">
+          <Pressable
+            onPress={() => shift(-1)}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Previous month"
+            style={{ padding: 6 }}
+          >
+            <Ionicons name="chevron-back" size={22} color={colors.foreground} />
+          </Pressable>
+          <Pressable
+            onPress={jumpToThisMonth}
+            disabled={onThisMonth}
+            hitSlop={8}
+            accessibilityRole={onThisMonth ? "header" : "button"}
+            accessibilityLabel={onThisMonth ? formatMonthLabel(month) : `${formatMonthLabel(month)}. Go to this month`}
+            style={{ alignItems: "center" }}
+          >
+            <Text className="text-lg font-semibold text-foreground">{formatMonthLabel(month)}</Text>
+            <Text className="text-xs" style={{ color: colors.muted }} testID="month-counts">
+              {stats.activeDays} active {stats.activeDays === 1 ? "day" : "days"} · {stats.perfectDays} perfect
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => shift(1)}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Next month"
+            style={{ padding: 6 }}
+          >
+            <Ionicons name="chevron-forward" size={22} color={colors.foreground} />
+          </Pressable>
+        </View>
 
-      <View className="bg-surface rounded-2xl p-4 border border-border">
         <CalendarGrid
           today={today}
           month={month}
           history={state.history}
-          selectedDate={selectedDate}
-          onSelectDate={selectDate}
+          selectedDate={selectedDate ?? ""}
+          onSelectDate={(dateKey) => setSelectedDate((current) => (current === dateKey ? null : dateKey))}
         />
-      </View>
 
-      <DayDetailCard
-        dateLabel={formatDateDetailLabel(selectedDate)}
-        record={state.history[selectedDate]}
-      />
-
-      <View className="flex-row gap-3">
-        <View className="flex-1 bg-surface rounded-2xl p-4 border border-border">
-          <Text
-            className="text-xs uppercase tracking-wide"
-            style={{ color: colors.muted }}
-          >
-            Active Days
-          </Text>
-          <Text className="text-2xl font-bold text-foreground mt-2">
-            {stats.activeDays}
-          </Text>
-        </View>
-        <View className="flex-1 bg-surface rounded-2xl p-4 border border-border">
-          <Text
-            className="text-xs uppercase tracking-wide"
-            style={{ color: colors.muted }}
-          >
-            Perfect Days
-          </Text>
-          <Text className="text-2xl font-bold text-foreground mt-2">
-            {stats.perfectDays}
-          </Text>
-        </View>
-      </View>
-
-      <View className="bg-surface rounded-2xl p-4 border border-border gap-2">
-        <Text
-          className="text-xs font-semibold uppercase tracking-wide"
-          style={{ color: colors.muted }}
-        >
-          Legend
+        <Text className="text-xs text-center" style={{ color: colors.muted }}>
+          Green: all three done · Dot: some done
         </Text>
-        <LegendRow color={colors.success} label="Everything done" filled />
-        <LegendRow color={colors.primary} label="Some done" dot />
-        <LegendRow color={colors.primary} label="Today" outlined />
       </View>
+
+      {selectedDate ? (
+        <View accessibilityLiveRegion="polite">
+          <DayDetailCard dateLabel={formatDateDetailLabel(selectedDate)} record={state.history[selectedDate]} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -146,51 +111,4 @@ function formatDateDetailLabel(dateKey: string): string {
     day: "numeric",
     year: "numeric",
   }).format(new Date(year, month - 1, day));
-}
-
-function LegendRow({
-  color,
-  label,
-  filled,
-  dot,
-  outlined,
-}: {
-  color: string;
-  label: string;
-  filled?: boolean;
-  dot?: boolean;
-  outlined?: boolean;
-}) {
-  return (
-    <View className="flex-row items-center gap-3">
-      <View
-        style={{
-          width: 18,
-          height: 18,
-          borderRadius: 9,
-          backgroundColor: filled
-            ? color
-            : outlined
-              ? "transparent"
-              : `${color}22`,
-          borderWidth: outlined ? 2 : 0,
-          borderColor: color,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {dot && (
-          <View
-            style={{
-              width: 4,
-              height: 4,
-              borderRadius: 2,
-              backgroundColor: color,
-            }}
-          />
-        )}
-      </View>
-      <Text className="text-sm text-foreground">{label}</Text>
-    </View>
-  );
 }

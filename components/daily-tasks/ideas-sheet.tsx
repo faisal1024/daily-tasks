@@ -104,7 +104,7 @@ export function IdeasSheet({
           <Text
             accessibilityRole="header"
             className="text-2xl text-foreground"
-            style={{ fontFamily: Fonts.rounded }}
+            style={{ fontFamily: Fonts.rounded, fontWeight: "700" }}
           >
             {savedOnly ? "Saved for later" : goalTitle ? `Ideas for ${goalTitle}` : "Ideas for today"}
           </Text>
@@ -244,7 +244,7 @@ export function IdeasSheet({
               className="rounded-2xl py-4 items-center"
               style={{ backgroundColor: colors.primary }}
             >
-              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
+              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: "#fff" }}>
                 {available.length > remainingSlots
                   ? `Add the first ${remainingSlots}`
                   : "Add all"}
@@ -302,7 +302,7 @@ export function IdeasSheet({
                   className="rounded-2xl py-4 items-center"
                   style={{ backgroundColor: colors.primary }}
                 >
-                  <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
+                  <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: "#fff" }}>
                     Set these three
                   </Text>
                 </Pressable>
@@ -319,7 +319,7 @@ export function IdeasSheet({
               >
                 <Text
                   className="text-lg"
-                  style={{ fontFamily: Fonts.rounded, color: onLock ? colors.primary : "#fff" }}
+                  style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: onLock ? colors.primary : "#fff" }}
                 >
                   Done
                 </Text>

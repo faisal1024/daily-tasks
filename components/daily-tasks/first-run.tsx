@@ -378,7 +378,7 @@ function Title({ title, body }: { title: string; body: string }) {
   const colors = useColors();
   return (
     <View className="gap-2">
-      <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 28 }}>
+      <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontWeight: "700", fontSize: 28 }}>
         {title}
       </Text>
       <Text className="text-base" style={{ color: colors.muted }}>

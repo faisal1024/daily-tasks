@@ -2,6 +2,7 @@ import { Platform, Pressable, Text, View } from "react-native";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 
 import { TimeStepper } from "@/components/daily-tasks/time-stepper";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { formatTime } from "@/lib/daily-tasks/date";
 
@@ -25,6 +26,8 @@ function asDate(hour: number, minute: number): Date {
  */
 export function TimePickerRow({ label, hour, minute, disabled = false, onChange }: TimePickerRowProps) {
   const colors = useColors();
+  // Follow the app's own light/dark choice, not just the system's.
+  const scheme = useColorScheme() === "dark" ? "dark" : "light";
 
   if (Platform.OS === "web") {
     return <TimeStepper hour={hour} minute={minute} disabled={disabled} onChange={onChange} />;
@@ -33,9 +36,12 @@ export function TimePickerRow({ label, hour, minute, disabled = false, onChange 
   const row = (control: React.ReactNode) => (
     <View
       style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, opacity: disabled ? 0.45 : 1 }}
+      accessibilityState={{ disabled }}
       testID="time-picker-row"
     >
-      <Text className="text-base font-semibold text-foreground">{label}</Text>
+      <Text className="text-base font-semibold text-foreground" style={{ flex: 1 }}>
+        {label}
+      </Text>
       {control}
     </View>
   );
@@ -47,7 +53,8 @@ export function TimePickerRow({ label, hour, minute, disabled = false, onChange 
         mode="time"
         display="compact"
         disabled={disabled}
-        minuteInterval={5}
+        themeVariant={scheme}
+        accentColor={colors.primary}
         accessibilityLabel={label}
         onChange={(event, date) => {
           if (event.type === "set" && date) onChange(date.getHours(), date.getMinutes());

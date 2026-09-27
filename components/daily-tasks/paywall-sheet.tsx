@@ -187,7 +187,7 @@ export function PaywallSheet({
             <Text
               accessibilityRole="header"
               className="text-3xl text-foreground text-center"
-              style={{ fontFamily: Fonts.rounded }}
+              style={{ fontFamily: Fonts.rounded, fontWeight: "700" }}
             >
               {source ? paywallHeadline(source) : ""}
             </Text>
@@ -323,7 +323,7 @@ export function PaywallSheet({
             {busy === "purchase" || purchasing ? (
               <ActivityIndicator color={onPrimary} />
             ) : (
-              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: onPrimary }}>
+              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: onPrimary }}>
                 {purchaseButtonLabel(selected)}
               </Text>
             )}

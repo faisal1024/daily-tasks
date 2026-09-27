@@ -485,27 +485,27 @@ export default function SettingsScreen() {
         <Section
           icon="checkmark-done-outline"
           title="Setting the day"
-          subtitle="Choose whether Today's Three sets itself automatically."
+          subtitle="A set day keeps your three fixed; you can still check them off."
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-3">
             <View className="flex-row items-center justify-between gap-4">
               <View className="flex-1">
                 <Text className="text-base font-semibold text-foreground">
-                  Auto-set today
+                  Set the day automatically
                 </Text>
                 <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                  When on, a day with at least one task is set at your chosen
-                  time.
+                  Days with at least one task are set at this time.
                 </Text>
               </View>
               <Switch
                 value={state.autoLock.enabled}
                 onValueChange={setAutoLockEnabled}
                 trackColor={{ true: colors.primary }}
+                accessibilityLabel="Set the day automatically"
               />
             </View>
             <TimePickerRow
-              label="Set the day at"
+              label="Time"
               hour={state.autoLock.hour}
               minute={state.autoLock.minute}
               disabled={!state.autoLock.enabled}

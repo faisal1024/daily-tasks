@@ -77,6 +77,8 @@ export default function JourneyScreen() {
         <Text
           className="text-foreground"
           style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
+          accessibilityRole="header"
+          maxFontSizeMultiplier={1.6}
         >
           Your progress
         </Text>
@@ -108,9 +110,12 @@ export default function JourneyScreen() {
           style={{ backgroundColor: `${colors.primary}12` }}
           testID="growth-hero"
         >
-          <Text style={{ fontSize: 84 }}>{stage.glyph}</Text>
+          <Text style={{ fontSize: 84 }} accessibilityElementsHidden importantForAccessibility="no">
+            {stage.glyph}
+          </Text>
           <Text
             accessibilityRole="header"
+            maxFontSizeMultiplier={1.6}
             style={{
               color: colors.foreground,
               fontFamily: Fonts.rounded,
@@ -171,12 +176,6 @@ export default function JourneyScreen() {
               openPaywall("weekly_review");
             }}
           />
-        </View>
-
-        {/* Month by month (this used to be its own Calendar tab). */}
-        <View className="gap-3">
-          <SectionLabel icon="calendar-number-outline" label="History" />
-          <MonthHistory />
         </View>
 
         {/* Milestones toward the goal: ticked off by hand */}
@@ -264,6 +263,12 @@ export default function JourneyScreen() {
           </View>
         )}
 
+
+        {/* Month by month (this used to be its own Calendar tab). */}
+        <View className="gap-3">
+          <SectionLabel icon="calendar-number-outline" label="History" />
+          <MonthHistory />
+        </View>
       </ScrollView>
 
       <CelebrationOverlay
@@ -299,10 +304,11 @@ function StatCard({
   value: number;
   tint: string;
 }) {
+  const colors = useColors();
   return (
     <View
       className="flex-1 rounded-3xl p-4 border"
-      style={{ backgroundColor: `${tint}14`, borderColor: `${tint}33` }}
+      style={{ backgroundColor: colors.surface, borderColor: colors.border }}
     >
       <View className="flex-row items-center gap-1.5">
         <Ionicons
@@ -312,11 +318,18 @@ function StatCard({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         />
-        <Text className="text-sm uppercase font-extrabold" style={{ color: tint }}>
+        {/* Colour on the icon only: tinted label text was too faint to read. */}
+        <Text className="text-sm uppercase font-extrabold" style={{ color: colors.muted }}>
           {label}
         </Text>
       </View>
-      <Text className="text-4xl font-extrabold text-foreground mt-1.5">{value}</Text>
+      <Text
+        className="text-4xl text-foreground mt-1.5"
+        style={{ fontFamily: Fonts.rounded, fontWeight: "800" }}
+        maxFontSizeMultiplier={1.6}
+      >
+        {value}
+      </Text>
     </View>
   );
 }

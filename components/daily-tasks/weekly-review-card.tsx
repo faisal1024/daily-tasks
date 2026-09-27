@@ -28,7 +28,7 @@ export function WeeklyReviewCard({ review, plus, canUnlock, onUnlock }: WeeklyRe
   return (
     <View className="rounded-2xl bg-surface border border-border p-4 gap-4" testID="weekly-review">
       <View className="gap-1">
-        <Text className="text-lg text-foreground" style={{ fontFamily: Fonts.rounded }}>
+        <Text className="text-lg text-foreground" style={{ fontFamily: Fonts.rounded, fontWeight: "700" }}>
           {review.headline}
         </Text>
         <Text className="text-sm" style={{ color: colors.muted }}>
