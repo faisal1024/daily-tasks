@@ -38,12 +38,22 @@ export function readConfig(env = {}) {
     trustProxyHops: positiveInt(env.TRUST_PROXY_HOPS, 0),
     // Server-side Plus check (RevenueCat). "off" until the paywall is live;
     // "log" counts would-be denials; "enforce" answers 402.
+    // Without a key there's nothing to check against: stays "off" (and the
+    // startup code warns), rather than silently enforcing nothing.
     entitlementMode:
-      env.ENTITLEMENT_MODE === "enforce" || env.ENTITLEMENT_MODE === "log" ? env.ENTITLEMENT_MODE : "off",
+      (env.ENTITLEMENT_MODE === "enforce" || env.ENTITLEMENT_MODE === "log") && env.REVENUECAT_SECRET_KEY
+        ? env.ENTITLEMENT_MODE
+        : "off",
+    entitlementMisconfigured:
+      (env.ENTITLEMENT_MODE === "enforce" || env.ENTITLEMENT_MODE === "log") && !env.REVENUECAT_SECRET_KEY,
     revenueCatSecretKey: env.REVENUECAT_SECRET_KEY ?? "",
-    // Free users' AI brain dumps per day (the app gives 3 in total; this is
-    // only a server-side ceiling).
-    freeBrainDumpsPerDay: positiveInt(env.FREE_BRAIN_DUMPS_PER_DAY, 5),
+    // "1" once every supported build sends the app user id: requests without
+    // one are then treated as free. Until then (old builds, grandfathered
+    // early supporters) they're allowed and counted.
+    requireUserId: env.ENTITLEMENT_REQUIRE_ID === "1",
+    // Server-side ceiling on a free user's AI brain dumps per day (the app
+    // gives 1 first-run sort + 3 to try; a retry after a timeout also counts).
+    freeBrainDumpsPerDay: positiveInt(env.FREE_BRAIN_DUMPS_PER_DAY, 8),
   };
 }
 
@@ -131,6 +141,45 @@ export function createRateLimiter({
     size() {
       roll();
       return { minute: minuteCounts.size, day: dayCounts.size, global: globalCount };
+    },
+  };
+}
+
+/**
+ * The handler's budget (see handler.mjs) on top of in-memory limiters, for the
+ * single-process Node server: admit() counts the minute and checks the daily
+ * caps; spend() checks the free caps and spends one unit of each.
+ */
+export function createBudget(config, { now } = {}) {
+  const limiter = createRateLimiter({
+    perMinute: config.rateLimitPerMinute,
+    perDay: config.dailyLimitPerClient,
+    globalPerDay: config.globalDailyLimit,
+    now,
+  });
+  // Free allowances: one counter map per cap value (user vs network).
+  const freeLimiters = new Map();
+  const freeLimiter = (cap) => {
+    if (!freeLimiters.has(cap)) freeLimiters.set(cap, createRateLimiter({ perMinute: 0, perDay: cap, globalPerDay: 0, now }));
+    return freeLimiters.get(cap);
+  };
+  return {
+    limiter,
+    admit(keys) {
+      for (const key of keys) {
+        const result = limiter.admit(key);
+        if (result !== "ok") return result;
+      }
+      return "ok";
+    },
+    spend({ keys, free }) {
+      for (const { key, cap } of free) {
+        // 0 means "no free AI", never "unlimited".
+        if (cap <= 0 || freeLimiter(cap).admit(key) !== "ok") return "free";
+      }
+      for (const key of keys) limiter.record(key);
+      for (const { key, cap } of free) freeLimiter(cap).record(key);
+      return "ok";
     },
   };
 }

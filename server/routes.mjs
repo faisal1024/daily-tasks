@@ -38,6 +38,7 @@ import {
   SYSTEM_PROMPT,
   buildPrompt,
   isValidPlan,
+  sanitizePlan,
   validatePayload,
 } from "./providers/plan-contract.mjs";
 
@@ -58,6 +59,7 @@ export const ROUTES = {
     toolDescription: PLAN_TOOL_DESCRIPTION,
     validatePayload,
     isValidResult: isValidPlan,
+    sanitizeResult: sanitizePlan,
   },
   [BRAIN_DUMP_ROUTE]: {
     name: "brain-dump",

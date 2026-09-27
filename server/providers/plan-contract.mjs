@@ -130,6 +130,27 @@ export function validatePayload(payload) {
   return null;
 }
 
+const str = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");
+function cleanTask(task) {
+  return {
+    text: str(task?.text, 200),
+    estimatedMinutes: task?.estimatedMinutes,
+    difficulty: str(task?.difficulty, 16),
+    reason: str(task?.reason, 300),
+  };
+}
+
+/** Rebuild the plan from the fields the app reads (never raw model output). */
+export function sanitizePlan(plan) {
+  return {
+    milestones: (Array.isArray(plan?.milestones) ? plan.milestones : [])
+      .slice(0, 3)
+      .map((m) => ({ title: str(m?.title, 120), description: str(m?.description, 300) })),
+    todaySuggestions: (Array.isArray(plan?.todaySuggestions) ? plan.todaySuggestions : []).slice(0, 3).map(cleanTask),
+    taskPool: (Array.isArray(plan?.taskPool) ? plan.taskPool : []).slice(0, 6).map(cleanTask),
+  };
+}
+
 /** Lightweight shape check on a provider's returned plan before sending it on. */
 export function isValidPlan(plan) {
   return Boolean(
