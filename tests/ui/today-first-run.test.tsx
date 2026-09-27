@@ -128,24 +128,58 @@ describe("Today: first run", () => {
     expect(mockStore.markOnboardingSeen).not.toHaveBeenCalled();
   });
 
-  it("after Start over, the second sort is the simple on-device split (no second AI call)", async () => {
+  it("after Start over, the second sort uses one of the free Today AI sorts", async () => {
     mockStore = makeStore();
     await render(<HomeScreen />);
     await dump("walk");
     await fireEvent.press(button("Start over"));
     await dump("swim, bike");
-    expect(sortBrainDump).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("checkbox", { name: "Swim" })).toBeOnTheScreen();
-    expect(screen.getByRole("checkbox", { name: "Bike" })).toBeOnTheScreen();
+    expect(sortBrainDump).toHaveBeenCalledTimes(2);
+    expect(await AsyncStorage.getItem("daily-tasks/free-ai-dumps-used")).toBe("1");
   });
 
-  it("the free AI sort is once per install: already claimed → on-device split", async () => {
+  it("first-run sort already used (e.g. after Reset all data): a free Today sort is used instead", async () => {
     await AsyncStorage.setItem("daily-tasks/first-ai-sort-used", "2026-09-01T00:00:00.000Z");
     mockStore = makeStore();
     await render(<HomeScreen />);
     await dump("swim, bike");
+    expect(sortBrainDump).toHaveBeenCalledTimes(1);
+    expect(await AsyncStorage.getItem("daily-tasks/free-ai-dumps-used")).toBe("1");
+  });
+
+  it("no AI sorts left: the tidied simple split, and it says so", async () => {
+    await AsyncStorage.setItem("daily-tasks/first-ai-sort-used", "2026-09-01T00:00:00.000Z");
+    await AsyncStorage.setItem("daily-tasks/free-ai-dumps-used", "3");
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("need to swim\ndon't forget to bike!");
     expect(sortBrainDump).not.toHaveBeenCalled();
     expect(screen.getByRole("checkbox", { name: "Swim" })).toBeOnTheScreen();
+    expect(screen.getByRole("checkbox", { name: "Bike" })).toBeOnTheScreen();
+    expect(screen.getByText(/free AI sorts are used up/)).toBeOnTheScreen();
+  });
+
+  it("with Plus, every first-run sort (Start over too) uses the AI and no free sort", async () => {
+    await AsyncStorage.setItem("daily-tasks/first-ai-sort-used", "2026-09-01T00:00:00.000Z");
+    mockStore = makeStore({}, { hasPlus: true });
+    await render(<HomeScreen />);
+    await dump("walk");
+    await fireEvent.press(button("Start over"));
+    await dump("swim, bike");
+    expect(sortBrainDump).toHaveBeenCalledTimes(2);
+    expect(await AsyncStorage.getItem("daily-tasks/free-ai-dumps-used")).toBeNull();
+  });
+
+  it("a free sort that falls back (AI unreachable) is given back", async () => {
+    await AsyncStorage.setItem("daily-tasks/first-ai-sort-used", "2026-09-01T00:00:00.000Z");
+    (sortBrainDump as jest.Mock).mockResolvedValueOnce({
+      result: { picks: ["Swim"], parked: [], source: "local" },
+      notice: "Couldn't reach smart sorting, so here's a simple split you can adjust.",
+    });
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("swim");
+    expect(await AsyncStorage.getItem("daily-tasks/free-ai-dumps-used")).toBe("0");
   });
 
   it("finishing asks for notifications, marks onboarding seen, and offers the trial to a free user", async () => {

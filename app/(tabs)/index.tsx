@@ -49,7 +49,13 @@ import {
   freeAiDumpsLeft,
   refundFreeAiDump,
 } from "@/lib/daily-tasks/free-uses";
-import { FREE_LIMIT_NOTICE, localBrainDump, requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import {
+  FREE_LIMIT_NOTICE,
+  localBrainDump,
+  requestBreakDown,
+  sortBrainDump,
+  type SortedBrainDump,
+} from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -978,14 +984,31 @@ export default function HomeScreen() {
               FIRST_SORT_TIMEOUT_MS,
             );
           });
-          // One AI sort per first run; "Start over" gets the simple split.
-          // Once per install (persisted), not once per launch.
-          const useAi = !firstRunAiUsed.current && (await claimFirstAiSort());
+          // AI when the user has Plus, or for the one free first-run sort (once
+          // per install, persisted: "Reset all data" doesn't grant another), or
+          // else as one of the free Today sorts. Otherwise the simple split,
+          // and it says so (a silent split looks like the AI got it wrong).
+          let usedFreeSort = false;
+          let useAi = hasPlus;
+          if (!useAi && !firstRunAiUsed.current) useAi = await claimFirstAiSort();
           firstRunAiUsed.current = true;
-          const sorted = useAi
+          if (!useAi) {
+            const left = await claimFreeAiDump();
+            if (left !== null) {
+              useAi = true;
+              usedFreeSort = true;
+              setFreeAiLeft(left);
+            }
+          }
+          const sorted: SortedBrainDump = useAi
             ? await Promise.race([sortBrainDump({ text, openSlots: 3, goalTitle: null }), fallback])
-            : { result: localBrainDump(text, 3), notice: null };
+            : { result: localBrainDump(text, 3), notice: FREE_LIMIT_NOTICE, freeLimit: true };
           clearTimeout(timer);
+          // A free sort that didn't reach the AI doesn't count.
+          if (usedFreeSort && sorted.result.source !== "ai") {
+            void refundFreeAiDump();
+            setFreeAiLeft((n) => (n === null ? n : n + 1));
+          }
           track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
           return sorted;
         }}

@@ -26,6 +26,9 @@ const countWord = (n: number) => NUMBER_WORDS[n] ?? String(n);
 
 // Shown instead of the sorter's own notice: this screen only unticks.
 const FALLBACK_NOTICE = "We couldn't sort this one, so here are the first few. Untick any that aren't for today.";
+// The free AI sorts are used up (e.g. after "Reset all data"): say so.
+const FREE_LIMIT_NOTICE =
+  "Your free AI sorts are used up, so these are your first few lines, tidied. Plus turns your notes into clear tasks.";
 
 export type FirstRunStep = "dump" | "sorting" | "three" | "nudge" | "widget";
 
@@ -120,7 +123,7 @@ export function FirstRun({
     setPicks(nextPicks);
     setParked(nextParked);
     setChosen(new Set(nextPicks));
-    setNotice(sorted.notice ? FALLBACK_NOTICE : null);
+    setNotice(sorted.freeLimit ? FREE_LIMIT_NOTICE : sorted.notice ? FALLBACK_NOTICE : null);
     go("three");
   };
 
