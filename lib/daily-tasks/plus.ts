@@ -152,7 +152,7 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
   {
     icon: "create-outline",
     title: "Smart brain dump",
-    detail: "Dump everything; AI picks today's three and saves the rest. (3 free to try.)",
+    detail: "Dump everything; AI picks today's three and saves the rest.",
   },
   {
     icon: "list-outline",

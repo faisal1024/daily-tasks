@@ -190,7 +190,8 @@ export function BrainDumpSheet({
                   Sort it for me
                 </Text>
               </Pressable>
-              {onUpgrade && (
+              {/* Wait for the free-sort count before saying anything. */}
+              {onUpgrade && freeAiLeft !== null && (
                 <View
                   className="flex-row items-center gap-2 rounded-2xl p-3"
                   style={{ backgroundColor: colors.surface }}

@@ -195,7 +195,7 @@ export function PaywallSheet({
             </Text>
             <Text className="text-base text-center" style={{ color: colors.muted }}>
               {source === "win_back"
-                ? "Your tasks, history and ideas are all still here. Plus brings back AI sorting, break it down and calendar planning."
+                ? "Your three tasks stay free. Plus brings back AI sorting, break it down and calendar planning."
                 : "Your three tasks stay free forever. Plus adds the AI helpers."}
             </Text>
           </View>
