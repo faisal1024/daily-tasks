@@ -116,6 +116,10 @@ installs/month, ~100–400× today**. A paywall alone won't get there: **acquisi
 
 ### 0.6 Phased plan
 
+> **Update 2026-09-27:** Phases 1–7 shipped in v1.0.11 (TestFlight). The plan from Phase 8 on
+> is in [`2026-09-deep-dive.md`](2026-09-deep-dive.md), which supersedes the table below.
+
+
 | When | What |
 |---|---|
 | **This week (1–2 days)** | **Live-ops hardening:** Anthropic spend cap + alerts, rotate the API key, enable `PROXY_SHARED_SECRET` (the endpoint is currently open to anyone: no shared secret, only a 30/min per-IP rate limit), Render paid tier ($7/mo, kills the ~50s cold start). Analytics: default **PostHog** (§0.9). Small Business Program. Mac availability. Decide name + subtitle after an availability check and prepare captioned screenshots; these ship with the first version after 1.0.10 is approved. |

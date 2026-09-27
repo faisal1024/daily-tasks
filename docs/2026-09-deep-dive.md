@@ -1,0 +1,166 @@
+# Deep dive: what it takes for people to use this daily and pay for it
+
+_27 September 2026. State of the app: v1.0.11 (Phases 1–7) on TestFlight. Four
+independent audits (product/monetization, UX/design on the real app, architecture/code,
+market/growth with sources), combined here into one plan. Supersedes §0.6 of the master
+plan from Phase 8 on._
+
+## 1. Diagnosis (where all four audits agree)
+
+**The product has one real differentiator, and it's hidden.** The thing Things, Todoist,
+Structured and Tiimo don't do is *decide for you*: dump everything → the app picks three →
+lock → the day resets tomorrow with no overdue debt. Reviews of the tiny "3 things" apps
+name exactly this hook ("the daily reset removes the snowball of shame", "the first one that
+stuck"). In our app it lives behind two buttons under three empty slots, and onboarding
+spends five screens and eight required inputs before showing any of it.
+
+**Nobody with scale owns "AI picks your three, calm, with widgets."** Structured (4.8★, 167K)
+and Tiimo (~$80/yr) are time-block-heavy and users complain about rigidity; Finch owns the
+companion; the "3 things" apps are hobby-grade (no AI, weak widgets, ≤$12/yr). The gap is
+"Structured's polish, Finch's gentleness, Goblin's breakdown, in a 3-slot loop."
+
+**The Plus bundle is "helpers", and helpers don't convert.** Ranked by willingness to pay,
+the current Plus features are medium-to-low: widget tick-off, break-it-down, AI brain dump
+(the free on-device split satisfies the free user), weekly patterns (needs 4 weeks of data),
+regenerate ideas. People subscribe to a *system that keeps working for them*, not to buttons.
+
+**Paywall placement matters more than price.** RevenueCat 2026: hard/early paywalls
+convert 10.7% of downloads to paid at day 35 vs 2.1% for freemium, with equal 1-year
+retention; revenue per install $3.09 vs $0.38. A solo dev in this category found
+onboarding-before-paywall "tanked conversion". Our plan shows the paywall after a 5-screen
+form and before the user has seen the app.
+
+**The UI looks like a good free app, not a $30/yr one.** Generic indigo template palette,
+three typefaces, emoji as iconography, a Today screen that is ~40% empty with no visual
+idea, XP/levels/"Looks" that do nothing, four tabs where two are both "history". The
+anti-guilt copy in `coach-messages.ts`, our best asset, is barely used on screen.
+
+**Engineering is solid; no rewrite.** `tsc` clean, 657 tests green, pure domain modules.
+The problems are ceilings: single-blob storage that silently wipes on corruption, a
+midnight duplication bug, no crash reporting, no server-side entitlement, Render cold
+starts on the headline feature, reminders that only cover today.
+
+**The name has to change.** "Momentum", "Just Three" and "Three Things" are all taken on
+the App Store. "3 Daily Tasks Manager" reads like a utility.
+
+## 2. The product we're building
+
+**Wedge:** "3 things a day for overwhelmed minds." ADHD-friendly in keywords, description
+and screenshots, never in the name, no clinical claims (Apple and r/ADHD both punish it).
+Not "ADHD scheduling" (Tiimo/Structured own it): **"ADHD deciding"** — the app decides
+what matters, you just do it.
+
+**The daily ritual is the product:**
+- **Morning (30 s):** one screen, "What's on your mind?" (voice or text) → three tasks with
+  a one-line "why now" and a time estimate, the rest parked → one tap to set the day. The
+  prompt knows yesterday's carry-over, today's calendar/Reminders (EventKit read), the goal,
+  and a rolling coach memory.
+- **Day:** the widget *is* the app. Next task as the hero; tick off from the Home/Lock
+  Screen; Live Activity for the current task (later).
+- **Evening (20 s):** always available, especially on a 0/3 day. One question, three faces.
+  The coach writes a two-line note and pre-drafts tomorrow's three. Next morning: "Because
+  yesterday was hard, today is lighter: …" — proof the coach remembers is the subscription
+  justification.
+- **Never punished:** streak counts *planning* as showing up; daily reset; no overdue badges.
+
+**What's free vs Plus (soft-hard paywall):** free = manual three, lock, reset, calendar,
+view-only widget, 3 AI brain dumps total. Plus = the morning AI plan every day, evening
+close that drafts tomorrow, break-it-down, widget tick-off, insights. Trial: 7 days, full
+access, started right after the first "aha" in onboarding.
+
+**Pricing:** $4.99/mo · **$34.99/yr** (test $29.99 vs $39.99 once PostHog has data) ·
+lifetime **$79.99**, shown only on the Settings paywall (at $59.99 it cannibalises annual).
+Day-5 "2 days left" notification; day-7 win-back with a 3-month intro offer ($9.99).
+Existing users stay grandfathered.
+
+## 3. The plan (in order)
+
+Each phase = one PR, tester agent + 3 reviewers, merge, TestFlight when noted.
+
+### Phase 8 — Foundation fixes (~1 week) → TestFlight
+Engineering quick wins:
+- Backup + quarantine on load failure; never overwrite a corrupt blob.
+- Fix the `todayKey()` vs store `today` midnight duplication bug; guard backwards day change.
+- Sentry + root ErrorBoundary (PII scrubbed).
+- Serialise `syncNotifications`; schedule reminders 7 days ahead.
+- Reconcile the privacy policy/label with PostHog + RevenueCat + widget (drafted).
+UX quick wins:
+- Parked ideas reachable when the day is full ("Saved ideas (2)" under the status line).
+- Inline **Unlock** next to the lock status; auto-lock explained once on first run.
+- Review prompt moves to the next launch; drop "Missed" on a perfect day; no rating +
+  celebration + reflection stacked in 4 seconds.
+- Emoji → SF Symbols in titles/sections; remove "Looks" cosmetics (they do nothing);
+  tabs "Tasks"→"Today", "Journey"→"Progress"; fix "Good night" greeting after 9 pm.
+- Live appearance change (dark mode without relaunch); `useWindowDimensions` in the header.
+
+### Phase 9 — The ritual (~2–3 weeks) → TestFlight
+- **Onboarding rebuilt:** dump → three → set → "want a nudge?" (notification) → "add the
+  widget" → paywall with trial. Goal/name/struggle asked later, in context. Step events.
+- **Morning plan as the Today hero:** the single conversational entry replaces the
+  "Need ideas / Brain dump" buttons; suggestions become the primary flow.
+- **Evening close, always available**, with a persisted `coachMemory` (rolling summary)
+  that pre-drafts tomorrow and explains "because yesterday…" next morning.
+- **Content-bearing morning notification** ("Your three for Tuesday: …").
+- **Streak counts planning as showing up**; XP/levels collapse into one "Day N" chip.
+- **Milestones you complete yourself** (checkbox + "what did you do?"), no auto-advance.
+- **EventKit read** of today's Reminders/Calendar into the plan prompt.
+
+### Phase 10 — Today revamp + information architecture (~2 weeks) → TestFlight
+- Today as **one calm card** (three rows, not three cards), large-title "Today" with the
+  date, no gradient header. Once set: the *next undone task* is the hero, done rows collapse;
+  "Break it down" and "Not today" as small secondary actions. Evening/perfect-day state gets
+  the one gradient in the app. Rows: swipe to delete, tap to edit, no pencil/trash icons.
+- **Progress tab = Calendar + Journey merged:** weekly review, month grid, milestone path.
+- One typeface family (SF Rounded/Nunito; Fredoka only for the hero number, or dropped);
+  accent colour reserved for the "done" moment; Dynamic Type via text styles; Reduce Motion;
+  `DatePicker` for the auto-lock time; today's list and lock toggle out of Settings.
+- Rollover sheet simplified (one decision, not six controls); lock vocabulary unified ("Set").
+
+### Phase 11 — Money & cost controls (~1–2 weeks) → TestFlight
+- Paywall right after the aha; AI brain dump into Plus with 3 free uses; drop the
+  weekly-review gate; pricing above; day-5 nudge + win-back offer.
+- **Server-side entitlement:** app sends RevenueCat `appUserID`; proxy checks
+  `/v1/subscribers/{id}` (1 h cache), keys rate limits by user, `SECRET_MODE=enforce`;
+  promotional entitlement for grandfathered users.
+- **Proxy to Cloudflare Workers** (no cold starts, KV rate limits + plan cache, upstream
+  timeout, cost logging). Alternative: Render Starter $7/mo.
+- Trim the plan schema, few-shot examples per tone.
+
+### Phase 12 — Name, listing, launch (~1 week)
+- New name + subtitle (candidates below), captioned benefit screenshots (screenshot 1 says
+  "daily reset, no overdue debt"; widgets featured), ASO keywords, EULA link in description,
+  Small Business Program, "What's New".
+- Organic TikTok/Reels "wall of tasks → 3" transformation clips; Apple Ads only on
+  "3 things"/"daily focus" long-tail at ≤$3 CPI.
+
+### Later (measure first)
+Live Activity (native, after widgets prove signing/adoption) → Apple Watch complication →
+CloudKit sync (private DB, per-record `updatedAt`; prerequisite: split the storage blob) →
+localization + purchasing-power pricing (drove a peer to $1K MRR) → Android.
+Not now: accountability partners, multiple goals, companion art (illustration budget).
+
+## 4. Name candidates (verify in App Store Connect + USPTO before committing)
+Taken: Momentum, Just Three, Three Things, Daily Three (confusingly close).
+Available-looking: **Trio — 3 Tasks a Day** · **Threefold — Daily Focus** ·
+**Three Today — Focus Planner** · **Rule of Three — Daily Tasks** · **Enough — 3 tasks a day**.
+Subtitle pattern: keyword-rich, ≤30 chars, e.g. "Brain dump to 3 tasks".
+
+## 5. Targets (unchanged from §0.7, now instrumented)
+D1 ≥ 30%, D7 ≥ 15%; ≥ 10% of installs start a trial; ≥ 35% trial → paid; annual ≥ 70% of
+subscriptions (category norm 77%). Watch AI monthly churn (36% worse in RC data): keep AI
+the accelerator, not the whole value.
+
+## 6. Decisions needed from the owner
+1. Name (pick or veto the candidates above).
+2. Pricing: $34.99/yr and $79.99 lifetime (Settings only) vs the earlier $29.99/$59.99.
+3. Accept the soft-hard paywall (morning AI plan behind the trial; 3 free brain dumps).
+4. Calendar/Reminders read access (a permission prompt; big trust gain).
+5. Drop XP/levels/"Looks" in favour of one "Day N" chip.
+6. Proxy hosting: Cloudflare Workers (port) vs Render Starter ($7/mo).
+
+## Sources
+Audit reports: product (internal), UX walk-through (20 screenshots), engineering, and market
+brief citing RevenueCat State of Subscription Apps 2026 (productivity), RevenueCat trial-length
+and hard-paywall analyses, App Store listings/reviews for Structured, Tiimo, Llama Life, Focus
+Bear, Finch, 3ThingsPal, "To do list – 3 Things", Sparrow's Finch teardown, AppTweak Apple Ads
+benchmarks, Grand View ADHD-apps market report, and Reddit self-promotion rule studies.
