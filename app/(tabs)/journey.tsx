@@ -187,26 +187,25 @@ export default function JourneyScreen() {
                 <View
                   key={milestone.id}
                   className="bg-surface rounded-2xl p-4 border flex-row items-center gap-3"
-                  style={{ borderColor: isNext ? colors.primary : colors.border }}
+                  style={{ borderColor: colors.border }}
                 >
                   <Ionicons
-                    name={
-                      milestone.done
-                        ? "checkmark-circle"
-                        : isNext
-                          ? "ellipse"
-                          : "ellipse-outline"
-                    }
+                    // Only a reached milestone is filled; "next" is just a label,
+                    // so a new path never looks like it's already started.
+                    name={milestone.done ? "checkmark-circle" : "ellipse-outline"}
                     size={20}
-                    color={
-                      milestone.done
-                        ? colors.success
-                        : isNext
-                          ? colors.primary
-                          : colors.muted
-                    }
+                    color={milestone.done ? colors.success : colors.muted}
+                    accessibilityElementsHidden
                   />
                   <View className="flex-1 gap-1">
+                    {isNext ? (
+                      <Text
+                        className="text-xs font-bold uppercase"
+                        style={{ color: colors.primary, letterSpacing: 0.6 }}
+                      >
+                        Up next
+                      </Text>
+                    ) : null}
                     <Text
                       className="text-lg font-bold"
                       style={{ color: milestone.done ? colors.muted : colors.foreground }}
@@ -237,11 +236,11 @@ export default function JourneyScreen() {
                       accessibilityLabel={`Mark "${milestone.title}" as reached`}
                       hitSlop={8}
                       className="rounded-full px-3 py-1.5"
-                      style={{ backgroundColor: isNext ? `${colors.primary}18` : colors.background }}
+                      style={{ backgroundColor: `${colors.primary}14` }}
                       testID={`milestone-reach-${milestone.id}`}
                     >
                       <Text className="text-sm font-bold" style={{ color: colors.primary }}>
-                        Reached
+                        Mark reached
                       </Text>
                     </Pressable>
                   )}

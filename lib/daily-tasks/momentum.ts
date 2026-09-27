@@ -351,7 +351,7 @@ function adaptationReason(
   if (recommendation === "increase") {
     return "Recent completions show room for a gentle step up.";
   }
-  if (performance.daysReviewed === 0) return "No recent pattern yet, so Momentum is staying steady.";
+  if (performance.daysReviewed === 0) return "No recent pattern yet, so your coach is keeping things steady.";
   return "Recent rhythm looks steady enough to maintain.";
 }
 

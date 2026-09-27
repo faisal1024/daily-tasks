@@ -158,7 +158,7 @@ export function OnboardingModal({
                 title="Your friendly coach for three daily wins."
               />
               <Text className="text-base" style={{ color: colors.muted }}>
-                Momentum helps you choose the right three tasks, follow
+                Your coach helps you choose the right three tasks, follow
                 through, and build momentum without an endless list.
               </Text>
               <View className="gap-2 mt-1">
@@ -249,7 +249,7 @@ export function OnboardingModal({
                     }}
                   />
                   <Text className="text-xs" style={{ color: colors.muted }}>
-                    Momentum builds a personalized plan and daily tasks for whatever you
+                    Your coach builds a personalized plan and daily tasks for whatever you
                     choose.
                   </Text>
                 </View>
@@ -266,7 +266,7 @@ export function OnboardingModal({
 
           {step === "context" && (
             <>
-              <Header eyebrow="Step 2 of 3" title="Help Momentum keep it doable." />
+              <Header eyebrow="Step 2 of 3" title="Help us keep it doable." />
               <ScrollView
                 className="max-h-[420px]"
                 contentContainerStyle={{ gap: 18 }}
@@ -332,7 +332,7 @@ export function OnboardingModal({
                     }}
                   />
                   <Text className="text-sm" style={{ color: colors.muted }}>
-                    Optional — but it helps Momentum keep you motivated.
+                    Optional, but it helps your coach keep you motivated.
                   </Text>
                 </View>
                 <OptionGroup
@@ -363,7 +363,7 @@ export function OnboardingModal({
               <Header eyebrow="First win" title="Commit to today, not forever." />
               <View className="rounded-2xl bg-surface border border-border p-4 gap-2">
                 <Text className="text-sm font-semibold text-foreground">
-                  Momentum will coach your first three commitments for:
+                  Your coach will help with your first three tasks for:
                 </Text>
                 <Text className="text-lg font-bold text-foreground">
                   {trimmedGoal}

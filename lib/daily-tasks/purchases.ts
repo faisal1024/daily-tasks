@@ -64,19 +64,57 @@ export function isPlusActive(info: SdkCustomerInfo | null | undefined): boolean 
 export function trialEndsAt(info: SdkCustomerInfo | null | undefined): string | null {
   const entitlement = info?.entitlements?.active?.[PLUS_ENTITLEMENT];
   if (!entitlement || entitlement.periodType !== "TRIAL") return null;
+  // Already cancelled, or shared by family (they can't cancel it): no reminder.
+  if (entitlement.willRenew === false || entitlement.unsubscribeDetectedAt) return null;
+  if (entitlement.ownershipType === "FAMILY_SHARED") return null;
   return entitlement.expirationDate ?? null;
 }
 
-/** Plus status with the trial end, or null when RevenueCat can't be reached. */
-export async function fetchPlusStatus(): Promise<{ active: boolean; trialEndsAt: string | null } | null> {
+/**
+ * When Plus lapsed (ISO expiry), read from RevenueCat's own record so it
+ * holds after a reinstall and can't be fooled by a stale answer: the
+ * entitlement exists but isn't active and has expired. Not during a billing
+ * retry (a re-purchase would fail as "already subscribed").
+ */
+export function lapsedAt(info: SdkCustomerInfo | null | undefined, now: number = Date.now()): string | null {
+  const entitlement = info?.entitlements?.all?.[PLUS_ENTITLEMENT];
+  if (!entitlement || entitlement.isActive || entitlement.billingIssueDetectedAt) return null;
+  const expiry = entitlement.expirationDate;
+  if (!expiry) return null;
+  const at = Date.parse(expiry);
+  return Number.isFinite(at) && at < now ? expiry : null;
+}
+
+export interface PlusStatus {
+  active: boolean;
+  trialEndsAt: string | null;
+  lapsedAt: string | null;
+}
+
+function toStatus(info: SdkCustomerInfo): PlusStatus {
+  return { active: isPlusActive(info), trialEndsAt: trialEndsAt(info), lapsedAt: lapsedAt(info) };
+}
+
+/** Plus status with the trial end and any lapse, or null when RevenueCat can't be reached. */
+export async function fetchPlusStatus(): Promise<PlusStatus | null> {
   const sdk = loadSdk();
   if (!configured || !sdk) return null;
   try {
-    const info = await sdk.default.getCustomerInfo();
-    return { active: isPlusActive(info), trialEndsAt: trialEndsAt(info) };
+    return toStatus(await sdk.default.getCustomerInfo());
   } catch {
     return null;
   }
+}
+
+/** Like onPlusChange, with the full status. */
+export function onPlusStatusChange(listener: (status: PlusStatus) => void): () => void {
+  const sdk = loadSdk();
+  if (!configured || !sdk) return () => {};
+  const handler = (info: SdkCustomerInfo) => listener(toStatus(info));
+  sdk.default.addCustomerInfoUpdateListener(handler);
+  return () => {
+    sdk.default.removeCustomerInfoUpdateListener(handler);
+  };
 }
 
 /** Current entitlement (served from RevenueCat's on-device cache when offline). */

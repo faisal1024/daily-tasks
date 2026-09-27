@@ -12,7 +12,7 @@ export const PLUS_ENTITLEMENT = "plus";
  */
 export const GRANDFATHER_BEFORE_VERSION = "1.1.0";
 
-export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "weekly_review";
+export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas";
 
 export type PaywallSource =
   | "onboarding"
@@ -20,7 +20,6 @@ export type PaywallSource =
   | "brain_dump"
   | "break_down"
   | "new_ideas"
-  | "weekly_review"
   | "calendar"
   | "win_back";
 
@@ -153,7 +152,7 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
   {
     icon: "create-outline",
     title: "Smart brain dump",
-    detail: "Dump everything; AI picks today's three and saves the rest.",
+    detail: "Dump everything; AI picks today's three and saves the rest. (3 free to try.)",
   },
   {
     icon: "list-outline",
@@ -167,8 +166,8 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
   },
   {
     icon: "calendar-outline",
-    title: "Weekly review",
-    detail: "See your best days and the tasks that keep sliding.",
+    title: "Plan around your calendar",
+    detail: "Your three fit around today's events and reminders.",
   },
   {
     icon: "apps-outline",
@@ -184,14 +183,12 @@ export function paywallHeadline(source: PaywallSource): string {
       return "Let AI sort your brain dump";
     case "break_down":
       return "Break any task into tiny steps";
-    case "weekly_review":
-      return "See how your weeks are going";
     case "new_ideas":
       return "Get fresh ideas for your goal";
     case "calendar":
       return "Plan your three around your day";
     case "win_back":
-      return "Come back to Plus";
+      return "Want the AI helpers back?";
     default:
       return "A little extra help, when you want it";
   }

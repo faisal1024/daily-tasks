@@ -83,7 +83,7 @@ export async function postToProxy({
       }
       throw new MomentumAiError(
         kindForStatus(response.status, proxyError),
-        `Momentum AI request failed with ${response.status}.`,
+        `AI request failed with ${response.status}.`,
         response.status,
       );
     }
@@ -103,7 +103,7 @@ export async function postToProxy({
     if (error instanceof MomentumAiError) throw error;
     throw new MomentumAiError(
       "network",
-      error instanceof Error ? error.message : "Momentum AI network error.",
+      error instanceof Error ? error.message : "AI network error.",
     );
   } finally {
     clearTimeout(timer);

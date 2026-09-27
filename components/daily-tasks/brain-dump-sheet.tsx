@@ -36,6 +36,8 @@ interface BrainDumpSheetProps {
    * typed is kept, so it's still there after upgrading.
    */
   onUpgrade?: () => void;
+  /** Free AI sorts left for a free user (null when unknown or not applicable). */
+  freeAiLeft?: number | null;
 }
 
 export function BrainDumpSheet({
@@ -45,6 +47,7 @@ export function BrainDumpSheet({
   onSort,
   onConfirm,
   onUpgrade,
+  freeAiLeft = null,
 }: BrainDumpSheetProps) {
   const colors = useColors();
   const sheetAnimation = useSheetAnimation();
@@ -195,18 +198,25 @@ export function BrainDumpSheet({
                 >
                   <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
                   <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
-                    This uses a simple split. Want AI to pick what matters most?
+                    {freeAiLeft !== null && freeAiLeft > 0
+                      ? freeAiLeft >= 3
+                        ? "AI will sort this one. You have 3 free AI sorts to try."
+                        : `AI will sort this one. ${freeAiLeft} free AI ${freeAiLeft === 1 ? "sort" : "sorts"} left.`
+                      : "This uses a simple split. Plus lets AI pick what matters most."}
                   </Text>
-                  <Pressable
-                    onPress={onUpgrade}
-                    accessibilityRole="button"
-                    accessibilityLabel="Get AI sorting with Plus"
-                    hitSlop={12}
-                  >
-                    <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-                      Get Plus
-                    </Text>
-                  </Pressable>
+                  {/* No upsell during the free taste. */}
+                  {freeAiLeft !== null && freeAiLeft > 0 ? null : (
+                    <Pressable
+                      onPress={onUpgrade}
+                      accessibilityRole="button"
+                      accessibilityLabel="Get AI sorting with Plus"
+                      hitSlop={12}
+                    >
+                      <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                        Get Plus
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               )}
             </>

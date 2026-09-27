@@ -292,7 +292,7 @@ export default function SettingsScreen() {
 
         <Section
           icon="flag-outline"
-          title="Momentum"
+          title="Your coach"
           subtitle="Personalize your accountability coach without adding a backlog."
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-3">
@@ -338,7 +338,7 @@ export default function SettingsScreen() {
               className="self-start rounded-full px-4 py-2"
               style={{ backgroundColor: `${colors.primary}16` }}
               accessibilityRole="button"
-              accessibilityLabel="Update Momentum profile"
+              accessibilityLabel="Update your profile"
             >
               <Text
                 className="text-sm font-semibold"
