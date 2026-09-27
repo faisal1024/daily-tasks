@@ -80,7 +80,7 @@ export const COACH_MESSAGES: CoachMessage[] = [
     tags: ["choosing"],
     phase: "Set the day",
     title: "Protect the list before it grows.",
-    body: "If these commitments are enough for a good day, lock them in and move forward.",
+    body: "If these commitments are enough for a good day, set them and move forward.",
   },
   {
     id: "choosing-fewer-better",
@@ -184,7 +184,7 @@ export const COACH_MESSAGES: CoachMessage[] = [
     id: "locked-focus",
     tags: ["locked"],
     phase: "Follow through",
-    title: "Let the lock do its job.",
+    title: "Let the list do its job.",
     body: "The list has boundaries so your attention does not have to keep negotiating.",
   },
   {

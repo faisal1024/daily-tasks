@@ -296,12 +296,12 @@ export function IdeasSheet({
                 <Pressable
                   onPress={onLock}
                   accessibilityRole="button"
-                  accessibilityLabel="Lock them in"
+                  accessibilityLabel="Set these three"
                   className="rounded-2xl py-4 items-center"
                   style={{ backgroundColor: colors.primary }}
                 >
                   <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
-                    Lock them in
+                    Set these three
                   </Text>
                 </Pressable>
               )}

@@ -48,7 +48,7 @@ import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
-import { addDays, fromDateKey } from "@/lib/daily-tasks/date";
+import { addDays, fromDateKey, greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
@@ -107,6 +107,7 @@ export default function HomeScreen() {
     addTasks,
     editTask,
     deleteTask,
+    notToday,
     toggleTask,
     lockToday,
     unlockToday,
@@ -256,8 +257,13 @@ export default function HomeScreen() {
     day: "numeric",
     month: "long",
   });
-  // The next thing to do is the hero of the card.
-  const heroTaskId = progress.isPerfect ? null : (state.tasks.find((task) => !isCompleted(task.id))?.id ?? null);
+  // Once the day is set, the next thing to do is the hero of the card.
+  const heroTaskId =
+    state.todayLocked && !progress.isPerfect
+      ? (state.tasks.find((task) => !isCompleted(task.id))?.id ?? null)
+      : null;
+  const firstName = state.momentumProfile.name?.trim().split(/\s+/)[0] ?? "";
+  const greetingLine = firstName ? `${greetingText(greetingFor())}, ${firstName}` : null;
 
   const addedTexts = useMemo(
     () => new Set(state.tasks.map((task) => task.text.trim().toLowerCase())),
@@ -526,6 +532,7 @@ export default function HomeScreen() {
   };
 
   const handleDelete = (id: string, text: string) => {
+    if (state.todayLocked) return;
     Alert.alert("Remove this task?", `Remove "${text}" from today?`, [
       { text: "Cancel", style: "cancel" },
       {
@@ -539,12 +546,14 @@ export default function HomeScreen() {
     ]);
   };
 
-  // "Not today": off today's list, into Saved for later.
-  const handleNotToday = (id: string, text: string) => {
+  // "Not today": off today's list, into Saved for later (one store action,
+  // so the task is never lost between the two steps).
+  const handleNotToday = (id: string) => {
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-    parkTasks([text]);
-    deleteTask(id);
+    notToday(id);
+    track("task_not_today", { source: state.todayLocked ? "set" : "open" });
     showToast("Saved for later.");
+    AccessibilityInfo.announceForAccessibility("Saved for later.");
   };
 
   const handleAdd = (text: string) => {
@@ -565,6 +574,7 @@ export default function HomeScreen() {
         >
           <TodayHeader
             dateLabel={dateLabel}
+            greeting={greetingLine}
             progress={progress}
             daysShowedUp={daysShowedUp}
           />
@@ -634,7 +644,7 @@ export default function HomeScreen() {
                           onToggle={() => handleToggle(task.id)}
                           onEdit={(text) => editTask(task.id, text)}
                           onDelete={() => handleDelete(task.id, task.text)}
-                          onNotToday={() => handleNotToday(task.id, task.text)}
+                          onNotToday={() => handleNotToday(task.id)}
                           onBreakDown={
                             breakDownAvailable ? () => handleBreakDown(task.id, task.text) : undefined
                           }
@@ -663,6 +673,8 @@ export default function HomeScreen() {
                 })}
               </View>
 
+              {/* On a finished day the card and gradient say it all. */}
+              {!progress.isPerfect && (
               <StatusLine
                 status={status}
                 onLock={confirmLock}
@@ -673,9 +685,10 @@ export default function HomeScreen() {
                   AccessibilityInfo.announceForAccessibility("You can change today's tasks again.");
                 }}
               />
-              {/* A full day hides the ideas entry, but saved brain-dump items
+              )}
+              {/* A full or set day hides the ideas entry, but saved items
                   must stay reachable (to view, remove, or swap in later). */}
-              {!state.todayLocked && remainingSlots === 0 && state.parkedTasks.length > 0 && (
+              {(state.todayLocked || remainingSlots === 0) && state.parkedTasks.length > 0 && (
                 <Pressable
                   onPress={() => {
                     setIdeasSavedOnly(true);
@@ -769,7 +782,9 @@ export default function HomeScreen() {
                         {total === MAX_TASKS ? "All three, done." : "Everything you picked is done."}
                       </Text>
                       <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 15, marginTop: 4 }}>
-                        You showed up today. Close the day below and your coach drafts tomorrow.
+                        {eveningCheckIn
+                          ? "You showed up today. Close the day below and your coach drafts tomorrow."
+                          : "You showed up today."}
                       </Text>
                     </View>
                   </GradientCard>
@@ -941,8 +956,13 @@ export default function HomeScreen() {
         visible={Boolean(state.pendingRollover)}
         pending={state.pendingRollover}
         remainingSlots={remainingSlots}
-        currentTaskCount={state.tasks.length}
-        onApply={resolveRollover}
+        onApply={(ids) => {
+          track("rollover_resolved", {
+            count: ids.length,
+            outcome: remainingSlots <= 0 ? "no_room" : ids.length === 0 ? "fresh" : "carried",
+          });
+          resolveRollover(ids);
+        }}
       />
     </ScreenContainer>
   );

@@ -68,7 +68,11 @@ export function AddTaskRow({
       }}
     >
       {slotNumber ? (
-        <Text className="text-xs font-bold" style={{ color: disabled ? colors.muted : colors.primary }}>
+        <Text
+          className="text-xs font-bold"
+          style={{ color: disabled ? colors.muted : colors.primary }}
+          maxFontSizeMultiplier={1.2}
+        >
           {slotNumber}
         </Text>
       ) : (

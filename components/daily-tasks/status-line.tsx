@@ -18,7 +18,7 @@ export function StatusLine({ status, onLock, onUnlock }: StatusLineProps) {
 
   return (
     <View className="flex-row items-center gap-2" testID="status-line">
-      {locked && <Ionicons name="checkmark-done" size={15} color={colors.muted} />}
+      {locked && <Ionicons name="pin" size={14} color={colors.muted} />}
       <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
         {status.text}
       </Text>
@@ -33,7 +33,7 @@ export function StatusLine({ status, onLock, onUnlock }: StatusLineProps) {
           style={{ backgroundColor: `${colors.primary}18` }}
         >
           <View className="flex-row items-center gap-1">
-            <Ionicons name="checkmark-done" size={14} color={colors.primary} />
+            <Ionicons name="pin-outline" size={14} color={colors.primary} />
             <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
               Set today
             </Text>

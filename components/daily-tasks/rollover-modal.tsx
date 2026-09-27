@@ -10,7 +10,8 @@ interface RolloverModalProps {
   visible: boolean;
   pending: PendingRollover | null;
   remainingSlots: number;
-  currentTaskCount: number;
+  /** @deprecated unused; kept optional for callers. */
+  currentTaskCount?: number;
   onApply: (carriedTaskIds: TaskId[]) => void;
 }
 
@@ -46,14 +47,16 @@ export function RolloverModal({ visible, pending, remainingSlots, onApply }: Rol
         <View className="rounded-t-3xl bg-background p-6 gap-4" style={{ paddingBottom: 36 }}>
           <View className="gap-1">
             <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 24, fontWeight: "800" }}>
-              Still on your list
+              From before
             </Text>
             <Text className="text-base" style={{ color: colors.muted }}>
-              {hasRoom
-                ? pending.tasks.length === 1
-                  ? "This wasn't finished yesterday. Bring it into today?"
-                  : "These weren't finished yesterday. Tick what still matters today."
-                : "Today's three are already full, so these stay in yesterday's history."}
+              {!hasRoom
+                ? "Today's three are already full, so these stay in your history."
+                : pending.tasks.length === 1
+                  ? "This one wasn't finished. Bring it into today? If not, it stays in your history."
+                  : remainingSlots === 1
+                    ? "These weren't finished. Room for 1 today: tick the one that matters most. The rest stay in your history."
+                    : `These weren't finished. Room for ${Math.min(remainingSlots, 3)} today: tick what still matters. The rest stay in your history.`}
             </Text>
           </View>
 
@@ -105,7 +108,7 @@ export function RolloverModal({ visible, pending, remainingSlots, onApply }: Rol
               testID="rollover-apply"
             >
               <Text style={{ color: "#fff", fontFamily: BodyFont.bold, fontSize: 17 }}>
-                {!hasRoom ? "OK" : count === 0 ? "Start fresh" : count === 1 ? "Bring 1 into today" : `Bring ${count} into today`}
+                {!hasRoom ? "Got it" : count === 0 ? "Start fresh" : count === 1 ? "Bring 1 into today" : `Bring ${count} into today`}
               </Text>
             </Pressable>
             {hasRoom && count > 0 ? (

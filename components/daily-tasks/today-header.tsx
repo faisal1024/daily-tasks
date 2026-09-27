@@ -8,6 +8,8 @@ import { dayChipLabel, dayChipText, type TodayProgress } from "@/lib/daily-tasks
 interface TodayHeaderProps {
   /** e.g. "Sunday, 27 September". */
   dateLabel: string;
+  /** "Good morning, Sam" when we know their name; otherwise nothing. */
+  greeting?: string | null;
   progress: TodayProgress;
   /** Days with a plan, today included ("Day N"). */
   daysShowedUp: number;
@@ -18,11 +20,16 @@ interface TodayHeaderProps {
  * progress line. No gradient: the card of three is the hero, and the one
  * gradient in the app is saved for the finished day.
  */
-export function TodayHeader({ dateLabel, progress, daysShowedUp }: TodayHeaderProps) {
+export function TodayHeader({ dateLabel, greeting, progress, daysShowedUp }: TodayHeaderProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   return (
     <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 20, paddingBottom: 4 }} testID="today-header">
+      {greeting ? (
+        <Text className="text-sm font-semibold" style={{ color: colors.muted }} maxFontSizeMultiplier={1.6}>
+          {greeting}
+        </Text>
+      ) : null}
       <View className="flex-row items-end justify-between gap-3">
         <Text
           accessibilityRole="header"

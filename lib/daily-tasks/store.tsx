@@ -116,6 +116,7 @@ type Action =
   | { type: "addTasks"; texts: string[]; today: string }
   | { type: "editTask"; id: TaskId; text: string; today: string }
   | { type: "deleteTask"; id: TaskId; today: string }
+  | { type: "notToday"; id: TaskId; today: string; at: string }
   | { type: "toggleTask"; id: TaskId; today: string }
   | { type: "lockToday"; today: string; at: string }
   | { type: "unlockToday"; today: string }
@@ -403,6 +404,15 @@ function reducer(state: AppState, action: Action): AppState {
         },
         action.today,
       );
+    }
+    case "notToday": {
+      // Save an open task for later. Allowed on a set day too: letting go of
+      // one task is part of keeping the day honest, not changing the plan.
+      const task = state.tasks.find((item) => item.id === action.id);
+      if (!task || state.todayCompletions.includes(action.id)) return state;
+      // Off the list first: parkTasks skips anything still on today's list.
+      const removed = { ...state, tasks: state.tasks.filter((item) => item.id !== action.id) };
+      return syncTodayHistory(parkTasks(removed, [task.text], action.at), action.today);
     }
     case "toggleTask": {
       // Not one of today's tasks (e.g. it rolled over a moment ago): ignore,
@@ -705,6 +715,8 @@ interface StoreContextValue {
   addTasks: (texts: string[]) => void;
   editTask: (id: TaskId, text: string) => void;
   deleteTask: (id: TaskId) => void;
+  /** Take an open task off today and save it for later (works on a set day). */
+  notToday: (id: TaskId) => void;
   toggleTask: (id: TaskId) => void;
   lockToday: () => void;
   unlockToday: () => void;
@@ -1041,6 +1053,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const deleteTask = useCallback((id: TaskId) => {
     dispatch({ type: "deleteTask", id, today: ensureDay() });
   }, [ensureDay]);
+  const notToday = useCallback((id: TaskId) => {
+    dispatch({ type: "notToday", id, today: ensureDay(), at: new Date().toISOString() });
+  }, [ensureDay]);
   const toggleTask = useCallback((id: TaskId) => {
     // Ticked just after midnight while yesterday is still on screen: it counts
     // for yesterday (the day the user was looking at), then the day changes.
@@ -1319,6 +1334,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       addTasks,
       editTask,
       deleteTask,
+      notToday,
       toggleTask,
       lockToday,
       unlockToday,
@@ -1377,6 +1393,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       addTasks,
       editTask,
       deleteTask,
+      notToday,
       toggleTask,
       lockToday,
       unlockToday,
