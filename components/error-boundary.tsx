@@ -29,7 +29,16 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBound
     if (!this.state.hasError) return this.props.children;
     return (
       <View
-        style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 12 }}
+        // Always light: plain colours that don't depend on the theme (which may
+        // be what failed), readable whatever the system appearance.
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 32,
+          gap: 12,
+          backgroundColor: "#FBFAFF",
+        }}
         accessibilityRole="alert"
         testID="error-boundary"
       >

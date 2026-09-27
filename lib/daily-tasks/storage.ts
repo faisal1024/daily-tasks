@@ -551,8 +551,10 @@ export function buildInitialState(now: Date = new Date()): AppState {
   };
 }
 
-// A known-good copy of the saved state, refreshed once per launch after a
-// successful load. Used when the main copy can't be read or parsed.
+// A known-good copy of the saved state, refreshed after a session that ran
+// fine (not merely one that parsed: state that parses but crashes the app
+// must not replace the good copy). Used when the main copy can't be read or
+// parsed.
 const BACKUP_KEY = `${STORAGE_KEY}:backup`;
 // Unparseable data is moved aside (never overwritten) so it can be recovered.
 const QUARANTINE_PREFIX = `${STORAGE_KEY}:corrupt:`;
@@ -596,22 +598,34 @@ export async function loadState(): Promise<AppState | null> {
   }
   if (!raw) return loadBackup();
   const state = parseState(raw);
-  if (state) {
-    try {
-      await AsyncStorage.setItem(BACKUP_KEY, raw);
-    } catch {
-      // a stale backup is still a backup
-    }
-    return state;
-  }
+  if (state) return state;
   console.warn("[daily-tasks] saved state is corrupt; quarantined, restoring backup");
   try {
+    // Keep at most the newest earlier copy: repeated corruption mustn't fill storage.
+    const keys = (await AsyncStorage.getAllKeys())
+      .filter((key) => key.startsWith(QUARANTINE_PREFIX))
+      .sort();
+    if (keys.length > 1) await AsyncStorage.multiRemove(keys.slice(0, -1));
     await AsyncStorage.setItem(`${QUARANTINE_PREFIX}${Date.now()}`, raw);
   } catch {
     // if even this fails, don't overwrite the original this session
     writesBlocked = true;
   }
   return loadBackup();
+}
+
+/**
+ * Copy the saved state to the backup. Called once a session has run fine
+ * (after a while in the app, or when it goes to the background).
+ */
+export async function refreshBackup(): Promise<void> {
+  if (writesBlocked) return;
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    if (raw && parseState(raw)) await AsyncStorage.setItem(BACKUP_KEY, raw);
+  } catch {
+    // a stale backup is still a backup
+  }
 }
 
 export async function saveState(state: AppState): Promise<void> {

@@ -21,10 +21,20 @@ export function SectionLabel({ icon, label }: SectionLabelProps) {
     <View
       className="self-start flex-row items-center gap-2 rounded-2xl px-3.5 py-2"
       style={{ backgroundColor: `${colors.primary}16` }}
+      // One accessible element with the header trait (so it's in the
+      // VoiceOver Headings rotor); the icon is decorative.
+      accessible
       accessibilityRole="header"
+      accessibilityLabel={label}
     >
       {icon && (
-        <Ionicons name={icon} size={16} color={colors.primary} accessibilityElementsHidden />
+        <Ionicons
+          name={icon}
+          size={16}
+          color={colors.primary}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
       )}
       <Text className="text-base" style={{ color: colors.primary, fontFamily: DisplayFont.semibold }}>
         {label}

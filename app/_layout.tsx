@@ -32,10 +32,12 @@ export default function RootLayout() {
   });
 
   return (
-    <ThemeProvider>
-      <SafeAreaProvider>
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <ErrorBoundary>
+    // Outermost, so a failure anywhere below (theme included) shows the calm
+    // fallback instead of a blank screen. The fallback uses plain colours.
+    <ErrorBoundary>
+      <ThemeProvider>
+        <SafeAreaProvider>
+          <GestureHandlerRootView style={{ flex: 1 }}>
             <PlusProvider>
               <DailyTasksProvider>
                 <Stack screenOptions={{ headerShown: false }}>
@@ -45,9 +47,9 @@ export default function RootLayout() {
                 <StatusBar style="auto" />
               </DailyTasksProvider>
             </PlusProvider>
-          </ErrorBoundary>
-        </GestureHandlerRootView>
-      </SafeAreaProvider>
-    </ThemeProvider>
+          </GestureHandlerRootView>
+        </SafeAreaProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

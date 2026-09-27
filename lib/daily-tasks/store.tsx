@@ -10,7 +10,7 @@ import {
 } from "react";
 import { Platform, AppState as RNAppState, type AppStateStatus } from "react-native";
 
-import { todayKey } from "./date";
+import { storeDayFor, todayKey } from "./date";
 import {
   getNotificationPermissionStatus,
   requestNotificationPermission,
@@ -74,7 +74,14 @@ import { getCurrentVersion } from "./app-update";
 import { GRANDFATHER_BEFORE_VERSION, hasPlusAccess } from "./plus";
 import { compareVersions } from "./version";
 import { usePlus } from "./plus-context";
-import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
+import {
+  buildInitialState,
+  clearState,
+  loadState,
+  makeId,
+  refreshBackup,
+  saveState,
+} from "./storage";
 import { computeDayStreak } from "./streaks";
 import {
   invalidateWidgetSnapshot,
@@ -227,6 +234,9 @@ function reducer(state: AppState, action: Action): AppState {
       return action.state;
     case "rollover": {
       const next = applyRollover(state, action.today);
+      // Held on the current day (clock a day behind): nothing changes, and
+      // the plan mustn't be rebuilt for the earlier date.
+      if (next === state && action.today !== state.lastOpenedDate) return state;
       if (!isMomentumProfileComplete(next.momentumProfile)) return next;
       // Launching again on the same day keeps today's AI plan instead of
       // flashing a template and paying for a fresh AI call.
@@ -291,7 +301,7 @@ function reducer(state: AppState, action: Action): AppState {
       );
     }
     case "editTask": {
-      if (state.todayLocked) return state;
+      if (state.todayLocked || !state.tasks.some((task) => task.id === action.id)) return state;
       const text = action.text.trim();
       if (!text) return state;
       return syncTodayHistory(
@@ -308,7 +318,7 @@ function reducer(state: AppState, action: Action): AppState {
       );
     }
     case "deleteTask": {
-      if (state.todayLocked) return state;
+      if (state.todayLocked || !state.tasks.some((task) => task.id === action.id)) return state;
       return syncTodayHistory(
         {
           ...state,
@@ -319,6 +329,9 @@ function reducer(state: AppState, action: Action): AppState {
       );
     }
     case "toggleTask": {
+      // Not one of today's tasks (e.g. it rolled over a moment ago): ignore,
+      // or it would add a phantom completion and XP to the new day.
+      if (!state.tasks.some((task) => task.id === action.id)) return state;
       const isCompleted = state.todayCompletions.includes(action.id);
       const todayCompletions = isCompleted
         ? state.todayCompletions.filter((id) => id !== action.id)
@@ -724,16 +737,24 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
    * an earlier one.
    */
   const ensureDay = useCallback((): string => {
-    const fresh = todayKey();
-    if (!hydratedRef.current) return fresh;
-    if (fresh <= todayRef.current) return todayRef.current;
+    if (!hydratedRef.current) return todayKey();
+    const target = storeDayFor(todayRef.current, todayKey());
+    if (target === todayRef.current) return target;
     // Widget taps first, so they land on the day they were made.
     syncWidgetTaps();
-    todayRef.current = fresh;
-    setToday(fresh);
-    dispatch({ type: "rollover", today: fresh });
-    return fresh;
+    todayRef.current = target;
+    setToday(target);
+    dispatch({ type: "rollover", today: target });
+    return target;
   }, [syncWidgetTaps]);
+  /** The clock has moved to a new day that the store hasn't switched to yet. */
+  const dayChangePending = useCallback(
+    () => hydratedRef.current && storeDayFor(todayRef.current, todayKey()) !== todayRef.current,
+    [],
+  );
+  // Latest state for stable callbacks (e.g. is a task still on screen?).
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const plus = usePlus();
   // Confirmed access: what the automatic AI fetch waits for.
   const plusConfirmed = hasPlusAccess({
@@ -755,12 +776,17 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       ]);
       const baseToday = todayKey();
       if (cancelled) return;
-      dispatch({ type: "hydrate", state: stored ?? buildInitialState() });
+      const hydrated = stored ?? buildInitialState();
+      dispatch({ type: "hydrate", state: hydrated });
       hydratedRef.current = true;
       syncWidgetTaps();
-      dispatch({ type: "rollover", today: baseToday });
+      // A clock a day behind the saved day keeps the saved day (see storeDayFor):
+      // stamping the earlier date would overwrite that day's real history.
+      const launchDay = storeDayFor(hydrated.lastOpenedDate, baseToday);
+      dispatch({ type: "rollover", today: launchDay });
       setNotificationPermission(permission);
-      setToday(baseToday);
+      todayRef.current = launchDay;
+      setToday(launchDay);
       setReady(true);
     })();
     return () => {
@@ -772,6 +798,21 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     if (!ready) return;
     void saveState(state);
   }, [ready, state]);
+
+  // Refresh the backup once this session has run fine for a while, and each
+  // time the app goes to the background (state that crashes on launch never
+  // gets that far, so it can't replace the good copy).
+  useEffect(() => {
+    if (!ready) return;
+    const timer = setTimeout(() => void refreshBackup(), 30_000);
+    const sub = RNAppState.addEventListener("change", (status) => {
+      if (status === "background") void refreshBackup();
+    });
+    return () => {
+      clearTimeout(timer);
+      sub.remove();
+    };
+  }, [ready]);
 
   // Anyone using a build without a paywall is an early user: once a paywall
   // build arrives they keep Plus. (Keyed on the build having a RevenueCat key,
@@ -921,8 +962,15 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "deleteTask", id, today: ensureDay() });
   }, [ensureDay]);
   const toggleTask = useCallback((id: TaskId) => {
+    // Ticked just after midnight while yesterday is still on screen: it counts
+    // for yesterday (the day the user was looking at), then the day changes.
+    if (dayChangePending() && stateRef.current.tasks.some((task) => task.id === id)) {
+      dispatch({ type: "toggleTask", id, today: todayRef.current });
+      ensureDay();
+      return;
+    }
     dispatch({ type: "toggleTask", id, today: ensureDay() });
-  }, [ensureDay]);
+  }, [ensureDay, dayChangePending]);
   const lockToday = useCallback(() => {
     dispatch({ type: "lockToday", today: ensureDay(), at: new Date().toISOString() });
   }, [ensureDay]);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Alert,
   AppState as RNAppState,
   KeyboardAvoidingView,
@@ -60,6 +61,10 @@ import { MAX_TASKS } from "@/lib/daily-tasks/types";
 
 /** A rating ask waits at least this long after the perfect day that earned it. */
 const REVIEW_DELAY_MS = 60 * 60 * 1000;
+/** ...and is dropped after a week (too far from the moment that earned it). */
+const REVIEW_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+/** Wait this long after the app becomes active before asking. */
+const REVIEW_SETTLE_MS = 2000;
 
 type Unlock =
   | { kind: "break_down"; taskId: string; text: string }
@@ -147,6 +152,8 @@ export default function HomeScreen() {
 
   const [showCelebration, setShowCelebration] = useState(false);
   const [ideasOpen, setIdeasOpen] = useState(false);
+  // Opened from "Saved for later" (full day): show just the saved items.
+  const [ideasSavedOnly, setIdeasSavedOnly] = useState(false);
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   // Short confirmation after a brain dump, so saved items aren't a mystery.
   const [toast, setToast] = useState<string | null>(null);
@@ -268,12 +275,24 @@ export default function HomeScreen() {
   // prompt was actually requested while the app was active.
   const reviewDueAtRef = useRef(state.reviewDueAt);
   reviewDueAtRef.current = state.reviewDueAt;
+  // Something else is on screen (rollover, onboarding, a sheet, the paywall,
+  // a celebration): the rating ask waits for a quiet moment.
+  const busyRef = useRef(false);
+  busyRef.current =
+    Boolean(state.pendingRollover) ||
+    !state.hasSeenOnboarding ||
+    paywallSource !== null ||
+    ideasOpen ||
+    brainDumpOpen ||
+    showCelebration;
   useEffect(() => {
     if (!ready) return;
-    const maybeAsk = async () => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const ask = async () => {
       const due = reviewDueAtRef.current;
-      if (!due || reviewInFlight.current) return;
-      if (Date.now() - Date.parse(due) < REVIEW_DELAY_MS) return;
+      if (!due || reviewInFlight.current || busyRef.current) return;
+      const age = Date.now() - Date.parse(due);
+      if (age < REVIEW_DELAY_MS || age > REVIEW_EXPIRY_MS) return;
       if (RNAppState.currentState !== "active") return;
       reviewInFlight.current = true;
       try {
@@ -282,11 +301,22 @@ export default function HomeScreen() {
         reviewInFlight.current = false;
       }
     };
-    void maybeAsk();
+    // Give the app a moment after opening before asking.
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void ask();
+      }, REVIEW_SETTLE_MS);
+    };
+    schedule();
     const sub = RNAppState.addEventListener("change", (status) => {
-      if (status === "active") void maybeAsk();
+      if (status === "active") schedule();
     });
-    return () => sub.remove();
+    return () => {
+      if (timer) clearTimeout(timer);
+      sub.remove();
+    };
   }, [ready, markReviewPrompted]);
 
   // The sheet has nothing to add once the day is locked, and it must not block
@@ -533,13 +563,18 @@ export default function HomeScreen() {
                 onUnlock={() => {
                   haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
                   unlockToday();
+                  // The Unlock button disappears: tell VoiceOver what happened.
+                  AccessibilityInfo.announceForAccessibility("Today unlocked. You can edit your tasks.");
                 }}
               />
               {/* A full day hides the ideas entry, but saved brain-dump items
                   must stay reachable (to view, remove, or swap in later). */}
               {!state.todayLocked && remainingSlots === 0 && state.parkedTasks.length > 0 && (
                 <Pressable
-                  onPress={() => setIdeasOpen(true)}
+                  onPress={() => {
+                    setIdeasSavedOnly(true);
+                    setIdeasOpen(true);
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel={`Saved for later, ${state.parkedTasks.length} ${
                     state.parkedTasks.length === 1 ? "item" : "items"
@@ -632,7 +667,11 @@ export default function HomeScreen() {
 
       <IdeasSheet
         visible={ideasOpen}
-        onClose={() => setIdeasOpen(false)}
+        savedOnly={ideasSavedOnly}
+        onClose={() => {
+          setIdeasOpen(false);
+          setIdeasSavedOnly(false);
+        }}
         goalTitle={state.momentumProfile.goalTitle}
         source={source}
         ideas={ideas}

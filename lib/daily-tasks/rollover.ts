@@ -1,3 +1,4 @@
+import { storeDayFor } from "./date";
 import { MAX_TASKS } from "./types";
 import type {
   AppState,
@@ -87,9 +88,9 @@ function completedIdsFromRecord(record: DayRecord): TaskId[] {
 }
 
 export function applyRollover(state: AppState, today: string): AppState {
-  // Same day, or the clock moved back (travel west, manual change): keep the
-  // current day rather than "rolling over" into an earlier one.
-  if (today <= state.lastOpenedDate) return state;
+  // Same day, or a one-day step back (travel west): keep the current day
+  // rather than "rolling over" into an earlier one. See storeDayFor.
+  if (storeDayFor(state.lastOpenedDate, today) === state.lastOpenedDate) return state;
 
   const previousDate = state.lastOpenedDate;
   const existingTodayRecord = state.history[today];

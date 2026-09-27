@@ -24,6 +24,8 @@ export interface IdeaItem {
 
 interface IdeasSheetProps {
   visible: boolean;
+  /** Opened from "Saved for later": show only the saved items, first. */
+  savedOnly?: boolean;
   onClose: () => void;
   goalTitle: string | null;
   source: IdeasSource;
@@ -49,6 +51,7 @@ const keyOf = (text: string) => text.trim().toLowerCase();
 
 export function IdeasSheet({
   visible,
+  savedOnly = false,
   onClose,
   goalTitle,
   source,
@@ -174,9 +177,11 @@ export function IdeasSheet({
           )}
 
           <Text className="text-base" style={{ color: colors.muted }}>
-            {full
-              ? "Today's three are picked. Nice."
-              : suggestionsHint(Math.min(available.length, remainingSlots))}
+            {savedOnly
+              ? "Your day is full. Free a slot to swap one of these in."
+              : full
+                ? "Today's three are picked. Nice."
+                : suggestionsHint(Math.min(available.length, remainingSlots))}
           </Text>
           {adaptationReason && !full && (
             <Text className="text-xs" style={{ color: colors.muted }}>
@@ -184,6 +189,7 @@ export function IdeasSheet({
             </Text>
           )}
 
+          {!savedOnly && (
           <View className="gap-2">
             {ideas.map((idea) => {
               const added = addedTexts.has(keyOf(idea.text));
@@ -222,6 +228,7 @@ export function IdeasSheet({
               );
             })}
           </View>
+          )}
 
           {available.length > 1 && !full && (
             <Pressable

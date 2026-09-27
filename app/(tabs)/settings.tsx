@@ -328,7 +328,7 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
-          icon="sparkles-outline"
+          icon="options-outline"
           title="AI adaptation"
           subtitle="How your coach tunes tomorrow based on today's follow-through."
         >

@@ -190,9 +190,7 @@ export function lockConfirmation(taskCount: number): { title: string; message: s
   return {
     title: "Lock in today?",
     message:
-      "You can still check tasks off, but you won't be able to add, edit or remove them today." +
-      slots +
-      " Tap Unlock any time to change them.",
+      "You can still check tasks off. Adding and editing pause until you tap Unlock." + slots,
   };
 }
 

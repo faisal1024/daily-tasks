@@ -73,3 +73,22 @@ export function formatTime(hour: number, minute: number): string {
   d.setHours(hour, minute, 0, 0);
   return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
+
+/** Whole days from `a` to `b` (date keys); negative when `b` is earlier. */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((fromDateKey(b).getTime() - fromDateKey(a).getTime()) / 86_400_000);
+}
+
+/**
+ * The day the app should be on, given the day its tasks belong to and the
+ * clock's day:
+ * - clock ahead → follow it (a new day);
+ * - clock back by one day (flying west over midnight, a time-zone change) →
+ *   stay on the tasks' day, so today's tasks never overwrite yesterday;
+ * - clock back by more (a date that was set wrong and then fixed) → follow
+ *   the clock, or the app would be stuck until real time caught up.
+ */
+export function storeDayFor(tasksDay: string, clockDay: string): string {
+  if (clockDay >= tasksDay) return clockDay;
+  return daysBetween(clockDay, tasksDay) <= 1 ? tasksDay : clockDay;
+}

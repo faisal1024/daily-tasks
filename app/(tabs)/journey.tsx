@@ -257,7 +257,13 @@ function StatCard({
       style={{ backgroundColor: `${tint}14`, borderColor: `${tint}33` }}
     >
       <View className="flex-row items-center gap-1.5">
-        <Ionicons name={icon} size={14} color={tint} accessibilityElementsHidden />
+        <Ionicons
+          name={icon}
+          size={14}
+          color={tint}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
         <Text className="text-sm uppercase font-extrabold" style={{ color: tint }}>
           {label}
         </Text>
