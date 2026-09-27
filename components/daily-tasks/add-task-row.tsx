@@ -55,6 +55,28 @@ export function AddTaskRow({
     setEditing(false);
   };
 
+  // A row inside Today's card: an empty circle where the checkbox will be.
+  const circle = (
+    <View
+      className="items-center justify-center rounded-full"
+      style={{
+        width: 30,
+        height: 30,
+        borderWidth: 2,
+        borderStyle: "dashed",
+        borderColor: disabled ? colors.border : `${colors.primary}80`,
+      }}
+    >
+      {slotNumber ? (
+        <Text className="text-xs font-bold" style={{ color: disabled ? colors.muted : colors.primary }}>
+          {slotNumber}
+        </Text>
+      ) : (
+        <Ionicons name="add" size={16} color={disabled ? colors.muted : colors.primary} />
+      )}
+    </View>
+  );
+
   if (!editing) {
     return (
       <Pressable
@@ -62,55 +84,32 @@ export function AddTaskRow({
           if (!disabled) setEditing(true);
         }}
         disabled={disabled}
-        className="flex-row items-center gap-3 p-4 rounded-2xl border-2 border-dashed min-h-24"
-        style={{ borderColor: colors.border, opacity: disabled ? 0.45 : 1 }}
+        accessibilityRole="button"
+        accessibilityLabel={disabled ? "Left open on purpose" : `Add a task${slotNumber ? `, slot ${slotNumber}` : ""}`}
+        accessibilityState={{ disabled }}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingHorizontal: 16,
+          paddingVertical: 14,
+          backgroundColor: colors.surface,
+        }}
       >
-        <View
-          className="w-10 h-10 rounded-2xl items-center justify-center"
-          style={{
-            backgroundColor: disabled ? colors.border : `${colors.primary}18`,
-          }}
-        >
-          {slotNumber ? (
-            <Text
-              className="text-base font-bold"
-              style={{ color: disabled ? colors.muted : colors.primary }}
-            >
-              {slotNumber}
-            </Text>
-          ) : (
-            <Ionicons
-              name="add"
-              size={18}
-              color={disabled ? colors.muted : colors.primary}
-            />
-          )}
-        </View>
-        <View className="flex-1 gap-1">
-          <Text
-            className="text-base font-semibold"
-            style={{ color: disabled ? colors.muted : colors.foreground }}
-          >
-            {disabled ? "Left open on purpose" : "Add a task"}
-          </Text>
-          <Text className="text-sm" style={{ color: colors.muted }}>
-            {disabled ? "Room to breathe." : "Something you'll stand behind today."}
-          </Text>
-        </View>
+        {circle}
+        <Text className="flex-1 text-base" style={{ color: colors.muted }}>
+          {disabled ? "Left open on purpose" : "Add a task"}
+        </Text>
       </Pressable>
     );
   }
 
   return (
-    <View className="flex-row items-center gap-3 p-4 rounded-2xl bg-surface border border-border min-h-24">
-      <View
-        className="w-10 h-10 rounded-2xl items-center justify-center"
-        style={{ backgroundColor: `${colors.primary}18` }}
-      >
-        <Text className="text-base font-bold" style={{ color: colors.primary }}>
-          {slotNumber ?? "+"}
-        </Text>
-      </View>
+    <View
+      className="flex-row items-center gap-3"
+      style={{ paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.surface }}
+    >
+      {circle}
       <TextInput
         ref={ref}
         value={text}
@@ -121,6 +120,7 @@ export function AddTaskRow({
         placeholderTextColor={colors.muted}
         returnKeyType="done"
         maxLength={80}
+        accessibilityLabel="New task"
         className="flex-1 text-base text-foreground py-1"
         style={{ color: colors.foreground }}
       />

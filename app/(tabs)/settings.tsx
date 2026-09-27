@@ -499,18 +499,18 @@ export default function SettingsScreen() {
               <View className="rounded-2xl border border-border bg-surface p-4 flex-row items-center justify-between gap-4">
                 <View className="flex-1">
                   <Text className="text-base font-semibold text-foreground">
-                    {state.todayLocked ? "Today's list is locked" : "Lock today's list"}
+                    {state.todayLocked ? "Today's three are set" : "Set today's three"}
                   </Text>
                   <Text className="text-xs mt-1" style={{ color: colors.muted }}>
                     {state.todayLocked
-                      ? "You can check things off. Turn this off to unlock and add, edit, or swap a task."
-                      : "Lock to commit your three. You can unlock here anytime."}
+                      ? "You can check things off. Turn this off to add, edit, or swap a task."
+                      : "Set your three to commit to them. You can change them here anytime."}
                   </Text>
                 </View>
                 <Switch
                   value={state.todayLocked}
                   onValueChange={(value) => (value ? lockToday() : unlockToday())}
-                  accessibilityLabel="Lock today's list"
+                  accessibilityLabel="Set today's three"
                   trackColor={{ true: colors.primary }}
                 />
               </View>
@@ -550,8 +550,8 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
-          icon="lock-closed-outline"
-          title="Daily lock"
+          icon="checkmark-done-outline"
+          title="Setting the day"
           subtitle="Choose whether Today's Three sets itself automatically."
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-3">
@@ -561,8 +561,8 @@ export default function SettingsScreen() {
                   Auto-set today
                 </Text>
                 <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                  When on, days with at least one focus commitment are set at
-                  your chosen time.
+                  When on, a day with at least one task is set at your chosen
+                  time.
                 </Text>
               </View>
               <Switch

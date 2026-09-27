@@ -1,122 +1,71 @@
-import { useState } from "react";
-import { Text, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
+import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { GradientBackground } from "@/components/daily-tasks/gradient-card";
 import { Fonts } from "@/constants/theme";
+import { useColors } from "@/hooks/use-colors";
 import { dayChipLabel, dayChipText, type TodayProgress } from "@/lib/daily-tasks/today-view";
 
 interface TodayHeaderProps {
-  greeting: string;
+  /** e.g. "Sunday, 27 September". */
+  dateLabel: string;
   progress: TodayProgress;
   /** Days with a plan, today included ("Day N"). */
   daysShowedUp: number;
 }
 
 /**
- * Compact header for the Today screen. The three tasks are the hero now, so
- * this only carries the greeting, one "Day N" chip, and today's progress.
+ * A plain large-title header: "Today", the date, one "Day N" chip and a thin
+ * progress line. No gradient: the card of three is the hero, and the one
+ * gradient in the app is saved for the finished day.
  */
-export function TodayHeader({ greeting, progress, daysShowedUp }: TodayHeaderProps) {
+export function TodayHeader({ dateLabel, progress, daysShowedUp }: TodayHeaderProps) {
+  const colors = useColors();
   const insets = useSafeAreaInsets();
-  // Live width: correct after iPad rotation, Split View and Stage Manager resizes.
-  const screenW = useWindowDimensions().width;
-  const [height, setHeight] = useState(0);
-  const onLayout = (e: LayoutChangeEvent) => setHeight(e.nativeEvent.layout.height);
-
   return (
-    <View
-      onLayout={onLayout}
-      className="overflow-hidden"
-      style={{ borderBottomLeftRadius: 28, borderBottomRightRadius: 28 }}
-      testID="today-header"
-    >
-      <GradientBackground width={screenW} height={height || 220} />
-      <View style={{ paddingTop: insets.top + 10, paddingHorizontal: 22, paddingBottom: 20 }}>
-        <View className="flex-row items-center justify-between">
-          <Text
-            style={{
-              flex: 1,
-              marginRight: 12,
-              color: "rgba(255,255,255,0.92)",
-              fontWeight: "700",
-              fontSize: 16,
-            }}
-            numberOfLines={1}
-            maxFontSizeMultiplier={1.6}
-          >
-            {greeting}
-          </Text>
-          <View
-            accessible
-            accessibilityLabel={dayChipLabel(daysShowedUp)}
-            style={{
-              backgroundColor: "rgba(255,255,255,0.20)",
-              borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.28)",
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 16,
-            }}
-          >
-            <Text
-              style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}
-              maxFontSizeMultiplier={1.4}
-            >
-              {dayChipText(daysShowedUp)}
-            </Text>
-          </View>
-        </View>
-
+    <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 20, paddingBottom: 4 }} testID="today-header">
+      <View className="flex-row items-end justify-between gap-3">
         <Text
           accessibilityRole="header"
+          style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34, lineHeight: 40 }}
           maxFontSizeMultiplier={1.4}
-          style={{
-            color: "#fff",
-            fontFamily: Fonts.rounded,
-            fontWeight: "800",
-            fontSize: 30,
-            lineHeight: 34,
-            marginTop: 14,
-          }}
         >
-          {progress.headline}
+          Today
         </Text>
-
-        <View className="flex-row items-center gap-3 mt-3">
-          <View
-            accessible
-            accessibilityRole="progressbar"
-            accessibilityLabel="Today's progress"
-            // Spoken as "0 of 1 done · 2 open" rather than a bare percentage.
-            accessibilityValue={{ text: progress.spokenLabel }}
-            style={{
-              flex: 1,
-              height: 10,
-              borderRadius: 99,
-              backgroundColor: "rgba(255,255,255,0.25)",
-              overflow: "hidden",
-            }}
-          >
-            <View
-              style={{
-                height: "100%",
-                width: `${progress.ratio * 100}%`,
-                borderRadius: 99,
-                backgroundColor: "#FFD37A",
-              }}
-            />
-          </View>
-          <Text
-            style={{ color: "#fff", fontWeight: "800", fontSize: 14, flexShrink: 1 }}
-            maxFontSizeMultiplier={1.4}
-            importantForAccessibility="no"
-            accessibilityElementsHidden
-          >
-            {progress.label}
+        <View
+          accessible
+          accessibilityLabel={dayChipLabel(daysShowedUp)}
+          className="rounded-full px-3 py-1 mb-1.5"
+          style={{ backgroundColor: `${colors.primary}14` }}
+        >
+          <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 13 }} maxFontSizeMultiplier={1.4}>
+            {dayChipText(daysShowedUp)}
           </Text>
         </View>
       </View>
+      <Text className="text-base mt-0.5" style={{ color: colors.muted }} maxFontSizeMultiplier={1.6}>
+        {dateLabel}
+        {progress.total > 0 ? ` · ${progress.label}` : ""}
+      </Text>
+      {progress.total > 0 ? (
+        <View
+          accessible
+          accessibilityRole="progressbar"
+          accessibilityLabel="Today's progress"
+          accessibilityValue={{ text: progress.spokenLabel }}
+          className="mt-3 rounded-full overflow-hidden"
+          style={{ height: 4, backgroundColor: colors.border }}
+        >
+          <View
+            style={{
+              height: "100%",
+              width: `${progress.ratio * 100}%`,
+              borderRadius: 99,
+              // The accent is saved for "done".
+              backgroundColor: colors.success,
+            }}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -27,9 +27,11 @@ import {
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { FirstRun } from "@/components/daily-tasks/first-run";
+import { GradientCard } from "@/components/daily-tasks/gradient-card";
+import { Fonts } from "@/constants/theme";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
-import { TaskCard } from "@/components/daily-tasks/task-card";
+import { TaskRow } from "@/components/daily-tasks/task-row";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
 import { UpdateBanner } from "@/components/daily-tasks/update-banner";
 import { useAppUpdate } from "@/hooks/use-app-update";
@@ -46,7 +48,7 @@ import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
-import { addDays, greetingFor, greetingText } from "@/lib/daily-tasks/date";
+import { addDays, fromDateKey } from "@/lib/daily-tasks/date";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
@@ -249,10 +251,13 @@ export default function HomeScreen() {
   // The right column (iPad) / lower section (phone) only exists when it has content.
   const rightHasContent = ideasVisible || progress.isPerfect || eveningCheckIn || Boolean(draft);
   const twoColumn = wide && rightHasContent;
-  const firstName = state.momentumProfile.name?.trim().split(/\s+/)[0] ?? "";
-  const greeting = firstName
-    ? `${greetingText(greetingFor())}, ${firstName}`
-    : greetingText(greetingFor());
+  const dateLabel = fromDateKey(today).toLocaleDateString(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  // The next thing to do is the hero of the card.
+  const heroTaskId = progress.isPerfect ? null : (state.tasks.find((task) => !isCompleted(task.id))?.id ?? null);
 
   const addedTexts = useMemo(
     () => new Set(state.tasks.map((task) => task.text.trim().toLowerCase())),
@@ -500,7 +505,7 @@ export default function HomeScreen() {
     Alert.alert(title, message, [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Lock in",
+        text: "Set",
         onPress: () => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
           lockToday();
@@ -534,6 +539,14 @@ export default function HomeScreen() {
     ]);
   };
 
+  // "Not today": off today's list, into Saved for later.
+  const handleNotToday = (id: string, text: string) => {
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    parkTasks([text]);
+    deleteTask(id);
+    showToast("Saved for later.");
+  };
+
   const handleAdd = (text: string) => {
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     addTask(text);
@@ -551,7 +564,7 @@ export default function HomeScreen() {
           keyboardDismissMode="interactive"
         >
           <TodayHeader
-            greeting={greeting}
+            dateLabel={dateLabel}
             progress={progress}
             daysShowedUp={daysShowedUp}
           />
@@ -598,43 +611,54 @@ export default function HomeScreen() {
                 </View>
               )}
 
-              <View className="gap-3" testID="today-tasks">
+              {/* One calm card: three rows, hairlines between them. */}
+              <View
+                className="rounded-3xl overflow-hidden border"
+                style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+                testID="today-tasks"
+              >
                 {Array.from({ length: MAX_TASKS }).map((_, index) => {
                   const task = state.tasks[index];
+                  const divider =
+                    index > 0 ? <View style={{ height: 1, backgroundColor: colors.border, marginLeft: 58 }} /> : null;
                   if (task) {
                     return (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        index={index}
-                        completed={isCompleted(task.id)}
-                        onToggle={() => handleToggle(task.id)}
-                        onEdit={(text) => editTask(task.id, text)}
-                        onDelete={() => handleDelete(task.id, task.text)}
-                        canEdit={!state.todayLocked}
-                        canDelete={!state.todayLocked}
-                        onBreakDown={
-                          breakDownAvailable
-                            ? () => handleBreakDown(task.id, task.text)
-                            : undefined
-                        }
-                        breakingDown={breakingTaskId === task.id}
-                        breakDownNeedsPlus={!hasPlus}
-                        breakDownDisabled={breakingTaskId !== null && breakingTaskId !== task.id}
-                        onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
-                        // Steps are a finishing aid, so clearing them is fine on a locked day.
-                        onClearSteps={() => clearTaskSteps(task.id)}
-                      />
+                      <View key={task.id}>
+                        {divider}
+                        <TaskRow
+                          task={task}
+                          index={index}
+                          hero={task.id === heroTaskId}
+                          completed={isCompleted(task.id)}
+                          editable={!state.todayLocked}
+                          onToggle={() => handleToggle(task.id)}
+                          onEdit={(text) => editTask(task.id, text)}
+                          onDelete={() => handleDelete(task.id, task.text)}
+                          onNotToday={() => handleNotToday(task.id, task.text)}
+                          onBreakDown={
+                            breakDownAvailable ? () => handleBreakDown(task.id, task.text) : undefined
+                          }
+                          breakingDown={breakingTaskId === task.id}
+                          breakDownNeedsPlus={!hasPlus}
+                          breakDownDisabled={breakingTaskId !== null && breakingTaskId !== task.id}
+                          onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
+                          // Steps are a finishing aid, so clearing them is fine on a set day.
+                          onClearSteps={() => clearTaskSteps(task.id)}
+                        />
+                      </View>
                     );
                   }
+                  if (remainingSlots <= 0) return null;
                   return (
-                    <AddTaskRow
-                      key={`empty-${index}`}
-                      remainingSlots={remainingSlots}
-                      slotNumber={index + 1}
-                      disabled={state.todayLocked}
-                      onAdd={handleAdd}
-                    />
+                    <View key={`empty-${index}`}>
+                      {divider}
+                      <AddTaskRow
+                        remainingSlots={remainingSlots}
+                        slotNumber={index + 1}
+                        disabled={state.todayLocked}
+                        onAdd={handleAdd}
+                      />
+                    </View>
                   );
                 })}
               </View>
@@ -645,8 +669,8 @@ export default function HomeScreen() {
                 onUnlock={() => {
                   haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
                   unlockToday();
-                  // The Unlock button disappears: tell VoiceOver what happened.
-                  AccessibilityInfo.announceForAccessibility("Today unlocked. You can edit your tasks.");
+                  // The Change button disappears: tell VoiceOver what happened.
+                  AccessibilityInfo.announceForAccessibility("You can change today's tasks again.");
                 }}
               />
               {/* A full day hides the ideas entry, but saved brain-dump items
@@ -737,15 +761,18 @@ export default function HomeScreen() {
                   </View>
                 )}
 
+                {/* The one gradient in the app: the finished day. */}
                 {progress.isPerfect && (
-                  <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
-                    <Text className="text-sm font-semibold text-foreground">
-                      {total === MAX_TASKS ? "All three, done." : "Everything you picked is done."}
-                    </Text>
-                    <Text className="text-sm text-muted">
-                      You showed up today. Close the day below and your coach drafts tomorrow.
-                    </Text>
-                  </View>
+                  <GradientCard className="rounded-3xl" style={{ padding: 20, gap: 6 }}>
+                    <View testID="perfect-day-card" accessible accessibilityRole="summary">
+                      <Text style={{ color: "#fff", fontFamily: Fonts.rounded, fontSize: 24, fontWeight: "800" }}>
+                        {total === MAX_TASKS ? "All three, done." : "Everything you picked is done."}
+                      </Text>
+                      <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 15, marginTop: 4 }}>
+                        You showed up today. Close the day below and your coach drafts tomorrow.
+                      </Text>
+                    </View>
+                  </GradientCard>
                 )}
                 {eveningCheckIn && (
                   <>
