@@ -24,6 +24,7 @@ jest.mock("expo-calendar", () => {
   return {
     EntityTypes: { EVENT: "event", REMINDER: "reminder" },
     EventStatus: { CANCELED: "canceled" },
+    CalendarType: { LOCAL: "local", CALDAV: "caldav", SUBSCRIBED: "subscribed", BIRTHDAYS: "birthdays" },
     ReminderStatus: { INCOMPLETE: "incomplete", COMPLETED: "completed" },
     getCalendarPermissionsAsync: jest.fn(async () => denied),
     getRemindersPermissionsAsync: jest.fn(async () => denied),
@@ -31,6 +32,12 @@ jest.mock("expo-calendar", () => {
     requestRemindersPermissionsAsync: jest.fn(async () => denied),
     getCalendarsAsync: jest.fn(async () => []),
     getEventsAsync: jest.fn(async () => []),
-    getRemindersAsync: jest.fn(async () => []),
+    // Like the library: a status filter needs a start date.
+    getRemindersAsync: jest.fn(async (_ids: string[], status: unknown, startDate: unknown) => {
+      if (status && !startDate) {
+        throw new Error("getRemindersAsync must be called with a startDate (date) to search for reminders");
+      }
+      return [];
+    }),
   };
 });
