@@ -668,6 +668,8 @@ interface StoreContextValue {
   clearTaskSteps: (taskId: TaskId) => void;
   /** Plus features (AI helpers) are available: see hasPlusAccess. */
   hasPlus: boolean;
+  /** Plus confirmed (excludes "RevenueCat still answering"). */
+  plusConfirmed: boolean;
   setAnalyticsEnabled: (enabled: boolean) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
@@ -1144,6 +1146,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       toggleTaskStep: toggleTaskStepCb,
       clearTaskSteps: clearTaskStepsCb,
       hasPlus,
+      plusConfirmed,
       setAnalyticsEnabled: setAnalyticsEnabledCb,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
@@ -1192,6 +1195,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       toggleTaskStepCb,
       clearTaskStepsCb,
       hasPlus,
+      plusConfirmed,
       setAnalyticsEnabledCb,
       refreshNotificationPermission,
       requestPermission,

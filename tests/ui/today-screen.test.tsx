@@ -61,6 +61,12 @@ let mockPaywall: {
 jest.mock("@/lib/daily-tasks/plus-context", () => ({
   usePlus: () => ({ paywallEnabled: true, openPaywall: mockOpenPaywall, ...mockPaywall }),
 }));
+const PHONE = { width: 390, height: 844, scale: 3, fontScale: 1 };
+let mockWindow = PHONE;
+jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
+  __esModule: true,
+  default: () => mockWindow,
+}));
 jest.mock("@/components/daily-tasks/onboarding-modal", () => ({ OnboardingModal: () => null }));
 jest.mock("@/components/daily-tasks/rollover-modal", () => ({ RolloverModal: () => null }));
 
@@ -134,6 +140,7 @@ afterEach(() => {
   jest.useRealTimers();
   jest.clearAllMocks();
   mockProxyUrl = null;
+  mockWindow = PHONE;
   mockPaywall = { paywallSource: null, entitlementActive: false };
 });
 
@@ -1066,5 +1073,45 @@ describe("Plus gates (free plan)", () => {
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a");
     await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
     expect(sortBrainDump).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- Phase 6: iPad two-column layout -----------------------------------------
+
+describe("Today on a wide screen", () => {
+  const IPAD = { width: 1024, height: 1366, scale: 2, fontScale: 1 };
+
+  it("uses two columns when ideas can still be added", async () => {
+    mockWindow = IPAD;
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("today-two-column")).toBeOnTheScreen();
+    expect(screen.getByTestId("need-ideas")).toBeOnTheScreen();
+  });
+
+  it("uses two columns for the perfect-day card on a finished, locked day", async () => {
+    mockWindow = IPAD;
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read", "Stretch"),
+      todayCompletions: ["t0", "t1", "t2"],
+      todayLocked: true,
+      todayLockSource: "manual",
+    });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("today-two-column")).toBeOnTheScreen();
+  });
+
+  it("stays one column on a locked day that isn't perfect (nothing for the right column)", async () => {
+    mockWindow = IPAD;
+    mockStore = makeStore({ tasks: tasks("Walk"), todayLocked: true, todayLockSource: "manual" });
+    await render(<HomeScreen />);
+    expect(screen.queryByTestId("today-two-column")).toBeNull();
+  });
+
+  it("stays one column on a phone", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("need-ideas")).toBeOnTheScreen();
+    expect(screen.queryByTestId("today-two-column")).toBeNull();
   });
 });

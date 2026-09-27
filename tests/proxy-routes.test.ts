@@ -25,6 +25,7 @@ import {
   BREAK_DOWN_TOOL_DESCRIPTION,
   BREAK_DOWN_TOOL_NAME,
   MAX_BRAIN_DUMP_CHARS,
+  MAX_ECHO_TEXT,
   MAX_PARKED,
   MAX_STEPS,
   MAX_STEP_TEXT,
@@ -35,6 +36,8 @@ import {
   buildBreakDownPrompt,
   isValidBrainDump,
   isValidBreakDown,
+  sanitizeBrainDump,
+  sanitizeBreakDown,
   validateBrainDumpPayload,
   validateBreakDownPayload,
 } from "../server/providers/helpers-contract.mjs";
@@ -448,13 +451,29 @@ describe("brain-dump contract", () => {
     expect(isValidBrainDump({ picks: [{ text: "Walk" }], parked: [] })).toBe(true);
     expect(isValidBrainDump({ picks: [], parked: [{ text: "Walk" }] })).toBe(false);
     expect(isValidBrainDump({ picks: [{ text: "   " }], parked: [] })).toBe(false);
-    expect(isValidBrainDump({ picks: [{ text: "x".repeat(MAX_TASK_TEXT + 1) }], parked: [] })).toBe(false);
-    expect(isValidBrainDump({ picks: [{ text: "x".repeat(MAX_TASK_TEXT) }], parked: [] })).toBe(true);
+    // Long picks are shortened by the sanitizer, not rejected...
+    expect(isValidBrainDump({ picks: [{ text: "x".repeat(MAX_TASK_TEXT + 1) }], parked: [] })).toBe(true);
+    expect(isValidBrainDump({ picks: [{ text: "x".repeat(MAX_ECHO_TEXT) }], parked: [] })).toBe(true);
+    // ...but an echo of the input is unusable, so the client falls back.
+    expect(isValidBrainDump({ picks: [{ text: "x".repeat(MAX_ECHO_TEXT + 1) }], parked: [] })).toBe(false);
+    expect(isValidBrainDump({ picks: [{ text: "x".repeat(250) }], parked: [] })).toBe(false);
     expect(isValidBrainDump({ picks: [{ text: "Walk" }] })).toBe(false);
     expect(isValidBrainDump({ picks: "Walk", parked: [] })).toBe(false);
     expect(isValidBrainDump({ picks: ["Walk"], parked: [] })).toBe(false);
     expect(isValidBrainDump(null)).toBe(false);
     expect(isValidBrainDump("{}")).toBe(false);
+  });
+
+  it("drops echo items (over MAX_ECHO_TEXT) instead of shortening them into tasks", () => {
+    const echo = "call mum and ".repeat(20);
+    expect(echo.length).toBeGreaterThan(MAX_ECHO_TEXT);
+    const dump = { picks: [{ text: "Call mum" }, { text: echo }], parked: [{ text: echo }, { text: "Buy shoes" }] };
+    expect(isValidBrainDump(dump)).toBe(true);
+    expect(sanitizeBrainDump(dump)).toEqual({ picks: [{ text: "Call mum" }], parked: [{ text: "Buy shoes" }] });
+
+    const steps = { steps: [{ text: "Open the doc" }, { text: echo }, { text: "Write one line" }] };
+    expect(isValidBreakDown(steps)).toBe(true);
+    expect(sanitizeBreakDown(steps).steps).toEqual([{ text: "Open the doc" }, { text: "Write one line" }]);
   });
 
   it("schema caps picks at 3 and parked at MAX_PARKED", () => {
@@ -499,11 +518,27 @@ describe("break-down contract", () => {
     expect(isValidBreakDown({ steps: [{ text: "a" }, { text: "b" }] })).toBe(true);
     expect(isValidBreakDown({ steps: [{ text: "a" }] })).toBe(false);
     expect(isValidBreakDown({ steps: [{ text: "a" }, { text: " " }, { text: 3 }, null] })).toBe(false);
+    // Long steps count (the sanitizer shortens them); echoes don't.
     expect(
       isValidBreakDown({ steps: [{ text: "a" }, { text: "x".repeat(MAX_STEP_TEXT + 1) }] }),
+    ).toBe(true);
+    expect(
+      isValidBreakDown({ steps: [{ text: "a" }, { text: "x".repeat(MAX_ECHO_TEXT + 1) }] }),
     ).toBe(false);
     expect(isValidBreakDown({ steps: "a, b" })).toBe(false);
     expect(isValidBreakDown(null)).toBe(false);
+  });
+
+  it("shortens a 70-character step to at most MAX_STEP_TEXT, ending with an ellipsis", () => {
+    const long = "Open the laptop and write down every single thing that is due this week";
+    expect(long.length).toBeGreaterThan(MAX_STEP_TEXT);
+    const result = { steps: [{ text: long }, { text: "Pick one" }, { text: "Start it" }] };
+    expect(isValidBreakDown(result)).toBe(true);
+    const [first, ...rest] = sanitizeBreakDown(result).steps;
+    expect(Array.from(first.text).length).toBeLessThanOrEqual(MAX_STEP_TEXT);
+    expect(first.text.endsWith("…")).toBe(true);
+    expect(long.startsWith(first.text.slice(0, -1))).toBe(true);
+    expect(rest).toEqual([{ text: "Pick one" }, { text: "Start it" }]);
   });
 
   it("schema asks for 3 to 5 steps", () => {

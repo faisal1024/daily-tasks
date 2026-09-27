@@ -1,15 +1,20 @@
+import { useMemo } from "react";
 import { ScrollView, Text, View, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { GradientCard } from "@/components/daily-tasks/gradient-card";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
+import { WeeklyReviewCard } from "@/components/daily-tasks/weekly-review-card";
 import { ScreenContainer } from "@/components/screen-container";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { JOURNEY_COSMETICS, stageForLevel } from "@/lib/daily-tasks/journey";
 import { pickCelebration } from "@/lib/daily-tasks/milestones";
+import { track } from "@/lib/daily-tasks/analytics";
+import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
+import { buildWeeklyReview } from "@/lib/daily-tasks/weekly-review";
 
 export default function JourneyScreen() {
   const colors = useColors();
@@ -23,7 +28,12 @@ export default function JourneyScreen() {
     momentumMilestones,
     pendingMilestoneCelebration,
     acknowledgeMilestoneCelebration,
+    today,
+    hasPlus,
+    plusConfirmed,
   } = useDailyTasks();
+  const { openPaywall } = usePlus();
+  const weeklyReview = useMemo(() => buildWeeklyReview(state.history, today), [state.history, today]);
 
   const journey = state.journey;
   const stage = stageForLevel(journeyLevel);
@@ -40,7 +50,15 @@ export default function JourneyScreen() {
   return (
     <ScreenContainer>
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 16 }}
+        // Readable width on iPad.
+        contentContainerStyle={{
+          padding: 20,
+          paddingBottom: 32,
+          gap: 16,
+          width: "100%",
+          maxWidth: 720,
+          alignSelf: "center",
+        }}
         showsVerticalScrollIndicator={false}
       >
         <Text
@@ -121,6 +139,21 @@ export default function JourneyScreen() {
                 } ready — miss a day without losing your run.`
               : "Show up a few days in a row to earn a streak freeze."}
           </Text>
+        </View>
+
+        <View className="gap-3">
+          <SectionLabel emoji="🗓️" label="Your last 7 days" />
+          <WeeklyReviewCard
+            review={weeklyReview}
+            // Patterns only once Plus is confirmed, and no upsell while it's
+            // still being checked (hasPlus is true while pending).
+            plus={plusConfirmed}
+            canUnlock={!hasPlus}
+            onUnlock={() => {
+              track("plus_gate_hit", { feature: "weekly_review" });
+              openPaywall("weekly_review");
+            }}
+          />
         </View>
 
         {/* Milestones toward the goal — advance automatically as you finish your days */}

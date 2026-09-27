@@ -194,7 +194,15 @@ export default function SettingsScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
       <ScrollView
-        contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 28 }}
+        // Readable width on iPad.
+        contentContainerStyle={{
+          padding: 24,
+          paddingBottom: 48,
+          gap: 28,
+          width: "100%",
+          maxWidth: 720,
+          alignSelf: "center",
+        }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
       >
