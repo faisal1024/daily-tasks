@@ -1,9 +1,10 @@
-// Native side of the widget: App Group storage via @bacons/apple-targets.
-//
-// iOS only. The module is loaded lazily inside a try (like app-review.ts), so
-// a binary without it (Expo Go, Android, web, tests) just has no widget.
+// Native side of the widget: App Group storage via the local WidgetStorage
+// module (modules/widget-storage). iOS only; without the module (Android, web,
+// Expo Go, tests) every call is a no-op and there's simply no widget.
 
 import { Platform } from "react-native";
+
+import { loadWidgetStorage, type WidgetStorageModule } from "@/modules/widget-storage";
 
 import type { WidgetSnapshot } from "./widget-snapshot";
 
@@ -13,23 +14,12 @@ const SNAPSHOT_KEY = "widget.snapshot";
 const TOGGLES_KEY = "widget.toggles";
 const PROCESSED_KEY = "widget.processedSeq";
 
-type StorageModule = typeof import("@bacons/apple-targets");
-type Storage = InstanceType<StorageModule["ExtensionStorage"]>;
-
-let storage: Storage | null | undefined;
+let storage: WidgetStorageModule | null | undefined;
 let lastWritten: string | null = null;
 
-function getStorage(): Storage | null {
+function getStorage(): WidgetStorageModule | null {
   if (storage !== undefined) return storage;
-  storage = null;
-  if (Platform.OS !== "ios") return storage;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { ExtensionStorage } = require("@bacons/apple-targets") as StorageModule;
-    storage = new ExtensionStorage(APP_GROUP);
-  } catch {
-    storage = null;
-  }
+  storage = Platform.OS === "ios" ? loadWidgetStorage() : null;
   return storage;
 }
 
@@ -40,12 +30,21 @@ export function writeWidgetSnapshot(snapshot: WidgetSnapshot): void {
   const raw = JSON.stringify(snapshot);
   if (raw === lastWritten) return;
   try {
-    store.set(SNAPSHOT_KEY, raw);
+    store.setString(SNAPSHOT_KEY, raw, APP_GROUP);
     lastWritten = raw;
-    reload();
+    store.reloadWidget(WIDGET_KIND);
   } catch {
     // The widget just keeps its previous state.
   }
+}
+
+/**
+ * Forget what we last wrote, so the next write goes through even if the app's
+ * state didn't change. Needed after applying widget taps: the widget edits the
+ * snapshot optimistically, and a tap the app didn't apply must be undone there.
+ */
+export function invalidateWidgetSnapshot(): void {
+  lastWritten = null;
 }
 
 /** The widget's queued toggles (raw JSON) and the last one the app applied. */
@@ -53,9 +52,9 @@ export function readWidgetToggles(): { raw: string | null; processedSeq: number 
   const store = getStorage();
   if (!store) return { raw: null, processedSeq: 0 };
   try {
-    const processed = Number(store.get(PROCESSED_KEY) ?? 0);
+    const processed = Number(store.getInt(PROCESSED_KEY, APP_GROUP));
     return {
-      raw: store.get(TOGGLES_KEY),
+      raw: store.getString(TOGGLES_KEY, APP_GROUP) ?? null,
       processedSeq: Number.isFinite(processed) ? processed : 0,
     };
   } catch {
@@ -67,19 +66,9 @@ export function markWidgetTogglesProcessed(seq: number): void {
   const store = getStorage();
   if (!store) return;
   try {
-    store.set(PROCESSED_KEY, seq);
+    store.setInt(PROCESSED_KEY, seq, APP_GROUP);
   } catch {
-    // Re-applying is harmless: toggles carry the wanted state, not a flip.
-  }
-}
-
-function reload(): void {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { ExtensionStorage } = require("@bacons/apple-targets") as StorageModule;
-    ExtensionStorage.reloadWidget(WIDGET_KIND);
-  } catch {
-    // no widget in this binary
+    // Re-applying is harmless: the reducer sets the wanted state, it doesn't flip blindly.
   }
 }
 

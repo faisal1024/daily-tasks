@@ -3,10 +3,10 @@ import WidgetKit
 
 /// Tick or untick one of today's tasks from the widget (iOS 17 interactive widgets).
 struct ToggleTaskIntent: AppIntent {
-  static var title: LocalizedStringResource = "Tick off a task"
-  static var description = IntentDescription("Marks one of today's tasks done or not done.")
+  static let title: LocalizedStringResource = "Tick off a task"
+  static let description = IntentDescription("Marks one of today's tasks done or not done.")
   // Runs in the widget process; the app applies the change when it next opens.
-  static var openAppWhenRun: Bool = false
+  static let openAppWhenRun: Bool = false
 
   @Parameter(title: "Task ID") var taskId: String
   @Parameter(title: "Day") var date: String
@@ -21,6 +21,8 @@ struct ToggleTaskIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult {
+    Shared.lock.lock()
+    defer { Shared.lock.unlock() }
     // A tap on yesterday's widget (before it refreshed) must not change anything.
     guard date == Shared.todayKey(), var snapshot = Shared.loadSnapshot(), snapshot.date == date,
       let index = snapshot.tasks.firstIndex(where: { $0.id == taskId })
