@@ -13,34 +13,42 @@ import { renderWithProviders as render } from "./render";
 const task = (text: string) => ({ id: text, text, createdAt: "", carriedOver: false });
 
 describe("TodayHeader", () => {
-  it("shows greeting, one Day N chip, headline and progress", async () => {
+  it("shows a plain 'Today' title, the date with progress, one Day N chip and a thin bar", async () => {
     await render(
-      <TodayHeader greeting="Good morning, Alex" progress={todayProgress(2, 3)} daysShowedUp={21} />,
+      <TodayHeader dateLabel="Sunday, 27 September" progress={todayProgress(2, 3)} daysShowedUp={21} />,
     );
-    expect(screen.getByText("Good morning, Alex")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Today" })).toBeOnTheScreen();
+    expect(screen.getByText("Sunday, 27 September · 2 of 3 done")).toBeOnTheScreen();
     expect(screen.getByText("Day 21")).toBeOnTheScreen();
     expect(screen.getByLabelText("Day 21 of showing up")).toBeOnTheScreen();
-    expect(screen.getByText("Almost there!")).toBeOnTheScreen();
-    expect(screen.getByText("2 of 3 done", { includeHiddenElements: true })).toBeOnTheScreen();
+    // No greeting or motivational headline any more.
+    expect(screen.queryByText("Almost there!")).toBeNull();
+    expect(screen.queryByText(/Good (morning|afternoon|evening)/)).toBeNull();
     // VoiceOver hears the label, not a percentage measured against three slots.
     expect(screen.getByRole("progressbar")).toHaveAccessibilityValue({ text: "2 of 3 done" });
+  });
+
+  it("shows just the date and no progress bar before any task is picked", async () => {
+    await render(
+      <TodayHeader dateLabel="Sunday, 27 September" progress={todayProgress(0, 0)} daysShowedUp={1} />,
+    );
+    expect(screen.getByText("Sunday, 27 September")).toBeOnTheScreen();
+    expect(screen.queryByText(/ · /)).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.queryByText("Pick today's three")).toBeNull();
   });
 });
 
 describe("TodayHeader progress label", () => {
   it("speaks the open-slot label, not a percentage, while slots are open", async () => {
     await render(
-      <TodayHeader greeting="Hi" progress={todayProgress(0, 1)} daysShowedUp={1} />,
+      <TodayHeader dateLabel="Monday, 28 September" progress={todayProgress(0, 1)} daysShowedUp={1} />,
     );
     // Spoken with a comma: VoiceOver would read the middle dot aloud.
     expect(screen.getByRole("progressbar")).toHaveAccessibilityValue({
       text: "0 of 1 done, 2 open",
     });
-    // The visible label is hidden from VoiceOver so it isn't read twice.
-    expect(screen.queryByText("0 of 1 done · 2 open")).toBeNull();
-    expect(
-      screen.getByText("0 of 1 done · 2 open", { includeHiddenElements: true }),
-    ).toBeOnTheScreen();
+    expect(screen.getByText("Monday, 28 September · 0 of 1 done · 2 open")).toBeOnTheScreen();
   });
 });
 
@@ -48,11 +56,15 @@ describe("AddTaskRow", () => {
   it("invites a task while open and says the day is set when locked", async () => {
     const onAdd = jest.fn();
     const { rerender } = await render(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} />);
-    expect(screen.getByText("Add a task")).toBeOnTheScreen();
-    expect(screen.getByText("Something you'll stand behind today.")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Add a task, slot 2" })).toBeOnTheScreen();
+    // A plain row now: no subtitle copy.
+    expect(screen.queryByText("Something you'll stand behind today.")).toBeNull();
     await rerender(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} disabled />);
-    expect(screen.getByText("Left open on purpose")).toBeOnTheScreen();
-    expect(screen.getByText("Room to breathe.")).toBeOnTheScreen();
+    const openSlot = screen.getByRole("button", { name: "Left open on purpose" });
+    expect(openSlot).toBeDisabled();
+    expect(screen.queryByText("Room to breathe.")).toBeNull();
+    await fireEvent.press(openSlot);
+    expect(screen.queryByPlaceholderText("What's one thing for today?")).toBeNull();
     expect(screen.queryByText("Today is set.")).toBeNull();
   });
 
@@ -68,7 +80,7 @@ describe("AddTaskRow", () => {
 });
 
 describe("StatusLine", () => {
-  it("offers Lock in while choosing and calls onLock", async () => {
+  it("offers Set today while choosing and calls onLock", async () => {
     const onLock = jest.fn();
     await render(
       <StatusLine
@@ -76,11 +88,46 @@ describe("StatusLine", () => {
         onLock={onLock}
       />,
     );
-    await fireEvent.press(screen.getByRole("button", { name: "Lock in today's tasks" }));
+    expect(screen.getByText("Set today")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Set today's tasks" }));
     expect(onLock).toHaveBeenCalledTimes(1);
   });
 
-  it("hides Lock in once the day is set, and for an empty day", async () => {
+  it("offers no Set action once work has started or every task is done", async () => {
+    const { rerender } = await render(
+      <StatusLine
+        status={todayStatus({ locked: false, lockSource: null, taskCount: 3, completedCount: 3 })}
+        onLock={jest.fn()}
+      />,
+    );
+    expect(screen.getByText("All done for today.")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Set today's tasks" })).toBeNull();
+
+    await rerender(
+      <StatusLine
+        status={todayStatus({ locked: false, lockSource: null, taskCount: 3, completedCount: 1 })}
+        onLock={jest.fn()}
+      />,
+    );
+    expect(screen.getByText("Keep going. 2 to go.")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Set today's tasks" })).toBeNull();
+  });
+
+  it("offers Change once the day is set, and calls onUnlock", async () => {
+    const onUnlock = jest.fn();
+    await render(
+      <StatusLine
+        status={todayStatus({ locked: true, lockSource: "manual", taskCount: 2, completedCount: 0 })}
+        onLock={jest.fn()}
+        onUnlock={onUnlock}
+      />,
+    );
+    expect(screen.getByText("Change")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Change today's tasks" }));
+    expect(onUnlock).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides Set today once the day is set, and for an empty day", async () => {
     const { rerender } = await render(
       <StatusLine
         status={todayStatus({

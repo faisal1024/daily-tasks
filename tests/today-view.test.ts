@@ -22,6 +22,8 @@ import {
   ideasEntry,
   ideasSource,
   lockConfirmation,
+  TASK_ROW_ACTION_LABELS,
+  taskRowActions,
   isPerfectDayTransition,
   showIdeasEntry,
   dayChipLabel,
@@ -88,15 +90,61 @@ describe("todayStatus", () => {
     expect(todayStatus({ ...base, taskCount: 0 })).toMatchObject({ kind: "empty", canLock: false });
   });
 
-  it("points an empty day at picking, ideas, or a brain dump", () => {
+  it("points an empty day at picking up to three", () => {
     expect(todayStatus({ ...base, taskCount: 0 }).text).toBe(
-      "Pick what matters, grab an idea, or brain dump it all.",
+      "Pick up to three things that would make today a good day.",
     );
   });
 
-  it("offers Lock in while choosing, with copy for a full list", () => {
-    expect(todayStatus(base)).toMatchObject({ kind: "choosing", canLock: true });
-    expect(todayStatus({ ...base, taskCount: 3 }).text).toContain("Lock them in");
+  it("offers Set today while choosing, with copy for a full list", () => {
+    expect(todayStatus(base)).toMatchObject({
+      kind: "choosing",
+      canLock: true,
+      text: "Still choosing. Set the day when it feels right.",
+    });
+    expect(todayStatus({ ...base, taskCount: 3 }).text).toBe("Happy with these three? Set them.");
+  });
+
+  it("once under way, says what's left and stops offering Set", () => {
+    expect(todayStatus({ ...base, taskCount: 3, completedCount: 1 })).toEqual({
+      kind: "choosing",
+      text: "Keep going. 2 to go.",
+      canLock: false,
+    });
+    expect(todayStatus({ ...base, taskCount: 2, completedCount: 1 }).text).toBe("Keep going. 1 to go.");
+  });
+
+  it("says all done (and offers no Set) once every picked task is done", () => {
+    expect(todayStatus({ ...base, taskCount: 3, completedCount: 3 })).toEqual({
+      kind: "choosing",
+      text: "All done for today.",
+      canLock: false,
+    });
+    // Fewer than three: room is left, so say so without pushing.
+    for (const taskCount of [1, 2]) {
+      expect(todayStatus({ ...base, taskCount, completedCount: taskCount })).toEqual({
+        kind: "choosing",
+        text: "All done so far. Add another, or enjoy the space.",
+        canLock: false,
+      });
+    }
+    // A locked day keeps its own "set" copy even when everything is done.
+    expect(todayStatus({ ...base, locked: true, lockSource: "manual", completedCount: 2 }).text).toBe(
+      "Today is set. All done.",
+    );
+  });
+
+  it("never uses the old lock vocabulary", () => {
+    const texts = [
+      todayStatus(base).text,
+      todayStatus({ ...base, taskCount: 3 }).text,
+      todayStatus({ ...base, locked: true, lockSource: "auto", autoLockTime: "9:00 AM" }).text,
+      lockConfirmation(1).title,
+      lockConfirmation(1).message,
+      lockConfirmation(3).title,
+      lockConfirmation(3).message,
+    ];
+    for (const text of texts) expect(text).not.toMatch(/lock/i);
   });
 
   it("distinguishes manual and automatic locks and shows what's left", () => {
@@ -115,9 +163,9 @@ describe("todayStatus", () => {
         completedCount: 2,
         autoLockTime: "12:00 PM",
       }).text,
-    ).toBe("Locked automatically at 12:00 PM. All done.");
+    ).toBe("Set automatically at 12:00 PM. All done.");
     expect(todayStatus({ ...base, locked: true, lockSource: "auto", completedCount: 0 }).text).toBe(
-      "Locked automatically. 2 to go.",
+      "Set automatically. 2 to go.",
     );
     expect(todayStatus({ ...base, locked: true, lockSource: "manual", taskCount: 0 }).text).toBe(
       "Today is set.",
@@ -358,18 +406,18 @@ describe("ideasEntry", () => {
 describe("lockConfirmation", () => {
   it("explains what locking does and how to undo it", () => {
     const { title, message } = lockConfirmation(2);
-    expect(title).toBe("Lock in today?");
+    expect(title).toBe("Set today?");
     expect(message).toBe(
-      "You can still check tasks off. Adding and editing pause until you tap Unlock. Your empty slot stays empty.",
+      "You can still check tasks off. Adding and editing pause until you tap Change. Your empty slot stays empty.",
     );
     expect(message).not.toMatch(/Settings/);
   });
 
   it("keeps it light when all three are chosen (nothing is lost by locking)", () => {
     const { title, message } = lockConfirmation(3);
-    expect(title).toBe("Lock in today?");
+    expect(title).toBe("Set today?");
     expect(message).toBe(
-      "You can still check tasks off. Editing pauses until tomorrow, or until you tap Unlock.",
+      "You can still check tasks off. Editing pauses until tomorrow, or until you tap Change.",
     );
     expect(message).not.toMatch(/empty slot/);
     expect(message).not.toMatch(/won't be able/);
@@ -410,5 +458,34 @@ describe("brainDumpToast", () => {
     expect(brainDumpToast(1, 0)).toBe("Added 1.");
     expect(brainDumpToast(0, 4)).toBe("4 saved for later in Ideas.");
     expect(brainDumpToast(0, 0)).toBeNull();
+  });
+});
+
+describe("taskRowActions", () => {
+  const actions = (editable: boolean, completed: boolean, canBreakDown: boolean) =>
+    taskRowActions({ editable, completed, canBreakDown });
+
+  it("offers everything on an open task while the day is open, in menu order", () => {
+    expect(actions(true, false, true)).toEqual(["edit", "notToday", "breakDown", "delete"]);
+    expect(actions(true, false, false)).toEqual(["edit", "notToday", "delete"]);
+  });
+
+  it("keeps Not today and Break it down on a set day, but not Edit or Delete", () => {
+    expect(actions(false, false, true)).toEqual(["notToday", "breakDown"]);
+    expect(actions(false, false, false)).toEqual(["notToday"]);
+  });
+
+  it("offers only Delete on a finished task while open, and nothing once set", () => {
+    expect(actions(true, true, true)).toEqual(["delete"]);
+    expect(actions(false, true, true)).toEqual([]);
+  });
+
+  it("labels every action", () => {
+    expect(TASK_ROW_ACTION_LABELS).toEqual({
+      edit: "Edit",
+      notToday: "Not today",
+      breakDown: "Break it down",
+      delete: "Delete",
+    });
   });
 });

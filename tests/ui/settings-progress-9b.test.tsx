@@ -119,3 +119,21 @@ describe("Progress: Set a goal", () => {
     expect(screen.queryByTestId("set-goal-card")).toBeNull();
   });
 });
+
+describe("Settings: Set today's three (Phase 10a wording)", () => {
+  const walk = [{ id: "t1", text: "Walk", createdAt: "", carriedOver: false }];
+  const setSwitch = () => screen.getByRole("switch", { name: "Set today's three" });
+
+  it("says 'Set today's three' while open, and sets the day from the switch", async () => {
+    await renderWith(<SettingsScreen />, { tasks: walk });
+    await waitFor(() => expect(setSwitch()).toBeOnTheScreen());
+    expect(screen.getByText("Set today's three")).toBeOnTheScreen();
+    expect(screen.getByText("Setting the day")).toBeOnTheScreen();
+    expect(screen.queryByText(/Lock today's list|Daily lock/)).toBeNull();
+    await fireEvent(setSwitch(), "valueChange", true);
+    await waitFor(() => expect(screen.getByText("Today's three are set")).toBeOnTheScreen());
+    expect(setSwitch().props.value).toBe(true);
+    await fireEvent(setSwitch(), "valueChange", false);
+    await waitFor(() => expect(screen.getByText("Set today's three")).toBeOnTheScreen());
+  });
+});
