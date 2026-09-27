@@ -706,11 +706,8 @@ describe("brain-dump contract", () => {
     });
   });
 
-  // BUG (P3): a payload object without `text` (unreachable through the handler,
-  // which validates text first) is compared against the string "undefined", so
-  // every normal answer is rejected, while "!payload" alone skips the check.
-  // Remove `.fails` if isValidBrainDump treats a missing text like no payload.
-  it.fails(
+  // Unreachable through the handler (it validates text first), but safe.
+  it(
     "a payload without text is treated like no payload (nothing to compare)",
     () => {
       const result = { picks: [{ text: "Call mum" }], parked: [] };
@@ -719,11 +716,8 @@ describe("brain-dump contract", () => {
     },
   );
 
-  // BUG (P3): words aren't Unicode-normalized, so a decomposed (NFD) dump
-  // such as text pasted from macOS file names ("cafe" + U+0301) never matches
-  // the model's precomposed (NFC) "café". Remove `.fails` once both sides are
-  // normalized (e.g. .normalize("NFC")) before matching.
-  it.fails("fromDump matches precomposed and decomposed accents", () => {
+  // A decomposed (NFD) dump, e.g. pasted from macOS file names, still matches.
+  it("fromDump matches precomposed and decomposed accents", () => {
     expect(fromDump("Visit café", "cafe\u0301")).toBe(true);
   });
 
@@ -746,10 +740,7 @@ describe("brain-dump contract", () => {
     expect(BRAIN_DUMP_SCHEMA.required).toEqual(["picks", "parked"]);
   });
 
-  // BUG (9a54d19): the app now keeps up to 20 parked items per dump
-  // (ai-helpers MAX_PARKED) so nothing typed is silently dropped, but the
-  // server schema and sanitizer still cap parked at 10, so an AI-sorted dump
-  // loses everything past 10. Remove `.fails` when the caps agree.
+  // The app keeps up to 20 parked items per dump; the server must not cut them.
   it("server parked cap matches the app's (20)", () => {
     expect(MAX_PARKED).toBe(APP_MAX_PARKED);
   });

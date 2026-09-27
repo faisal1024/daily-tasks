@@ -131,7 +131,7 @@ const STOPWORDS = new Set(
 const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u;
 
 function words(text) {
-  return (String(text).toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []).filter((w) => !STOPWORDS.has(w));
+  return (String(text).normalize("NFC").toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []).filter((w) => !STOPWORDS.has(w));
 }
 
 /**
@@ -172,7 +172,8 @@ export function isValidBrainDump(result, payload) {
   // Judge the same picks the response will contain.
   const picks = sanitizeBrainDump(result).picks;
   if (picks.length === 0) return false;
-  return !payload || picks.some((item) => fromDump(item.text, payload.text));
+  if (typeof payload?.text !== "string") return true; // nothing to compare against
+  return picks.some((item) => fromDump(item.text, payload.text));
 }
 
 // --- Break it down → 3-5 tiny steps -----------------------------------------
