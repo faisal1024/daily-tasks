@@ -60,7 +60,7 @@ export type TodayStatusKind = "empty" | "choosing" | "set" | "auto";
 export interface TodayStatus {
   kind: TodayStatusKind;
   text: string;
-  /** Show the "Lock in" action. */
+  /** Show the "Set today" action. */
   canLock: boolean;
 }
 
@@ -89,7 +89,7 @@ export function todayStatus(params: {
       const when = autoLockTime ? ` at ${autoLockTime}` : "";
       return {
         kind: "auto",
-        text: `Locked automatically${when}.${tail}`,
+        text: `Set automatically${when}.${tail}`,
         canLock: false,
       };
     }
@@ -98,16 +98,29 @@ export function todayStatus(params: {
   if (taskCount === 0) {
     return {
       kind: "empty",
-      text: "Pick what matters, grab an idea, or brain dump it all.",
+      text: "Pick up to three things that would make today a good day.",
       canLock: false,
     };
+  }
+  // Everything picked is done: nothing left to commit to.
+  if (completedCount >= taskCount) {
+    return {
+      kind: "choosing",
+      text: taskCount >= MAX_TASKS ? "All done for today." : "All done so far. Add another, or enjoy the space.",
+      canLock: false,
+    };
+  }
+  // Already under way: committing after the fact means nothing.
+  if (completedCount > 0) {
+    const left = taskCount - completedCount;
+    return { kind: "choosing", text: `Keep going. ${left} to go.`, canLock: false };
   }
   return {
     kind: "choosing",
     text:
       taskCount < MAX_TASKS
-        ? "Still choosing. Lock in when the day feels right."
-        : "Happy with these three? Lock them in.",
+        ? "Still choosing. Set the day when it feels right."
+        : "Happy with these three? Set them.",
     canLock: true,
   };
 }
@@ -185,15 +198,15 @@ export function lockConfirmation(taskCount: number): { title: string; message: s
   if (open === 0) {
     // All three chosen: nothing is lost by locking, so keep it light.
     return {
-      title: "Lock in today?",
-      message: "You can still check tasks off. Editing pauses until tomorrow, or until you tap Unlock.",
+      title: "Set today?",
+      message: "You can still check tasks off. Editing pauses until tomorrow, or until you tap Change.",
     };
   }
   const slots = open === 1 ? " Your empty slot stays empty." : " Your empty slots stay empty.";
   return {
-    title: "Lock in today?",
+    title: "Set today?",
     message:
-      "You can still check tasks off. Adding and editing pause until you tap Unlock." + slots,
+      "You can still check tasks off. Adding and editing pause until you tap Change." + slots,
   };
 }
 
@@ -219,3 +232,32 @@ export function brainDumpToast(added: number, saved: number): string | null {
   if (saved > 0) parts.push(`${saved} saved for later in Ideas.`);
   return parts.length > 0 ? parts.join(" ") : null;
 }
+
+export type TaskRowAction = "edit" | "notToday" | "breakDown" | "delete";
+
+/**
+ * What a row offers, in menu order. The circle alone finishes a task; these
+ * are everything else. A set day still allows letting a task go (Not today)
+ * and breaking it down, but not editing or deleting.
+ */
+export function taskRowActions(params: {
+  editable: boolean;
+  completed: boolean;
+  canBreakDown: boolean;
+}): TaskRowAction[] {
+  const { editable, completed, canBreakDown } = params;
+  if (completed) return editable ? ["delete"] : [];
+  const actions: TaskRowAction[] = [];
+  if (editable) actions.push("edit");
+  actions.push("notToday");
+  if (canBreakDown) actions.push("breakDown");
+  if (editable) actions.push("delete");
+  return actions;
+}
+
+export const TASK_ROW_ACTION_LABELS: Record<TaskRowAction, string> = {
+  edit: "Edit",
+  notToday: "Not today",
+  breakDown: "Break it down",
+  delete: "Delete",
+};

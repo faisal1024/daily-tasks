@@ -34,6 +34,8 @@ jest.mock("react-native-reanimated", () => {
   /* eslint-enable @typescript-eslint/no-require-imports */
   return {
     ...mock,
+    // Not in the library's mock (tests/ui/setup.ts adds it too, but this factory replaces that one).
+    useReducedMotion: () => false,
     useSharedValue: <T,>(init: T) => {
       const ref = useRef(null) as { current: { value: T } | null };
       if (!ref.current) ref.current = { value: init };

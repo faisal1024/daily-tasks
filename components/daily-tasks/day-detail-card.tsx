@@ -50,12 +50,12 @@ export function DayDetailCard({ dateLabel, record }: DayDetailCardProps) {
             className="rounded-full px-3 py-1 flex-row items-center gap-1"
             style={{ backgroundColor: `${colors.primary}16` }}
           >
-            <Ionicons name="lock-closed" size={12} color={colors.primary} />
+            <Ionicons name="pin" size={12} color={colors.primary} />
             <Text
               className="text-xs font-semibold"
               style={{ color: colors.primary }}
             >
-              Locked
+              Set
             </Text>
           </View>
         )}

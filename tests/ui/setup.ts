@@ -3,7 +3,12 @@ import "react-native-gesture-handler/jestSetup";
 
 // jest.mock factories are hoisted above imports, so they must use require().
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- hoisted jest.mock factory
-jest.mock("react-native-reanimated", () => require("react-native-reanimated/mock"));
+jest.mock("react-native-reanimated", () => ({
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- hoisted jest.mock factory
+  ...require("react-native-reanimated/mock"),
+  // Not in the library's mock; the app reads it for Reduce Motion.
+  useReducedMotion: () => false,
+}));
 
 jest.mock("expo-haptics", () => ({
   impactAsync: jest.fn(async () => {}),

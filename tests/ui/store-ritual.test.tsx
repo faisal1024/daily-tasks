@@ -249,3 +249,38 @@ describe("store: tomorrow morning's notification", () => {
   });
 });
 
+
+describe("store: Not today (Phase 10a)", () => {
+  it("takes an open task off today and saves its text for later, keeping history in step", async () => {
+    const { result } = await renderStore({ tasks: [task("t0", "Walk"), task("t1", "Read")] });
+    await act(async () => result.current.notToday("t0"));
+    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Read"]);
+    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Walk"]);
+    expect(result.current.state.history[D]?.total).toBe(1);
+    expect(result.current.remainingSlots).toBe(2);
+  });
+
+  it("works on a set day too (letting go isn't changing the plan)", async () => {
+    const { result } = await renderStore({
+      tasks: [task("t0", "Walk"), task("t1", "Read")],
+      todayLocked: true,
+      todayLockSource: "manual",
+    });
+    await act(async () => result.current.notToday("t1"));
+    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Walk"]);
+    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Read"]);
+    expect(result.current.state.todayLocked).toBe(true);
+  });
+
+  it("ignores a finished task and an unknown id", async () => {
+    const { result } = await renderStore({
+      tasks: [task("t0", "Walk")],
+      todayCompletions: ["t0"],
+    });
+    await act(async () => result.current.notToday("t0"));
+    await act(async () => result.current.notToday("nope"));
+    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Walk"]);
+    expect(result.current.state.parkedTasks).toEqual([]);
+    expect(result.current.completedCount).toBe(1);
+  });
+});

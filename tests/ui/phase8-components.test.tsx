@@ -148,7 +148,7 @@ describe("IdeasSheet saved-only view", () => {
     expect(screen.getByText("Saved for later")).toBeOnTheScreen();
     expect(screen.queryByText("Ideas for Run a 5K")).toBeNull();
     expect(screen.queryByText("New ideas")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Lock them in" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set these three" })).toBeNull();
     expect(screen.getByText("Your day is full. Free a slot to swap one of these in.")).toBeOnTheScreen();
     expect(screen.getByTestId("parked-ideas")).toHaveTextContent(/Buy shoes/);
     expect(screen.queryByText("Walk 20 minutes")).toBeNull();
@@ -157,7 +157,7 @@ describe("IdeasSheet saved-only view", () => {
     expect(screen.getByText("Walk 20 minutes")).toBeOnTheScreen();
     expect(screen.getByText("Ideas for Run a 5K")).toBeOnTheScreen();
     expect(screen.getByText("New ideas")).toBeOnTheScreen();
-    expect(screen.getByRole("button", { name: "Lock them in" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Set these three" })).toBeOnTheScreen();
   });
 });
 

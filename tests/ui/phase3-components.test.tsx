@@ -1,4 +1,4 @@
-// Phase 3 components: BrainDumpSheet, the parked section + Lock them in of the
+// Phase 3 components: BrainDumpSheet, the parked section + Set these three of the
 // IdeasSheet, and TaskCard's step checklist / Break it down link.
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
@@ -230,22 +230,22 @@ describe("IdeasSheet: saved from your brain dump", () => {
     expect(p.onRemoveParked).toHaveBeenCalledWith("p1");
   });
 
-  it("offers Lock them in when full (with Done still available)", async () => {
+  it("offers Set these three when full (with Done still available)", async () => {
     const p = props();
     const onLock = jest.fn();
     await render(<IdeasSheet {...p} remainingSlots={0} onLock={onLock} />);
-    await fireEvent.press(screen.getByRole("button", { name: "Lock them in" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Set these three" }));
     expect(onLock).toHaveBeenCalledTimes(1);
     await fireEvent.press(screen.getByRole("button", { name: "Done" }));
     expect(p.onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("doesn't offer Lock them in without a handler or while there's room", async () => {
+  it("doesn't offer Set these three without a handler or while there's room", async () => {
     const { rerender } = await render(<IdeasSheet {...props()} remainingSlots={0} />);
-    expect(screen.queryByRole("button", { name: "Lock them in" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set these three" })).toBeNull();
     expect(screen.getByRole("button", { name: "Done" })).toBeOnTheScreen();
     await rerender(<IdeasSheet {...props()} remainingSlots={1} onLock={jest.fn()} />);
-    expect(screen.queryByRole("button", { name: "Lock them in" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set these three" })).toBeNull();
   });
 });
 
