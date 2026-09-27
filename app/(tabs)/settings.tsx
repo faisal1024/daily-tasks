@@ -506,6 +506,7 @@ export default function SettingsScreen() {
             </View>
             <TimePickerRow
               label="Time"
+              accessibilityLabel="Time to set the day"
               hour={state.autoLock.hour}
               minute={state.autoLock.minute}
               disabled={!state.autoLock.enabled}

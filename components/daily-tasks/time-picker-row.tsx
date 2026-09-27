@@ -8,6 +8,8 @@ import { formatTime } from "@/lib/daily-tasks/date";
 
 interface TimePickerRowProps {
   label: string;
+  /** Spoken name when the visible label is too short on its own (defaults to label). */
+  accessibilityLabel?: string;
   hour: number;
   minute: number;
   disabled?: boolean;
@@ -24,7 +26,15 @@ function asDate(hour: number, minute: number): Date {
  * A time setting using the platform's own picker: the compact iOS picker,
  * Android's clock dialog, and the old stepper on the web (no native picker).
  */
-export function TimePickerRow({ label, hour, minute, disabled = false, onChange }: TimePickerRowProps) {
+export function TimePickerRow({
+  label,
+  accessibilityLabel,
+  hour,
+  minute,
+  disabled = false,
+  onChange,
+}: TimePickerRowProps) {
+  const spoken = accessibilityLabel ?? label;
   const colors = useColors();
   // Follow the app's own light/dark choice, not just the system's.
   const scheme = useColorScheme() === "dark" ? "dark" : "light";
@@ -55,7 +65,7 @@ export function TimePickerRow({ label, hour, minute, disabled = false, onChange 
         disabled={disabled}
         themeVariant={scheme}
         accentColor={colors.primary}
-        accessibilityLabel={label}
+        accessibilityLabel={spoken}
         onChange={(event, date) => {
           if (event.type === "set" && date) onChange(date.getHours(), date.getMinutes());
         }}
@@ -76,7 +86,7 @@ export function TimePickerRow({ label, hour, minute, disabled = false, onChange 
       }
       disabled={disabled}
       accessibilityRole="button"
-      accessibilityLabel={`${label}: ${formatTime(hour, minute)}`}
+      accessibilityLabel={`${spoken}: ${formatTime(hour, minute)}`}
       hitSlop={8}
       style={{ borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: `${colors.primary}14` }}
     >
