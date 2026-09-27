@@ -217,6 +217,8 @@ export interface SortedBrainDump {
   notice: string | null;
   /** The simple split was used because the free AI sorts ran out (offer Plus). */
   freeLimit?: boolean;
+  /** One of the free AI sorts was used; `notice` says how many are left. */
+  freeSortUsed?: boolean;
 }
 
 /** Shown on the review when a free user's AI sorts are used up. */

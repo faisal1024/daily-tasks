@@ -1,9 +1,10 @@
 // Today wiring for the Phase 9b first run (FirstRun replaced OnboardingModal).
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { fireEvent, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react-native";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import { track } from "@/lib/daily-tasks/analytics";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import type { AppState, Task } from "@/lib/daily-tasks/types";
 
@@ -20,6 +21,10 @@ jest.mock("@/lib/daily-tasks/app-review", () => ({ requestAppReview: jest.fn(asy
 jest.mock("@/lib/daily-tasks/ai-helpers", () => ({
   ...jest.requireActual("@/lib/daily-tasks/ai-helpers"),
   sortBrainDump: jest.fn(),
+}));
+jest.mock("@/lib/daily-tasks/analytics", () => ({
+  ...jest.requireActual("@/lib/daily-tasks/analytics"),
+  track: jest.fn(),
 }));
 const mockOpenPaywall = jest.fn(() => true);
 jest.mock("@/lib/daily-tasks/plus-context", () => ({
@@ -97,8 +102,27 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   jest.clearAllMocks();
 });
+
+const FIRST_KEY = "daily-tasks/first-ai-sort-used";
+const FREE_KEY = "daily-tasks/free-ai-dumps-used";
+const sortedEvents = () =>
+  (track as jest.Mock).mock.calls.filter(([name]) => name === "brain_dump_sorted").map(([, props]) => props);
+
+/** Set the picks, skip the nudge, finish: back on an empty Today. */
+async function finishFirstRun(label = "Set my three") {
+  await fireEvent.press(button(label));
+  await fireEvent.press(button("Not now"));
+  await fireEvent.press(button("Done"));
+  expect(screen.queryByTestId(/^first-run-/)).toBeNull();
+}
+
+async function openTodayBrainDump() {
+  await fireEvent.press(screen.getByRole("button", { name: /What's on your mind today\?/ }));
+  expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+}
 
 describe("Today: first run", () => {
   it("shows for a new user, not the old onboarding modal", async () => {
@@ -128,24 +152,58 @@ describe("Today: first run", () => {
     expect(mockStore.markOnboardingSeen).not.toHaveBeenCalled();
   });
 
-  it("after Start over, the second sort is the simple on-device split (no second AI call)", async () => {
+  it("after Start over, the second sort uses one of the free Today AI sorts", async () => {
     mockStore = makeStore();
     await render(<HomeScreen />);
     await dump("walk");
     await fireEvent.press(button("Start over"));
     await dump("swim, bike");
-    expect(sortBrainDump).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("checkbox", { name: "Swim" })).toBeOnTheScreen();
-    expect(screen.getByRole("checkbox", { name: "Bike" })).toBeOnTheScreen();
+    expect(sortBrainDump).toHaveBeenCalledTimes(2);
+    expect(await AsyncStorage.getItem("daily-tasks/free-ai-dumps-used")).toBe("1");
   });
 
-  it("the free AI sort is once per install: already claimed → on-device split", async () => {
+  it("first-run sort already used (e.g. after Reset all data): a free Today sort is used instead", async () => {
     await AsyncStorage.setItem("daily-tasks/first-ai-sort-used", "2026-09-01T00:00:00.000Z");
     mockStore = makeStore();
     await render(<HomeScreen />);
     await dump("swim, bike");
+    expect(sortBrainDump).toHaveBeenCalledTimes(1);
+    expect(await AsyncStorage.getItem("daily-tasks/free-ai-dumps-used")).toBe("1");
+  });
+
+  it("no AI sorts left: the tidied simple split, and it says so", async () => {
+    await AsyncStorage.setItem("daily-tasks/first-ai-sort-used", "2026-09-01T00:00:00.000Z");
+    await AsyncStorage.setItem("daily-tasks/free-ai-dumps-used", "3");
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("need to swim\ndon't forget to bike!");
     expect(sortBrainDump).not.toHaveBeenCalled();
     expect(screen.getByRole("checkbox", { name: "Swim" })).toBeOnTheScreen();
+    expect(screen.getByRole("checkbox", { name: "Bike" })).toBeOnTheScreen();
+    expect(screen.getByText(/free AI sorts are used up/)).toBeOnTheScreen();
+  });
+
+  it("with Plus, every first-run sort (Start over too) uses the AI and no free sort", async () => {
+    await AsyncStorage.setItem("daily-tasks/first-ai-sort-used", "2026-09-01T00:00:00.000Z");
+    mockStore = makeStore({}, { hasPlus: true });
+    await render(<HomeScreen />);
+    await dump("walk");
+    await fireEvent.press(button("Start over"));
+    await dump("swim, bike");
+    expect(sortBrainDump).toHaveBeenCalledTimes(2);
+    expect(await AsyncStorage.getItem("daily-tasks/free-ai-dumps-used")).toBeNull();
+  });
+
+  it("a free sort that falls back (AI unreachable) is given back", async () => {
+    await AsyncStorage.setItem("daily-tasks/first-ai-sort-used", "2026-09-01T00:00:00.000Z");
+    (sortBrainDump as jest.Mock).mockResolvedValueOnce({
+      result: { picks: ["Swim"], parked: [], source: "local" },
+      notice: "Couldn't reach smart sorting, so here's a simple split you can adjust.",
+    });
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("swim");
+    expect(await AsyncStorage.getItem("daily-tasks/free-ai-dumps-used")).toBe("0");
   });
 
   it("finishing asks for notifications, marks onboarding seen, and offers the trial to a free user", async () => {
@@ -198,5 +256,114 @@ describe("Today: first run", () => {
     await rerender(<HomeScreen />);
     expect(screen.getByTestId("first-run-nudge")).toBeOnTheScreen();
     expect(screen.getByText("Your three are set.")).toBeOnTheScreen();
+  });
+});
+
+describe("Today: first run, AI sort accounting", () => {
+  it("a free sort that hits the 12 s timeout is given back once (no double count) and shows the fallback copy", async () => {
+    await AsyncStorage.setItem(FIRST_KEY, "2026-09-01T00:00:00.000Z");
+    // One already used: a double refund would show 0, a missing refund 2.
+    await AsyncStorage.setItem(FREE_KEY, "1");
+    (sortBrainDump as jest.Mock).mockReturnValue(new Promise(() => {}));
+    jest.useFakeTimers();
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("swim, bike");
+    expect(sortBrainDump).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      jest.advanceTimersByTime(11_999);
+    });
+    expect(screen.queryByTestId("first-run-three")).toBeNull();
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.getByTestId("first-run-three")).toBeOnTheScreen();
+    expect(screen.getByRole("checkbox", { name: "Swim" })).toBeOnTheScreen();
+    expect(screen.getByText(/We couldn't sort this one, so here are the first few/)).toBeOnTheScreen();
+    expect(screen.queryByText(/free AI sorts are used up/)).toBeNull();
+    await act(async () => {
+      jest.advanceTimersByTime(100);
+    });
+    expect(await AsyncStorage.getItem(FREE_KEY)).toBe("1");
+    expect(sortedEvents()).toEqual([{ source: "local", count: 2 }]);
+  });
+
+  it("the one-per-install first sort that times out doesn't touch the free Today sorts", async () => {
+    (sortBrainDump as jest.Mock).mockReturnValue(new Promise(() => {}));
+    jest.useFakeTimers();
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("swim");
+    await act(async () => {
+      jest.advanceTimersByTime(12_000);
+    });
+    expect(screen.getByTestId("first-run-three")).toBeOnTheScreen();
+    expect(await AsyncStorage.getItem(FIRST_KEY)).not.toBeNull();
+    expect(await AsyncStorage.getItem(FREE_KEY)).toBeNull();
+  });
+
+  it("a Plus user uses the AI and never a free sort; the first-run claim is still made (no second one after a reset)", async () => {
+    mockStore = makeStore({}, { hasPlus: true });
+    await render(<HomeScreen />);
+    await dump("walk");
+    expect(sortBrainDump).toHaveBeenCalledTimes(1);
+    expect(await AsyncStorage.getItem(FIRST_KEY)).not.toBeNull();
+    expect(await AsyncStorage.getItem(FREE_KEY)).toBeNull();
+  });
+
+  it("a free sort used during first run says how many are left", async () => {
+    await AsyncStorage.setItem(FIRST_KEY, "2026-09-01T00:00:00.000Z");
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("walk");
+    expect(screen.getByText("Sorted by AI · 2 free sorts left.")).toBeOnTheScreen();
+  });
+
+  it("the Today sheet counts a free sort used during first run", async () => {
+    await AsyncStorage.setItem(FIRST_KEY, "2026-09-01T00:00:00.000Z");
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("walk, call mum, report");
+    await finishFirstRun();
+    await openTodayBrainDump();
+    expect(await screen.findByText("AI will sort this one. 2 free AI sorts left.")).toBeOnTheScreen();
+  });
+
+  it("the Today sheet still offers all 3 free sorts after a first-run free sort was given back", async () => {
+    await AsyncStorage.setItem(FIRST_KEY, "2026-09-01T00:00:00.000Z");
+    (sortBrainDump as jest.Mock).mockResolvedValueOnce({
+      result: { picks: ["Swim"], parked: [], source: "local" },
+      notice: "Couldn't reach smart sorting, so here's a simple split you can adjust.",
+    });
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("swim");
+    await finishFirstRun("Set this one");
+    await openTodayBrainDump();
+    expect(await screen.findByText("AI will sort this one. You have 3 free AI sorts to try.")).toBeOnTheScreen();
+  });
+
+  it("the first-run one-per-install sort doesn't reduce the Today sheet's free sorts", async () => {
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("walk, call mum, report");
+    await finishFirstRun();
+    await openTodayBrainDump();
+    expect(await screen.findByText("AI will sort this one. You have 3 free AI sorts to try.")).toBeOnTheScreen();
+  });
+
+  it("logs brain_dump_sorted with the source: ai, then local when no AI sorts are left", async () => {
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("walk, call mum, report");
+    expect(sortedEvents()).toEqual([{ source: "ai", count: 3 }]);
+    await AsyncStorage.setItem(FREE_KEY, "3");
+    await fireEvent.press(button("Start over"));
+    await dump("need to swim\ndon't forget to bike!");
+    expect(sortBrainDump).toHaveBeenCalledTimes(1);
+    expect(sortedEvents()).toEqual([
+      { source: "ai", count: 3 },
+      { source: "local", count: 2 },
+    ]);
   });
 });

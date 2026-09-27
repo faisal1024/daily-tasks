@@ -212,6 +212,38 @@ describe("FirstRun: review fixes (7275263)", () => {
     expect(screen.getByText(/We couldn't sort this one, so here are the first few/)).toBeOnTheScreen();
   });
 
+  it("a free-limit split shows the used-up copy (not the fallback), then Start over clears it", async () => {
+    const limited = {
+      result: { picks: ["Swim"], parked: [], source: "local" },
+      notice: "sorter's own notice",
+      freeLimit: true,
+    } as SortedBrainDump;
+    const onSort = jest.fn(async () => limited).mockResolvedValueOnce(limited).mockResolvedValueOnce(sorted(["Walk"]));
+    const p = props({ onSort });
+    await render(<FirstRun {...p} />);
+    await dumpAndSort("swim");
+    expect(screen.getByTestId("first-run-three")).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        "Your free AI sorts are used up, so we kept the first things you wrote. Untick any that aren't for today.",
+      ),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText(/We couldn't sort this one/)).toBeNull();
+    expect(screen.queryByText("sorter's own notice")).toBeNull();
+    await fireEvent.press(button("Start over"));
+    await dumpAndSort("walk");
+    expect(screen.queryByText(/free AI sorts are used up/)).toBeNull();
+    expect(screen.queryByText(/We couldn't sort this one/)).toBeNull();
+  });
+
+  it("an AI sort with no notice shows no notice", async () => {
+    const p = props();
+    await render(<FirstRun {...p} />);
+    await dumpAndSort();
+    expect(screen.queryByText(/free AI sorts are used up/)).toBeNull();
+    expect(screen.queryByText(/We couldn't sort this one/)).toBeNull();
+  });
+
   it("the nudge copy matches the schedule and points to Settings", async () => {
     const p = props();
     await render(<FirstRun {...p} />);
