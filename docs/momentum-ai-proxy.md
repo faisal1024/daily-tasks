@@ -125,12 +125,28 @@ If RevenueCat can't answer (down, rate-limited, or our key is wrong) requests
 are allowed for a moment and a warning is logged: paying users are never
 locked out by an outage.
 
-Requests **without** an id (older app versions, and early supporters who have
-Plus for free on the device) are allowed and counted in the logs as "without
-an app user id". Once no supported version is missing the id, set
-`ENTITLEMENT_REQUIRE_ID=1` to treat them as free.
+Requests **without** an id (older app versions, and early supporters before
+their grant, below) are allowed, share one daily ceiling (`NO_ID_DAILY_LIMIT`,
+250), and are counted in the logs as "without an app user id".
+**Until `ENTITLEMENT_REQUIRE_ID=1`, `enforce` only refuses requests that carry
+a non-Plus id**: a client that leaves the id out is limited only by the
+per-network, no-id and global caps.
+
+**Early supporters** have Plus for free on their device but not in RevenueCat.
+On a paywall build their install asks the proxy once
+(`POST /api/momentum/grandfather`, needs the shared secret) to grant it a
+lifetime promotional Plus in RevenueCat; after that it sends its id. The
+proxy only grants while `GRANDFATHER_GRANTS_UNTIL` (a date, e.g. `2026-12-31`)
+is in the future, at most 3 per network per day. Keep the window open for a
+few weeks after the paywall release, then let it close.
+
+**Don't set `ENTITLEMENT_REQUIRE_ID=1` until** the grant window has closed and
+the "without an app user id" count in the logs is close to zero; setting it
+earlier refuses supporters who haven't updated yet.
 
 **Turning it on, step by step:**
+0. With the paywall release, set `GRANDFATHER_GRANTS_UNTIL` a few weeks out
+   (a key is needed for grants; step 1).
 1. RevenueCat → Project settings → API keys → create a **V1 secret key**
    (starts `sk_`). Set it on the host: Render dashboard `REVENUECAT_SECRET_KEY`,
    or `npx wrangler@4 secret put REVENUECAT_SECRET_KEY`.
@@ -148,7 +164,9 @@ an app user id". Once no supported version is missing the id, set
 
 In console.anthropic.com → Settings → Limits, set a monthly spend limit and
 email alerts at 50% and 80%. `GLOBAL_DAILY_LIMIT` (500 by default here, about
-$2/day on Haiku) keeps one bad day from using the whole month. If the provider
+$2/day on Haiku) keeps one bad day from using the whole month; that's roughly
+100–150 active users, so raise it as usage grows (about $0.004 per call).
+`DAILY_LIMIT_PER_CLIENT` (40) means a handful of networks can't use it all. If the provider
 refuses for credit or quota, the app gets the calm "taking a break for today"
 message.
 
@@ -257,12 +275,14 @@ user's own tasks.
   | Env var | Default | Response when hit |
   |---|---|---|
   | `RATE_LIMIT_PER_MIN` | 30 | 429, `Retry-After: 60` |
-  | `DAILY_LIMIT_PER_CLIENT` | 200 | 429, `Retry-After: 3600` |
+  | `DAILY_LIMIT_PER_CLIENT` | 200 in code; 40 in `render.yaml`/`wrangler.toml` | 429, `Retry-After: 3600` |
   | `GLOBAL_DAILY_LIMIT` | 5000 in code; 500 in `render.yaml`/`wrangler.toml` | 503 for everyone (spend circuit breaker) |
   | `FREE_BRAIN_DUMPS_PER_DAY` | 8 (0 = no free AI) | 402 "Free limit reached" (enforce only) |
   | `ENTITLEMENT_MODE` | off | `log` counts, `enforce` answers 402 on Plus routes |
   | `REVENUECAT_SECRET_KEY` | unset | needed for `log`/`enforce` (V1 secret key) |
-  | `ENTITLEMENT_REQUIRE_ID` | unset | `1` = requests without an app user id count as free |
+  | `ENTITLEMENT_REQUIRE_ID` | unset | `1` = requests without an app user id count as free (see "Early supporters") |
+  | `NO_ID_DAILY_LIMIT` | 250 | shared daily ceiling for requests without an id (enforce: 402) |
+  | `GRANDFATHER_GRANTS_UNTIL` | unset (closed) | date until which early supporters can claim lifetime Plus |
 - `TRUST_PROXY_HOPS` (default 0 = trust no forwarding header; Render needs 1) picks the client IP from the right of
   `X-Forwarded-For`, so a client can't dodge limits by sending its own header.
 - Daily limits reset at **UTC midnight**, not the user's local midnight.

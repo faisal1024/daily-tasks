@@ -117,6 +117,39 @@ export function createEntitlements({
         clearTimeout(timer);
       }
     },
+    /**
+     * Give this id a lifetime promotional Plus (early supporters, who had
+     * Plus before the paywall). true when RevenueCat confirmed it.
+     */
+    async grantLifetime(userId) {
+      if (!userId || !secretKey) return false;
+      const base = subscriberUrl(userId);
+      if (!base) return false;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetchImpl(`${base}/entitlements/${PLUS_ENTITLEMENT}/promotional`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${secretKey}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ duration: "lifetime" }),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          warn(`RevenueCat refused a supporter grant (HTTP ${response.status})`);
+          return false;
+        }
+        remember(userId, "plus");
+        return true;
+      } catch {
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    },
     size: () => cache.size,
   };
 }

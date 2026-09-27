@@ -108,15 +108,10 @@ export function createProxyServer({
   fetchImpl,
 }) {
   const budget = createBudget(config, { now });
-  const entitlements =
-    config.entitlementMode && config.entitlementMode !== "off"
-      ? createEntitlements({
-          secretKey: config.revenueCatSecretKey,
-          fetchImpl,
-          now,
-          logger,
-        })
-      : undefined;
+  // Whenever a key is set: supporter grants work even before the check is on.
+  const entitlements = config.revenueCatSecretKey
+    ? createEntitlements({ secretKey: config.revenueCatSecretKey, fetchImpl, now, logger })
+    : undefined;
   const handle = createHandler({
     provider,
     config,

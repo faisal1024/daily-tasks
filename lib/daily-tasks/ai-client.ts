@@ -54,7 +54,7 @@ export function getMomentumProxySecret(): string | null {
   return secret ? secret : null;
 }
 
-export type ProxyRoute = "plan" | "brain-dump" | "break-down" | "evening";
+export type ProxyRoute = "plan" | "brain-dump" | "break-down" | "evening" | "grandfather";
 
 /**
  * URL for another route on the same proxy. The configured URL points at the
@@ -143,6 +143,45 @@ export async function postToProxy({
       "network",
       error instanceof Error ? error.message : "AI network error.",
     );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Early supporters: ask the proxy once to turn their on-device Plus into a
+ * lifetime Plus in RevenueCat, so they can send their id like everyone else.
+ * "granted" | "closed" (window over: stop asking) | "retry" (next launch).
+ */
+export async function requestSupporterGrant({
+  planUrl = getMomentumAiProxyUrl(),
+  proxySecret = getMomentumProxySecret(),
+  fetchImpl = fetch,
+}: {
+  planUrl?: string | null;
+  proxySecret?: string | null;
+  fetchImpl?: typeof fetch;
+} = {}): Promise<"granted" | "closed" | "retry"> {
+  const url = proxyRouteUrl(planUrl, "grandfather");
+  if (proxyUserIdPending && !proxyUserId) await proxyUserIdPending.catch(() => {});
+  if (!url || !proxyUserId || !proxySecret) return "retry";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [PROXY_SECRET_HEADER]: proxySecret,
+        [PROXY_USER_HEADER]: proxyUserId,
+      },
+      body: "{}",
+      signal: controller.signal,
+    });
+    if (response.ok) return "granted";
+    return response.status === 403 ? "closed" : "retry";
+  } catch {
+    return "retry";
   } finally {
     clearTimeout(timer);
   }

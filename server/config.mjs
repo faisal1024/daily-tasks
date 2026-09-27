@@ -54,7 +54,18 @@ export function readConfig(env = {}) {
     // Server-side ceiling on a free user's AI brain dumps per day (the app
     // gives 1 first-run sort + 3 to try; a retry after a timeout also counts).
     freeBrainDumpsPerDay: positiveInt(env.FREE_BRAIN_DUMPS_PER_DAY, 8),
+    // Requests without an app user id (old builds; supporters before their
+    // grant) share this daily ceiling, so they can't use the whole budget.
+    noIdDailyLimit: positiveInt(env.NO_ID_DAILY_LIMIT, 250),
+    // Early supporters can claim lifetime Plus until this date (ISO, e.g.
+    // 2026-12-31). Unset or past = closed.
+    grandfatherGrantsUntil: Date.parse(env.GRANDFATHER_GRANTS_UNTIL ?? "") || 0,
   };
+}
+
+/** A short one-way hash for limit keys, so stored counters never hold raw ids. */
+export function hashId(value) {
+  return createHash("sha256").update(String(value)).digest("hex").slice(0, 24);
 }
 
 /** Constant-time comparison that also hides the expected secret's length. */

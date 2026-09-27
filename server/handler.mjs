@@ -3,6 +3,7 @@
 // request/response types to `handle()`, so auth, limits, entitlements,
 // validation and output sanitising are identical on both hosts.
 
+import { hashId } from "./config.mjs";
 import { ROUTES } from "./routes.mjs";
 
 export const HEALTH_ROUTE = "/health";
@@ -10,6 +11,9 @@ export const SECRET_HEADER = "x-momentum-secret";
 /** Anonymous RevenueCat app user id, sent by paywall builds. */
 export const USER_HEADER = "x-rc-user";
 export const DEBUG_IP_ROUTE = "/debug/client-ip";
+/** One-off: an early supporter's install claims lifetime Plus (window only). */
+export const GRANDFATHER_ROUTE = "/api/momentum/grandfather";
+const GRANTS_PER_NETWORK_PER_DAY = 3;
 export const MAX_BODY_BYTES = 20_000;
 
 export class BodyTooLargeError extends Error {}
@@ -139,6 +143,22 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
       };
     }
 
+    if (method === "POST" && path === GRANDFATHER_ROUTE) {
+      // Needs the real secret even in SECRET_MODE=log, an id, an open window,
+      // and a working RevenueCat key; a few claims per network per day.
+      if (!config.sharedSecret || !authorized) return { status: 401, body: { error: "Unauthorized" } };
+      if (!(config.grandfatherGrantsUntil > now())) return { status: 403, body: { error: "Closed" } };
+      const grantUserId = userIdFrom(headers);
+      if (!grantUserId || !entitlements?.grantLifetime) return { status: 400, body: { error: "Missing user" } };
+      const grantKey = ipKey(clientIp);
+      const allowed = await budget.admit([grantKey]);
+      if (allowed !== "ok") return limited(allowed);
+      const claimed = await budget.spend({ keys: [], free: [{ key: `grant:${grantKey}`, cap: GRANTS_PER_NETWORK_PER_DAY }] });
+      if (claimed !== "ok") return { status: 429, body: { error: "Too many requests" }, headers: { "Retry-After": "3600" } };
+      const granted = await entitlements.grantLifetime(grantUserId);
+      return granted ? { status: 200, body: { granted: true } } : busy();
+    }
+
     // Own-property lookup only, so names like "__proto__" can never resolve.
     const route = method === "POST" && Object.prototype.hasOwnProperty.call(ROUTES, path) ? ROUTES[path] : undefined;
     if (!route) return { status: 404, body: { error: "Not found" } };
@@ -147,7 +167,9 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
     // is, per RevenueCat user too.
     const userId = userIdFrom(headers);
     const ip = ipKey(clientIp);
-    const keys = userId ? [ip, `user:${userId}`] : [ip];
+    // Counters keep a hash, never the raw id.
+    const userKey = userId ? `user:${hashId(userId)}` : null;
+    const keys = userKey ? [ip, userKey] : [ip];
     const admitted = await budget.admit(keys);
     if (admitted !== "ok") return limited(admitted);
 
@@ -172,9 +194,10 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
     let free = [];
     if (mode !== "off" && entitlements) {
       if (!userId && !config.requireUserId) {
-        // Old builds and grandfathered early supporters send no id: allowed
-        // until every supported build sends one (ENTITLEMENT_REQUIRE_ID=1).
+        // Old builds (and supporters before their grant) send no id: allowed,
+        // within a shared daily ceiling, until ENTITLEMENT_REQUIRE_ID=1.
         noIdLog.note();
+        free = [{ key: "noid:all", cap: config.noIdDailyLimit }];
       } else {
         const status = userId ? await entitlements.check(userId, { fresh: route.plusOnly }) : "free";
         if (status === "unknown") {
@@ -187,7 +210,7 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
           } else {
             const cap = config.freeBrainDumpsPerDay;
             free = [
-              ...(userId ? [{ key: `free:user:${userId}`, cap }] : []),
+              ...(userKey ? [{ key: `free:${userKey}`, cap }] : []),
               // Looser per network: carriers put many phones behind one IP.
               { key: `free:${ip}`, cap: cap * 3 },
             ];

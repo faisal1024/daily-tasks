@@ -32,7 +32,7 @@ services:
       # calls is roughly $2/day worst case, so one bad day can't use the whole
       # monthly budget. 0 disables a cap.
       - key: DAILY_LIMIT_PER_CLIENT
-        value: "200"
+        value: "40"
       - key: GLOBAL_DAILY_LIMIT
         value: "500"
       # Render sits one proxy hop in front of the app; the client IP is the last
@@ -57,3 +57,6 @@ services:
       # Ceiling on a free user's AI brain dumps per day (0 = none).
       - key: FREE_BRAIN_DUMPS_PER_DAY
         value: "8"
+      # Early supporters can claim lifetime Plus until this date (YYYY-MM-DD).
+      - key: GRANDFATHER_GRANTS_UNTIL
+        sync: false

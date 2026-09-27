@@ -38,6 +38,9 @@ if (!config.sharedSecret && (process.env.RENDER || process.env.NODE_ENV === "pro
 if (config.sharedSecret && config.secretMode === "log") {
   console.warn("[momentum-ai] SECRET_MODE=log: requests without the secret are allowed (rollout mode).");
 }
+if (config.entitlementMisconfigured) {
+  console.warn("[momentum-ai] ENTITLEMENT_MODE is set but REVENUECAT_SECRET_KEY isn't: the Plus check stays off.");
+}
 if (config.debugClientIp) {
   console.warn("[momentum-ai] DEBUG_CLIENT_IP=1: /debug/client-ip is enabled. Turn it off after verifying.");
 }

@@ -10,7 +10,7 @@ compatibility_flags = ["nodejs_compat"]
 MOMENTUM_AI_PROVIDER = "anthropic"
 ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 RATE_LIMIT_PER_MIN = "30"
-DAILY_LIMIT_PER_CLIENT = "200"
+DAILY_LIMIT_PER_CLIENT = "40"
 GLOBAL_DAILY_LIMIT = "500"
 FREE_BRAIN_DUMPS_PER_DAY = "8"
 # "log" first to measure, then "enforce" once builds send the secret.

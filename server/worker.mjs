@@ -101,8 +101,10 @@ function setup(env) {
   }
   const provider = getProvider(config.providerName ?? DEFAULT_PROVIDER_ID);
   const limits = () => env.LIMITS.get(env.LIMITS.idFromName("global"));
-  const entitlements =
-    config.entitlementMode !== "off" ? createEntitlements({ secretKey: config.revenueCatSecretKey }) : undefined;
+  // Whenever a key is set: supporter grants work even before the check is on.
+  const entitlements = config.revenueCatSecretKey
+    ? createEntitlements({ secretKey: config.revenueCatSecretKey })
+    : undefined;
   const handle = createHandler({
     provider,
     config,
@@ -178,8 +180,9 @@ export default {
       // e.g. the limits object is being reset during a deploy: a clean JSON
       // "busy" (the app retries later) instead of Cloudflare's HTML error page.
       console.error(`[momentum-ai] worker error: ${error instanceof Error ? error.message : String(error)}`);
+      // Not "busy" (the app would say "taking a break for today"): this is brief.
       return Response.json(
-        { error: "Service is busy, try again later" },
+        { error: "Temporarily unavailable" },
         { status: 503, headers: { ...corsHeaders(config), "Retry-After": "60" } },
       );
     }

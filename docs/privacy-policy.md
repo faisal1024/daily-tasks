@@ -35,7 +35,7 @@ Four optional features use an AI model. When you use them, the app sends a reque
 
 These requests do **not** include your name, an account, an advertising identifier, contact details, or location.
 
-In versions of the app that offer Plus, each request also includes the anonymous app user ID that RevenueCat created on your device (see Purchases). Our server uses it only to ask RevenueCat whether Plus is active and to apply fair-use limits. It is not sent to the AI provider, isn't linked to your name or Apple ID, and is kept by our server for at most a day (for those limits).
+In versions of the app that offer Plus, each request also includes the anonymous app user ID that RevenueCat created on your device (see Purchases). Our server uses it only to ask RevenueCat whether Plus is active (and, if you had Plus for free as an early supporter, to record that with RevenueCat) and to apply fair-use limits. It is not sent to the AI provider and isn't linked to your name or Apple ID; for the limits, our server keeps only a one-way hash of it, for about a day.
 
 Our server does not store the requests themselves; it forwards each request to the AI provider and returns the result to your device. The AI provider processes the request to generate a response and may retain it for a limited period under its own API data policies (for example, for abuse and safety monitoring); it does not use this data to train its models. If an AI response is malformed, our server may record which fields it contained (not their content) in a short-lived error log for debugging.
 
