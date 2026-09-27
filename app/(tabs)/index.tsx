@@ -49,7 +49,7 @@ import {
   freeAiDumpsLeft,
   refundFreeAiDump,
 } from "@/lib/daily-tasks/free-uses";
-import { localBrainDump, requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import { FREE_LIMIT_NOTICE, localBrainDump, requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -914,7 +914,12 @@ export default function HomeScreen() {
           if (left === null) {
             // Not a tap on "Get Plus": the free sorts ran out (own source).
             track("plus_gate_hit", { feature: "brain_dump", source: "free_exhausted" });
-            return { result: localBrainDump(params.text, params.openSlots), notice: null };
+            // Say so: a silent simple split looks like the AI got it wrong.
+            return {
+              result: localBrainDump(params.text, params.openSlots),
+              notice: FREE_LIMIT_NOTICE,
+              freeLimit: true,
+            };
           }
           const tried = await sortBrainDump(params);
           // The AI couldn't be reached: that one doesn't count.

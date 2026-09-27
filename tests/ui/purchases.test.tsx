@@ -1,5 +1,7 @@
 // RevenueCat wrapper: purchase outcomes, trial eligibility, and "no key → no
 // paywall". The SDK is mocked; jest-expo runs as iOS.
+import { Platform } from "react-native";
+
 import {
   __resetPurchasesForTests,
   configurePurchases,
@@ -7,6 +9,7 @@ import {
   loadPackages,
   onPlusStatusChange,
   purchase,
+  redeemCode,
   restore,
 } from "@/lib/daily-tasks/purchases";
 
@@ -19,6 +22,7 @@ const mockSdk = {
   restorePurchases: jest.fn(),
   addCustomerInfoUpdateListener: jest.fn(),
   removeCustomerInfoUpdateListener: jest.fn(),
+  presentCodeRedemptionSheet: jest.fn(),
 };
 jest.mock("react-native-purchases", () => ({ __esModule: true, default: mockSdk }));
 
@@ -210,5 +214,73 @@ describe("purchases", () => {
       await flush();
       expect(mockSetProxyUserId).toHaveBeenCalledWith(null);
     });
+  });
+});
+
+describe("redeemCode (Apple offer codes)", () => {
+  const originalOS = Platform.OS;
+  // Optional so a test can remove it (a native build without the method).
+  const sdkWithSheet = mockSdk as Omit<typeof mockSdk, "presentCodeRedemptionSheet"> & {
+    presentCodeRedemptionSheet?: jest.Mock;
+  };
+  const sheet = mockSdk.presentCodeRedemptionSheet;
+
+  afterEach(() => {
+    Platform.OS = originalOS;
+    sdkWithSheet.presentCodeRedemptionSheet = sheet;
+  });
+
+  function configure() {
+    process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+    expect(configurePurchases()).toBe(true);
+  }
+
+  it("presents Apple's sheet and reports it was shown", async () => {
+    configure();
+    sheet.mockResolvedValue(undefined);
+    await expect(redeemCode()).resolves.toBe(true);
+    expect(sheet).toHaveBeenCalledTimes(1);
+  });
+
+  it("is false and never touches the SDK when there's no paywall in this build", async () => {
+    await expect(redeemCode()).resolves.toBe(false);
+    expect(sheet).not.toHaveBeenCalled();
+  });
+
+  it("is false when a key is set but the SDK was never configured", async () => {
+    process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+    await expect(redeemCode()).resolves.toBe(false);
+    expect(sheet).not.toHaveBeenCalled();
+  });
+
+  it("is false off iOS, even once configured", async () => {
+    configure();
+    Platform.OS = "android";
+    await expect(redeemCode()).resolves.toBe(false);
+    expect(sheet).not.toHaveBeenCalled();
+  });
+
+  it("is false when the sheet rejects or throws synchronously", async () => {
+    configure();
+    sheet.mockRejectedValueOnce(new Error("store unavailable"));
+    await expect(redeemCode()).resolves.toBe(false);
+    sheet.mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+    await expect(redeemCode()).resolves.toBe(false);
+  });
+
+  it("is false on an older native build without the method", async () => {
+    configure();
+    delete sdkWithSheet.presentCodeRedemptionSheet;
+    await expect(redeemCode()).resolves.toBe(false);
+  });
+
+  it("doesn't treat opening the sheet as a purchase (the listener delivers any redemption)", async () => {
+    configure();
+    sheet.mockResolvedValue(undefined);
+    await redeemCode();
+    expect(mockSdk.getCustomerInfo).not.toHaveBeenCalled();
+    expect(mockSdk.purchasePackage).not.toHaveBeenCalled();
   });
 });

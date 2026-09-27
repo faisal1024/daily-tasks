@@ -203,14 +203,15 @@ export function BrainDumpSheet({
                       ? freeAiLeft >= 3
                         ? "AI will sort this one. You have 3 free AI sorts to try."
                         : `AI will sort this one. ${freeAiLeft} free AI ${freeAiLeft === 1 ? "sort" : "sorts"} left.`
-                      : "This uses a simple split. Plus lets AI pick what matters most."}
+                      : "Free AI sorts used up, so this will be a simple split. Plus turns your notes into clear tasks."}
                   </Text>
                   {/* No upsell during the free taste. */}
                   {freeAiLeft !== null && freeAiLeft > 0 ? null : (
                     <Pressable
                       onPress={onUpgrade}
                       accessibilityRole="button"
-                      accessibilityLabel="Get AI sorting with Plus"
+                      accessibilityLabel="Get Plus for AI sorting"
+                      accessibilityHint="Opens Plus plans. What you wrote is kept."
                       hitSlop={12}
                     >
                       <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
@@ -239,11 +240,26 @@ export function BrainDumpSheet({
                   className="flex-row items-start gap-2 rounded-2xl p-3"
                   style={{ backgroundColor: colors.surface }}
                   testID="brain-dump-notice"
+                  accessibilityLiveRegion="polite"
                 >
                   <Ionicons name="information-circle-outline" size={18} color={colors.muted} />
                   <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
                     {sorted.notice}
                   </Text>
+                  {/* What was typed is kept, so it can be sorted again after upgrading. */}
+                  {sorted.freeLimit && onUpgrade && (
+                    <Pressable
+                      onPress={onUpgrade}
+                      accessibilityRole="button"
+                      accessibilityLabel="Get Plus for AI sorting"
+                      accessibilityHint="Opens Plus plans. What you wrote is kept."
+                      hitSlop={12}
+                    >
+                      <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                        Get Plus
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               )}
               <Text className="text-base" style={{ color: colors.muted }}>

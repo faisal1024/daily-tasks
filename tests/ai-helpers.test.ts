@@ -8,6 +8,7 @@ import {
   MAX_STEPS,
   MAX_STEP_TEXT,
   MAX_TASK_TEXT,
+  FREE_LIMIT_NOTICE,
   cleanTaskText,
   localBrainDump,
   parseBrainDumpResponse,
@@ -15,6 +16,7 @@ import {
   requestBrainDump,
   requestBreakDown,
   sortBrainDump,
+  tidyDumpLine,
 } from "../lib/daily-tasks/ai-helpers";
 import { PROXY_SECRET_HEADER } from "../lib/daily-tasks/ai-client";
 import {
@@ -127,6 +129,175 @@ describe("localBrainDump", () => {
 
   it("returns nothing for whitespace-only input", () => {
     expect(localBrainDump(" \n ; • ", 3)).toEqual({ picks: [], parked: [], source: "local" });
+  });
+});
+
+describe("tidyDumpLine", () => {
+  it.each([
+    ["I need to call mum", "call mum"],
+    ["need to call mum", "call mum"],
+    ["We really need to talk", "talk"],
+    ["have to renew passport", "renew passport"],
+    ["gotta buy milk", "buy milk"],
+    ["I gotta buy milk", "buy milk"],
+    ["should email Sam", "email Sam"],
+    ["must pay rent!", "pay rent"],
+    ["want to learn piano", "learn piano"],
+    ["remember to water plants", "water plants"],
+    ["Please remember to water plants", "water plants"],
+    ["don't forget to book dentist", "book dentist"],
+    ["dont forget to book dentist", "book dentist"],
+    ["do not forget to book dentist", "book dentist"],
+    ["todo: file taxes", "file taxes"],
+    ["TODO: file taxes", "file taxes"],
+    ["To-do: file taxes", "file taxes"],
+    ["to do : file taxes", "file taxes"],
+    ["Reminder: dentist at 3?", "dentist at 3?"],
+    ["Task: pay rent", "pay rent"],
+  ])("strips leading filler: %j → %j", (line, expected) => {
+    expect(tidyDumpLine(line)).toBe(expected);
+  });
+
+  it.each([
+    ["and need to call mum", "call mum"],
+    ["also gotta buy milk", "buy milk"],
+    ["then I have to email Sam", "email Sam"],
+    ["Oh I need to remember to call mum", "call mum"],
+    ["ok need to fix bike", "fix bike"],
+    ["okay need to fix bike", "fix bike"],
+  ])("strips a lead-in plus filler (up to two layers): %j → %j", (line, expected) => {
+    expect(tidyDumpLine(line)).toBe(expected);
+  });
+
+  it.each([
+    "Call mum, need to ask about dinner",
+    "Tell Sam I need to leave early",
+    "Ask why we have to pay twice",
+    "Buy milk and should check eggs",
+  ])("never strips filler from the middle of a line: %j", (line) => {
+    expect(tidyDumpLine(line)).toBe(line);
+  });
+
+  it.each([
+    "Must-see list",
+    "Musty basement smell",
+    "Shoulder physio",
+    "Needle and thread",
+    "Havoc cleanup",
+    "Tasks for the team",
+    "Have to-do list ready",
+  ])("leaves words that only start like filler alone: %j", (line) => {
+    expect(tidyDumpLine(line)).toBe(line);
+  });
+
+  it.each([
+    ["need to", "need to"],
+    ["I need to", "I need to"],
+    ["gotta", "gotta"],
+    ["Must", "Must"],
+    ["I should", "I should"],
+    ["need to.", "need to"],
+    ["don't forget to!", "don't forget to"],
+  ])("a line that is only filler keeps its words: %j → %j", (line, expected) => {
+    expect(tidyDumpLine(line)).toBe(expected);
+  });
+
+  it("drops trailing punctuation and collapses whitespace", () => {
+    expect(tidyDumpLine("  also   gotta   buy   milk ...  ")).toBe("buy milk");
+    expect(tidyDumpLine("Finish report!!!")).toBe("Finish report");
+    expect(tidyDumpLine("Plan trip…")).toBe("Plan trip");
+    expect(tidyDumpLine("Email re: Q3;")).toBe("Email re: Q3");
+    // Only trailing: inner punctuation and closing brackets stay.
+    expect(tidyDumpLine("Call Dr. Lee (dentist)")).toBe("Call Dr. Lee (dentist)");
+  });
+
+  it("keeps emoji, including one right before trailing punctuation", () => {
+    expect(tidyDumpLine("I need to call mum 📞!!")).toBe("call mum 📞");
+    expect(tidyDumpLine("🎉 party prep")).toBe("🎉 party prep");
+    expect(tidyDumpLine("need to 🛒 groceries")).toBe("🛒 groceries");
+    expect(tidyDumpLine("🧺")).toBe("🧺");
+  });
+
+  it("returns an empty string only for blank or punctuation-only input", () => {
+    expect(tidyDumpLine("")).toBe("");
+    expect(tidyDumpLine("   ")).toBe("");
+    expect(tidyDumpLine("!!!")).toBe("");
+  });
+
+  it("strips a label with no space after the colon (todo:x)", () => {
+    expect(tidyDumpLine("todo:call mum")).toBe("call mum");
+  });
+
+  it("keeps questions whole: a question is never turned into a statement", () => {
+    expect(tidyDumpLine("Should I quit?")).toBe("Should I quit?");
+    expect(tidyDumpLine("Should we move the meeting?")).toBe("Should we move the meeting?");
+    expect(tidyDumpLine("Need to ask Sam about Friday?")).toBe("Need to ask Sam about Friday?");
+  });
+
+  it("keeps should/must before a pronoun, and bare 'got to' (it's often a fact)", () => {
+    expect(tidyDumpLine("Must it be today")).toBe("Must it be today");
+    expect(tidyDumpLine("Got to the gym by 7")).toBe("Got to the gym by 7");
+    expect(tidyDumpLine("I've got to finish the deck")).toBe("finish the deck");
+  });
+
+  it("matches the curly apostrophe iOS types, and stacked lead-ins", () => {
+    expect(tidyDumpLine("Don’t forget to pay rent!")).toBe("pay rent");
+    expect(tidyDumpLine("Oh, I need to email Sam")).toBe("email Sam");
+    expect(tidyDumpLine("And then need to walk")).toBe("walk");
+  });
+});
+
+describe("localBrainDump tidying", () => {
+  it("tidies each line and capitalizes what's left", () => {
+    const result = localBrainDump("I need to call mum\ngotta buy milk.\nremember to water plants!", 3);
+    expect(result.picks).toEqual(["Call mum", "Buy milk", "Water plants"]);
+  });
+
+  it("keeps mid-sentence filler on a multi-line dump (no comma split there)", () => {
+    const result = localBrainDump("Call mum, need to ask about dinner\nbuy milk", 3);
+    expect(result.picks).toEqual(["Call mum, need to ask about dinner", "Buy milk"]);
+  });
+
+  it("splits a one-line comma list and tidies every part", () => {
+    const result = localBrainDump("I need to call mum, dentist, gotta buy groceries.", 5);
+    expect(result.picks).toEqual(["Call mum", "Dentist", "Buy groceries"]);
+  });
+
+  it("tidies before the comma check, so a lead-in doesn't block the list split", () => {
+    expect(localBrainDump("todo: report, dentist", 3).picks).toEqual(["Report", "Dentist"]);
+  });
+
+  it("merges lines that only differed by filler, case or punctuation", () => {
+    const result = localBrainDump("need to call mum\ncall mum.\nCall Mum!\nI have to CALL MUM", 5);
+    expect(result).toEqual({ picks: ["Call mum"], parked: [], source: "local" });
+  });
+
+  it("a filler-only line keeps its words (capitalized), never vanishing", () => {
+    expect(localBrainDump("need to\nbuy milk", 3).picks).toEqual(["Need to", "Buy milk"]);
+  });
+
+  it("drops punctuation-only lines", () => {
+    expect(localBrainDump("!!!\n...\ncall mum", 3).picks).toEqual(["Call mum"]);
+  });
+
+  it("keeps emoji through tidy and capitalization", () => {
+    expect(localBrainDump("need to 🛒 groceries\n📞 mum!", 3).picks).toEqual(["🛒 groceries", "📞 mum"]);
+  });
+
+  it("tidies lines split on the bullet character", () => {
+    expect(localBrainDump("• need to call mum • gotta buy milk", 3).picks).toEqual(["Call mum", "Buy milk"]);
+  });
+
+  // P2 bug: tidyDumpLine runs before cleanTaskText strips list markers, so a
+  // "- ", "* ", "1. " or "[ ] " line keeps its filler ("Need to call mum") and
+  // isn't merged with the same task typed without a marker. Remove `.fails`
+  // once markers are stripped before tidying.
+  it("strips list markers and filler together", () => {
+    expect(localBrainDump("- need to call mum\n1. gotta buy milk\n[ ] must pay rent", 3).picks).toEqual([
+      "Call mum",
+      "Buy milk",
+      "Pay rent",
+    ]);
   });
 });
 
@@ -373,6 +544,22 @@ describe("sortBrainDump", () => {
     expect(sorted.notice).toBe(
       "Couldn't reach smart sorting, so here's a simple split you can adjust.",
     );
+  });
+
+  it("marks neither fallback nor AI result as the free limit (only the Today screen does)", async () => {
+    const ok = await sortBrainDump(params, vi.fn(async () => ({ picks: ["X"], parked: [], source: "ai" as const })));
+    expect(ok.freeLimit).toBeUndefined();
+    const failed = await sortBrainDump(params, vi.fn(async () => {
+      throw new MomentumAiError("busy", "busy");
+    }));
+    expect(failed.freeLimit).toBeUndefined();
+    expect(failed.notice).not.toBe(FREE_LIMIT_NOTICE);
+  });
+
+  it("the free-limit notice says it's a simple split and what Plus adds", () => {
+    expect(FREE_LIMIT_NOTICE).toMatch(/free AI sorts are used up/);
+    expect(FREE_LIMIT_NOTICE).toMatch(/simple split/);
+    expect(FREE_LIMIT_NOTICE).toMatch(/Plus/);
   });
 
   it("falls back even for non-AI errors (never loses what was typed)", async () => {

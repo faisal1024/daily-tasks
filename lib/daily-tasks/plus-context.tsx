@@ -19,6 +19,7 @@ import {
   onPlusStatusChange,
   type PlusStatus,
   purchase as purchasePackage,
+  redeemCode as presentRedeemSheet,
   restore as restorePurchases,
   type PurchaseOutcome,
 } from "./purchases";
@@ -54,6 +55,8 @@ export interface PlusContextValue {
   loadPackages: () => Promise<PlusPackage[]>;
   purchase: (pkg: PlusPackage) => Promise<PurchaseOutcome>;
   restore: () => Promise<boolean | null>;
+  /** Ask for Apple's offer-code sheet. False when it can't be requested here. */
+  redeemCode: () => Promise<boolean>;
   /** Plus lapsed over two days ago and this lapse hasn't been offered back yet. */
   winBackDue: boolean;
 }
@@ -72,6 +75,7 @@ const noPaywall: PlusContextValue = {
   loadPackages: async () => [],
   purchase: async () => "failed",
   restore: async () => null,
+  redeemCode: async () => false,
   winBackDue: false,
 };
 
@@ -278,6 +282,13 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     return active;
   }, [applyStatus]);
 
+  const redeemCode = useCallback(async () => {
+    const shown = await presentRedeemSheet();
+    // The code (never its text) is Apple's business; the result comes via the listener.
+    track("redeem_code_opened", { outcome: shown ? "requested" : "unavailable" });
+    return shown;
+  }, []);
+
   const value = useMemo<PlusContextValue>(
     () => ({
       paywallBuild,
@@ -293,6 +304,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       loadPackages,
       purchase,
       restore,
+      redeemCode,
       winBackDue,
     }),
     [
@@ -308,6 +320,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       markPaywallShown,
       purchase,
       restore,
+      redeemCode,
       winBackDue,
     ],
   );

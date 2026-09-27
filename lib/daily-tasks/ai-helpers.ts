@@ -19,15 +19,21 @@ export interface BrainDumpResult {
   source: "ai" | "local";
 }
 
+// Bullets may hug the text ("-walk"); numbered markers need a space so
+// "1.5 mile walk" isn't read as item "1." + "5 mile walk".
+const LIST_MARKER = /^\s*(?:[-*•·]\s*|\d+[.)](?:\s+|$)|\[\s?[xX]?\s?\]\s*)/;
+
+/** Strip leading list markers, repeatedly for stacked ones like "- [ ] call mum". */
+function stripListMarkers(value: string): string {
+  let text = value;
+  for (let i = 0; i < 3 && LIST_MARKER.test(text); i++) text = text.replace(LIST_MARKER, "");
+  return text;
+}
+
 /** Trim, collapse whitespace, strip list markers, and cap length. */
 export function cleanTaskText(value: unknown, max = MAX_TASK_TEXT): string | null {
   if (typeof value !== "string") return null;
-  // Bullets may hug the text ("-walk"); numbered markers need a space so
-  // "1.5 mile walk" isn't read as item "1." + "5 mile walk". Strip repeatedly
-  // for stacked markers like "- [ ] call mum".
-  const marker = /^\s*(?:[-*•·]\s*|\d+[.)](?:\s+|$)|\[\s?[xX]?\s?\]\s*)/;
-  let text = value;
-  for (let i = 0; i < 3 && marker.test(text); i++) text = text.replace(marker, "");
+  let text = stripListMarkers(value);
   text = text.replace(/\s+/g, " ").trim();
   if (!text) return null;
   // Tasks read as a list of actions: "book dentist" → "Book dentist".
@@ -64,19 +70,58 @@ function clampSlots(openSlots: number): number {
 export function localBrainDump(text: string, openSlots: number): BrainDumpResult {
   let parts = text
     .split(/\r?\n|;|•/)
-    .map((part) => part.trim())
+    .map(tidyDumpLine)
     .filter(Boolean);
   // One line written as a list ("report, dentist, groceries"): split on commas.
   if (parts.length === 1 && parts[0].includes(",")) {
     parts = parts[0]
       .split(",")
-      .map((part) => part.trim())
+      .map(tidyDumpLine)
       .filter(Boolean);
   }
   const seen = new Set<string>();
   const picks = uniqueTexts(parts, clampSlots(openSlots), seen);
   const parked = uniqueTexts(parts, MAX_PARKED, seen);
   return { picks, parked, source: "local" };
+}
+
+// Filler at the start of a dump line: "I need to call mum" → "call mum".
+// Longest phrases first, so "I need to" wins over "need to". Bare "got to" is
+// left alone ("got to the gym at 6" is a fact, not filler), and so is
+// "should"/"must" before a pronoun. Apostrophes may be curly (iOS Smart
+// Punctuation types ’).
+// A label like "todo:" or "Reminder:" says nothing about the task itself.
+const LABEL_PREFIX = /^(?:to[\s-]?do|todo|reminder|task)\s*:\s*/i;
+const FILLER_PREFIX = new RegExp(
+  "^(?:(?:and|also|then|oh|ok|okay),?\\s+)*(?:" +
+    [
+      "(?:i|we)\\s+(?:really\\s+)?(?:need|have|ought|want)\\s+to",
+      "(?:i|we)(?:['’]ve|\\s+have)\\s+got\\s+to",
+      "(?:i|we)\\s+(?:should|must|gotta)",
+      "(?:really\\s+)?(?:need|have|want)\\s+to",
+      "gotta",
+      "(?:should|must)(?!\\s+(?:i|we|you|he|she|they|it)\\b)",
+      "(?:please\\s+)?(?:remember|don['’]?t\\s+forget|do\\s+not\\s+forget)\\s+to",
+    ].join("|") +
+    ")\\s+|" +
+    LABEL_PREFIX.source,
+  "i",
+);
+
+/**
+ * Light tidy-up for the offline split (the AI rewrites properly): drop filler
+ * like "need to" and trailing punctuation. Never empties a line: if nothing
+ * is left, the original words stay.
+ */
+export function tidyDumpLine(line: string): string {
+  const original = stripListMarkers(line).replace(/\s+/g, " ").trim();
+  // A question stays a question ("Should I quit?" must not become "I quit"):
+  // only a label like "Reminder:" comes off.
+  if (original.endsWith("?")) return original.replace(LABEL_PREFIX, "").trim() || original;
+  let text = original;
+  for (let i = 0; i < 3; i++) text = text.replace(FILLER_PREFIX, "");
+  text = text.replace(/[\s.,;:!…]+$/u, "").trim();
+  return text || original.replace(/[\s.,;:!…]+$/u, "").trim();
 }
 
 /** Normalize the proxy's brain-dump response; throws if nothing usable. */
@@ -170,7 +215,13 @@ export interface SortedBrainDump {
   result: BrainDumpResult;
   /** Shown above the review when we fell back to the simple split. */
   notice: string | null;
+  /** The simple split was used because the free AI sorts ran out (offer Plus). */
+  freeLimit?: boolean;
 }
+
+/** Shown on the review when a free user's AI sorts are used up. */
+export const FREE_LIMIT_NOTICE =
+  "Your free AI sorts are used up, so this is a simple split. Plus turns your notes into clear tasks.";
 
 /**
  * Sort a brain dump with the AI, falling back to the simple local split (with a
