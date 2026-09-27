@@ -49,8 +49,12 @@ jest.mock("@/lib/daily-tasks/ai-helpers", () => {
   const actual = jest.requireActual("@/lib/daily-tasks/ai-helpers");
   return { ...actual, requestBreakDown: jest.fn(), sortBrainDump: jest.fn() };
 });
-const mockOpenPaywall = jest.fn();
-let mockPaywall: { paywallSource: string | null; entitlementActive: boolean } = {
+const mockOpenPaywall = jest.fn(() => true);
+let mockPaywall: {
+  paywallSource: string | null;
+  entitlementActive: boolean;
+  purchaseCount?: number;
+} = {
   paywallSource: null,
   entitlementActive: false,
 };
@@ -1040,6 +1044,18 @@ describe("Plus gates (free plan)", () => {
       jest.advanceTimersByTime(650);
     });
     expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+  });
+
+  it("thanks the user only after a purchase, not when a subscriber's status loads at launch", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    mockPaywall = { paywallSource: null, entitlementActive: false, purchaseCount: 0 };
+    const { rerender } = await render(<HomeScreen />);
+    mockPaywall = { paywallSource: null, entitlementActive: true, purchaseCount: 0 };
+    await rerender(<HomeScreen />);
+    expect(screen.queryByText("You're on Plus. Thank you!")).toBeNull();
+    mockPaywall = { paywallSource: null, entitlementActive: true, purchaseCount: 1 };
+    await rerender(<HomeScreen />);
+    expect(screen.getByText("You're on Plus. Thank you!")).toBeOnTheScreen();
   });
 
   it("Plus users' brain dump still goes through the AI sorter with no upgrade offer", async () => {

@@ -89,6 +89,35 @@ describe("PaywallSheet", () => {
     expect(screen.queryByTestId("paywall-terms")).toBeNull();
   });
 
+  it("ignores a purchase result that arrives after the sheet was closed and reopened", async () => {
+    let finish!: (outcome: PurchaseOutcome) => void;
+    const onPurchase = jest.fn(() => new Promise<PurchaseOutcome>((resolve) => (finish = resolve)));
+    const props = setup({ onPurchase });
+    const { rerender } = await render(<PaywallSheet source="break_down" {...props} />);
+    await act(async () => {});
+    await fireEvent.press(screen.getByTestId("paywall-buy"));
+    await rerender(<PaywallSheet source={null} {...props} />);
+    await rerender(<PaywallSheet source="settings" {...props} />);
+    await act(async () => {});
+    await act(async () => finish("purchased"));
+    // The reopened sheet stays up (the purchase itself still counts via the context).
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  it("keeps buy disabled while an earlier purchase is still running, and reports it's on screen", async () => {
+    const onShown = jest.fn();
+    const props = setup();
+    await render(<PaywallSheet source="settings" purchasing onShown={onShown} {...props} />);
+    await act(async () => {});
+    expect(screen.getByTestId("paywall-buy")).toBeDisabled();
+    await fireEvent.press(screen.getByTestId("paywall-buy"));
+    expect(props.onPurchase).not.toHaveBeenCalled();
+    await fireEvent(screen.getByTestId("paywall-sheet"), "layout", {
+      nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 800 } },
+    });
+    expect(onShown).toHaveBeenCalled();
+  });
+
   it("can be closed while a purchase is still in flight", async () => {
     const props = setup({ onPurchase: jest.fn(() => new Promise<PurchaseOutcome>(() => {})) });
     await renderSheet(props);
