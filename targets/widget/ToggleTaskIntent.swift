@@ -21,17 +21,20 @@ struct ToggleTaskIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult {
-    Shared.lock.lock()
-    defer { Shared.lock.unlock() }
+    // Serialised: two quick taps can run two intents at once.
+    Shared.lock.withLock { apply() }
+    return .result()
+  }
+
+  private func apply() {
     // A tap on yesterday's widget (before it refreshed) must not change anything.
     guard date == Shared.todayKey(), var snapshot = Shared.loadSnapshot(), snapshot.date == date,
       let index = snapshot.tasks.firstIndex(where: { $0.id == taskId })
     else {
-      return .result()
+      return
     }
     snapshot.tasks[index].done = done
     Shared.save(snapshot)
     Shared.appendToggle(id: taskId, date: date, done: done)
-    return .result()
   }
 }

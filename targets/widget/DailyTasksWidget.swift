@@ -88,7 +88,7 @@ struct EmptyToday: View {
       Text("Today")
         .font(.system(.headline, design: .rounded))
         .foregroundStyle(Color("foreground"))
-      Text("New day. Open to pick your three.")
+      Text("Open to pick your three for today.")
         .font(.subheadline)
         .foregroundStyle(Color("muted"))
       Spacer(minLength: 0)
@@ -137,7 +137,9 @@ struct TaskRow: View {
         .privacySensitive()
       Spacer(minLength: 0)
     }
-    .frame(minHeight: 30)
+    // A comfortable tap target only where the row is a button; read-only rows
+    // keep their natural height so the medium widget fits on small phones.
+    .frame(minHeight: interactive ? 26 : nil)
     .contentShape(Rectangle())
   }
 }
@@ -187,7 +189,7 @@ struct MediumView: View {
   let snapshot: Snapshot
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: 4) {
       HStack {
         Text("Today")
           .font(.system(.headline, design: .rounded))

@@ -689,11 +689,18 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // Read the widget's queued taps and apply them. Called before every
   // rollover (launch, foreground, day change) so a tap from yesterday lands
   // on yesterday.
+  // Until saved state has loaded there is nothing to apply taps to, and marking
+  // them processed would lose them (iOS often reports "active" during launch,
+  // before loadState() resolves). The launch path syncs right after hydrate.
+  const hydratedRef = useRef(false);
   const syncWidgetTaps = useCallback(() => {
+    if (!hydratedRef.current) return;
     const { raw, processedSeq } = readWidgetToggles();
     const toggles = parseWidgetToggles(raw, processedSeq);
     if (toggles.length === 0) return;
     dispatch({ type: "applyWidgetToggles", toggles });
+    // Everything read is marked handled, including taps the reducer ignores
+    // (another day, a deleted task): those can never apply.
     markWidgetTogglesProcessed(lastSeq(toggles, processedSeq));
     invalidateWidgetSnapshot();
     setWidgetNonce((n) => n + 1);
@@ -720,6 +727,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       const baseToday = todayKey();
       if (cancelled) return;
       dispatch({ type: "hydrate", state: stored ?? buildInitialState() });
+      hydratedRef.current = true;
       syncWidgetTaps();
       dispatch({ type: "rollover", today: baseToday });
       setNotificationPermission(permission);

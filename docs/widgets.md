@@ -29,8 +29,8 @@ autolinking in package.json).
   optimistically; the app writes `widget.snapshot` (authoritative) and
   `widget.processedSeq`. Intent writes are serialised with a lock.
 - Toggles for another day, or for tasks that no longer exist, are ignored. The widget
-  refreshes at local midnight (calendar math, DST-safe) and shows "New day. Open to pick
-your three." until the app writes the new day. Task text on the lock screen is marked
+  refreshes at local midnight (calendar math, DST-safe) and shows "Open to pick
+your three for today." until the app writes the new day. Task text on the lock screen is marked
 `privacySensitive`.
 
 ## Release notes
