@@ -23,6 +23,10 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: env.iosBundleId,
+    // Shared with the home/lock-screen widget (targets/widget).
+    entitlements: {
+      "com.apple.security.application-groups": [`group.${env.iosBundleId}`],
+    },
     "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -59,6 +63,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    "@bacons/apple-targets",
     "expo-notifications",
     [
       "expo-font",

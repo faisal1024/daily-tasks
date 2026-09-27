@@ -75,6 +75,20 @@ import { GRANDFATHER_BEFORE_VERSION, hasPlusAccess } from "./plus";
 import { compareVersions } from "./version";
 import { usePlus } from "./plus-context";
 import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
+import { computeDayStreak } from "./streaks";
+import {
+  invalidateWidgetSnapshot,
+  markWidgetTogglesProcessed,
+  readWidgetToggles,
+  writeWidgetSnapshot,
+} from "./widget-bridge";
+import {
+  buildWidgetSnapshot,
+  lastSeq,
+  parseWidgetToggles,
+  tasksToFlip,
+  type WidgetToggle,
+} from "./widget-snapshot";
 import type {
   AppState,
   MomentumProfile,
@@ -132,6 +146,7 @@ type Action =
     }
   | { type: "toggleTaskStep"; taskId: TaskId; stepId: string; today: string }
   | { type: "clearTaskSteps"; taskId: TaskId; today: string }
+  | { type: "applyWidgetToggles"; toggles: WidgetToggle[] }
   | { type: "grandfatherPlus" }
   | { type: "setAnalyticsEnabled"; enabled: boolean }
   | { type: "reset"; state: AppState };
@@ -164,6 +179,17 @@ function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "markReviewPrompted":
       return { ...state, lastReviewPromptAt: action.at };
+    case "applyWidgetToggles": {
+      // Taps belong to the day the widget showed, which is the day these tasks
+      // belong to (lastOpenedDate), even if the app is only opened tomorrow:
+      // this runs before any rollover. Only tasks whose state differs from the
+      // tap are toggled, against the live state, so replaying is harmless.
+      const day = state.lastOpenedDate;
+      return tasksToFlip(state, action.toggles, day).reduce(
+        (next, id) => reducer(next, { type: "toggleTask", id, today: day }),
+        state,
+      );
+    }
     case "grandfatherPlus":
       return state.plusGrandfathered ? state : { ...state, plusGrandfathered: true };
     case "setAnalyticsEnabled":
@@ -657,6 +683,28 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermissionState>("undetermined");
   const lastReminderSync = useRef<string | null>(null);
+  // Bumped after applying widget taps so the widget is always rewritten from
+  // app state (it may be showing an optimistic tap the app didn't apply).
+  const [widgetNonce, setWidgetNonce] = useState(0);
+  // Read the widget's queued taps and apply them. Called before every
+  // rollover (launch, foreground, day change) so a tap from yesterday lands
+  // on yesterday.
+  // Until saved state has loaded there is nothing to apply taps to, and marking
+  // them processed would lose them (iOS often reports "active" during launch,
+  // before loadState() resolves). The launch path syncs right after hydrate.
+  const hydratedRef = useRef(false);
+  const syncWidgetTaps = useCallback(() => {
+    if (!hydratedRef.current) return;
+    const { raw, processedSeq } = readWidgetToggles();
+    const toggles = parseWidgetToggles(raw, processedSeq);
+    if (toggles.length === 0) return;
+    dispatch({ type: "applyWidgetToggles", toggles });
+    // Everything read is marked handled, including taps the reducer ignores
+    // (another day, a deleted task): those can never apply.
+    markWidgetTogglesProcessed(lastSeq(toggles, processedSeq));
+    invalidateWidgetSnapshot();
+    setWidgetNonce((n) => n + 1);
+  }, []);
   const plus = usePlus();
   // Confirmed access: what the automatic AI fetch waits for.
   const plusConfirmed = hasPlusAccess({
@@ -679,6 +727,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       const baseToday = todayKey();
       if (cancelled) return;
       dispatch({ type: "hydrate", state: stored ?? buildInitialState() });
+      hydratedRef.current = true;
+      syncWidgetTaps();
       dispatch({ type: "rollover", today: baseToday });
       setNotificationPermission(permission);
       setToday(baseToday);
@@ -687,7 +737,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [syncWidgetTaps]);
 
   useEffect(() => {
     if (!ready) return;
@@ -710,6 +760,19 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     if (!ready) return;
     applyAnalyticsEnabled(state.analyticsEnabled);
   }, [ready, state.analyticsEnabled]);
+
+  // Keep the home/lock-screen widget in step with today's tasks.
+  const widgetStreak = useMemo(() => computeDayStreak(state.history, today), [state.history, today]);
+  useEffect(() => {
+    if (!ready) return;
+    writeWidgetSnapshot(
+      // Confirmed Plus only: "still checking" must not make a free user's
+      // widget interactive (it may stay that way until the next launch).
+      buildWidgetSnapshot({ state, today, streak: widgetStreak, plus: plusConfirmed }),
+    );
+    // Only these fields feed the snapshot (widgetNonce forces a rewrite).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, state.tasks, state.todayCompletions, today, widgetStreak, plusConfirmed, widgetNonce]);
 
   // One "app_opened" per day this app is used (drives D1/D7/D30 retention).
   const openedTracked = useRef<string | null>(null);
@@ -784,6 +847,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     const onChange = (status: AppStateStatus) => {
       if (status !== "active") return;
       void refreshNotificationPermission();
+      // Widget taps first, so they land on the day they were made.
+      syncWidgetTaps();
       const fresh = todayKey();
       if (fresh !== today) {
         setToday(fresh);
@@ -797,12 +862,13 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     };
     const sub = RNAppState.addEventListener("change", onChange);
     return () => sub.remove();
-  }, [refreshNotificationPermission, state.autoLock, state.tasks, state.todayLocked, today]);
+  }, [refreshNotificationPermission, syncWidgetTaps, state.autoLock, state.tasks, state.todayLocked, today]);
 
   useEffect(() => {
     const id = setInterval(() => {
       const fresh = todayKey();
       if (fresh !== today) {
+        syncWidgetTaps();
         setToday(fresh);
         dispatch({ type: "rollover", today: fresh });
         return;
@@ -813,7 +879,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       }
     }, 60_000);
     return () => clearInterval(id);
-  }, [state.autoLock, state.tasks, state.todayLocked, today]);
+  }, [syncWidgetTaps, state.autoLock, state.tasks, state.todayLocked, today]);
 
   const isCompleted = useCallback(
     (id: TaskId) => state.todayCompletions.includes(id),

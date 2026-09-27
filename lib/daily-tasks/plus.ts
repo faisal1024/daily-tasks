@@ -154,6 +154,11 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
     title: "AI ideas for your goal",
     detail: "Fresh suggestions each day that adapt to how your days go.",
   },
+  {
+    icon: "apps-outline",
+    title: "Tick off from your Home Screen",
+    detail: "Check tasks off right from the widget, without opening the app.",
+  },
 ];
 
 /** Headline per entry point, so the paywall says why it appeared. */
