@@ -67,11 +67,13 @@ export const PLAN_TOOL_DESCRIPTION =
   "todaySuggestions, and a task pool. Call this tool with the plan as input.";
 
 // One short example per tone, so "calm" / "friendly" / "direct" read differently.
+// Voice only: the activity in the example is never meant to be reused.
 const TONE_EXAMPLES = {
-  calm: 'e.g. "Take a slow 10-minute walk outside", reason "A gentle reset before the busy part of the day."',
-  friendly: 'e.g. "Treat yourself to a 10-minute walk", reason "You\'ve earned some fresh air!"',
-  direct: 'e.g. "Walk 10 minutes. Leave the phone.", reason "Clears your head fast."',
+  calm: 'voice only, e.g. "Sketch the outline for section one", reason "A small, steady start is enough today."',
+  friendly: 'voice only, e.g. "Knock out the outline for section one", reason "Nice quick win to get rolling!"',
+  direct: 'voice only, e.g. "Outline section one.", reason "Unblocks the rest."',
 };
+export const TONES = Object.keys(TONE_EXAMPLES);
 
 export function toneExample(tone) {
   return Object.prototype.hasOwnProperty.call(TONE_EXAMPLES, tone) ? TONE_EXAMPLES[tone] : TONE_EXAMPLES.calm;
@@ -88,6 +90,7 @@ export function buildPrompt(payload) {
     `Best time of day: ${payload.profile.preferredTime ?? "any"}`,
     `Commitment cadence: ${payload.profile.cadence ?? "flexible"}`,
     `Suggestion tone: ${payload.settings.suggestionTone} (${toneExample(payload.settings.suggestionTone)})`,
+    "The tone example shows voice only; never reuse its activity. Tasks must come from the goal and recent tasks.",
     `Adaptive planning enabled: ${payload.settings.adaptivePlanning}`,
     `Recent completion: ${payload.recentPerformance.completed}/${payload.recentPerformance.total} tasks across ${payload.recentPerformance.daysReviewed} active days`,
     `Recent missed tasks: ${payload.recentPerformance.missed}`,
@@ -123,6 +126,7 @@ export function validatePayload(payload) {
   const { profile, settings, recentPerformance } = payload;
   if (!profile || typeof profile.goalTitle !== "string") return "Missing profile";
   if (!settings || typeof settings.suggestionTone !== "string") return "Missing settings";
+  if (!TONES.includes(settings.suggestionTone)) return "Invalid settings";
   if (!recentPerformance || typeof recentPerformance.completed !== "number") {
     return "Missing recent performance";
   }

@@ -86,6 +86,7 @@ import { computeDayStreak } from "./streaks";
 import type { EveningClose } from "./evening";
 import { draftForNotification, draftForTomorrow } from "./evening";
 import { readTodayAgenda } from "./agenda";
+import { setProxyGrandfathered } from "./ai-client";
 import {
   invalidateWidgetSnapshot,
   markWidgetTogglesProcessed,
@@ -848,6 +849,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // Until RevenueCat answers, don't gate: a subscriber must never be shown the
   // paywall (or a downgraded feature) just because the check is still running.
   const plusPending = plus.paywallEnabled && !plus.entitlementKnown && !state.plusGrandfathered;
+  // Early supporters have Plus here but not in RevenueCat: the AI proxy
+  // allows requests without an id, so theirs don't send one.
+  useEffect(() => {
+    setProxyGrandfathered(state.plusGrandfathered);
+  }, [state.plusGrandfathered]);
   const hasPlus = plusConfirmed || plusPending;
 
   useEffect(() => {

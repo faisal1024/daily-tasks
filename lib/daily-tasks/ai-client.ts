@@ -10,10 +10,24 @@ export const PROXY_SECRET_HEADER = "x-momentum-secret";
 export const PROXY_USER_HEADER = "x-rc-user";
 
 let proxyUserId: string | null = null;
+let proxyUserIdReady: Promise<unknown> = Promise.resolve();
+let grandfathered = false;
 /** Set by purchases.ts once RevenueCat has its (anonymous) app user id. */
 export function setProxyUserId(id: string | null): void {
   proxyUserId = id && id.length <= 100 ? id : null;
 }
+/** purchases.ts hands over the pending id lookup so the first request can wait for it. */
+export function setProxyUserIdPending(pending: Promise<unknown>): void {
+  proxyUserIdReady = pending;
+}
+/**
+ * Early supporters have Plus on the device but not in RevenueCat: they send
+ * no id, which the server allows (see ENTITLEMENT_REQUIRE_ID in the docs).
+ */
+export function setProxyGrandfathered(value: boolean): void {
+  grandfathered = value;
+}
+const ID_WAIT_MS = 1_000;
 
 /**
  * Long enough to ride out a Render free-tier cold start (~30–60s) plus a model
@@ -71,7 +85,11 @@ export async function postToProxy({
 }): Promise<Record<string, unknown>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (proxySecret) headers[PROXY_SECRET_HEADER] = proxySecret;
-  if (proxyUserId) headers[PROXY_USER_HEADER] = proxyUserId;
+  // A request at launch may beat the id lookup: wait briefly for it.
+  if (!proxyUserId && !grandfathered) {
+    await Promise.race([proxyUserIdReady, new Promise((resolve) => setTimeout(resolve, ID_WAIT_MS))]);
+  }
+  if (proxyUserId && !grandfathered) headers[PROXY_USER_HEADER] = proxyUserId;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

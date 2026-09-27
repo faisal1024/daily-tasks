@@ -11,7 +11,9 @@ export type AiFailureKind =
   | "unauthorized"
   | "network"
   | "unavailable"
-  | "invalid_response";
+  | "invalid_response"
+  // 402: the server couldn't confirm Plus (not retried automatically).
+  | "needs_plus";
 
 const KINDS: readonly AiFailureKind[] = [
   "timeout",
@@ -21,6 +23,7 @@ const KINDS: readonly AiFailureKind[] = [
   "network",
   "unavailable",
   "invalid_response",
+  "needs_plus",
 ];
 
 /** Error thrown by the AI client; `kind` drives user-facing copy. */
@@ -44,8 +47,7 @@ export class MomentumAiError extends Error {
 export function kindForStatus(status: number, proxyError?: unknown): AiFailureKind {
   if (status === 401 || status === 403) return "unauthorized";
   if (status === 429) return "rate_limited";
-  // 402: the proxy's Plus check said no (e.g. a lapse it saw first). Treated
-  // like any unavailable AI: the app falls back to its on-device versions.
+  if (status === 402) return "needs_plus";
   if (status === 503 && typeof proxyError === "string" && /busy/i.test(proxyError)) {
     return "busy";
   }
@@ -95,6 +97,8 @@ export function aiFailureMessage(
     case "unauthorized":
       // Old builds after the proxy secret is enabled: an update fixes it.
       return "Smart suggestions need the latest version of the app.";
+    case "needs_plus":
+      return "We couldn't confirm your Plus subscription. Try Restore purchases in Settings.";
     case "timeout":
     case "network":
     case "unavailable":
@@ -108,7 +112,7 @@ export function aiFailureMessage(
  * everything else gets step-specific wording (the shared copy talks about ideas).
  */
 export function breakDownFailureMessage(kind: AiFailureKind): string {
-  if (kind === "rate_limited" || kind === "unauthorized") {
+  if (kind === "rate_limited" || kind === "unauthorized" || kind === "needs_plus") {
     return aiFailureMessage(kind) ?? "Try again in a bit.";
   }
   if (kind === "busy") return "Smart steps are taking a break for today. Try again tomorrow.";
