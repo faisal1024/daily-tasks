@@ -167,7 +167,7 @@ export function FirstRun({
       : setCount === 1
         ? "Do it today and tap it off. "
         : "Do them today and tap each one off. ") +
-    "Want a nudge in the morning, a few gentle ones while your three are open, and a reminder in the evening to close the day? You can change these in Settings.";
+    "Want a nudge in the morning, a few gentle ones while your three are open, and some in the evening until you close the day? You can change these in Settings.";
 
   const footer = (() => {
     switch (step) {
