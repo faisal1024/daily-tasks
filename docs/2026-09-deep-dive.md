@@ -9,7 +9,7 @@ plan from Phase 8 on._
 
 Legend: ✅ done · 🔄 in progress · ⬜ not started · ⏸ blocked on the owner
 
-### Done (shipped in v1.0.11, TestFlight build 38, 26 Sept 2026)
+### Done
 - ✅ **Phase 1** — AI proxy hardening: shared secret (log mode), rate limits, testable server (PR #34)
 - ✅ **Phase 2** — Today-screen revamp, rating prompt, UI test infrastructure (PR #35)
 - ✅ **Phase 3** — AI helpers: brain dump → three, break it down (PR #36)
@@ -19,11 +19,12 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⏸ blocked on the ow
 - ✅ **Phase 7** — New app icon everywhere (PR #40)
 - ✅ **Live ops** — proxy secret on Render, Anthropic key rotated, $20/mo spend cap, PostHog project (IP discard on)
 - ✅ **Release** — 1.0.10 live on the App Store; 1.0.11 (build 38) on TestFlight
+- ✅ **Phase 8** — Foundation fixes: data safety, one day rule (travel / midnight / wrong dates), error screen, reminders ahead, UX quick wins (PR #44); privacy policy published 27 Sept 2026
 
 ### Left
 | Phase | Status | Notes |
 |---|---|---|
-| 8 — Foundation fixes | 🔄 in review | see the Phase 8 checklist in §3 |
+| 8 — Foundation fixes | ✅ done | PR #44; TestFlight build after merge |
 | 9 — The ritual | ⬜ | decisions made (§6) |
 | 10 — Today revamp + IA | ⬜ | decisions made (§6) |
 | 11 — Money & cost controls | ⏸ | code can start; going live needs App Store Connect setup (Paid Apps agreement, tax form, In-App Purchase key) and a Cloudflare account |
@@ -110,15 +111,18 @@ Each phase = one PR, tester agent + 3 reviewers, merge, TestFlight when noted.
 
 ### Phase 8 — Foundation fixes (~1 week) → TestFlight
 Engineering quick wins:
-- ✅ Backup + quarantine on load failure; never overwrite a corrupt blob (unreadable storage
-  → use the backup and don't write that session).
-- ✅ Actions stamp the store's day and run the day change first (fixes the 00:00 duplication
-  bug); a clock that moves back keeps the current day.
+- ✅ Backup + quarantine: corrupt data is set aside (never overwritten) and the backup restored;
+  unreadable storage → use the backup and don't write that session; the backup is refreshed only
+  after a session runs fine.
+- ✅ One day rule (`storeDayFor`): clock ahead → new day; one day back (travel) → hold the saved
+  day; 2+ days back (a fixed wrong date) → follow the clock. Used at launch, at midnight and in
+  rollover. Taps and the evening check-in made just after midnight count for the day on screen.
 - ✅ Root ErrorBoundary (calm fallback, anonymous `app_error` event). ⏸ Sentry: needs a
   Sentry account + DSN; add when created.
 - ✅ Reminder syncs run one at a time; a morning nudge is scheduled for each of the next 6 days.
-- ✅ Privacy policy (repo copy) reconciled with PostHog + RevenueCat + widget; ⬜ publish to the
-  gist + update the App Store privacy label after merge.
+- ✅ Privacy policy reconciled with PostHog + RevenueCat + widget and published (gist,
+  27 Sept 2026). ⬜ App Store privacy label: add Usage Data › Product Interaction and
+  Purchases › Purchase History (not linked, not tracking) before the next App Store submission.
 UX quick wins:
 - ✅ Saved brain-dump ideas reachable when the day is full ("Saved for later (N)").
 - ✅ Inline **Unlock** next to the lock status (was Settings-only); lock copy updated.
