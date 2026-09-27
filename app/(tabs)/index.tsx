@@ -133,11 +133,9 @@ export default function HomeScreen() {
   // First run stays up until its last step; onboarding is marked seen only
   // then, so a relaunch mid-way resumes (at the nudge once tasks are set).
   const [firstRunActive, setFirstRunActive] = useState(false);
-  const [firstRunResume, setFirstRunResume] = useState(0);
   const firstRunAiUsed = useRef(false);
   useEffect(() => {
     if (ready && !state.hasSeenOnboarding && !state.pendingRollover && !firstRunActive) {
-      setFirstRunResume(state.tasks.length);
       setFirstRunActive(true);
     }
     // Only on opening: tasks added during first run mustn't change where it starts.
@@ -899,7 +897,8 @@ export default function HomeScreen() {
         onAskNudge={async () => (await requestNotificationPermission()) === "granted"}
         showWidgetStep={Platform.OS === "ios"}
         // Relaunched after setting the three: pick up at the nudge, not the dump.
-        resumeCount={firstRunResume}
+        // Read only when it (re)appears, e.g. after a rollover mid-flow.
+        resumeCount={state.tasks.length}
         onFinish={() => {
           markOnboardingSeen();
           setFirstRunActive(false);
