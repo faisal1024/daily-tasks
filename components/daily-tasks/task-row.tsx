@@ -157,15 +157,17 @@ export function TaskRow({
       );
       return;
     }
-    // Android shows at most three buttons: the first two actions and Cancel.
-    Alert.alert(task.text, undefined, [
-      ...actions.slice(0, 2).map((action) => ({
+    // Android shows at most three buttons: page through with "More…".
+    const page = (list: TaskRowAction[]) => {
+      const button = (action: TaskRowAction) => ({
         text: TASK_ROW_ACTION_LABELS[action],
         style: action === "delete" ? ("destructive" as const) : ("default" as const),
         onPress: () => run(action),
-      })),
-      { text: "Cancel", style: "cancel" as const },
-    ]);
+      });
+      const shown = list.length <= 2 ? list.map(button) : [button(list[0]), { text: "More…", onPress: () => page(list.slice(1)) }];
+      Alert.alert(task.text, undefined, [...shown, { text: "Cancel", style: "cancel" as const }]);
+    };
+    page(actions);
   };
 
   const onA11yAction = (event: AccessibilityActionEvent) => {

@@ -257,9 +257,9 @@ export default function HomeScreen() {
     day: "numeric",
     month: "long",
   });
-  // Once the day is set, the next thing to do is the hero of the card.
+  // Once the day is set or under way, the next thing to do is the card's hero.
   const heroTaskId =
-    state.todayLocked && !progress.isPerfect
+    (state.todayLocked || completedCount > 0) && !progress.isPerfect
       ? (state.tasks.find((task) => !isCompleted(task.id))?.id ?? null)
       : null;
   const firstName = state.momentumProfile.name?.trim().split(/\s+/)[0] ?? "";
