@@ -39,6 +39,8 @@ const config: ExpoConfig = {
       monochromeImage: "./assets/images/android-icon-monochrome.png",
     },
     edgeToEdgeEnabled: true,
+    // Calendar planning is iOS-only; expo-calendar would add these otherwise.
+    blockedPermissions: ["android.permission.READ_CALENDAR", "android.permission.WRITE_CALENDAR"],
     predictiveBackGestureEnabled: false,
     package: env.androidPackage,
     permissions: ["POST_NOTIFICATIONS"],
@@ -69,9 +71,9 @@ const config: ExpoConfig = {
       "expo-calendar",
       {
         calendarPermission:
-          "Your calendar is used to plan today's three around your events, only when you turn it on.",
+          "Used to plan today's three around your events, only if you turn it on. Event titles and times are sent to our AI service to make suggestions and aren't stored.",
         remindersPermission:
-          "Your reminders are used to plan today's three around what's due, only when you turn it on.",
+          "Used to plan today's three around what's due, only if you turn it on. Reminder titles and due times are sent to our AI service to make suggestions and aren't stored.",
       },
     ],
     [

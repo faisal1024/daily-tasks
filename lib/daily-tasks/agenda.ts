@@ -9,6 +9,8 @@ export const MAX_AGENDA_ITEMS = 12;
 export const MAX_AGENDA_TEXT = 120;
 // Leaves room for the "09:30 " / "Reminder: " prefix within MAX_AGENDA_TEXT.
 const MAX_TITLE = 100;
+// How far back overdue reminders are still worth mentioning.
+const OVERDUE_DAYS = 30;
 
 export type AgendaAccess = "granted" | "denied" | "undetermined" | "unsupported";
 
@@ -65,7 +67,9 @@ export function formatAgenda(
     const title = cleanTitle(event.title);
     if (title) push(`All day: ${title}`);
   }
-  for (const reminder of reminders) {
+  // Today's first, then the most recently overdue: old ones mustn't crowd them out.
+  const byDue = [...reminders].sort((a, b) => (b.due?.getTime() ?? -Infinity) - (a.due?.getTime() ?? -Infinity));
+  for (const reminder of byDue) {
     const title = cleanTitle(reminder.title);
     if (!title) continue;
     const overdue = reminder.due !== null && reminder.due.getTime() < startOfToday.getTime();
@@ -127,7 +131,15 @@ export async function readTodayAgenda(now: Date = new Date()): Promise<string[]>
     const permission = await Calendar.getCalendarPermissionsAsync();
     if (permission.granted) {
       const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-      const ids = calendars.map((calendar) => calendar.id);
+      // Not birthdays/holidays or subscribed feeds: noise, other people's
+      // names, and a route for spam invites into the prompt.
+      const ids = calendars
+        .filter(
+          (calendar) =>
+            calendar.type !== Calendar.CalendarType.BIRTHDAYS &&
+            calendar.type !== Calendar.CalendarType.SUBSCRIBED,
+        )
+        .map((calendar) => calendar.id);
       if (ids.length > 0) {
         for (const event of await Calendar.getEventsAsync(ids, start, end)) {
           const eventStart = toDate(event.startDate);
@@ -145,7 +157,9 @@ export async function readTodayAgenda(now: Date = new Date()): Promise<string[]>
       const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.REMINDER);
       const ids = calendars.map((calendar) => calendar.id);
       if (ids.length > 0) {
-        const due = await Calendar.getRemindersAsync(ids, Calendar.ReminderStatus.INCOMPLETE, null, end);
+        // expo-calendar requires a start date with a status filter.
+        const since = new Date(start.getFullYear(), start.getMonth(), start.getDate() - OVERDUE_DAYS);
+        const due = await Calendar.getRemindersAsync(ids, Calendar.ReminderStatus.INCOMPLETE, since, end);
         for (const reminder of due) {
           if (reminder.completed) continue;
           reminders.push({ title: reminder.title ?? "", due: toDate(reminder.dueDate) });

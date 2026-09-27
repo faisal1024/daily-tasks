@@ -20,7 +20,8 @@ export type PaywallSource =
   | "brain_dump"
   | "break_down"
   | "new_ideas"
-  | "weekly_review";
+  | "weekly_review"
+  | "calendar";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -178,6 +179,8 @@ export function paywallHeadline(source: PaywallSource): string {
       return "See how your weeks are going";
     case "new_ideas":
       return "Get fresh ideas for your goal";
+    case "calendar":
+      return "Plan your three around your day";
     default:
       return "A little extra help, when you want it";
   }

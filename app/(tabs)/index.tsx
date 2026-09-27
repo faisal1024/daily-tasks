@@ -89,6 +89,8 @@ function haptic(fn: () => Promise<void>) {
   fn().catch(() => {});
 }
 
+const FIRST_SORT_TIMEOUT_MS = 12_000;
+
 export default function HomeScreen() {
   const colors = useColors();
   const {
@@ -128,11 +130,18 @@ export default function HomeScreen() {
   } = useDailyTasks();
   const { paywallEnabled, paywallSource, purchaseCount, openPaywall } = usePlus();
 
-  // First run stays up until its last step, even once the list is set
-  // (hasSeenOnboarding flips as soon as tasks are added).
+  // First run stays up until its last step; onboarding is marked seen only
+  // then, so a relaunch mid-way resumes (at the nudge once tasks are set).
   const [firstRunActive, setFirstRunActive] = useState(false);
+  const [firstRunResume, setFirstRunResume] = useState(0);
+  const firstRunAiUsed = useRef(false);
   useEffect(() => {
-    if (ready && !state.hasSeenOnboarding && !state.pendingRollover) setFirstRunActive(true);
+    if (ready && !state.hasSeenOnboarding && !state.pendingRollover && !firstRunActive) {
+      setFirstRunResume(state.tasks.length);
+      setFirstRunActive(true);
+    }
+    // Only on opening: tasks added during first run mustn't change where it starts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, state.hasSeenOnboarding, state.pendingRollover]);
 
   // What to pick back up once the paywall closes (bought or not).
@@ -859,23 +868,38 @@ export default function HomeScreen() {
       <CelebrationOverlay visible={showCelebration} onDismiss={dismissCelebration} />
 
       <FirstRun
-        visible={firstRunActive}
+        // iOS shows one modal at a time: a day change mid-flow shows the rollover.
+        visible={firstRunActive && !state.pendingRollover}
         onStep={(step) => track("onboarding_step", { step })}
         onSort={async (text) => {
           // The first dump is sorted by the AI for everyone (it's the moment
           // that shows what the app does); it falls back to the local split.
-          const sorted = await sortBrainDump({ text, openSlots: 3, goalTitle: null });
+          // Don't keep a new user waiting: after 12 s use the simple split.
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const fallback = new Promise<Awaited<ReturnType<typeof sortBrainDump>>>((resolve) => {
+            timer = setTimeout(
+              () => resolve({ result: localBrainDump(text, 3), notice: "timeout" }),
+              FIRST_SORT_TIMEOUT_MS,
+            );
+          });
+          // One AI sort per first run; "Start over" gets the simple split.
+          const useAi = !firstRunAiUsed.current;
+          firstRunAiUsed.current = true;
+          const sorted = useAi
+            ? await Promise.race([sortBrainDump({ text, openSlots: 3, goalTitle: null }), fallback])
+            : { result: localBrainDump(text, 3), notice: null };
+          clearTimeout(timer);
           track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
           return sorted;
         }}
         onSet={(picks, parked) => {
           if (picks.length > 0) addTasks(picks.slice(0, remainingSlots));
           parkTasks([...picks.slice(remainingSlots), ...parked]);
-          // The list exists now: a relaunch mid-way shouldn't start over.
-          markOnboardingSeen();
         }}
         onAskNudge={async () => (await requestNotificationPermission()) === "granted"}
         showWidgetStep={Platform.OS === "ios"}
+        // Relaunched after setting the three: pick up at the nudge, not the dump.
+        resumeCount={firstRunResume}
         onFinish={() => {
           markOnboardingSeen();
           setFirstRunActive(false);

@@ -81,6 +81,27 @@ export default function JourneyScreen() {
           Your progress
         </Text>
 
+        {/* No goal yet (first run doesn't ask): offer one here, in context. */}
+        {!goalTitle ? (
+          <View className="rounded-2xl bg-surface border border-border p-4 gap-3" testID="set-goal-card">
+            <Text className="text-lg font-bold text-foreground">What are you working toward?</Text>
+            <Text className="text-sm" style={{ color: colors.muted }}>
+              Add a goal and your coach suggests tasks and milestones toward it.
+            </Text>
+            <Pressable
+              onPress={() => setGoalModalOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Set a goal"
+              className="self-start rounded-full px-4 py-2"
+              style={{ backgroundColor: colors.primary }}
+            >
+              <Text className="text-sm font-bold" style={{ color: "#fff" }}>
+                Set a goal
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {/* Growth hero — gradient card (scheme-aware, self-measuring) */}
         <GradientCard
           className="rounded-3xl p-7 items-center"
@@ -155,27 +176,6 @@ export default function JourneyScreen() {
             }}
           />
         </View>
-
-        {/* No goal yet (first run doesn't ask): offer one here, in context. */}
-        {!goalTitle ? (
-          <View className="rounded-2xl bg-surface border border-border p-4 gap-3" testID="set-goal-card">
-            <Text className="text-lg font-bold text-foreground">What are you working toward?</Text>
-            <Text className="text-sm" style={{ color: colors.muted }}>
-              Add a goal and your coach suggests tasks and milestones toward it.
-            </Text>
-            <Pressable
-              onPress={() => setGoalModalOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Set a goal"
-              className="self-start rounded-full px-4 py-2"
-              style={{ backgroundColor: colors.primary }}
-            >
-              <Text className="text-sm font-bold" style={{ color: "#fff" }}>
-                Set a goal
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
 
         {/* Milestones toward the goal: ticked off by hand */}
         {momentumMilestones.length > 0 && (
@@ -279,7 +279,7 @@ export default function JourneyScreen() {
         onComplete={(profile) => {
           completeMomentumOnboarding(profile);
           setGoalModalOpen(false);
-          track("onboarding_completed", { source: "goal_later" });
+          track("goal_set", { source: "progress" });
         }}
       />
     </ScreenContainer>

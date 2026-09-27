@@ -131,6 +131,12 @@ export default function SettingsScreen() {
   };
 
   const handleAgendaEnabled = async (value: boolean) => {
+    // Only Plus requests use it: don't ask for access a free user can't use.
+    if (value && !hasPlus) {
+      track("plus_gate_hit", { feature: "calendar" });
+      plus.openPaywall("calendar");
+      return;
+    }
     if (!value) {
       setAgendaEnabled(false);
       track("agenda_toggled", { active: false });
@@ -399,13 +405,13 @@ export default function SettingsScreen() {
                     Plan around my calendar
                   </Text>
                   <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                    Uses today&apos;s events and reminders so your three fit your day. Their
-                    titles and times go with suggestion and brain dump requests; nothing is
-                    kept.
+                    Reads today&apos;s events and reminders so your three fit around them. Only
+                    their titles and times are sent to our AI service when it makes
+                    suggestions, and nothing is stored.{hasPlus ? "" : " Plus."}
                   </Text>
                 </View>
                 <Switch
-                  value={state.agendaEnabled}
+                  value={hasPlus && state.agendaEnabled}
                   onValueChange={(value) => void handleAgendaEnabled(value)}
                   trackColor={{ true: colors.primary }}
                   accessibilityLabel="Plan around my calendar"
