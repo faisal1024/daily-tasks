@@ -3,7 +3,7 @@ import type { ExpoConfig } from "expo/config";
 const bundleId = "com.faisalislam.dailytasks";
 
 const env = {
-  appName: "Daily Tasks",
+  appName: "Three Today",
   appSlug: "daily-tasks",
   scheme: "dailytasks",
   iosBundleId: bundleId,
@@ -14,7 +14,7 @@ const env = {
 const config: ExpoConfig = {
   name: env.appName,
   slug: env.appSlug,
-  version: "1.0.11",
+  version: "1.1.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: env.scheme,

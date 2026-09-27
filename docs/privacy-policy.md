@@ -1,4 +1,4 @@
-# Privacy Policy — Daily Tasks
+# Privacy Policy — Three Today
 
 **Effective date: 30 September 2026 (last updated for free AI brain dumps and the anonymous purchase ID)**
 
@@ -7,7 +7,7 @@
 
 ## Summary
 
-Daily Tasks is local-first. Your tasks, history, streaks, and settings are stored on your own device. There is no account, no sign-in, no advertising, and no tracking across apps or websites. Information leaves your device only in three cases, each described below: a small request when you use one of the smart (AI) features, anonymous usage counts (which you can turn off), and, if you buy Plus, the purchase record handled by Apple and our subscription provider.
+Three Today (formerly Daily Tasks) is local-first. Your tasks, history, streaks, and settings are stored on your own device. There is no account, no sign-in, no advertising, and no tracking across apps or websites. Information leaves your device only in three cases, each described below: a small request when you use one of the smart (AI) features, anonymous usage counts (which you can turn off), and, if you buy Plus, the purchase record handled by Apple and our subscription provider.
 
 ## What we store on your device
 
@@ -55,7 +55,7 @@ Plus subscriptions and purchases are processed by Apple; we never see your payme
 
 ## Update check
 
-When the app opens, it may ask Apple's public App Store lookup service whether a newer version of Daily Tasks is available. This request contains only the app's bundle identifier.
+When the app opens, it may ask Apple's public App Store lookup service whether a newer version of Three Today is available. This request contains only the app's bundle identifier.
 
 ## Third parties
 
@@ -63,7 +63,7 @@ We use three service providers, each only for the purpose described above: an AI
 
 ## Children
 
-Daily Tasks is suitable for all ages and does not knowingly collect personal information from anyone, including children under 13.
+Three Today is suitable for all ages and does not knowingly collect personal information from anyone, including children under 13.
 
 ## Your control
 

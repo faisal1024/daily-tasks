@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
   s.name           = 'WidgetStorage'
   s.version        = '1.0.0'
-  s.summary        = 'App Group storage shared with the Daily Tasks widget'
+  s.summary        = 'App Group storage shared with the Three Today widget'
   s.description    = 'Reads and writes App Group UserDefaults and reloads WidgetKit timelines.'
   s.author         = ''
   s.homepage       = 'https://github.com/faisal1024/daily-tasks'
