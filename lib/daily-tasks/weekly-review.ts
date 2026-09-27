@@ -36,8 +36,11 @@ export interface WeeklyReview {
   completed: number;
   perfectDays: number;
   showedUpDays: number;
-  /** Tasks done in the seven days before that, or null without enough days to compare. */
-  previousCompleted: number | null;
+  /**
+   * Week-on-week comparison over two equal, finished windows (today counts only
+   * once it's finished), or null without a real baseline.
+   */
+  comparison: { now: number; before: number } | null;
   /** Weekday that clearly goes best over the last four weeks, if any. */
   bestWeekday: string | null;
   stuck: StuckTask[];
@@ -113,7 +116,7 @@ export function weeklyHeadline(input: {
   completed: number;
   perfectDays: number;
   showedUpDays: number;
-  previousCompleted: number | null;
+  comparison: { now: number; before: number } | null;
   plannedToday: boolean;
   firstWeek: boolean;
 }): string {
@@ -124,7 +127,7 @@ export function weeklyHeadline(input: {
       : "A quiet week. One small task tomorrow is plenty.";
   }
   if (input.perfectDays >= 5) return `What a week: ${input.perfectDays} perfect days.`;
-  if (input.previousCompleted !== null && input.completed - input.previousCompleted >= 3) {
+  if (input.comparison && input.comparison.now - input.comparison.before >= 3) {
     return "Up from last week. That's real momentum.";
   }
   if (input.showedUpDays >= 4) return `You showed up ${input.showedUpDays} days this week.`;
@@ -155,13 +158,20 @@ export function buildWeeklyReview(history: History, today: string): WeeklyReview
   const perfectDays = days.filter((day) => day.perfect).length;
   const showedUpDays = days.filter((day) => day.completed > 0).length;
 
-  // Compare with the seven days before, but only against a real baseline.
-  const previousDates = lastDays(today, 7, 7);
-  const previousTracked = previousDates.filter((date) => (history[date]?.total ?? 0) > 0).length;
-  const previousCompleted =
-    previousTracked >= 3
-      ? previousDates.reduce((sum, date) => sum + (history[date]?.completed ?? 0), 0)
-      : null;
+  // Compare like with like: two finished 7-day windows. Today joins only once
+  // it's done; before that, the windows end yesterday (so a morning with
+  // nothing ticked yet never reads as "lighter than last week").
+  const todayRecord = history[today];
+  const todayFinished =
+    !!todayRecord && todayRecord.total > 0 && todayRecord.completed === todayRecord.total;
+  const offset = todayFinished ? 0 : 1;
+  const sumDone = (dates: string[]) =>
+    dates.reduce((sum, date) => sum + (history[date]?.completed ?? 0), 0);
+  const currentWindow = lastDays(today, 7, offset);
+  const previousWindow = lastDays(today, 7, offset + 7);
+  const previousTracked = previousWindow.filter((date) => (history[date]?.total ?? 0) > 0).length;
+  const comparison =
+    previousTracked >= 3 ? { now: sumDone(currentWindow), before: sumDone(previousWindow) } : null;
 
   const firstWeek = !Object.values(history).some((record) => record.date < today && record.total > 0);
   const plannedToday = (history[today]?.total ?? 0) > 0;
@@ -171,7 +181,7 @@ export function buildWeeklyReview(history: History, today: string): WeeklyReview
     completed,
     perfectDays,
     showedUpDays,
-    previousCompleted,
+    comparison,
     bestWeekday: bestWeekday(history, today),
     stuck: stuckTasks(history, today),
     firstWeek,
@@ -179,7 +189,7 @@ export function buildWeeklyReview(history: History, today: string): WeeklyReview
       completed,
       perfectDays,
       showedUpDays,
-      previousCompleted,
+      comparison,
       plannedToday,
       firstWeek,
     }),
@@ -188,9 +198,10 @@ export function buildWeeklyReview(history: History, today: string): WeeklyReview
 
 /** Plain comparison with last week in task counts, or null without a baseline. */
 export function comparisonText(review: WeeklyReview): string | null {
-  const before = review.previousCompleted;
-  if (before === null) return null;
-  const now = review.completed;
+  if (!review.comparison) return null;
+  const { now, before } = review.comparison;
+  // Nothing to celebrate or compare kindly: say nothing rather than "0 tasks".
+  if (now === 0) return null;
   if (Math.abs(now - before) <= 1) return "About the same as last week. Steady is good.";
   const tasks = (n: number) => (n === 1 ? "1 task" : `${n} tasks`);
   return now > before

@@ -527,74 +527,74 @@ export default function HomeScreen() {
             </View>
 
             {rightHasContent && (
-            <View style={twoColumn ? { flex: 1, gap: 14 } : { gap: 14 }}>
+              <View style={twoColumn ? { flex: 1, gap: 14 } : { gap: 14 }}>
 
-              {ideasVisible && (
-                <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
-                  <Pressable
-                    onPress={() => setIdeasOpen(true)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${entry.label}. Opens suggestions`}
-                    className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
-                    style={
-                      entry.prominent
-                        ? { borderColor: colors.primary, backgroundColor: colors.primary }
-                        : { borderColor: colors.border, backgroundColor: colors.surface }
-                    }
-                    testID="need-ideas"
-                  >
-                    <Ionicons
-                      name={source.personalized || entry.prominent ? "sparkles" : "bulb-outline"}
-                      size={18}
-                      color={entry.prominent ? "#fff" : colors.primary}
-                    />
-                    <Text
-                      className="text-base font-semibold"
-                      style={{ color: entry.prominent ? "#fff" : colors.primary }}
+                {ideasVisible && (
+                  <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
+                    <Pressable
+                      onPress={() => setIdeasOpen(true)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${entry.label}. Opens suggestions`}
+                      className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
+                      style={
+                        entry.prominent
+                          ? { borderColor: colors.primary, backgroundColor: colors.primary }
+                          : { borderColor: colors.border, backgroundColor: colors.surface }
+                      }
+                      testID="need-ideas"
                     >
-                      {entry.label}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setBrainDumpOpen(true)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Brain dump. Write everything down and pick today's tasks"
-                    className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
-                    style={{ borderColor: colors.border }}
-                    testID="brain-dump-entry"
-                  >
-                    <Ionicons name="create-outline" size={18} color={colors.primary} />
-                    <Text className="text-base font-semibold" style={{ color: colors.primary }}>
-                      {total === 0 ? "Brain dump everything" : "Brain dump"}
-                    </Text>
-                  </Pressable>
-                </View>
-              )}
-
-              {progress.isPerfect && (
-                <>
-                  <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
-                    <Text className="text-sm font-semibold text-foreground">
-                      {total === MAX_TASKS ? "All three, done." : "Everything you picked is done."}
-                    </Text>
-                    <Text className="text-sm text-muted">
-                      You showed up today. Momentum will use this to shape tomorrow.
-                    </Text>
+                      <Ionicons
+                        name={source.personalized || entry.prominent ? "sparkles" : "bulb-outline"}
+                        size={18}
+                        color={entry.prominent ? "#fff" : colors.primary}
+                      />
+                      <Text
+                        className="text-base font-semibold"
+                        style={{ color: entry.prominent ? "#fff" : colors.primary }}
+                      >
+                        {entry.label}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setBrainDumpOpen(true)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Brain dump. Write everything down and pick today's tasks"
+                      className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
+                      style={{ borderColor: colors.border }}
+                      testID="brain-dump-entry"
+                    >
+                      <Ionicons name="create-outline" size={18} color={colors.primary} />
+                      <Text className="text-base font-semibold" style={{ color: colors.primary }}>
+                        {total === 0 ? "Brain dump everything" : "Brain dump"}
+                      </Text>
+                    </Pressable>
                   </View>
-                  {state.momentumSettings.eveningReflection && (
-                    <CompletionReflection
-                      value={state.todayReflection}
-                      result={state.todayReflectionResult}
-                      onSelectResult={(result) => {
-                        haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-                        setTodayReflectionResult(result);
-                      }}
-                      onSave={setTodayReflection}
-                    />
-                  )}
-                </>
-              )}
-            </View>
+                )}
+
+                {progress.isPerfect && (
+                  <>
+                    <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
+                      <Text className="text-sm font-semibold text-foreground">
+                        {total === MAX_TASKS ? "All three, done." : "Everything you picked is done."}
+                      </Text>
+                      <Text className="text-sm text-muted">
+                        You showed up today. Momentum will use this to shape tomorrow.
+                      </Text>
+                    </View>
+                    {state.momentumSettings.eveningReflection && (
+                      <CompletionReflection
+                        value={state.todayReflection}
+                        result={state.todayReflectionResult}
+                        onSelectResult={(result) => {
+                          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+                          setTodayReflectionResult(result);
+                        }}
+                        onSave={setTodayReflection}
+                      />
+                    )}
+                  </>
+                )}
+              </View>
             )}
           </View>
         </ScrollView>

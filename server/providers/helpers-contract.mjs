@@ -109,6 +109,8 @@ function shorten(text, max) {
 function textItems(list, max, limit) {
   return (Array.isArray(list) ? list : [])
     .filter((item) => item && typeof item === "object" && typeof item.text === "string" && item.text.trim())
+    // An echo of the input isn't a task: drop it rather than shortening it.
+    .filter((item) => item.text.length <= MAX_ECHO_TEXT)
     .slice(0, limit)
     .map((item) => ({
       text: shorten(item.text, max),
