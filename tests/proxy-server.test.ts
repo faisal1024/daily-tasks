@@ -14,7 +14,7 @@ import {
   readConfig,
   secretsMatch,
 } from "../server/app.mjs";
-import { isValidPlan } from "../server/providers/plan-contract.mjs";
+import { isValidPlan, sanitizePlan } from "../server/providers/plan-contract.mjs";
 
 const VALID_PAYLOAD = {
   profile: { goalTitle: "Run a 5K", timeAvailability: "30_min" },
@@ -270,7 +270,7 @@ describe("proxy server", () => {
     const { base } = await start({ env: { PROXY_SHARED_SECRET: "s3cret" } });
     const res = await fetch(`${base}${HEALTH_ROUTE}`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, provider: "fake" });
+    expect(await res.json()).toEqual({ ok: true, provider: "fake", entitlements: "off" });
   });
 
   it("answers CORS preflight and only sends an allow-origin when configured", async () => {
@@ -295,7 +295,7 @@ describe("proxy server", () => {
     const { post, provider } = await start();
     const res = await post();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(VALID_PLAN);
+    expect(await res.json()).toEqual(sanitizePlan(VALID_PLAN));
     expect(provider.generatePlan).toHaveBeenCalledTimes(1);
     const args = provider.generatePlan.mock.calls[0][0];
     expect(args.user).toContain("Run a 5K");

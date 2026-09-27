@@ -38,6 +38,7 @@ import {
   SYSTEM_PROMPT,
   buildPrompt,
   isValidPlan,
+  sanitizePlan,
   validatePayload,
 } from "./providers/plan-contract.mjs";
 
@@ -49,6 +50,8 @@ export const EVENING_ROUTE = "/api/momentum/evening";
 export const ROUTES = {
   [PLAN_ROUTE]: {
     name: "plan",
+    // Plus only (checked server-side when ENTITLEMENT_MODE is on).
+    plusOnly: true,
     system: SYSTEM_PROMPT,
     buildPrompt,
     schema: RESPONSE_SCHEMA,
@@ -56,6 +59,7 @@ export const ROUTES = {
     toolDescription: PLAN_TOOL_DESCRIPTION,
     validatePayload,
     isValidResult: isValidPlan,
+    sanitizeResult: sanitizePlan,
   },
   [BRAIN_DUMP_ROUTE]: {
     name: "brain-dump",
@@ -70,6 +74,8 @@ export const ROUTES = {
   },
   [BREAK_DOWN_ROUTE]: {
     name: "break-down",
+    // Plus only (checked server-side when ENTITLEMENT_MODE is on).
+    plusOnly: true,
     system: BREAK_DOWN_SYSTEM_PROMPT,
     buildPrompt: buildBreakDownPrompt,
     schema: BREAK_DOWN_SCHEMA,
@@ -81,6 +87,8 @@ export const ROUTES = {
   },
   [EVENING_ROUTE]: {
     name: "evening",
+    // Plus only (checked server-side when ENTITLEMENT_MODE is on).
+    plusOnly: true,
     system: EVENING_SYSTEM_PROMPT,
     buildPrompt: buildEveningPrompt,
     schema: EVENING_SCHEMA,

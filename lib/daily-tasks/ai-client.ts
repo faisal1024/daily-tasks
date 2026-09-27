@@ -6,6 +6,32 @@ import { MomentumAiError, kindForStatus } from "./ai-status";
 
 /** Header the proxy checks when PROXY_SHARED_SECRET is set server-side. */
 export const PROXY_SECRET_HEADER = "x-momentum-secret";
+/** Anonymous RevenueCat id, so the proxy can check Plus and limit per user. */
+export const PROXY_USER_HEADER = "x-rc-user";
+
+let proxyUserId: string | null = null;
+// The id lookup in flight, if any (null once it's done or never started).
+let proxyUserIdPending: Promise<unknown> | null = null;
+let grandfathered = false;
+/** Set by purchases.ts once RevenueCat has its (anonymous) app user id. */
+export function setProxyUserId(id: string | null): void {
+  proxyUserId = id && id.length <= 100 ? id : null;
+}
+/** purchases.ts hands over the pending id lookup so the first request can wait for it. */
+export function setProxyUserIdPending(pending: Promise<unknown>): void {
+  proxyUserIdPending = pending;
+  void pending.finally(() => {
+    if (proxyUserIdPending === pending) proxyUserIdPending = null;
+  });
+}
+/**
+ * Early supporters have Plus on the device but not in RevenueCat: they send
+ * no id, which the server allows (see ENTITLEMENT_REQUIRE_ID in the docs).
+ */
+export function setProxyGrandfathered(value: boolean): void {
+  grandfathered = value;
+}
+const ID_WAIT_MS = 1_000;
 
 /**
  * Long enough to ride out a Render free-tier cold start (~30–60s) plus a model
@@ -28,7 +54,7 @@ export function getMomentumProxySecret(): string | null {
   return secret ? secret : null;
 }
 
-export type ProxyRoute = "plan" | "brain-dump" | "break-down" | "evening";
+export type ProxyRoute = "plan" | "brain-dump" | "break-down" | "evening" | "grandfather";
 
 /**
  * URL for another route on the same proxy. The configured URL points at the
@@ -63,6 +89,18 @@ export async function postToProxy({
 }): Promise<Record<string, unknown>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (proxySecret) headers[PROXY_SECRET_HEADER] = proxySecret;
+  // A request at launch may beat the id lookup: wait briefly for it.
+  if (!proxyUserId && !grandfathered && proxyUserIdPending) {
+    let waitTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      proxyUserIdPending,
+      new Promise((resolve) => {
+        waitTimer = setTimeout(resolve, ID_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(waitTimer);
+  }
+  if (proxyUserId && !grandfathered) headers[PROXY_USER_HEADER] = proxyUserId;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -105,6 +143,54 @@ export async function postToProxy({
       "network",
       error instanceof Error ? error.message : "AI network error.",
     );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Early supporters: ask the proxy once to turn their on-device Plus into a
+ * lifetime Plus in RevenueCat, so they can send their id like everyone else.
+ * "granted" | "closed" (window over: stop asking) | "retry" (next launch).
+ */
+export async function requestSupporterGrant({
+  planUrl = getMomentumAiProxyUrl(),
+  proxySecret = getMomentumProxySecret(),
+  fetchImpl = fetch,
+}: {
+  planUrl?: string | null;
+  proxySecret?: string | null;
+  fetchImpl?: typeof fetch;
+} = {}): Promise<"granted" | "closed" | "retry"> {
+  const url = proxyRouteUrl(planUrl, "grandfather");
+  if (proxyUserIdPending && !proxyUserId) {
+    let waitTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      proxyUserIdPending.catch(() => {}),
+      new Promise((resolve) => {
+        waitTimer = setTimeout(resolve, 5_000);
+      }),
+    ]);
+    clearTimeout(waitTimer);
+  }
+  if (!url || !proxyUserId || !proxySecret) return "retry";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [PROXY_SECRET_HEADER]: proxySecret,
+        [PROXY_USER_HEADER]: proxyUserId,
+      },
+      body: "{}",
+      signal: controller.signal,
+    });
+    if (response.ok) return "granted";
+    return response.status === 403 ? "closed" : "retry";
+  } catch {
+    return "retry";
   } finally {
     clearTimeout(timer);
   }

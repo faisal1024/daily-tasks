@@ -79,6 +79,100 @@ A `render.yaml` blueprint is included.
 Note: Render's free plan sleeps on idle, so the first request after a quiet
 period has a cold-start delay. Use a paid instance to avoid that.
 
+### Cloudflare Workers (planned home: free, no cold starts)
+
+`server/worker.mjs` runs the same routes as the Node server (both use
+`server/handler.mjs`). Limits live in one Durable Object (`Limits`): per-minute
+counts in memory, daily counts in its storage (they survive restarts).
+
+**First deploy** (free Cloudflare account needed), from the repo:
+
+```sh
+cd server
+npx wrangler@4 login
+npx wrangler@4 deploy            # first time: pick a workers.dev subdomain when asked
+npx wrangler@4 secret put ANTHROPIC_API_KEY      # console.anthropic.com → API keys
+npx wrangler@4 secret put PROXY_SHARED_SECRET    # the SAME value as on Render and as EAS EXPO_PUBLIC_MOMENTUM_PROXY_SECRET
+curl https://three-today-ai.<your-subdomain>.workers.dev/health   # expect {"ok":true,"provider":"anthropic","entitlements":"off"}
+npx wrangler@4 tail              # live logs (also in the dashboard: observability is on)
+```
+
+**Settings live in `server/wrangler.toml`.** Change them there and run
+`npx wrangler@4 deploy` again. A value changed only in the Cloudflare dashboard
+is overwritten by the next deploy.
+
+**Moving the app over (keep Render running):**
+1. In EAS, set the proxy URL for the next build:
+   `eas env:create --name EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL --environment production --visibility plaintext --value https://three-today-ai.<your-subdomain>.workers.dev/api/momentum/plan`
+2. Build, test on TestFlight, then release that version on the App Store.
+3. **Keep Render running.** Every build already on people's phones still
+   calls Render. Only when Render's logs show almost no traffic (most people
+   have updated) suspend the Render service. Suspend, don't delete, so it can
+   be switched back on.
+
+Local try-out without an account: `cd server && npx wrangler@4 dev --local`.
+The client IP comes from `CF-Connecting-IP` (no `TRUST_PROXY_HOPS` needed).
+
+### Plus check (all hosts)
+
+The app (paywall builds) sends RevenueCat's anonymous app user id as
+`x-rc-user`. The server asks RevenueCat whether Plus is active and caches the
+answer (Plus: 1 hour; not Plus: 1 minute, and Plus routes always re-check a
+"not Plus" answer so a new subscriber is never refused). Plan, break-down and
+evening are Plus-only (**402** when refused); brain dumps stay open to free
+users up to `FREE_BRAIN_DUMPS_PER_DAY` per user (and 3× that per network).
+If RevenueCat can't answer (down, rate-limited, or our key is wrong) requests
+are allowed for a moment and a warning is logged: paying users are never
+locked out by an outage.
+
+Requests **without** an id (older app versions, and early supporters before
+their grant, below) are allowed, share one daily ceiling (`NO_ID_DAILY_LIMIT`,
+250), and are counted in the logs as "without an app user id".
+**Until `ENTITLEMENT_REQUIRE_ID=1`, `enforce` only refuses requests that carry
+a non-Plus id**: a client that leaves the id out is limited only by the
+per-network, no-id and global caps.
+
+**Early supporters** have Plus for free on their device but not in RevenueCat.
+On a paywall build their install asks the proxy once
+(`POST /api/momentum/grandfather`, needs the shared secret) to grant it a
+lifetime promotional Plus in RevenueCat; after that it sends its id. The
+proxy only grants while `GRANDFATHER_GRANTS_UNTIL` (a date, e.g. `2026-12-31`)
+is in the future, at most 3 per network per day. Keep the window open for a
+few weeks after the paywall release, then let it close. Trade-off: the server
+can't prove a caller was an early supporter (the shared secret ships in the
+app), so while the window is open someone who extracts it could claim Plus
+for made-up ids, a few per network per day. A short window keeps that small.
+
+**Don't set `ENTITLEMENT_REQUIRE_ID=1` until** the grant window has closed and
+the "without an app user id" count in the logs is close to zero; setting it
+earlier refuses supporters who haven't updated yet.
+
+**Turning it on, step by step:**
+0. With the paywall release, set `GRANDFATHER_GRANTS_UNTIL` a few weeks out
+   (a key is needed for grants; step 1).
+1. RevenueCat → Project settings → API keys → create a **V1 secret key**
+   (starts `sk_`). Set it on the host: Render dashboard `REVENUECAT_SECRET_KEY`,
+   or `npx wrangler@4 secret put REVENUECAT_SECRET_KEY`.
+   (With a mode set but no key, the check stays off and a warning is logged.)
+2. App Store Connect → App → App Information → App Store Server Notifications:
+   paste RevenueCat's URL (RevenueCat → App settings → Apple Server
+   Notifications), so renewals reach RevenueCat right away.
+3. Set `ENTITLEMENT_MODE=log` and deploy. Watch the logs for about a week:
+   "from an id without Plus on a Plus route" should be close to zero, and
+   `/health` should say `"entitlements":"log"`.
+4. Set `ENTITLEMENT_MODE=enforce` and deploy. If support messages or 402s
+   jump, set it back to `log`.
+
+### Cost guard (Anthropic)
+
+In console.anthropic.com → Settings → Limits, set a monthly spend limit and
+email alerts at 50% and 80%. `GLOBAL_DAILY_LIMIT` (500 by default here, about
+$2/day on Haiku) keeps one bad day from using the whole month; that's roughly
+100–150 active users, so raise it as usage grows (about $0.004 per call).
+`DAILY_LIMIT_PER_CLIENT` (40) means a handful of networks can't use it all. If the provider
+refuses for credit or quota, the app gets the calm "taking a break for today"
+message.
+
 ### Any other host
 
 1. Deploy `server/` (entry: `server/momentum-proxy.mjs`, Node 18+).
@@ -179,12 +273,19 @@ user's own tasks.
   own network, and check `resolvedClientIp` is your public IP. If it shows a
   Render/edge address, raise `TRUST_PROXY_HOPS` until it's correct. Then unset
   `DEBUG_CLIENT_IP`.
-- Limits (0 disables one), all fixed windows keyed on the client IP:
+- Limits (0 disables one), fixed windows keyed on the client network (IP; IPv6
+  by /64) and, when the app sends its id, on the user too:
   | Env var | Default | Response when hit |
   |---|---|---|
   | `RATE_LIMIT_PER_MIN` | 30 | 429, `Retry-After: 60` |
-  | `DAILY_LIMIT_PER_CLIENT` | 200 | 429, `Retry-After: 3600` |
-  | `GLOBAL_DAILY_LIMIT` | 5000 | 503 for everyone (spend circuit breaker) |
+  | `DAILY_LIMIT_PER_CLIENT` | 200 in code; 40 in `render.yaml`/`wrangler.toml` | 429, `Retry-After: 3600` |
+  | `GLOBAL_DAILY_LIMIT` | 5000 in code; 500 in `render.yaml`/`wrangler.toml` | 503 for everyone (spend circuit breaker) |
+  | `FREE_BRAIN_DUMPS_PER_DAY` | 8 (0 = no free AI) | 402 "Free limit reached" (enforce only) |
+  | `ENTITLEMENT_MODE` | off | `log` counts, `enforce` answers 402 on Plus routes |
+  | `REVENUECAT_SECRET_KEY` | unset | needed for `log`/`enforce` (V1 secret key) |
+  | `ENTITLEMENT_REQUIRE_ID` | unset | `1` = requests without an app user id count as free (see "Early supporters") |
+  | `NO_ID_DAILY_LIMIT` | 250 | shared daily ceiling for requests without an id (enforce: 402) |
+  | `GRANDFATHER_GRANTS_UNTIL` | unset (closed) | date until which early supporters can claim lifetime Plus |
 - `TRUST_PROXY_HOPS` (default 0 = trust no forwarding header; Render needs 1) picks the client IP from the right of
   `X-Forwarded-For`, so a client can't dodge limits by sending its own header.
 - Daily limits reset at **UTC midnight**, not the user's local midnight.

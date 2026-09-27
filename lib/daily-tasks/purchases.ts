@@ -10,6 +10,7 @@
 
 import { Platform } from "react-native";
 
+import { setProxyUserId, setProxyUserIdPending } from "./ai-client";
 import { freeTrialDays, planKind, PLUS_ENTITLEMENT, type PlusPackage } from "./plus";
 
 type PurchasesModule = typeof import("react-native-purchases");
@@ -53,7 +54,23 @@ export function configurePurchases(): boolean {
   } catch {
     return false;
   }
+  // The proxy checks Plus by this anonymous id (never a name or email).
+  // Separate from configure: a failure here must not turn the paywall off.
+  refreshProxyUserId(sdk);
   return configured;
+}
+
+/** (Re)read RevenueCat's anonymous id for the proxy (at launch, after purchase/restore). */
+function refreshProxyUserId(sdk: PurchasesModule | null = loadSdk()): void {
+  if (!configured || !sdk) return;
+  try {
+    const pending = Promise.resolve(sdk.default.getAppUserID())
+      .then((id) => setProxyUserId(typeof id === "string" ? id : null))
+      .catch(() => {});
+    setProxyUserIdPending(pending);
+  } catch {
+    // No id this launch: requests go without it (per-IP limits only).
+  }
 }
 
 export function isPlusActive(info: SdkCustomerInfo | null | undefined): boolean {
@@ -184,6 +201,7 @@ export async function purchase(packageId: string): Promise<{ outcome: PurchaseOu
   if (!configured || !sdk || !pkg) return { outcome: "failed", active: false };
   try {
     const { customerInfo } = await sdk.default.purchasePackage(pkg);
+    refreshProxyUserId(sdk);
     const active = isPlusActive(customerInfo);
     // A completed transaction without the entitlement is a dashboard
     // misconfiguration, not Ask to Buy (that arrives as error "20").
@@ -203,7 +221,10 @@ export async function restore(): Promise<boolean | null> {
   const sdk = loadSdk();
   if (!configured || !sdk) return null;
   try {
-    return isPlusActive(await sdk.default.restorePurchases());
+    const info = await sdk.default.restorePurchases();
+    // A restore can move this install to the purchaser's RevenueCat id.
+    refreshProxyUserId(sdk);
+    return isPlusActive(info);
   } catch {
     return null;
   }

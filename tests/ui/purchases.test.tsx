@@ -7,6 +7,7 @@ import {
   loadPackages,
   onPlusStatusChange,
   purchase,
+  restore,
 } from "@/lib/daily-tasks/purchases";
 
 const mockSdk = {
@@ -20,6 +21,17 @@ const mockSdk = {
   removeCustomerInfoUpdateListener: jest.fn(),
 };
 jest.mock("react-native-purchases", () => ({ __esModule: true, default: mockSdk }));
+
+const mockSetProxyUserId = jest.fn();
+const mockSetProxyUserIdPending = jest.fn();
+jest.mock("@/lib/daily-tasks/ai-client", () => ({
+  ...jest.requireActual("@/lib/daily-tasks/ai-client"),
+  setProxyUserId: (id: string | null) => mockSetProxyUserId(id),
+  setProxyUserIdPending: (p: Promise<unknown>) => mockSetProxyUserIdPending(p),
+}));
+// Optional on the SDK mock so tests can remove it (older native builds).
+const sdkWithId = mockSdk as typeof mockSdk & { getAppUserID?: jest.Mock };
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const ANNUAL = {
   identifier: "$rc_annual",
@@ -134,5 +146,69 @@ describe("purchases", () => {
     expect(listener).toHaveBeenCalledWith({ active: true, trialEndsAt: null, lapsedAt: null });
     off();
     expect(mockSdk.removeCustomerInfoUpdateListener).toHaveBeenCalledWith(handler);
+  });
+
+  describe("proxy user id", () => {
+    beforeEach(() => {
+      process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+    });
+    afterEach(() => {
+      delete sdkWithId.getAppUserID;
+    });
+
+    it("hands the anonymous RevenueCat id to the proxy client", async () => {
+      sdkWithId.getAppUserID = jest.fn().mockResolvedValue("$RCAnonymousID:abc");
+      expect(configurePurchases()).toBe(true);
+      await flush();
+      expect(mockSetProxyUserId).toHaveBeenCalledWith("$RCAnonymousID:abc");
+    });
+
+    it("still configures when getAppUserID is missing", async () => {
+      expect(configurePurchases()).toBe(true);
+      await flush();
+      expect(mockSetProxyUserId).not.toHaveBeenCalled();
+    });
+
+    it("still configures when getAppUserID throws or rejects", async () => {
+      sdkWithId.getAppUserID = jest.fn(() => {
+        throw new Error("native crash");
+      });
+      expect(configurePurchases()).toBe(true);
+      __resetPurchasesForTests();
+      sdkWithId.getAppUserID = jest.fn().mockRejectedValue(new Error("offline"));
+      expect(configurePurchases()).toBe(true);
+      await flush();
+      expect(mockSetProxyUserId).not.toHaveBeenCalled();
+    });
+
+    it("re-reads the id after a purchase and after a restore (the id can change)", async () => {
+      sdkWithId.getAppUserID = jest.fn().mockResolvedValue("$RCAnonymousID:first");
+      await configuredWithAnnual();
+      await flush();
+      sdkWithId.getAppUserID.mockResolvedValue("$RCAnonymousID:after-purchase");
+      mockSdk.purchasePackage.mockResolvedValue({ customerInfo: ACTIVE });
+      await purchase("$rc_annual");
+      await flush();
+      expect(mockSetProxyUserId).toHaveBeenLastCalledWith("$RCAnonymousID:after-purchase");
+      sdkWithId.getAppUserID.mockResolvedValue("$RCAnonymousID:restored");
+      mockSdk.restorePurchases.mockResolvedValue(ACTIVE);
+      expect(await restore()).toBe(true);
+      await flush();
+      expect(mockSetProxyUserId).toHaveBeenLastCalledWith("$RCAnonymousID:restored");
+      expect(sdkWithId.getAppUserID).toHaveBeenCalledTimes(3);
+    });
+
+    it("hands the pending lookup to the proxy client so the first request can wait", async () => {
+      sdkWithId.getAppUserID = jest.fn().mockResolvedValue("$RCAnonymousID:abc");
+      configurePurchases();
+      expect(mockSetProxyUserIdPending).toHaveBeenCalledWith(expect.any(Promise));
+    });
+
+    it("sends no id when the SDK returns a non-string", async () => {
+      sdkWithId.getAppUserID = jest.fn().mockResolvedValue(undefined);
+      configurePurchases();
+      await flush();
+      expect(mockSetProxyUserId).toHaveBeenCalledWith(null);
+    });
   });
 });

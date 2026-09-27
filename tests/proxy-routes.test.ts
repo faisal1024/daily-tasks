@@ -48,6 +48,7 @@ import {
   PLAN_TOOL_NAME,
   RESPONSE_SCHEMA,
   SYSTEM_PROMPT,
+  sanitizePlan,
 } from "../server/providers/plan-contract.mjs";
 
 const PLAN_PAYLOAD = {
@@ -214,7 +215,8 @@ describe("helper routes over HTTP", () => {
     const { post, provider } = await start();
     const res = await post(PLAN_ROUTE);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(PLAN_RESULT);
+    // The plan is sanitised now: ids/source/completedAt from the model are dropped.
+    expect(await res.json()).toEqual(sanitizePlan(PLAN_RESULT));
     expect(provider.generatePlan.mock.calls[0][0]).toMatchObject({
       system: SYSTEM_PROMPT,
       schema: RESPONSE_SCHEMA,
@@ -228,7 +230,6 @@ describe("helper routes over HTTP", () => {
     for (const route of [
       "/api/momentum/brain-dumps",
       "/api/momentum/break-down/",
-      "/api/momentum/break-down?x=1",
       "/api/momentum/BREAK-DOWN",
       "/api/momentum",
       "/api/momentum/constructor",
@@ -240,6 +241,11 @@ describe("helper routes over HTTP", () => {
     expect((await post(BRAIN_DUMP_ROUTE, undefined, {}, "GET")).status).toBe(404);
     expect((await post(BREAK_DOWN_ROUTE, undefined, {}, "PUT")).status).toBe(404);
     expect(provider.generatePlan).not.toHaveBeenCalled();
+  });
+
+  it("matches routes on the path only, ignoring a query string", async () => {
+    const { post } = await start();
+    expect((await post(`${BREAK_DOWN_ROUTE}?x=1`, BREAK_PAYLOAD)).status).toBe(200);
   });
 
   it("validates each route's payload with its own validator (a plan payload isn't a brain dump)", async () => {

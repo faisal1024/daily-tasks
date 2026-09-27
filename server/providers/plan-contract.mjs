@@ -14,14 +14,13 @@ export function generatedTaskSchema() {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["id", "text", "estimatedMinutes", "difficulty", "reason", "source"],
+    // Only what the app reads: it assigns ids and the source itself.
+    required: ["text", "estimatedMinutes", "difficulty", "reason"],
     properties: {
-      id: { type: "string" },
       text: { type: "string" },
       estimatedMinutes: { type: "integer", minimum: 5, maximum: 60 },
       difficulty: { type: "string", enum: ["easy", "medium", "stretch"] },
       reason: { type: "string" },
-      source: { type: "string", enum: ["ai"] },
     },
   };
 }
@@ -38,12 +37,11 @@ export const RESPONSE_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "title", "description", "completedAt"],
+        // The app gives milestones stable ids and owns completion.
+        required: ["title", "description"],
         properties: {
-          id: { type: "string" },
           title: { type: "string" },
           description: { type: "string" },
-          completedAt: { type: ["string", "null"] },
         },
       },
     },
@@ -68,6 +66,19 @@ export const PLAN_TOOL_DESCRIPTION =
   "Return the structured Momentum plan: three milestones, exactly three " +
   "todaySuggestions, and a task pool. Call this tool with the plan as input.";
 
+// One short example per tone, so "calm" / "friendly" / "direct" read differently.
+// Voice only: the activity in the example is never meant to be reused.
+const TONE_EXAMPLES = {
+  calm: 'voice only, e.g. "Sketch the outline for section one", reason "A small, steady start is enough today."',
+  friendly: 'voice only, e.g. "Knock out the outline for section one", reason "Nice quick win to get rolling!"',
+  direct: 'voice only, e.g. "Outline section one.", reason "Unblocks the rest."',
+};
+export const TONES = Object.keys(TONE_EXAMPLES);
+
+export function toneExample(tone) {
+  return Object.prototype.hasOwnProperty.call(TONE_EXAMPLES, tone) ? TONE_EXAMPLES[tone] : TONE_EXAMPLES.calm;
+}
+
 export function buildPrompt(payload) {
   return [
     "Create a Momentum plan for a daily app limited to exactly three tasks per day.",
@@ -78,7 +89,8 @@ export function buildPrompt(payload) {
     `Why it matters to them: ${payload.profile.motivation ?? "not shared"}`,
     `Best time of day: ${payload.profile.preferredTime ?? "any"}`,
     `Commitment cadence: ${payload.profile.cadence ?? "flexible"}`,
-    `Suggestion tone: ${payload.settings.suggestionTone}`,
+    `Suggestion tone: ${payload.settings.suggestionTone} (${toneExample(payload.settings.suggestionTone)})`,
+    "The tone example shows voice only; never reuse its activity. Tasks must come from the goal and recent tasks.",
     `Adaptive planning enabled: ${payload.settings.adaptivePlanning}`,
     `Recent completion: ${payload.recentPerformance.completed}/${payload.recentPerformance.total} tasks across ${payload.recentPerformance.daysReviewed} active days`,
     `Recent missed tasks: ${payload.recentPerformance.missed}`,
@@ -114,11 +126,33 @@ export function validatePayload(payload) {
   const { profile, settings, recentPerformance } = payload;
   if (!profile || typeof profile.goalTitle !== "string") return "Missing profile";
   if (!settings || typeof settings.suggestionTone !== "string") return "Missing settings";
+  if (!TONES.includes(settings.suggestionTone)) return "Invalid settings";
   if (!recentPerformance || typeof recentPerformance.completed !== "number") {
     return "Missing recent performance";
   }
   if (!isValidAgenda(payload.agenda)) return "Invalid agenda";
   return null;
+}
+
+const str = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");
+function cleanTask(task) {
+  return {
+    text: str(task?.text, 200),
+    estimatedMinutes: Number.isInteger(task?.estimatedMinutes) ? task.estimatedMinutes : null,
+    difficulty: str(task?.difficulty, 16),
+    reason: str(task?.reason, 300),
+  };
+}
+
+/** Rebuild the plan from the fields the app reads (never raw model output). */
+export function sanitizePlan(plan) {
+  return {
+    milestones: (Array.isArray(plan?.milestones) ? plan.milestones : [])
+      .slice(0, 3)
+      .map((m) => ({ title: str(m?.title, 120), description: str(m?.description, 300) })),
+    todaySuggestions: (Array.isArray(plan?.todaySuggestions) ? plan.todaySuggestions : []).slice(0, 3).map(cleanTask),
+    taskPool: (Array.isArray(plan?.taskPool) ? plan.taskPool : []).slice(0, 6).map(cleanTask),
+  };
 }
 
 /** Lightweight shape check on a provider's returned plan before sending it on. */

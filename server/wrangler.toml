@@ -1,0 +1,34 @@
+# Cloudflare Workers deploy for the AI proxy (Phase 11). Not deployed yet:
+# needs a Cloudflare account. See docs/momentum-ai-proxy.md → "Cloudflare Workers".
+name = "three-today-ai"
+main = "worker.mjs"
+compatibility_date = "2025-09-01"
+# node:crypto for the secret check, and process.env for the provider adapters.
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+MOMENTUM_AI_PROVIDER = "anthropic"
+ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+RATE_LIMIT_PER_MIN = "30"
+DAILY_LIMIT_PER_CLIENT = "40"
+GLOBAL_DAILY_LIMIT = "500"
+FREE_BRAIN_DUMPS_PER_DAY = "8"
+# "log" first to measure, then "enforce" once builds send the secret.
+SECRET_MODE = "log"
+# "off" until the paywall is live; then "log", then "enforce" (see the docs).
+ENTITLEMENT_MODE = "off"
+# Change settings here and redeploy: dashboard edits are overwritten on deploy.
+# Secrets (set with `wrangler secret put <NAME>`, never here):
+#   ANTHROPIC_API_KEY, PROXY_SHARED_SECRET, REVENUECAT_SECRET_KEY
+
+[[durable_objects.bindings]]
+name = "LIMITS"
+class_name = "Limits"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Limits"]
+
+# Logs and request metrics in the Cloudflare dashboard (free).
+[observability]
+enabled = true

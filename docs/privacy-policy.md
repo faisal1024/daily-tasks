@@ -1,6 +1,6 @@
 # Privacy Policy — Daily Tasks
 
-**Effective date: 30 September 2026 (last updated for free AI brain dumps)**
+**Effective date: 30 September 2026 (last updated for free AI brain dumps and the anonymous purchase ID)**
 
 <!-- Keep in sync with the published copy (gist a43d6373453761af70d495d640e38ffa,
      privacy-policy.html), which App Store Connect links to. The app links here. -->
@@ -33,7 +33,11 @@ Four optional features use an AI model. When you use them, the app sends a reque
 
 **Coach memory.** After an evening check-in, the AI writes a short summary of patterns worth remembering (for example which kinds of tasks you tend to finish). It is stored on your device, is sent with goal-based suggestion and evening check-in requests so the coach can build on it, and is never stored on our server. "Reset all data" in Settings deletes it.
 
-These requests do **not** include your name, an account, a device identifier, advertising identifier, contact details, or location. Our server does not store them; it forwards each request to the AI provider and returns the result to your device. The AI provider processes the request to generate a response and may retain it for a limited period under its own API data policies (for example, for abuse and safety monitoring); it does not use this data to train its models. If an AI response is malformed, our server may record which fields it contained (not their content) in a short-lived error log for debugging.
+These requests do **not** include your name, an account, an advertising identifier, contact details, or location.
+
+In versions of the app that offer Plus, each request also includes the anonymous app user ID that RevenueCat created on your device (see Purchases). Our server uses it only to ask RevenueCat whether Plus is active (and, if you had Plus for free as an early supporter, to record that with RevenueCat) and to apply fair-use limits. It is not sent to the AI provider and isn't linked to your name or Apple ID; for the limits, our server keeps only a one-way hash of it, for about a day.
+
+Our server does not store the requests themselves; it forwards each request to the AI provider and returns the result to your device. The AI provider processes the request to generate a response and may retain it for a limited period under its own API data policies (for example, for abuse and safety monitoring); it does not use this data to train its models. If an AI response is malformed, our server may record which fields it contained (not their content) in a short-lived error log for debugging.
 
 This data is used only to provide these features inside the app. It is not linked to your identity, not used for advertising, and not sold or shared for any other purpose. If our server can't be reached, suggestions and brain dump fall back to simple on-device versions. Please don't include sensitive personal information (such as health, financial or account details) in a brain dump or task title.
 

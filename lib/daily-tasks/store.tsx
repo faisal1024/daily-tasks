@@ -86,6 +86,8 @@ import { computeDayStreak } from "./streaks";
 import type { EveningClose } from "./evening";
 import { draftForNotification, draftForTomorrow } from "./evening";
 import { readTodayAgenda } from "./agenda";
+import { readSupporterGrant, writeSupporterGrant } from "./supporter-grant";
+import { requestSupporterGrant, setProxyGrandfathered } from "./ai-client";
 import {
   invalidateWidgetSnapshot,
   markWidgetTogglesProcessed,
@@ -848,6 +850,32 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // Until RevenueCat answers, don't gate: a subscriber must never be shown the
   // paywall (or a downgraded feature) just because the check is still running.
   const plusPending = plus.paywallEnabled && !plus.entitlementKnown && !state.plusGrandfathered;
+  // Early supporters have Plus here but not in RevenueCat: the AI proxy
+  // allows requests without an id, so theirs don't send one.
+  useEffect(() => {
+    setProxyGrandfathered(state.plusGrandfathered);
+  }, [state.plusGrandfathered]);
+  // ...and once, on a paywall build, they claim lifetime Plus in RevenueCat;
+  // after that they send their id like everyone else.
+  useEffect(() => {
+    if (!ready || !state.plusGrandfathered || !plus.paywallEnabled) return;
+    let live = true;
+    void (async () => {
+      const previous = await readSupporterGrant();
+      if (previous === "granted") {
+        setProxyGrandfathered(false);
+        return;
+      }
+      if (previous === "closed") return;
+      const result = await requestSupporterGrant();
+      if (!live) return;
+      if (result !== "retry") await writeSupporterGrant(result);
+      if (result === "granted") setProxyGrandfathered(false);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [ready, state.plusGrandfathered, plus.paywallEnabled]);
   const hasPlus = plusConfirmed || plusPending;
 
   useEffect(() => {

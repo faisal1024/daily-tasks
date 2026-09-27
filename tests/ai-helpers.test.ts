@@ -389,6 +389,7 @@ describe("breakDownFailureMessage", () => {
   it("reuses the shared copy for limits and auth", () => {
     expect(breakDownFailureMessage("rate_limited")).toBe(aiFailureMessage("rate_limited"));
     expect(breakDownFailureMessage("unauthorized")).toBe(aiFailureMessage("unauthorized"));
+    expect(breakDownFailureMessage("needs_plus")).toBe(aiFailureMessage("needs_plus"));
   });
 
   it("has step-specific copy for the daily cap", () => {
