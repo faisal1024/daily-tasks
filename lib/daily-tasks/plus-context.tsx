@@ -155,6 +155,8 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
         if (reopenTimer.current) clearTimeout(reopenTimer.current);
         reopenTimer.current = setTimeout(() => {
           reopenTimer.current = null;
+          // Something else opened in the 60 ms gap: let that one stand.
+          if (sourceRef.current) return;
           sourceRef.current = source;
           shownRef.current = false;
           openedAt.current = Date.now();
@@ -171,7 +173,9 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     [paywallEnabled],
   );
 
-  // Called from the sheet's onShow and its first layout (either proves it's up).
+  // Only the Modal's onShow proves iOS presented it (onLayout fires even when
+  // presentation was refused). If onShow never came, the only cost is a later
+  // open replacing the request; nothing can be opened while one is visible.
   const markPaywallShown = useCallback(() => {
     if (!sourceRef.current || shownRef.current) return;
     shownRef.current = true;
@@ -185,6 +189,8 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     shownRef.current = false;
     setPaywallSource(null);
   }, []);
+  const closePaywallRef = useRef(closePaywall);
+  closePaywallRef.current = closePaywall;
 
   const purchase = useCallback(async (pkg: PlusPackage): Promise<PurchaseOutcome> => {
     // RevenueCat rejects a second purchase while one is running.
@@ -201,7 +207,11 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       setEntitlementActive(true);
       setEntitlementAnswered(true);
     }
-    if (result.outcome === "purchased") setPurchaseCount((count) => count + 1);
+    if (result.outcome === "purchased") {
+      setPurchaseCount((count) => count + 1);
+      // Also covers a paywall reopened while this purchase was running.
+      closePaywallRef.current();
+    }
     track(result.outcome === "purchased" ? "purchase_completed" : "purchase_failed", {
       plan: pkg.kind,
       source,

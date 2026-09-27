@@ -158,12 +158,7 @@ export function PaywallSheet({
       animationType="slide"
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
     >
-      <View
-        style={{ flex: 1, backgroundColor: colors.background }}
-        testID="paywall-sheet"
-        // A second "it's on screen" signal in case onShow is late or missing.
-        onLayout={onShown}
-      >
+      <View style={{ flex: 1, backgroundColor: colors.background }} testID="paywall-sheet">
         <View
           className="flex-row justify-end px-5"
           style={{ paddingTop: Platform.OS === "ios" ? 16 : insets.top + 12 }}
