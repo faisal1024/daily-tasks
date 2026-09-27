@@ -442,7 +442,7 @@ export default function SettingsScreen() {
         <Section
           icon="list-outline"
           title="Today's Three"
-          subtitle="Review or finish the focus commitments you chose."
+          subtitle="Review or finish the tasks you chose for today."
         >
           <View className="gap-3">
             {state.tasks.length > 0 && (
@@ -467,7 +467,7 @@ export default function SettingsScreen() {
             )}
             {state.tasks.length === 0 ? (
               <Text className="text-sm text-muted">
-                No focus commitments yet — choose them on the Today tab.
+                No tasks yet. Choose them on the Today tab.
               </Text>
             ) : (
               state.tasks.map((task) => (
@@ -615,7 +615,11 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        <Section icon="folder-outline" title="Data" subtitle="Stored only on this device.">
+        <Section
+          icon="folder-outline"
+          title="Data"
+          subtitle="Your tasks and history are saved on this device, not in an account."
+        >
           {getPostHogKey() !== null && (
             <View className="bg-surface rounded-2xl p-4 border border-border flex-row items-center justify-between gap-4">
               <View className="flex-1">
@@ -653,7 +657,7 @@ export default function SettingsScreen() {
                 Reset all data
               </Text>
               <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                Clears focus commitments, history, and reminder settings.
+                Clears your tasks, history and settings on this device.
               </Text>
             </View>
           </Pressable>
