@@ -8,13 +8,17 @@ import http from "node:http";
 import { Buffer } from "node:buffer";
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import { ROUTES } from "./routes.mjs";
+import { createEntitlements } from "./entitlements.mjs";
+import {
+  BodyTooLargeError,
+  MAX_BODY_BYTES,
+  SECRET_HEADER,
+  USER_HEADER,
+  createHandler,
+} from "./handler.mjs";
 
 export { BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, EVENING_ROUTE, PLAN_ROUTE, ROUTES } from "./routes.mjs";
-export const HEALTH_ROUTE = "/health";
-export const SECRET_HEADER = "x-momentum-secret";
-export const DEBUG_IP_ROUTE = "/debug/client-ip";
-export const MAX_BODY_BYTES = 20_000;
+export { DEBUG_IP_ROUTE, HEALTH_ROUTE, MAX_BODY_BYTES, SECRET_HEADER, USER_HEADER } from "./handler.mjs";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -48,6 +52,14 @@ export function readConfig(env = {}) {
     // spoof by prepending values. Defaults to 0 (trust nothing) so a server with
     // no proxy in front can't be fooled; render.yaml sets 1.
     trustProxyHops: positiveInt(env.TRUST_PROXY_HOPS, 0),
+    // Server-side Plus check (RevenueCat). "off" until the paywall is live;
+    // "log" counts would-be denials; "enforce" answers 402.
+    entitlementMode:
+      env.ENTITLEMENT_MODE === "enforce" || env.ENTITLEMENT_MODE === "log" ? env.ENTITLEMENT_MODE : "off",
+    revenueCatSecretKey: env.REVENUECAT_SECRET_KEY ?? "",
+    // Free users' AI brain dumps per day (the app gives 3 in total; this is
+    // only a server-side ceiling).
+    freeBrainDumpsPerDay: positiveInt(env.FREE_BRAIN_DUMPS_PER_DAY, 5),
   };
 }
 
@@ -139,8 +151,6 @@ export function createRateLimiter({
   };
 }
 
-class BodyTooLargeError extends Error {}
-
 function readJson(req, maxBytes) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -177,11 +187,6 @@ function readJson(req, maxBytes) {
   });
 }
 
-function rejectTooLarge(req, res) {
-  sendJson(res, 413, { error: "Request body too large" }, { Connection: "close" });
-  res.on("finish", () => req.destroy());
-}
-
 function sendJson(res, status, body, headers = {}) {
   if (res.headersSent) return;
   res.writeHead(status, { "Content-Type": "application/json", ...headers });
@@ -194,14 +199,7 @@ function setCorsHeaders(res, corsOrigin) {
     res.setHeader("Access-Control-Allow-Origin", corsOrigin);
   }
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", `Content-Type, ${SECRET_HEADER}`);
-}
-
-function summarizeForLog(value) {
-  // Never log full AI output (it can echo user task titles); keep enough shape
-  // to debug a malformed response.
-  if (!value || typeof value !== "object") return String(value);
-  return JSON.stringify(Object.keys(value));
+  res.setHeader("Access-Control-Allow-Headers", `Content-Type, ${SECRET_HEADER}, ${USER_HEADER}`);
 }
 
 /**
@@ -210,159 +208,60 @@ function summarizeForLog(value) {
  *   config: ReturnType<typeof readConfig>,
  *   logger?: { error: (...args: unknown[]) => void, warn?: (...args: unknown[]) => void },
  *   now?: () => number,
+ *   fetchImpl?: typeof fetch,
  * }} options
  */
-export function createProxyServer({ provider, config, logger = console, now }) {
+export function createProxyServer({ provider, config, logger = console, now, fetchImpl }) {
   const limiter = createRateLimiter({
     perMinute: config.rateLimitPerMinute,
     perDay: config.dailyLimitPerClient,
     globalPerDay: config.globalDailyLimit,
     now,
   });
-
-  // SECRET_MODE=log: summarize unauthorized requests at most once a minute
-  // instead of one line per request (old builds would flood the logs).
-  const clock = now ?? (() => Date.now());
-  const unauthorizedLog = {
-    count: 0,
-    lastLoggedAt: -Infinity,
-    note() {
-      this.count += 1;
-      const t = clock();
-      if (t - this.lastLoggedAt >= MINUTE_MS) {
-        logger.warn?.(
-          `[momentum-ai] ${this.count} request(s) without a valid secret allowed (SECRET_MODE=log)`,
-        );
-        this.lastLoggedAt = t;
-        this.count = 0;
-      }
-    },
-  };
+  // Daily only: free brain dumps per user (or IP when the app sends no id).
+  const freeLimiter = createRateLimiter({
+    perMinute: 0,
+    perDay: config.freeBrainDumpsPerDay ?? 5,
+    globalPerDay: 0,
+    now,
+  });
+  const entitlements =
+    config.entitlementMode && config.entitlementMode !== "off"
+      ? createEntitlements({ secretKey: config.revenueCatSecretKey, fetchImpl, now, logger })
+      : undefined;
+  const handle = createHandler({
+    provider,
+    config,
+    limiter,
+    freeLimiter,
+    entitlements,
+    secretsMatch,
+    logger,
+    now,
+  });
 
   const server = http.createServer(async (req, res) => {
     setCorsHeaders(res, config.corsOrigin);
-
-    if (req.method === "OPTIONS") {
+    const result = await handle({
+      method: req.method ?? "GET",
+      path: req.url ?? "",
+      headers: req.headers,
+      clientIp: clientIpFrom(req, config.trustProxyHops),
+      socketAddress: req.socket?.remoteAddress ?? null,
+      readBody: async (maxBytes) => {
+        const declared = Number(req.headers["content-length"]);
+        if (Number.isFinite(declared) && declared > maxBytes) throw new BodyTooLargeError("Request body too large");
+        return readJson(req, maxBytes);
+      },
+    });
+    if (result.status === 204) {
       res.writeHead(204);
       res.end();
       return;
     }
-
-    if (req.method === "GET" && req.url === HEALTH_ROUTE) {
-      sendJson(res, 200, { ok: true, provider: provider.id });
-      return;
-    }
-
-    const authorized =
-      !config.sharedSecret || secretsMatch(req.headers[SECRET_HEADER], config.sharedSecret);
-    if (!authorized && config.secretMode === "enforce") {
-      sendJson(res, 401, { error: "Unauthorized" });
-      return;
-    }
-    if (!authorized) unauthorizedLog.note();
-
-    const client = clientIpFrom(req, config.trustProxyHops);
-
-    // Never exposed without a configured secret, even when enabled.
-    if (
-      config.debugClientIp &&
-      config.sharedSecret &&
-      authorized &&
-      req.method === "GET" &&
-      req.url === DEBUG_IP_ROUTE
-    ) {
-      // Only reachable with the secret (when one is set); shows what the proxy
-      // sees so TRUST_PROXY_HOPS can be verified on a new host.
-      sendJson(res, 200, {
-        resolvedClientIp: client,
-        forwardedFor: req.headers["x-forwarded-for"] ?? null,
-        socketAddress: req.socket?.remoteAddress ?? null,
-        trustProxyHops: config.trustProxyHops,
-      });
-      return;
-    }
-
-    // Own-property lookup only, so names like "__proto__" can never resolve.
-    const url = req.url ?? "";
-    const route =
-      req.method === "POST" && Object.prototype.hasOwnProperty.call(ROUTES, url)
-        ? ROUTES[url]
-        : undefined;
-    if (!route) {
-      sendJson(res, 404, { error: "Not found" });
-      return;
-    }
-
-    // admit() checks the daily caps without reserving a slot, so a burst of
-    // concurrent requests can overshoot a cap by a few. Acceptable for a cost cap.
-    const limit = limiter.admit(client);
-    if (limit === "global") {
-      sendJson(res, 503, { error: "Service is busy, try again later" }, { "Retry-After": "3600" });
-      return;
-    }
-    if (limit !== "ok") {
-      const retryAfter = limit === "minute" ? "60" : "3600";
-      sendJson(res, 429, { error: "Too many requests" }, { "Retry-After": retryAfter });
-      return;
-    }
-
-    if (!provider.isConfigured()) {
-      sendJson(res, 500, { error: provider.missingConfigMessage() });
-      return;
-    }
-
-    const declaredLength = Number(req.headers["content-length"]);
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-      rejectTooLarge(req, res);
-      return;
-    }
-
-    let payload;
-    try {
-      payload = await readJson(req, MAX_BODY_BYTES);
-    } catch (error) {
-      if (error instanceof BodyTooLargeError) {
-        rejectTooLarge(req, res);
-      } else {
-        sendJson(res, 400, { error: "Invalid request body" });
-      }
-      return;
-    }
-
-    const validationError = route.validatePayload(payload);
-    if (validationError) {
-      sendJson(res, 400, { error: validationError });
-      return;
-    }
-
-    // Only requests that will actually call the AI spend the daily budgets.
-    limiter.record(client);
-
-    try {
-      const result = await provider.generatePlan({
-        system: route.system,
-        user: route.buildPrompt(payload),
-        schema: route.schema,
-        toolName: route.toolName,
-        toolDescription: route.toolDescription,
-      });
-
-      if (!route.isValidResult(result)) {
-        logger.error(
-          `[momentum-ai] ${provider.id} returned an invalid ${route.name}; keys=${summarizeForLog(result)}`,
-        );
-        sendJson(res, 502, { error: `AI response did not include a valid ${route.name}` });
-        return;
-      }
-
-      // Return only validated fields, never raw model output.
-      sendJson(res, 200, route.sanitizeResult ? route.sanitizeResult(result) : result);
-    } catch (error) {
-      logger.error(
-        `[momentum-ai] ${provider.id} proxy error: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      sendJson(res, 502, { error: "Momentum AI request failed" });
-    }
+    sendJson(res, result.status, result.body, result.headers);
+    // Stop a client streaming a huge body into a kept-alive connection.
+    if (result.tooLarge) res.on("finish", () => req.destroy());
   });
 
   // Slowloris protection: bound how long a client may take to send a request.
