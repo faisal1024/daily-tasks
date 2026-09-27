@@ -1020,7 +1020,7 @@ describe("Plus gates (free plan)", () => {
     await act(async () => {}); // the free count loads when the sheet opens
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a\nb\nc\nd");
     expect(screen.getByTestId("brain-dump-upgrade")).toHaveTextContent(
-      /This uses a simple split\. Plus lets AI pick what matters most\./,
+      /Free AI sorts used up, so this will be a simple split\. Plus turns your notes into clear tasks\./,
     );
     await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
     expect(sortBrainDump).not.toHaveBeenCalled();
@@ -1034,7 +1034,7 @@ describe("Plus gates (free plan)", () => {
     await fireEvent.press(screen.getByRole("button", { name: "Add 3 to today" }));
     await openBrainDump();
     await act(async () => {});
-    await fireEvent.press(screen.getByRole("button", { name: "Get AI sorting with Plus" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Get Plus for AI sorting" }));
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
     // Waits for the sheet to animate away before the paywall.
     expect(mockOpenPaywall).not.toHaveBeenCalled();
@@ -1109,7 +1109,7 @@ describe("Free AI brain dumps (free plan)", () => {
     await render(<HomeScreen />);
     await openAsFree();
     expect(screen.getByTestId("brain-dump-upgrade")).toHaveTextContent(copy);
-    expect(screen.queryByRole("button", { name: "Get AI sorting with Plus" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Get Plus for AI sorting" })).toBeNull();
   });
 
   it("when they're used up, says it's a simple split and offers Plus", async () => {
@@ -1118,9 +1118,9 @@ describe("Free AI brain dumps (free plan)", () => {
     await render(<HomeScreen />);
     await openAsFree();
     expect(screen.getByTestId("brain-dump-upgrade")).toHaveTextContent(
-      /This uses a simple split\. Plus lets AI pick what matters most\./,
+      /Free AI sorts used up, so this will be a simple split\. Plus turns your notes into clear tasks\./,
     );
-    expect(screen.getByRole("button", { name: "Get AI sorting with Plus" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Get Plus for AI sorting" })).toBeOnTheScreen();
   });
 
   it("sorts with the AI (no agenda) and says how many free sorts are left, without a gate hit", async () => {
@@ -1189,7 +1189,7 @@ describe("Free AI brain dumps (free plan)", () => {
     expect(mockTrack).toHaveBeenCalledWith("plus_gate_hit", { feature: "brain_dump", source: "free_exhausted" });
     // The simple split says why it isn't the AI, and offers Plus right there.
     expect(screen.getByTestId("brain-dump-notice")).toHaveTextContent(/free AI sorts are used up/);
-    expect(screen.getByRole("button", { name: "Get AI sorting with Plus" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Get Plus for AI sorting" })).toBeOnTheScreen();
     expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
   });
 
@@ -1203,7 +1203,7 @@ describe("Free AI brain dumps (free plan)", () => {
     expect(screen.getByRole("checkbox", { name: "Call mum" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Buy milk" })).toBeChecked();
     expect(screen.getAllByRole("checkbox")).toHaveLength(2);
-    await fireEvent.press(screen.getByRole("button", { name: "Get AI sorting with Plus" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Get Plus for AI sorting" }));
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
     // Nothing was added or saved: the typed text is kept to sort again.
     expect(mockStore.addTasks).not.toHaveBeenCalled();
@@ -1227,7 +1227,7 @@ describe("Free AI brain dumps (free plan)", () => {
     await sortAsFree("a\nb");
     expect(screen.getByTestId("brain-dump-notice")).toHaveTextContent(/Couldn't reach smart sorting/);
     expect(screen.getByTestId("brain-dump-notice")).not.toHaveTextContent(/free AI sorts are used up/);
-    expect(screen.queryByRole("button", { name: "Get AI sorting with Plus" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Get Plus for AI sorting" })).toBeNull();
   });
 
   it("never touches the free count for Plus users", async () => {

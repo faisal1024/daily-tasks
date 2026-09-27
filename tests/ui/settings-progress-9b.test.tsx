@@ -98,7 +98,7 @@ describe("Settings: Plan around my calendar", () => {
 });
 
 describe("Settings: Redeem a code", () => {
-  const redeem = () => screen.queryByRole("button", { name: "Redeem a code" });
+  const redeem = () => screen.queryByRole("button", { name: "Redeem offer code" });
 
   it("a free user can open Apple's code sheet; no alert when it shows", async () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
@@ -120,7 +120,7 @@ describe("Settings: Redeem a code", () => {
     await waitFor(() => expect(redeem()).toBeOnTheScreen());
     await fireEvent.press(redeem()!);
     await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
-    expect(alert).toHaveBeenCalledWith("Couldn't open code redemption", "Check your connection and try again.");
+    expect(alert).toHaveBeenCalledWith("Offer codes aren't available", "Code redemption isn't available right now.");
     alert.mockRestore();
   });
 

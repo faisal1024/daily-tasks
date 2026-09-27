@@ -407,8 +407,8 @@ describe("PlusProvider: trial-ending reminder", () => {
 
 describe("PlusProvider: redeem a code", () => {
   it.each([
-    [true, "shown"],
-    [false, "failed"],
+    [true, "requested"],
+    [false, "unavailable"],
   ] as const)("returns the sheet's result (%s) and tracks it as %s, with nothing else", async (shown, outcome) => {
     (presentRedeemSheet as jest.Mock).mockResolvedValue(shown);
     const { result } = await renderHook(() => usePlus(), { wrapper });

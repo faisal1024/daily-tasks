@@ -95,9 +95,13 @@ export default function SettingsScreen() {
           : "Check your connection and try again.",
     );
   };
+  const [redeeming, setRedeeming] = useState(false);
   const handleRedeem = async () => {
-    const shown = await plus.redeemCode();
-    if (!shown) Alert.alert("Couldn't open code redemption", "Check your connection and try again.");
+    if (redeeming) return;
+    setRedeeming(true);
+    const requested = await plus.redeemCode();
+    setRedeeming(false);
+    if (!requested) Alert.alert("Offer codes aren't available", "Code redemption isn't available right now.");
   };
   const [nameDraft, setNameDraft] = useState(state.momentumProfile.name ?? "");
   const [profileModalVisible, setProfileModalVisible] = useState(false);
@@ -278,16 +282,19 @@ export default function SettingsScreen() {
                     {restoring ? "Restoring…" : "Restore purchases"}
                   </Text>
                 </Pressable>
-                {!hasPlus && (
+                {/* Apple offer codes are iOS only. */}
+                {!hasPlus && Platform.OS === "ios" && (
                   <Pressable
                     onPress={() => void handleRedeem()}
+                    disabled={redeeming}
                     accessibilityRole="button"
-                    accessibilityLabel="Redeem a code"
+                    accessibilityLabel="Redeem offer code"
+                    accessibilityState={{ disabled: redeeming }}
                     accessibilityHint="Opens Apple's sheet for entering an offer code"
                     hitSlop={8}
                   >
                     <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-                      Redeem a code
+                      Redeem offer code
                     </Text>
                   </Pressable>
                 )}

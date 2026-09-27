@@ -152,7 +152,7 @@ describe("tidyDumpLine", () => {
     ["TODO: file taxes", "file taxes"],
     ["To-do: file taxes", "file taxes"],
     ["to do : file taxes", "file taxes"],
-    ["Reminder: dentist at 3?", "dentist at 3"],
+    ["Reminder: dentist at 3?", "dentist at 3?"],
     ["Task: pay rent", "pay rent"],
   ])("strips leading filler: %j → %j", (line, expected) => {
     expect(tidyDumpLine(line)).toBe(expected);
@@ -224,14 +224,27 @@ describe("tidyDumpLine", () => {
     expect(tidyDumpLine("!!!")).toBe("");
   });
 
-  it("leaves a label with no space after the colon (todo:x) as typed", () => {
-    expect(tidyDumpLine("todo:call mum")).toBe("todo:call mum");
+  it("strips a label with no space after the colon (todo:x)", () => {
+    expect(tidyDumpLine("todo:call mum")).toBe("call mum");
   });
 
-  // P3 (reported, not fixed here): "Should I quit?" becomes the statement
-  // "I quit", and "Should we move the meeting?" → "we move the meeting".
-  // A question led by should/must + pronoun ought to keep its words.
-  it.todo("keeps a question that starts with should/must + pronoun (Should I quit?)");
+  it("keeps questions whole: a question is never turned into a statement", () => {
+    expect(tidyDumpLine("Should I quit?")).toBe("Should I quit?");
+    expect(tidyDumpLine("Should we move the meeting?")).toBe("Should we move the meeting?");
+    expect(tidyDumpLine("Need to ask Sam about Friday?")).toBe("Need to ask Sam about Friday?");
+  });
+
+  it("keeps should/must before a pronoun, and bare 'got to' (it's often a fact)", () => {
+    expect(tidyDumpLine("Must it be today")).toBe("Must it be today");
+    expect(tidyDumpLine("Got to the gym by 7")).toBe("Got to the gym by 7");
+    expect(tidyDumpLine("I've got to finish the deck")).toBe("finish the deck");
+  });
+
+  it("matches the curly apostrophe iOS types, and stacked lead-ins", () => {
+    expect(tidyDumpLine("Don’t forget to pay rent!")).toBe("pay rent");
+    expect(tidyDumpLine("Oh, I need to email Sam")).toBe("email Sam");
+    expect(tidyDumpLine("And then need to walk")).toBe("walk");
+  });
 });
 
 describe("localBrainDump tidying", () => {
@@ -279,7 +292,7 @@ describe("localBrainDump tidying", () => {
   // "- ", "* ", "1. " or "[ ] " line keeps its filler ("Need to call mum") and
   // isn't merged with the same task typed without a marker. Remove `.fails`
   // once markers are stripped before tidying.
-  it.fails("strips list markers and filler together (P2: currently keeps the filler)", () => {
+  it("strips list markers and filler together", () => {
     expect(localBrainDump("- need to call mum\n1. gotta buy milk\n[ ] must pay rent", 3).picks).toEqual([
       "Call mum",
       "Buy milk",

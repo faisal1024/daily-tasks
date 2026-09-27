@@ -55,7 +55,7 @@ export interface PlusContextValue {
   loadPackages: () => Promise<PlusPackage[]>;
   purchase: (pkg: PlusPackage) => Promise<PurchaseOutcome>;
   restore: () => Promise<boolean | null>;
-  /** Open Apple's offer-code sheet. False when it couldn't be shown. */
+  /** Ask for Apple's offer-code sheet. False when it can't be requested here. */
   redeemCode: () => Promise<boolean>;
   /** Plus lapsed over two days ago and this lapse hasn't been offered back yet. */
   winBackDue: boolean;
@@ -285,7 +285,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const redeemCode = useCallback(async () => {
     const shown = await presentRedeemSheet();
     // The code (never its text) is Apple's business; the result comes via the listener.
-    track("redeem_code_opened", { outcome: shown ? "shown" : "failed" });
+    track("redeem_code_opened", { outcome: shown ? "requested" : "unavailable" });
     return shown;
   }, []);
 

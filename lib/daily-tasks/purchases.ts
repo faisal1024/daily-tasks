@@ -231,10 +231,11 @@ export async function restore(): Promise<boolean | null> {
 }
 
 /**
- * Show Apple's "Redeem code" sheet for offer codes made in App Store Connect
- * (codes must go through Apple, never a check in the app). Returns false when
- * it couldn't be shown. A redeemed code arrives later through the
- * customer-info listener, like any other purchase.
+ * Ask iOS for Apple's "Redeem code" sheet for offer codes made in App Store
+ * Connect (codes must go through Apple, never a check in the app). Returns
+ * false only when it can't be requested (no paywall, not iOS, SDK error):
+ * iOS doesn't report whether the sheet actually appeared. A redeemed code
+ * arrives later through the customer-info listener, like any other purchase.
  */
 export async function redeemCode(): Promise<boolean> {
   const sdk = loadSdk();

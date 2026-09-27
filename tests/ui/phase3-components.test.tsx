@@ -139,7 +139,7 @@ describe("BrainDumpSheet", () => {
       notice: FREE_LIMIT_NOTICE,
       freeLimit: true,
     });
-    const getPlus = () => screen.queryByRole("button", { name: "Get AI sorting with Plus" });
+    const getPlus = () => screen.queryByRole("button", { name: "Get Plus for AI sorting" });
 
     it("offers Get Plus on the review when the free sorts ran out; tapping it upgrades without saving", async () => {
       const p = props({ onSort: jest.fn(async () => freeLimit()), onUpgrade: jest.fn() });
