@@ -5,7 +5,7 @@ import { act, fireEvent, screen } from "@testing-library/react-native";
 import { BrainDumpSheet } from "@/components/daily-tasks/brain-dump-sheet";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { TaskRow } from "@/components/daily-tasks/task-row";
-import type { SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import { FREE_LIMIT_NOTICE, type SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import type { Task } from "@/lib/daily-tasks/types";
 
 import { renderWithProviders as render } from "./render";
@@ -131,6 +131,65 @@ describe("BrainDumpSheet", () => {
     await writeAndSort();
     expect(screen.getByTestId("brain-dump-notice")).toBeOnTheScreen();
     expect(screen.getByText(notice)).toBeOnTheScreen();
+  });
+
+  describe("free-limit notice", () => {
+    const freeLimit = (): SortedBrainDump => ({
+      result: { picks: ["A"], parked: ["B"], source: "local" },
+      notice: FREE_LIMIT_NOTICE,
+      freeLimit: true,
+    });
+    const getPlus = () => screen.queryByRole("button", { name: "Get AI sorting with Plus" });
+
+    it("offers Get Plus on the review when the free sorts ran out; tapping it upgrades without saving", async () => {
+      const p = props({ onSort: jest.fn(async () => freeLimit()), onUpgrade: jest.fn() });
+      await render(<BrainDumpSheet {...p} />);
+      await writeAndSort();
+      expect(screen.getByTestId("brain-dump-notice")).toHaveTextContent(/free AI sorts are used up/);
+      await fireEvent.press(getPlus()!);
+      expect(p.onUpgrade).toHaveBeenCalledTimes(1);
+      expect(p.onConfirm).not.toHaveBeenCalled();
+    });
+
+    it("no Get Plus for the 'couldn't reach smart sorting' fallback", async () => {
+      const notice = "Couldn't reach smart sorting, so here's a simple split you can adjust.";
+      const p = props({ onSort: jest.fn(async () => sorted(["A"], ["B"], notice)), onUpgrade: jest.fn() });
+      await render(<BrainDumpSheet {...p} />);
+      await writeAndSort();
+      expect(screen.getByText(notice)).toBeOnTheScreen();
+      expect(getPlus()).toBeNull();
+    });
+
+    it("no Get Plus on an AI notice (e.g. free sorts left)", async () => {
+      const p = props({
+        onSort: jest.fn(async () => ({
+          result: { picks: ["A"], parked: [], source: "ai" as const },
+          notice: "Sorted by AI · 2 free sorts left.",
+        })),
+        onUpgrade: jest.fn(),
+      });
+      await render(<BrainDumpSheet {...p} />);
+      await writeAndSort();
+      expect(screen.getByTestId("brain-dump-notice")).toBeOnTheScreen();
+      expect(getPlus()).toBeNull();
+    });
+
+    it("shows the notice but no Get Plus when there's no upgrade path", async () => {
+      await render(<BrainDumpSheet {...props({ onSort: jest.fn(async () => freeLimit()) })} />);
+      await writeAndSort();
+      expect(screen.getByTestId("brain-dump-notice")).toHaveTextContent(/free AI sorts are used up/);
+      expect(getPlus()).toBeNull();
+    });
+
+    it("keeps what was typed after Get Plus closes and reopens the sheet", async () => {
+      const p = props({ onSort: jest.fn(async () => freeLimit()), onUpgrade: jest.fn() });
+      const { rerender } = await render(<BrainDumpSheet {...p} />);
+      await writeAndSort("my dump");
+      await fireEvent.press(getPlus()!);
+      await rerender(<BrainDumpSheet {...p} visible={false} />);
+      await rerender(<BrainDumpSheet {...p} visible />);
+      expect(screen.getByLabelText("Brain dump text")).toHaveProp("value", "my dump");
+    });
   });
 
   it("ignores a sort that finishes after the sheet was closed and reopened", async () => {

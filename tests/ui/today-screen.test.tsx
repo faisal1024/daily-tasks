@@ -1193,6 +1193,43 @@ describe("Free AI brain dumps (free plan)", () => {
     expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
   });
 
+  it("the used-up split is tidied, and Get Plus on its review closes the sheet for the paywall", async () => {
+    jest.useFakeTimers();
+    await AsyncStorage.setItem(FREE_DUMPS_KEY, "3");
+    mockStore = { ...makeStore(), hasPlus: false };
+    await render(<HomeScreen />);
+    await sortAsFree("I need to call mum\ngotta buy milk.\ncall mum!");
+    expect(sortBrainDump).not.toHaveBeenCalled();
+    expect(screen.getByRole("checkbox", { name: "Call mum" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Buy milk" })).toBeChecked();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    await fireEvent.press(screen.getByRole("button", { name: "Get AI sorting with Plus" }));
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    // Nothing was added or saved: the typed text is kept to sort again.
+    expect(mockStore.addTasks).not.toHaveBeenCalled();
+    expect(mockStore.parkTasks).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(650);
+    });
+    expect(mockOpenPaywall).toHaveBeenCalledWith("brain_dump");
+  });
+
+  it("the 'couldn't reach smart sorting' review offers no Get Plus, even to a free user", async () => {
+    await AsyncStorage.setItem(FREE_DUMPS_KEY, "1");
+    const actual = jest.requireActual("@/lib/daily-tasks/ai-helpers");
+    (sortBrainDump as jest.Mock).mockImplementation((params) =>
+      actual.sortBrainDump(params, async () => {
+        throw new MomentumAiError("network", "offline");
+      }),
+    );
+    mockStore = { ...makeStore(), hasPlus: false };
+    await render(<HomeScreen />);
+    await sortAsFree("a\nb");
+    expect(screen.getByTestId("brain-dump-notice")).toHaveTextContent(/Couldn't reach smart sorting/);
+    expect(screen.getByTestId("brain-dump-notice")).not.toHaveTextContent(/free AI sorts are used up/);
+    expect(screen.queryByRole("button", { name: "Get AI sorting with Plus" })).toBeNull();
+  });
+
   it("never touches the free count for Plus users", async () => {
     (sortBrainDump as jest.Mock).mockResolvedValue({
       result: { picks: ["A"], parked: [], source: "ai" },

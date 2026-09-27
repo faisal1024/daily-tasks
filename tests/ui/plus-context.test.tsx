@@ -12,6 +12,7 @@ import {
   fetchPlusStatus,
   onPlusStatusChange,
   purchase as purchasePackage,
+  redeemCode as presentRedeemSheet,
   restore as restorePurchases,
   type PlusStatus,
 } from "@/lib/daily-tasks/purchases";
@@ -26,6 +27,7 @@ jest.mock("@/lib/daily-tasks/purchases", () => ({
   loadPackages: jest.fn(async () => []),
   purchase: jest.fn(),
   restore: jest.fn(),
+  redeemCode: jest.fn(),
 }));
 jest.mock("@/lib/daily-tasks/trial-reminder", () => ({
   syncTrialReminder: jest.fn(async () => {}),
@@ -400,5 +402,48 @@ describe("PlusProvider: trial-ending reminder", () => {
       await result.current.purchase(ANNUAL);
     });
     await waitFor(() => expect(syncTrialReminder).toHaveBeenCalledWith("2026-10-04T12:00:00Z"));
+  });
+});
+
+describe("PlusProvider: redeem a code", () => {
+  it.each([
+    [true, "shown"],
+    [false, "failed"],
+  ] as const)("returns the sheet's result (%s) and tracks it as %s, with nothing else", async (shown, outcome) => {
+    (presentRedeemSheet as jest.Mock).mockResolvedValue(shown);
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await act(async () => {});
+    (track as jest.Mock).mockClear();
+    let returned: boolean | undefined;
+    await act(async () => {
+      returned = await result.current.redeemCode();
+    });
+    expect(returned).toBe(shown);
+    expect(presentRedeemSheet).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledWith("redeem_code_opened", { outcome });
+  });
+
+  it("opening the sheet doesn't grant Plus; a redemption arrives through the status listener", async () => {
+    (presentRedeemSheet as jest.Mock).mockResolvedValue(true);
+    let listener: ((status: PlusStatus) => void) | null = null;
+    (onPlusStatusChange as jest.Mock).mockImplementation((fn: (status: PlusStatus) => void) => {
+      listener = fn;
+      return () => {};
+    });
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await waitFor(() => expect(result.current.entitlementKnown).toBe(true));
+    await act(async () => {
+      await result.current.redeemCode();
+    });
+    expect(result.current.entitlementActive).toBe(false);
+    await act(async () => listener?.({ active: true, trialEndsAt: null, lapsedAt: null }));
+    expect(result.current.entitlementActive).toBe(true);
+  });
+
+  it("is a harmless no-op outside the provider", async () => {
+    const { result } = await renderHook(() => usePlus());
+    await expect(result.current.redeemCode()).resolves.toBe(false);
+    expect(presentRedeemSheet).not.toHaveBeenCalled();
   });
 });

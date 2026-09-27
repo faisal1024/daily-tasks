@@ -15,9 +15,10 @@ import type { AppState } from "@/lib/daily-tasks/types";
 import { renderWithProviders as render } from "./render";
 
 const mockOpenPaywall = jest.fn(() => true);
+const mockRedeemCode = jest.fn(async () => true);
 let mockPlus: Partial<PlusContextValue> = {};
 jest.mock("@/lib/daily-tasks/plus-context", () => ({
-  usePlus: () => ({ ...mockPlus, openPaywall: mockOpenPaywall, restore: jest.fn() }),
+  usePlus: () => ({ ...mockPlus, openPaywall: mockOpenPaywall, restore: jest.fn(), redeemCode: mockRedeemCode }),
 }));
 jest.mock("@/lib/daily-tasks/agenda", () => ({
   ...jest.requireActual("@/lib/daily-tasks/agenda"),
@@ -93,6 +94,56 @@ describe("Settings: Plan around my calendar", () => {
     await renderWith(<SettingsScreen />, { plusGrandfathered: false, agendaEnabled: true });
     await waitFor(() => expect(calendarSwitch()).toBeOnTheScreen());
     expect(calendarSwitch().props.value).toBe(false);
+  });
+});
+
+describe("Settings: Redeem a code", () => {
+  const redeem = () => screen.queryByRole("button", { name: "Redeem a code" });
+
+  it("a free user can open Apple's code sheet; no alert when it shows", async () => {
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    mockPlus = { ...FREE };
+    await renderWith(<SettingsScreen />, { plusGrandfathered: false });
+    await waitFor(() => expect(screen.getByTestId("settings-plus")).toBeOnTheScreen());
+    expect(redeem()).toBeOnTheScreen();
+    await fireEvent.press(redeem()!);
+    await waitFor(() => expect(mockRedeemCode).toHaveBeenCalledTimes(1));
+    expect(alert).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
+  it("says so when the sheet couldn't be opened", async () => {
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    mockRedeemCode.mockResolvedValueOnce(false);
+    mockPlus = { ...FREE };
+    await renderWith(<SettingsScreen />, { plusGrandfathered: false });
+    await waitFor(() => expect(redeem()).toBeOnTheScreen());
+    await fireEvent.press(redeem()!);
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+    expect(alert).toHaveBeenCalledWith("Couldn't open code redemption", "Check your connection and try again.");
+    alert.mockRestore();
+  });
+
+  it("is hidden while Plus is active (Restore stays)", async () => {
+    mockPlus = { ...FREE, entitlementActive: true };
+    await renderWith(<SettingsScreen />, { plusGrandfathered: false });
+    await waitFor(() => expect(screen.getByTestId("settings-plus")).toBeOnTheScreen());
+    expect(screen.getByRole("button", { name: "Restore purchases" })).toBeOnTheScreen();
+    expect(redeem()).toBeNull();
+  });
+
+  it("is hidden for early supporters who already have every feature", async () => {
+    mockPlus = { ...FREE };
+    await renderWith(<SettingsScreen />, { plusGrandfathered: true });
+    await waitFor(() => expect(screen.getByTestId("settings-plus")).toBeOnTheScreen());
+    expect(redeem()).toBeNull();
+  });
+
+  it("isn't there at all in a build without a paywall", async () => {
+    await renderWith(<SettingsScreen />, { plusGrandfathered: false });
+    await waitFor(() => expect(calendarSwitch()).toBeOnTheScreen());
+    expect(screen.queryByTestId("settings-plus")).toBeNull();
+    expect(redeem()).toBeNull();
   });
 });
 
