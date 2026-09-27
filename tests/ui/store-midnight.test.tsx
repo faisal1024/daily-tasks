@@ -104,6 +104,39 @@ describe("store: actions just after midnight", () => {
     expect(state.journey.awardedTaskIds).toEqual(["t0"]);
   });
 
+  it.each([
+    ["result", (store: ReturnType<typeof useDailyTasks>) => store.setTodayReflectionResult("good")],
+    ["note", (store: ReturnType<typeof useDailyTasks>) => store.setTodayReflection("Felt good")],
+  ] as const)("an evening check-in %s saved at 00:00:10 lands on the day on screen", async (kind, save) => {
+    fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
+    const { result } = await renderOnDay({ tasks: [WALK], todayCompletions: ["t0"] }, new Date(2026, 8, 25, 8));
+
+    jest.setSystemTime(new Date(2026, 8, 26, 0, 0, 10));
+    await act(async () => save(result.current));
+
+    const state = result.current.state;
+    expect(state.lastOpenedDate).toBe(NEXT);
+    if (kind === "result") {
+      expect(state.history[D].reflectionResult).toBe("good");
+      expect(state.history[NEXT].reflectionResult).toBeNull();
+      expect(state.todayReflectionResult).toBeNull();
+    } else {
+      expect(state.history[D].reflection).toBe("Felt good");
+      expect(state.history[NEXT].reflection).toBeNull();
+      expect(state.todayReflection).toBeNull();
+    }
+  });
+
+  it("ignores step changes for a task that isn't on today's list", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 10, 0));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 25, 8));
+    const before = result.current.state;
+    await act(async () => result.current.setTaskSteps("not-a-task", ["One", "Two"]));
+    await act(async () => result.current.toggleTaskStep("not-a-task", "s1"));
+    await act(async () => result.current.clearTaskSteps("not-a-task"));
+    expect(result.current.state).toBe(before);
+  });
+
   it("ignores a toggle, edit or delete for a task that isn't on today's list (no phantom completion or XP)", async () => {
     fakeClockAt(new Date(2026, 8, 25, 10, 0));
     const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 25, 8));

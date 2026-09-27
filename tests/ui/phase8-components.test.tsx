@@ -1,10 +1,11 @@
 // Phase 8: the root error boundary, the perfect-day check-in chips, and
 // reminder syncs running one at a time.
 import { useState } from "react";
-import { Text } from "react-native";
+import { StyleSheet, Text } from "react-native";
 import * as Notifications from "expo-notifications";
 import { fireEvent, screen } from "@testing-library/react-native";
 
+import { CalendarGrid } from "@/components/daily-tasks/calendar-grid";
 import { CompletionReflection } from "@/components/daily-tasks/completion-reflection";
 import { IdeasSheet } from "@/components/daily-tasks/ideas-sheet";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
@@ -141,12 +142,42 @@ describe("IdeasSheet saved-only view", () => {
       onRegenerate: jest.fn(),
       parked: [{ id: "p1", text: "Buy shoes" }],
     };
-    const { rerender } = await render(<IdeasSheet {...props} savedOnly />);
+    const { rerender } = await render(
+      <IdeasSheet {...props} canRegenerate onLock={jest.fn()} savedOnly />,
+    );
+    expect(screen.getByText("Saved for later")).toBeOnTheScreen();
+    expect(screen.queryByText("Ideas for Run a 5K")).toBeNull();
+    expect(screen.queryByText("New ideas")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lock them in" })).toBeNull();
     expect(screen.getByText("Your day is full. Free a slot to swap one of these in.")).toBeOnTheScreen();
     expect(screen.getByTestId("parked-ideas")).toHaveTextContent(/Buy shoes/);
     expect(screen.queryByText("Walk 20 minutes")).toBeNull();
 
-    await rerender(<IdeasSheet {...props} />);
+    await rerender(<IdeasSheet {...props} canRegenerate onLock={jest.fn()} />);
     expect(screen.getByText("Walk 20 minutes")).toBeOnTheScreen();
+    expect(screen.getByText("Ideas for Run a 5K")).toBeOnTheScreen();
+    expect(screen.getByText("New ideas")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Lock them in" })).toBeOnTheScreen();
+  });
+});
+
+describe("CalendarGrid", () => {
+  it("rings the app's day passed as `today`, not the clock's", async () => {
+    // A month the real clock is never in, so only the prop can mark a day.
+    await render(
+      <CalendarGrid month={new Date(2020, 0, 1)} history={{}} selectedDate={null} onSelectDate={jest.fn()} today="2020-01-15" />,
+    );
+    // The day's circle: the nearest ancestor of its number that sets a border.
+    const border = (day: string) => {
+      let node = screen.getByText(day).parent;
+      while (node) {
+        const style = StyleSheet.flatten(node.props.style) as { borderWidth?: number } | undefined;
+        if (style && style.borderWidth !== undefined) return style.borderWidth;
+        node = node.parent;
+      }
+      return undefined;
+    };
+    expect(border("15")).toBe(2);
+    expect(border("16")).toBe(0);
   });
 });

@@ -1108,6 +1108,27 @@ describe("Today: unlock and saved ideas", () => {
     expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
   });
 
+  it("goes back to the normal ideas view after the saved-only sheet is closed by a lock", async () => {
+    const full = { tasks: tasks("Walk", "Read", "Stretch"), parkedTasks: parked };
+    mockStore = makeStore(full);
+    const { rerender } = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("saved-ideas-link"));
+    expect(screen.getByText("Saved for later")).toBeOnTheScreen();
+
+    // Locking closes the sheet (not its close button).
+    mockStore = makeStore({ ...full, todayLocked: true, todayLockSource: "manual" });
+    await rerender(<HomeScreen />);
+    expect(screen.queryByTestId("ideas-sheet")).toBeNull();
+
+    // Unlocked later with a free slot: Need ideas opens the normal view.
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), parkedTasks: parked });
+    await rerender(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("need-ideas"));
+    expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
+    expect(screen.queryByText("Saved for later")).toBeNull();
+    expect(screen.getByText("Ideas for today")).toBeOnTheScreen();
+  });
+
   it.each([
     ["a free slot (the ideas entry shows instead)", { tasks: tasks("Walk", "Read"), parkedTasks: parked }],
     ["a locked day", { tasks: tasks("Walk", "Read", "Stretch"), parkedTasks: parked, todayLocked: true, todayLockSource: "manual" as const }],
