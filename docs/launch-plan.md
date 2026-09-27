@@ -53,7 +53,8 @@ RevenueCat (app.revenuecat.com):
     reminder with that tester.
 11. Server: set `REVENUECAT_SECRET_KEY` and `GRANDFATHER_GRANTS_UNTIL` on Render.
     Use an exact date about 6 weeks after release, written like `2026-12-15`; the
-    same date goes in What's New ("open the app before …"). Later move to
+    same date goes in What's New: `python3 scripts/build-store-config.py --until 2026-12-15`
+    fills it in (until then store.config.json has no What's New). Later move to
     Cloudflare (docs/momentum-ai-proxy.md).
 12. Listing: paste `docs/app-store-listing.md` (or `eas metadata:push`), upload the
     screenshots from `~/Downloads/three-today-appstore-screenshots/`, update the App
@@ -85,7 +86,7 @@ needed. Post 3–4 a week for a month; keep what gets watched past 3 seconds.
 | 2 | "The app that tells me what NOT to do today" | Brain dump → untick one → "saved for later". |
 | 3 | "No overdue tasks. Ever." | Next morning: yesterday's unfinished task → "Start fresh". |
 | 4 | "ADHD brain vs 3 tasks" | Talk-to-type a ramble into the dump → three clean tasks. |
-| 5 | "My whole day on my Lock Screen" | The widget; tick a task off from the Home Screen. |
+| 5 | "My whole day on my Lock Screen" | The widget (ticking off from the Home Screen is a Plus feature: say so on screen). |
 | 6 | "It wrote tomorrow's list for me" | Evening check-in: tap "Hard" → tomorrow's three appear. |
 | 7 | "Day 30" | The Day N counter and Progress page. |
 

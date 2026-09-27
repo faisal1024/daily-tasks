@@ -40,7 +40,7 @@ EVERY DAY STARTS FRESH
 There's no overdue list and no red badges. Anything you didn't finish waits for one tap: bring it into today, or let it go.
 
 A MORNING, A FEW WINS, AN EVENING
-• Morning: pick your three, or use the ones your coach drafted last night.
+• Morning: pick your three (with Plus, your coach drafts them the night before).
 • Day: tick them off. The next one is always the only one in front of you.
 • Evening: say how the day felt in one tap, and tomorrow starts with what's still open (with Plus, your AI coach drafts tomorrow's three).
 
@@ -58,7 +58,7 @@ Plus adds the AI helpers: AI brain dump sorting (3 free to try), Break it down (
 • Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel in iPhone Settings › your name › Subscriptions.
 • A one-time Lifetime purchase is available in the app's Settings.
 
-Private by design: your tasks are stored on your device, with no account and no ads. AI features send only the text they need, and nothing is kept on our server.
+Private by design: your tasks are stored on your device, with no account and no ads. AI features send only the text they need, and our server doesn't store it.
 
 Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html
@@ -70,7 +70,7 @@ Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70
 Daily Tasks is now Three Today, rebuilt around a calm daily ritual:
 • Dump everything on your mind and get your three, picked for you.
 • One calm card for today, with the next task up front.
-• An evening check-in that drafts tomorrow's three.
+• An evening check-in that drafts tomorrow's three (Plus).
 • Plan around your Calendar and Reminders (Plus).
 • Progress and history together in one tab.
 • Introducing Three Today Plus, with a free trial. Already using the app? Plus is free for you, for life: just open the app before <date>.

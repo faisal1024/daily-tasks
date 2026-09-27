@@ -15,7 +15,7 @@ type StoreInfo = {
   subtitle: string;
   description: string;
   keywords: string[];
-  releaseNotes: string;
+  releaseNotes?: string;
   promoText: string;
 };
 
@@ -36,7 +36,7 @@ describe("store.config.json", () => {
   it("is valid JSON with the en-US listing", () => {
     expect(() => JSON.parse(read("store.config.json"))).not.toThrow();
     const info = listingInfo();
-    for (const key of ["title", "subtitle", "description", "releaseNotes", "promoText"] as const) {
+    for (const key of ["title", "subtitle", "description", "promoText"] as const) {
       expect(typeof info[key]).toBe("string");
       expect(info[key].trim().length).toBeGreaterThan(0);
     }
@@ -50,7 +50,11 @@ describe("store.config.json", () => {
     expect(info.keywords.join(",").length).toBeLessThanOrEqual(100);
     expect(info.description.length).toBeLessThanOrEqual(4000);
     expect(info.promoText.length).toBeLessThanOrEqual(170);
-    expect(info.releaseNotes.length).toBeLessThanOrEqual(4000);
+    // What's New is only written once the supporter deadline is filled in.
+    if (info.releaseNotes !== undefined) {
+      expect(info.releaseNotes.length).toBeLessThanOrEqual(4000);
+      expect(info.releaseNotes).not.toContain("<date>");
+    }
   });
 
   it("description matches the ## Description block in docs/app-store-listing.md", () => {

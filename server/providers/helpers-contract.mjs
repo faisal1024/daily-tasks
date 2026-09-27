@@ -131,7 +131,7 @@ const STOPWORDS = new Set(
 const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u;
 
 function words(text) {
-  return (String(text).normalize("NFC").toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []).filter((w) => !STOPWORDS.has(w));
+  return (String(text).normalize("NFC").toLowerCase().match(/[\p{L}\p{M}\p{N}]{3,}/gu) ?? []).filter((w) => !STOPWORDS.has(w));
 }
 
 /**

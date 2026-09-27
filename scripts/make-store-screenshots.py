@@ -25,17 +25,6 @@ CAPTIONS = [
     ("See your progress,\nnot your misses", "Your day count only goes up.", False),
 ]
 
-# Keep only the top part of a capture where the rest is empty space, so the
-# app fills the frame: {(device, index): fraction of the height kept}.
-CROP = {
-    ("iphone", 1): 0.58,
-    ("iphone", 4): 0.64,
-    ("ipad", 1): 0.42,
-    ("ipad", 2): 0.40,
-    ("ipad", 3): 0.52,
-    ("ipad", 4): 0.50,
-}
-
 # App Store sizes: iPhone 6.9" and iPad 13".
 SIZES = {"iphone": (1320, 2868), "ipad": (2064, 2752)}
 BACKGROUND = (91, 82, 232)  # brand primary
@@ -70,7 +59,7 @@ def fit_lines(draw, text, f, max_width):
     return lines
 
 
-def compose(raw_path, out_path, size, title, body, plus=False, crop=None):
+def compose(raw_path, out_path, size, title, body, plus=False):
     width, height = size
     canvas = Image.new("RGB", size, BACKGROUND)
     draw = ImageDraw.Draw(canvas)
@@ -102,15 +91,14 @@ def compose(raw_path, out_path, size, title, body, plus=False, crop=None):
 
     # The screen, scaled to the space left, with rounded corners and a shadow.
     shot = Image.open(raw_path).convert("RGB")
-    if crop:
-        shot = shot.crop((0, 0, shot.width, int(shot.height * crop)))
     top = y + int(height * 0.035)
     avail_h = height - top - int(height * 0.03)
     avail_w = width - 2 * margin
     scale = min(avail_w / shot.width, avail_h / shot.height)
     shot = shot.resize((int(shot.width * scale), int(shot.height * scale)), Image.LANCZOS)
-    top += (avail_h - shot.height) // 2  # a cropped (short) screen sits centred
-    radius = int(shot.width * 0.07)
+    # iPhone screens have big rounded corners; the iPad's are small, and a big
+    # radius would clip its status bar.
+    radius = int(shot.width * (0.07 if shot.height > shot.width * 1.8 else 0.03))
     mask = Image.new("L", shot.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, shot.width, shot.height], radius, fill=255)
     x = (width - shot.width) // 2
@@ -135,7 +123,7 @@ def main():
         for index, (title, body, plus) in enumerate(CAPTIONS, start=1):
             raw = src / f"{index:02d}.png"
             if raw.exists():
-                compose(raw, dest / f"{index:02d}.png", size, title, body, plus, CROP.get((device, index)))
+                compose(raw, dest / f"{index:02d}.png", size, title, body, plus)
                 print(f"{device} {index:02d}: {title.replace(chr(10), ' ')}")
 
 

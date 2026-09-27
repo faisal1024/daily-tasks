@@ -95,8 +95,9 @@ def base(tasks, completions, locked=True):
         },
         "journey": {
             "xp": 900,
-            "showedUpStreak": 23,
-            "longestShowedUpStreak": 23,
+            # Today counts too, so this matches "Day 24" on the Progress page.
+            "showedUpStreak": 24,
+            "longestShowedUpStreak": 24,
             "showedUpFreezes": 1,
             "lastShowedUpDate": day(),
             "lastCelebratedLevel": 5,
@@ -177,10 +178,11 @@ def main():
     folder = Path(container) / "Library" / "Application Support" / BUNDLE / "RCTAsyncLocalStorage_V1"
     folder.mkdir(parents=True, exist_ok=True)
     manifest_path = folder / "manifest.json"
-    # Start clean: drop every stored key (state, backup, free-use counters,
-    # first-run claim, analytics id), so each scene starts from a fresh install.
+    # Start clean: drop every AsyncStorage key (state, backup, free-use
+    # counters, first-run claim, analytics id). RevenueCat's id (NSUserDefaults)
+    # and the Keychain survive; the seed turns off Plus grants and analytics.
     for child in folder.iterdir():
-        if child.name != "manifest.json":
+        if child.is_file() and child.name != "manifest.json":
             child.unlink()
     manifest = {}
     state = scene(name)
