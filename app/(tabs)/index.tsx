@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import * as Haptics from "expo-haptics";
@@ -134,6 +135,10 @@ export default function HomeScreen() {
     [],
   );
   const { update, dismiss: dismissUpdate } = useAppUpdate();
+  // iPad (and large landscape phones): tasks on the left, ideas and the
+  // evening check-in on the right, centred with a comfortable max width.
+  const { width } = useWindowDimensions();
+  const wide = width >= 768;
 
   const [showCelebration, setShowCelebration] = useState(false);
   const [ideasOpen, setIdeasOpen] = useState(false);
@@ -431,128 +436,149 @@ export default function HomeScreen() {
             level={journeyLevel}
           />
 
-          <View style={{ paddingHorizontal: 20, paddingTop: 20, gap: 14 }}>
-            {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
-            {toast && (
-              <View
-                className="flex-row items-center gap-2 rounded-2xl p-3"
-                style={{ backgroundColor: `${colors.success}18` }}
-                accessibilityLiveRegion="polite"
-                testID="today-toast"
-              >
-                <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-                <Text className="flex-1 text-sm text-foreground">{toast}</Text>
-              </View>
-            )}
+          <View
+            style={
+              wide
+                ? {
+                    flexDirection: "row",
+                    alignItems: "flex-start",
+                    gap: 28,
+                    paddingHorizontal: 32,
+                    paddingTop: 24,
+                    width: "100%",
+                    maxWidth: 1100,
+                    alignSelf: "center",
+                  }
+                : { paddingHorizontal: 20, paddingTop: 20, gap: 14 }
+            }
+            testID={wide ? "today-two-column" : undefined}
+          >
+            <View style={wide ? { flex: 1.25, gap: 14 } : { gap: 14 }}>
+              {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
+              {toast && (
+                <View
+                  className="flex-row items-center gap-2 rounded-2xl p-3"
+                  style={{ backgroundColor: `${colors.success}18` }}
+                  accessibilityLiveRegion="polite"
+                  testID="today-toast"
+                >
+                  <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                  <Text className="flex-1 text-sm text-foreground">{toast}</Text>
+                </View>
+              )}
 
-            <View className="gap-3" testID="today-tasks">
-              {Array.from({ length: MAX_TASKS }).map((_, index) => {
-                const task = state.tasks[index];
-                if (task) {
+              <View className="gap-3" testID="today-tasks">
+                {Array.from({ length: MAX_TASKS }).map((_, index) => {
+                  const task = state.tasks[index];
+                  if (task) {
+                    return (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        index={index}
+                        completed={isCompleted(task.id)}
+                        onToggle={() => handleToggle(task.id)}
+                        onEdit={(text) => editTask(task.id, text)}
+                        onDelete={() => handleDelete(task.id, task.text)}
+                        canEdit={!state.todayLocked}
+                        canDelete={!state.todayLocked}
+                        onBreakDown={
+                          breakDownAvailable
+                            ? () => handleBreakDown(task.id, task.text)
+                            : undefined
+                        }
+                        breakingDown={breakingTaskId === task.id}
+                        breakDownNeedsPlus={!hasPlus}
+                        breakDownDisabled={breakingTaskId !== null && breakingTaskId !== task.id}
+                        onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
+                        // Steps are a finishing aid, so clearing them is fine on a locked day.
+                        onClearSteps={() => clearTaskSteps(task.id)}
+                      />
+                    );
+                  }
                   return (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      index={index}
-                      completed={isCompleted(task.id)}
-                      onToggle={() => handleToggle(task.id)}
-                      onEdit={(text) => editTask(task.id, text)}
-                      onDelete={() => handleDelete(task.id, task.text)}
-                      canEdit={!state.todayLocked}
-                      canDelete={!state.todayLocked}
-                      onBreakDown={
-                        breakDownAvailable
-                          ? () => handleBreakDown(task.id, task.text)
-                          : undefined
-                      }
-                      breakingDown={breakingTaskId === task.id}
-                      breakDownNeedsPlus={!hasPlus}
-                      breakDownDisabled={breakingTaskId !== null && breakingTaskId !== task.id}
-                      onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
-                      // Steps are a finishing aid, so clearing them is fine on a locked day.
-                      onClearSteps={() => clearTaskSteps(task.id)}
+                    <AddTaskRow
+                      key={`empty-${index}`}
+                      remainingSlots={remainingSlots}
+                      slotNumber={index + 1}
+                      disabled={state.todayLocked}
+                      onAdd={handleAdd}
                     />
                   );
-                }
-                return (
-                  <AddTaskRow
-                    key={`empty-${index}`}
-                    remainingSlots={remainingSlots}
-                    slotNumber={index + 1}
-                    disabled={state.todayLocked}
-                    onAdd={handleAdd}
-                  />
-                );
-              })}
+                })}
+              </View>
+
+              <StatusLine status={status} onLock={confirmLock} />
             </View>
 
-            <StatusLine status={status} onLock={confirmLock} />
+            <View style={wide ? { flex: 1, gap: 14 } : { gap: 14 }}>
 
-            {showIdeasEntry({ locked: state.todayLocked, remainingSlots }) && (
-              <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
-                <Pressable
-                  onPress={() => setIdeasOpen(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${entry.label}. Opens suggestions`}
-                  className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
-                  style={
-                    entry.prominent
-                      ? { borderColor: colors.primary, backgroundColor: colors.primary }
-                      : { borderColor: colors.border, backgroundColor: colors.surface }
-                  }
-                  testID="need-ideas"
-                >
-                  <Ionicons
-                    name={source.personalized || entry.prominent ? "sparkles" : "bulb-outline"}
-                    size={18}
-                    color={entry.prominent ? "#fff" : colors.primary}
-                  />
-                  <Text
-                    className="text-base font-semibold"
-                    style={{ color: entry.prominent ? "#fff" : colors.primary }}
+              {showIdeasEntry({ locked: state.todayLocked, remainingSlots }) && (
+                <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
+                  <Pressable
+                    onPress={() => setIdeasOpen(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${entry.label}. Opens suggestions`}
+                    className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
+                    style={
+                      entry.prominent
+                        ? { borderColor: colors.primary, backgroundColor: colors.primary }
+                        : { borderColor: colors.border, backgroundColor: colors.surface }
+                    }
+                    testID="need-ideas"
                   >
-                    {entry.label}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setBrainDumpOpen(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Brain dump. Write everything down and pick today's tasks"
-                  className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
-                  style={{ borderColor: colors.border }}
-                  testID="brain-dump-entry"
-                >
-                  <Ionicons name="create-outline" size={18} color={colors.primary} />
-                  <Text className="text-base font-semibold" style={{ color: colors.primary }}>
-                    {total === 0 ? "Brain dump everything" : "Brain dump"}
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-
-            {progress.isPerfect && (
-              <>
-                <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
-                  <Text className="text-sm font-semibold text-foreground">
-                    {total === MAX_TASKS ? "All three, done." : "Everything you picked is done."}
-                  </Text>
-                  <Text className="text-sm text-muted">
-                    You showed up today. Momentum will use this to shape tomorrow.
-                  </Text>
+                    <Ionicons
+                      name={source.personalized || entry.prominent ? "sparkles" : "bulb-outline"}
+                      size={18}
+                      color={entry.prominent ? "#fff" : colors.primary}
+                    />
+                    <Text
+                      className="text-base font-semibold"
+                      style={{ color: entry.prominent ? "#fff" : colors.primary }}
+                    >
+                      {entry.label}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setBrainDumpOpen(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Brain dump. Write everything down and pick today's tasks"
+                    className="flex-1 flex-row items-center justify-center gap-2 rounded-2xl py-3.5 border"
+                    style={{ borderColor: colors.border }}
+                    testID="brain-dump-entry"
+                  >
+                    <Ionicons name="create-outline" size={18} color={colors.primary} />
+                    <Text className="text-base font-semibold" style={{ color: colors.primary }}>
+                      {total === 0 ? "Brain dump everything" : "Brain dump"}
+                    </Text>
+                  </Pressable>
                 </View>
-                {state.momentumSettings.eveningReflection && (
-                  <CompletionReflection
-                    value={state.todayReflection}
-                    result={state.todayReflectionResult}
-                    onSelectResult={(result) => {
-                      haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-                      setTodayReflectionResult(result);
-                    }}
-                    onSave={setTodayReflection}
-                  />
-                )}
-              </>
-            )}
+              )}
+
+              {progress.isPerfect && (
+                <>
+                  <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
+                    <Text className="text-sm font-semibold text-foreground">
+                      {total === MAX_TASKS ? "All three, done." : "Everything you picked is done."}
+                    </Text>
+                    <Text className="text-sm text-muted">
+                      You showed up today. Momentum will use this to shape tomorrow.
+                    </Text>
+                  </View>
+                  {state.momentumSettings.eveningReflection && (
+                    <CompletionReflection
+                      value={state.todayReflection}
+                      result={state.todayReflectionResult}
+                      onSelectResult={(result) => {
+                        haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+                        setTodayReflectionResult(result);
+                      }}
+                      onSave={setTodayReflection}
+                    />
+                  )}
+                </>
+              )}
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

@@ -12,6 +12,7 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 | Brain dump with the simple on-device split | |
 | Goal ideas from the on-device template plan | |
 | Home/lock-screen widgets (view today, progress, next task) | Tick tasks off from the widget |
+| Weekly review: headline, 7-day bars, tasks done, perfect days (Journey tab) | Weekly patterns: vs last week, best weekday, tasks that keep sliding |
 
 - **Grandfathering:** anyone whose saved data predates the paywall, or who used an iOS
   build older than `GRANDFATHER_BEFORE_VERSION` (1.1.0) without a RevenueCat key, keeps
@@ -23,8 +24,8 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 - After the paywall closes, the gated action resumes: Break it down runs if the user now
   has Plus, and the brain dump / ideas sheet reopens.
 - **Paywall placement:** once at the end of first-run onboarding (closable), and at
-  value moments: Break it down, "Get Plus" in the brain dump, "New ideas", and
-  Settings › Plus. Restore purchases is on the paywall and in Settings.
+  value moments: Break it down, "Get Plus" in the brain dump, "New ideas", the weekly
+  review's patterns row, and Settings › Plus. Restore purchases is on the paywall and in Settings.
 - The AI proxy does not check Plus yet (RevenueCat webhook → server check is a
   later step). The app just doesn't call the AI for free users.
 

@@ -31,7 +31,8 @@ export const BRAIN_DUMP_SYSTEM_PROMPT =
   "You help an overwhelmed person turn a messy brain dump into today's plan. " +
   "Pick at most the requested number of items that matter most and are doable " +
   "today, and park everything else. Only use items the person actually wrote; " +
-  "rephrase each as a short, concrete task starting with a verb. Merge " +
+  "rephrase each as a short, concrete task starting with a verb, at most 8 " +
+  "words (under 60 characters). Merge " +
   "duplicates. Drop items that aren't tasks (feelings, notes). " +
   SAFETY;
 
@@ -121,12 +122,14 @@ export function sanitizeBrainDump(result) {
 }
 
 export function isValidBrainDump(result) {
+  // Length isn't checked here: sanitizeBrainDump shortens long items rather
+  // than failing the whole request.
   return Boolean(
     result &&
       typeof result === "object" &&
       Array.isArray(result.picks) &&
       Array.isArray(result.parked) &&
-      result.picks.some((item) => isShortTask(item, MAX_TASK_TEXT)),
+      result.picks.some((item) => isShortTask(item, Number.MAX_SAFE_INTEGER)),
   );
 }
 
@@ -135,7 +138,8 @@ export function isValidBrainDump(result) {
 export const BREAK_DOWN_SYSTEM_PROMPT =
   "You break one task into 3 to 5 tiny, concrete first steps that someone who " +
   "feels stuck can start right now. Each step takes a few minutes, starts with " +
-  "a verb, and together they finish the task (or make clear progress on it). " +
+  "a verb, is at most 8 words (under 55 characters), and together they finish " +
+  "the task (or make clear progress on it). " +
   "Don't add unrelated work. " +
   SAFETY;
 
@@ -186,7 +190,9 @@ export function sanitizeBreakDown(result) {
 
 export function isValidBreakDown(result) {
   if (!result || typeof result !== "object" || !Array.isArray(result.steps)) return false;
-  const usable = result.steps.filter((step) => isShortTask(step, MAX_STEP_TEXT));
+  // Long steps count (sanitizeBreakDown shortens them); a model that writes
+  // 70-character steps shouldn't turn into a failed request.
+  const usable = result.steps.filter((step) => isShortTask(step, Number.MAX_SAFE_INTEGER));
   // Accept 2+ usable steps: a slightly short list is still useful.
   return usable.length >= 2;
 }

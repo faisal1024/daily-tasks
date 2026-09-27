@@ -12,14 +12,15 @@ export const PLUS_ENTITLEMENT = "plus";
  */
 export const GRANDFATHER_BEFORE_VERSION = "1.1.0";
 
-export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas";
+export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "weekly_review";
 
 export type PaywallSource =
   | "onboarding"
   | "settings"
   | "brain_dump"
   | "break_down"
-  | "new_ideas";
+  | "new_ideas"
+  | "weekly_review";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -155,6 +156,11 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
     detail: "Fresh suggestions each day that adapt to how your days go.",
   },
   {
+    icon: "calendar-outline",
+    title: "Weekly review",
+    detail: "See your best days and the tasks that keep sliding.",
+  },
+  {
     icon: "apps-outline",
     title: "Tick off from your Home Screen",
     detail: "Check tasks off right from the widget, without opening the app.",
@@ -168,6 +174,8 @@ export function paywallHeadline(source: PaywallSource): string {
       return "Let AI sort your brain dump";
     case "break_down":
       return "Break any task into tiny steps";
+    case "weekly_review":
+      return "See how your weeks are going";
     case "new_ideas":
       return "Get fresh ideas for your goal";
     default:
