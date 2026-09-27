@@ -22,15 +22,17 @@ import { useColors } from "@/hooks/use-colors";
 import { Fonts } from "@/constants/theme";
 import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { aiFailureMessage } from "@/lib/daily-tasks/ai-status";
+import { getPostHogKey, track } from "@/lib/daily-tasks/analytics";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { MANAGE_SUBSCRIPTIONS_URL, PRIVACY_URL, SUPPORT_URL } from "@/lib/daily-tasks/links";
+import { plusStatusLabel } from "@/lib/daily-tasks/plus";
+import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type {
   NotificationKey,
   NotificationPermissionState,
 } from "@/lib/daily-tasks/types";
 
-const SUPPORT_URL = "https://github.com/faisal1024/daily-tasks#support";
-const PRIVACY_URL =
-  "https://github.com/faisal1024/daily-tasks/blob/main/docs/privacy-policy.md";
 
 const NOTIFICATION_LABELS: Record<
   NotificationKey,
@@ -76,7 +78,28 @@ export default function SettingsScreen() {
     requestMomentumPlan,
     setMomentumSetting,
     resetAll,
+    hasPlus,
+    setAnalyticsEnabled,
   } = useDailyTasks();
+  const plus = usePlus();
+  const [restoring, setRestoring] = useState(false);
+  // White fails contrast on the dark-mode indigo; use the dark background there.
+  const onPrimary = useColorScheme() === "dark" ? colors.background : "#fff";
+
+  const handleRestore = async () => {
+    if (restoring) return;
+    setRestoring(true);
+    const active = await plus.restore();
+    setRestoring(false);
+    Alert.alert(
+      active ? "Plus restored" : active === false ? "Nothing to restore" : "Couldn't restore",
+      active
+        ? "Welcome back. Every Plus feature is unlocked."
+        : active === false
+          ? "No Plus purchase was found for this Apple ID."
+          : "Check your connection and try again.",
+    );
+  };
   const [nameDraft, setNameDraft] = useState(state.momentumProfile.name ?? "");
   const [profileModalVisible, setProfileModalVisible] = useState(false);
 
@@ -184,6 +207,57 @@ export default function SettingsScreen() {
             Tune your day ⚙️
           </Text>
         </View>
+
+        {plus.paywallEnabled && (
+          <Section emoji="✨" title="Plus">
+            <View className="bg-surface rounded-2xl p-4 border border-border gap-3" testID="settings-plus">
+              <Text className="text-sm" style={{ color: colors.muted }}>
+                {plusStatusLabel({
+                  paywallEnabled: plus.paywallEnabled,
+                  grandfathered: state.plusGrandfathered,
+                  entitlementActive: plus.entitlementActive,
+                })}
+              </Text>
+              {!hasPlus && (
+                <Pressable
+                  onPress={() => plus.openPaywall("settings")}
+                  accessibilityRole="button"
+                  className="rounded-2xl py-3 items-center"
+                  style={{ backgroundColor: colors.primary }}
+                >
+                  <Text className="text-base font-semibold" style={{ color: onPrimary }}>
+                    See Plus plans
+                  </Text>
+                </Pressable>
+              )}
+              <View className="flex-row gap-5">
+                <Pressable
+                  onPress={() => void handleRestore()}
+                  disabled={restoring}
+                  accessibilityRole="button"
+                  accessibilityLabel="Restore purchases"
+                  accessibilityState={{ busy: restoring, disabled: restoring }}
+                  hitSlop={8}
+                >
+                  <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                    {restoring ? "Restoring…" : "Restore purchases"}
+                  </Text>
+                </Pressable>
+                {plus.entitlementActive && (
+                  <Pressable
+                    onPress={() => void openExternal(MANAGE_SUBSCRIPTIONS_URL)}
+                    accessibilityRole="link"
+                    hitSlop={8}
+                  >
+                    <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                      Manage subscription
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </Section>
+        )}
 
         <Section
           emoji="🚀"
@@ -323,7 +397,14 @@ export default function SettingsScreen() {
               </View>
             </View>
             <Pressable
-              onPress={() => void requestMomentumPlan()}
+              onPress={() => {
+                if (hasPlus) {
+                  void requestMomentumPlan();
+                  return;
+                }
+                track("plus_gate_hit", { feature: "ai_ideas" });
+                plus.openPaywall("new_ideas");
+              }}
               disabled={state.momentumPlanStatus === "loading"}
               className="self-start rounded-full px-4 py-2"
               style={{ backgroundColor: `${colors.primary}16` }}
@@ -334,7 +415,9 @@ export default function SettingsScreen() {
               >
                 {state.momentumPlanStatus === "loading"
                   ? "Refreshing..."
-                  : "Refresh with AI"}
+                  : hasPlus
+                    ? "Refresh with AI"
+                    : "Refresh with AI (Plus)"}
               </Text>
             </Pressable>
             {state.momentumPlanStatus === "error" && state.momentumPlanError && (
@@ -525,6 +608,25 @@ export default function SettingsScreen() {
         </Section>
 
         <Section emoji="💾" title="Data" subtitle="Stored only on this device.">
+          {getPostHogKey() !== null && (
+            <View className="bg-surface rounded-2xl p-4 border border-border flex-row items-center justify-between gap-4">
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-foreground">
+                  Share anonymous usage stats
+                </Text>
+                <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                  Anonymous counts like &quot;finished a task&quot; or &quot;viewed Plus&quot; help us
+                  improve the app. Never your tasks, goals or name.
+                </Text>
+              </View>
+              <Switch
+                value={state.analyticsEnabled}
+                onValueChange={setAnalyticsEnabled}
+                trackColor={{ true: colors.primary }}
+                accessibilityLabel="Share anonymous usage stats"
+              />
+            </View>
+          )}
           <Pressable
             onPress={handleReset}
             className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3"

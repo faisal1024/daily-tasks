@@ -49,6 +49,18 @@ jest.mock("@/lib/daily-tasks/ai-helpers", () => {
   const actual = jest.requireActual("@/lib/daily-tasks/ai-helpers");
   return { ...actual, requestBreakDown: jest.fn(), sortBrainDump: jest.fn() };
 });
+const mockOpenPaywall = jest.fn(() => true);
+let mockPaywall: {
+  paywallSource: string | null;
+  entitlementActive: boolean;
+  purchaseCount?: number;
+} = {
+  paywallSource: null,
+  entitlementActive: false,
+};
+jest.mock("@/lib/daily-tasks/plus-context", () => ({
+  usePlus: () => ({ paywallEnabled: true, openPaywall: mockOpenPaywall, ...mockPaywall }),
+}));
 jest.mock("@/components/daily-tasks/onboarding-modal", () => ({ OnboardingModal: () => null }));
 jest.mock("@/components/daily-tasks/rollover-modal", () => ({ RolloverModal: () => null }));
 
@@ -104,6 +116,7 @@ function makeStore(overrides: Partial<AppState> = {}) {
     setTaskSteps: jest.fn(),
     toggleTaskStep: jest.fn(),
     clearTaskSteps: jest.fn(),
+    hasPlus: true,
   };
 }
 
@@ -121,6 +134,7 @@ afterEach(() => {
   jest.useRealTimers();
   jest.clearAllMocks();
   mockProxyUrl = null;
+  mockPaywall = { paywallSource: null, entitlementActive: false };
 });
 
 describe("Today screen layout", () => {
@@ -962,5 +976,95 @@ describe("perfect-day moment: once per day and one rating at a time", () => {
 
     await act(async () => review.resolve(true));
     expect(markReviewPrompted).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- Phase 4: Plus gates for free users --------------------------------------
+
+describe("Plus gates (free plan)", () => {
+  it("Break it down opens the paywall right away instead of calling the AI, then runs once Plus is bought", async () => {
+    jest.useFakeTimers();
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    (requestBreakDown as jest.Mock).mockResolvedValue(["Clear counter"]);
+    const free = { ...makeStore({ tasks: tasks("Clean kitchen") }), hasPlus: false };
+    mockStore = free;
+    const { rerender } = await render(<HomeScreen />);
+    expect(screen.getByTestId("break-down-plus")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
+    // No sheet is closing first, so no delay.
+    expect(mockOpenPaywall).toHaveBeenCalledWith("break_down");
+    expect(requestBreakDown).not.toHaveBeenCalled();
+
+    // The paywall shows, the user buys, it closes.
+    mockPaywall = { paywallSource: "break_down", entitlementActive: false };
+    await rerender(<HomeScreen />);
+    mockPaywall = { paywallSource: null, entitlementActive: true };
+    mockStore = { ...free, hasPlus: true };
+    await rerender(<HomeScreen />);
+    expect(requestBreakDown).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(650);
+    });
+    expect(requestBreakDown).toHaveBeenCalledWith(expect.objectContaining({ task: "Clean kitchen" }));
+  });
+
+  it("brain dump uses the on-device split (no AI call) and offers Plus, which opens the paywall", async () => {
+    jest.useFakeTimers();
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    mockStore = { ...makeStore(), hasPlus: false };
+    const { rerender } = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a\nb\nc\nd");
+    expect(screen.getByTestId("brain-dump-upgrade")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+    expect(sortBrainDump).not.toHaveBeenCalled();
+    expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "D" })).not.toBeChecked();
+    expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
+
+    // Back on the write step the offer is still there for next time; from a
+    // fresh sheet, Get Plus closes it and opens the paywall.
+    await fireEvent.press(screen.getByRole("button", { name: "Add 3 to today" }));
+    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    await fireEvent.press(screen.getByRole("button", { name: "Get AI sorting with Plus" }));
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    // Waits for the sheet to animate away before the paywall.
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(650);
+    });
+    expect(mockOpenPaywall).toHaveBeenCalledWith("brain_dump");
+
+    // Closing the paywall (bought or not) brings the brain dump back.
+    mockPaywall = { paywallSource: "brain_dump", entitlementActive: false };
+    await rerender(<HomeScreen />);
+    mockPaywall = { paywallSource: null, entitlementActive: false };
+    await rerender(<HomeScreen />);
+    await act(async () => {
+      jest.advanceTimersByTime(650);
+    });
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+  });
+
+  it("thanks the user only after a purchase, not when a subscriber's status loads at launch", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    mockPaywall = { paywallSource: null, entitlementActive: false, purchaseCount: 0 };
+    const { rerender } = await render(<HomeScreen />);
+    mockPaywall = { paywallSource: null, entitlementActive: true, purchaseCount: 0 };
+    await rerender(<HomeScreen />);
+    expect(screen.queryByText("You're on Plus. Thank you!")).toBeNull();
+    mockPaywall = { paywallSource: null, entitlementActive: true, purchaseCount: 1 };
+    await rerender(<HomeScreen />);
+    expect(screen.getByText("You're on Plus. Thank you!")).toBeOnTheScreen();
+  });
+
+  it("Plus users' brain dump still goes through the AI sorter with no upgrade offer", async () => {
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    expect(screen.queryByTestId("brain-dump-upgrade")).toBeNull();
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a");
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+    expect(sortBrainDump).toHaveBeenCalledTimes(1);
   });
 });

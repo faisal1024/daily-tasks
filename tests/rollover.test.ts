@@ -45,6 +45,8 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     journey: DEFAULT_JOURNEY,
     lastReviewPromptAt: null,
     parkedTasks: [],
+    plusGrandfathered: false,
+    analyticsEnabled: true,
     ...overrides,
   };
 }

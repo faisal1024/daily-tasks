@@ -491,6 +491,12 @@ export function normalizeState(value: unknown): AppState | null {
     lastReviewPromptAt:
       typeof value.lastReviewPromptAt === "string" ? value.lastReviewPromptAt : null,
     parkedTasks: normalizeParkedTasks(value.parkedTasks),
+    // Saved state without this flag was written by a build from before the
+    // paywall, so its owner is an early user: grandfather them.
+    plusGrandfathered:
+      typeof value.plusGrandfathered === "boolean" ? value.plusGrandfathered : true,
+    analyticsEnabled:
+      typeof value.analyticsEnabled === "boolean" ? value.analyticsEnabled : true,
   };
 }
 
@@ -538,6 +544,8 @@ export function buildInitialState(now: Date = new Date()): AppState {
     journey: DEFAULT_JOURNEY,
     lastReviewPromptAt: null,
     parkedTasks: [],
+    plusGrandfathered: false,
+    analyticsEnabled: true,
   };
 }
 

@@ -30,9 +30,21 @@ interface BrainDumpSheetProps {
    * when the user saves everything or closes the review, so nothing is lost.
    */
   onConfirm: (picks: string[], parked: string[]) => void;
+  /**
+   * Set when AI sorting needs Plus: the write step offers an upgrade. What was
+   * typed is kept, so it's still there after upgrading.
+   */
+  onUpgrade?: () => void;
 }
 
-export function BrainDumpSheet({ visible, onClose, openSlots, onSort, onConfirm }: BrainDumpSheetProps) {
+export function BrainDumpSheet({
+  visible,
+  onClose,
+  openSlots,
+  onSort,
+  onConfirm,
+  onUpgrade,
+}: BrainDumpSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [stage, setStage] = useState<Stage>("write");
@@ -173,6 +185,28 @@ export function BrainDumpSheet({ visible, onClose, openSlots, onSort, onConfirm 
                   Sort it for me
                 </Text>
               </Pressable>
+              {onUpgrade && (
+                <View
+                  className="flex-row items-center gap-2 rounded-2xl p-3"
+                  style={{ backgroundColor: colors.surface }}
+                  testID="brain-dump-upgrade"
+                >
+                  <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
+                  <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
+                    This uses a simple split. Want AI to pick what matters most?
+                  </Text>
+                  <Pressable
+                    onPress={onUpgrade}
+                    accessibilityRole="button"
+                    accessibilityLabel="Get AI sorting with Plus"
+                    hitSlop={12}
+                  >
+                    <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                      Get Plus
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
             </>
           )}
 

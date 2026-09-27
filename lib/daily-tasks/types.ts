@@ -190,6 +190,10 @@ export interface AppState {
   // When we last asked for an App Store rating (ISO), or null if never.
   lastReviewPromptAt: string | null;
   parkedTasks: ParkedTask[];
+  // Used the app before the paywall shipped: keeps every Plus feature free.
+  plusGrandfathered: boolean;
+  // Anonymous usage stats (Settings toggle). Only sent when the build has a key.
+  analyticsEnabled: boolean;
 }
 
 export const GOAL_OPTIONS: string[] = [

@@ -32,7 +32,10 @@ import {
   classifyAiFailure,
 } from "@/lib/daily-tasks/ai-status";
 import { proxyRouteUrl } from "@/lib/daily-tasks/ai-client";
-import { requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import { localBrainDump, requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import { track } from "@/lib/daily-tasks/analytics";
+import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
+import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import { greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
@@ -53,6 +56,11 @@ import {
   todayStatus,
 } from "@/lib/daily-tasks/today-view";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
+
+type Unlock =
+  | { kind: "break_down"; taskId: string; text: string }
+  | { kind: "brain_dump" }
+  | { kind: "new_ideas" };
 
 function haptic(fn: () => Promise<void>) {
   if (Platform.OS === "web") return;
@@ -87,7 +95,44 @@ export default function HomeScreen() {
     setTaskSteps,
     toggleTaskStep,
     clearTaskSteps,
+    hasPlus,
   } = useDailyTasks();
+  const { paywallEnabled, paywallSource, purchaseCount, openPaywall } = usePlus();
+
+  // What to pick back up once the paywall closes (bought or not).
+  const pendingUnlock = useRef<Unlock | null>(null);
+  // iOS shows one modal at a time: when a sheet is closing first, wait for it
+  // to animate away before bringing up the paywall.
+  const paywallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPaywall = (
+    source: PaywallSource,
+    options: { feature?: PlusFeature; afterSheet?: boolean; resume?: Unlock } = {},
+  ) => {
+    if (options.feature) track("plus_gate_hit", { feature: options.feature });
+    const unlock = options.resume ?? null;
+    if (paywallTimer.current) clearTimeout(paywallTimer.current);
+    const open = () => {
+      pendingUnlock.current = unlock;
+      // Didn't open (e.g. a paywall is already up elsewhere): nothing to resume.
+      if (!openPaywall(source)) pendingUnlock.current = null;
+    };
+    if (!options.afterSheet) {
+      open();
+      return;
+    }
+    paywallTimer.current = setTimeout(() => {
+      paywallTimer.current = null;
+      open();
+    }, 650);
+  };
+  const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (paywallTimer.current) clearTimeout(paywallTimer.current);
+      if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    },
+    [],
+  );
   const { update, dismiss: dismissUpdate } = useAppUpdate();
 
   const [showCelebration, setShowCelebration] = useState(false);
@@ -191,6 +236,7 @@ export default function HomeScreen() {
 
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
     setShowCelebration(true);
+    track("perfect_day", { count: total });
     reviewPending.current = !reviewInFlight.current && shouldRequestReview({
       history: state.history,
       lastReviewPromptAt: state.lastReviewPromptAt,
@@ -239,7 +285,19 @@ export default function HomeScreen() {
     }
   }, [state.todayLocked, state.pendingRollover, state.hasSeenOnboarding]);
 
-  const handleBreakDown = async (taskId: string, text: string) => {
+  const handleBreakDown = (taskId: string, text: string) => {
+    if (breakingRef.current) return;
+    if (!hasPlus) {
+      showPaywall("break_down", {
+        feature: "break_down",
+        resume: { kind: "break_down", taskId, text },
+      });
+      return;
+    }
+    void runBreakDown(taskId, text);
+  };
+
+  const runBreakDown = async (taskId: string, text: string) => {
     if (breakingRef.current) return;
     breakingRef.current = taskId;
     setBreakingTaskId(taskId);
@@ -248,6 +306,7 @@ export default function HomeScreen() {
       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
       // Only if the task still reads the same (it may have been edited meanwhile).
       setTaskSteps(taskId, steps, text);
+      track("break_down_used", { count: steps.length });
     } catch (error) {
       Alert.alert("Couldn't break it down", breakDownFailureMessage(classifyAiFailure(error)));
     } finally {
@@ -255,6 +314,60 @@ export default function HomeScreen() {
       setBreakingTaskId(null);
     }
   };
+
+  // When the paywall closes, pick up where the user was: run the break-down
+  // they asked for (if they now have Plus), or reopen the sheet they were in.
+  const resume = useRef<(unlock: Unlock) => void>(() => {});
+  resume.current = (unlock) => {
+    if (unlock.kind === "break_down") {
+      const task = state.tasks.find((t) => t.id === unlock.taskId);
+      if (hasPlus && task && task.text === unlock.text && !isCompleted(task.id)) {
+        void runBreakDown(task.id, task.text);
+      }
+      return;
+    }
+    if (state.todayLocked || state.pendingRollover) return;
+    if (unlock.kind === "brain_dump") {
+      setBrainDumpOpen(true);
+      return;
+    }
+    setIdeasOpen(true);
+    if (hasPlus) void requestMomentumPlan();
+  };
+  const paywallWasOpen = useRef(false);
+  useEffect(() => {
+    if (paywallSource) {
+      paywallWasOpen.current = true;
+      return;
+    }
+    if (!paywallWasOpen.current) return;
+    paywallWasOpen.current = false;
+    const unlock = pendingUnlock.current;
+    pendingUnlock.current = null;
+    if (!unlock) return;
+    // Let the paywall animate away before presenting another sheet.
+    if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    resumeTimer.current = setTimeout(() => {
+      resumeTimer.current = null;
+      // A paywall came back up meanwhile: keep the unlock for when it closes.
+      if (paywallOpenRef.current) {
+        pendingUnlock.current = unlock;
+        paywallWasOpen.current = true;
+        return;
+      }
+      resume.current(unlock);
+    }, 650);
+  }, [paywallSource]);
+  const paywallOpenRef = useRef(false);
+  paywallOpenRef.current = paywallSource !== null;
+
+  // Thank-you note after an actual purchase (not when a subscriber's status
+  // simply loads at launch, and not on restore, which has its own message).
+  const seenPurchases = useRef(purchaseCount);
+  useEffect(() => {
+    if (purchaseCount > seenPurchases.current) showToast("You're on Plus. Thank you!");
+    seenPurchases.current = purchaseCount;
+  }, [purchaseCount]);
 
   const confirmLock = () => {
     const { title, message } = lockConfirmation(total);
@@ -278,6 +391,7 @@ export default function HomeScreen() {
         : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
     );
     toggleTask(id);
+    if (completing) track("task_completed", { count: completedCount + 1 });
   };
 
   const handleDelete = (id: string, text: string) => {
@@ -348,10 +462,11 @@ export default function HomeScreen() {
                       canDelete={!state.todayLocked}
                       onBreakDown={
                         breakDownAvailable
-                          ? () => void handleBreakDown(task.id, task.text)
+                          ? () => handleBreakDown(task.id, task.text)
                           : undefined
                       }
                       breakingDown={breakingTaskId === task.id}
+                      breakDownNeedsPlus={!hasPlus}
                       breakDownDisabled={breakingTaskId !== null && breakingTaskId !== task.id}
                       onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
                       // Steps are a finishing aid, so clearing them is fine on a locked day.
@@ -461,6 +576,15 @@ export default function HomeScreen() {
         }}
         onRegenerate={() => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+          if (!hasPlus) {
+            setIdeasOpen(false);
+            showPaywall("new_ideas", {
+              feature: "ai_ideas",
+              afterSheet: true,
+              resume: { kind: "new_ideas" },
+            });
+            return;
+          }
           void requestMomentumPlan();
         }}
         parked={state.parkedTasks}
@@ -476,12 +600,30 @@ export default function HomeScreen() {
         visible={brainDumpOpen}
         onClose={() => setBrainDumpOpen(false)}
         openSlots={Math.max(1, remainingSlots)}
-        onSort={(text) =>
-          sortBrainDump({
+        onSort={async (text) => {
+          const params = {
             text,
             openSlots: Math.max(1, remainingSlots),
             goalTitle: state.momentumProfile.goalTitle,
-          })
+          };
+          // Free plan: the simple on-device split (no AI call).
+          const sorted = hasPlus
+            ? await sortBrainDump(params)
+            : { result: localBrainDump(params.text, params.openSlots), notice: null };
+          track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
+          return sorted;
+        }}
+        onUpgrade={
+          hasPlus
+            ? undefined
+            : () => {
+                setBrainDumpOpen(false);
+                showPaywall("brain_dump", {
+                  feature: "brain_dump",
+                  afterSheet: true,
+                  resume: { kind: "brain_dump" },
+                });
+              }
         }
         onConfirm={(picks, parked) => {
           // A slot may have filled while the sheet was open: park what won't fit.
@@ -503,7 +645,12 @@ export default function HomeScreen() {
       <OnboardingModal
         visible={ready && !state.hasSeenOnboarding && !state.pendingRollover}
         initialProfile={state.momentumProfile}
-        onComplete={completeMomentumOnboarding}
+        onComplete={(profile) => {
+          completeMomentumOnboarding(profile);
+          track("onboarding_completed", { source: profile.goalSource ?? "none" });
+          // Offer the trial once, at the end of first-run onboarding (closable).
+          if (paywallEnabled && !hasPlus) showPaywall("onboarding", { afterSheet: true });
+        }}
       />
 
       <RolloverModal
