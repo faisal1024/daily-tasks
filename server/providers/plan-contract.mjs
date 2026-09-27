@@ -14,14 +14,13 @@ export function generatedTaskSchema() {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["id", "text", "estimatedMinutes", "difficulty", "reason", "source"],
+    // Only what the app reads: it assigns ids and the source itself.
+    required: ["text", "estimatedMinutes", "difficulty", "reason"],
     properties: {
-      id: { type: "string" },
       text: { type: "string" },
       estimatedMinutes: { type: "integer", minimum: 5, maximum: 60 },
       difficulty: { type: "string", enum: ["easy", "medium", "stretch"] },
       reason: { type: "string" },
-      source: { type: "string", enum: ["ai"] },
     },
   };
 }
@@ -38,12 +37,11 @@ export const RESPONSE_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "title", "description", "completedAt"],
+        // The app gives milestones stable ids and owns completion.
+        required: ["title", "description"],
         properties: {
-          id: { type: "string" },
           title: { type: "string" },
           description: { type: "string" },
-          completedAt: { type: ["string", "null"] },
         },
       },
     },
@@ -68,6 +66,17 @@ export const PLAN_TOOL_DESCRIPTION =
   "Return the structured Momentum plan: three milestones, exactly three " +
   "todaySuggestions, and a task pool. Call this tool with the plan as input.";
 
+// One short example per tone, so "calm" / "friendly" / "direct" read differently.
+const TONE_EXAMPLES = {
+  calm: 'e.g. "Take a slow 10-minute walk outside", reason "A gentle reset before the busy part of the day."',
+  friendly: 'e.g. "Treat yourself to a 10-minute walk", reason "You\'ve earned some fresh air!"',
+  direct: 'e.g. "Walk 10 minutes. Leave the phone.", reason "Clears your head fast."',
+};
+
+export function toneExample(tone) {
+  return Object.prototype.hasOwnProperty.call(TONE_EXAMPLES, tone) ? TONE_EXAMPLES[tone] : TONE_EXAMPLES.calm;
+}
+
 export function buildPrompt(payload) {
   return [
     "Create a Momentum plan for a daily app limited to exactly three tasks per day.",
@@ -78,7 +87,7 @@ export function buildPrompt(payload) {
     `Why it matters to them: ${payload.profile.motivation ?? "not shared"}`,
     `Best time of day: ${payload.profile.preferredTime ?? "any"}`,
     `Commitment cadence: ${payload.profile.cadence ?? "flexible"}`,
-    `Suggestion tone: ${payload.settings.suggestionTone}`,
+    `Suggestion tone: ${payload.settings.suggestionTone} (${toneExample(payload.settings.suggestionTone)})`,
     `Adaptive planning enabled: ${payload.settings.adaptivePlanning}`,
     `Recent completion: ${payload.recentPerformance.completed}/${payload.recentPerformance.total} tasks across ${payload.recentPerformance.daysReviewed} active days`,
     `Recent missed tasks: ${payload.recentPerformance.missed}`,

@@ -10,6 +10,7 @@
 
 import { Platform } from "react-native";
 
+import { setProxyUserId } from "./ai-client";
 import { freeTrialDays, planKind, PLUS_ENTITLEMENT, type PlusPackage } from "./plus";
 
 type PurchasesModule = typeof import("react-native-purchases");
@@ -52,6 +53,15 @@ export function configurePurchases(): boolean {
     configured = true;
   } catch {
     return false;
+  }
+  // The proxy checks Plus by this anonymous id (never a name or email).
+  // Separate from configure: a failure here must not turn the paywall off.
+  try {
+    void Promise.resolve(sdk.default.getAppUserID())
+      .then((id) => setProxyUserId(typeof id === "string" ? id : null))
+      .catch(() => {});
+  } catch {
+    // No id this launch: requests go without it (per-IP limits only).
   }
   return configured;
 }

@@ -79,6 +79,31 @@ A `render.yaml` blueprint is included.
 Note: Render's free plan sleeps on idle, so the first request after a quiet
 period has a cold-start delay. Use a paid instance to avoid that.
 
+### Cloudflare Workers (planned home: free, no cold starts)
+
+`server/worker.mjs` runs the same routes as the Node server (both use
+`server/handler.mjs`), with limits in one Durable Object (`Limits`).
+
+1. Create a free Cloudflare account, then from `server/`:
+   `npx wrangler@4 login` and `npx wrangler@4 deploy` (config: `server/wrangler.toml`).
+2. Secrets (never in the repo): `npx wrangler@4 secret put ANTHROPIC_API_KEY`,
+   `PROXY_SHARED_SECRET`, and later `REVENUECAT_SECRET_KEY`.
+3. Point a build at the `*.workers.dev` URL + `/api/momentum/plan` via
+   `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL`, test on TestFlight, then retire Render.
+4. Local try-out without an account: `cd server && npx wrangler@4 dev --local`.
+
+The client IP comes from `CF-Connecting-IP` (no `TRUST_PROXY_HOPS` needed).
+
+### Plus check (all hosts)
+
+The app sends its anonymous RevenueCat id as `x-rc-user`. With
+`ENTITLEMENT_MODE=enforce` and `REVENUECAT_SECRET_KEY` set, the plan, break-down
+and evening routes answer **402** unless RevenueCat says Plus is active (cached
+1 h; free answers 5 min; if RevenueCat can't be reached the request is allowed).
+Brain dumps stay open to free users up to `FREE_BRAIN_DUMPS_PER_DAY` (default 5).
+`log` counts would-be denials without blocking; `off` (default) skips it.
+Limits apply per IP and, when the id is present, per user as well.
+
 ### Any other host
 
 1. Deploy `server/` (entry: `server/momentum-proxy.mjs`, Node 18+).

@@ -44,6 +44,8 @@ export class MomentumAiError extends Error {
 export function kindForStatus(status: number, proxyError?: unknown): AiFailureKind {
   if (status === 401 || status === 403) return "unauthorized";
   if (status === 429) return "rate_limited";
+  // 402: the proxy's Plus check said no (e.g. a lapse it saw first). Treated
+  // like any unavailable AI: the app falls back to its on-device versions.
   if (status === 503 && typeof proxyError === "string" && /busy/i.test(proxyError)) {
     return "busy";
   }

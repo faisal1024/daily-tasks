@@ -6,6 +6,14 @@ import { MomentumAiError, kindForStatus } from "./ai-status";
 
 /** Header the proxy checks when PROXY_SHARED_SECRET is set server-side. */
 export const PROXY_SECRET_HEADER = "x-momentum-secret";
+/** Anonymous RevenueCat id, so the proxy can check Plus and limit per user. */
+export const PROXY_USER_HEADER = "x-rc-user";
+
+let proxyUserId: string | null = null;
+/** Set by purchases.ts once RevenueCat has its (anonymous) app user id. */
+export function setProxyUserId(id: string | null): void {
+  proxyUserId = id && id.length <= 100 ? id : null;
+}
 
 /**
  * Long enough to ride out a Render free-tier cold start (~30–60s) plus a model
@@ -63,6 +71,7 @@ export async function postToProxy({
 }): Promise<Record<string, unknown>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (proxySecret) headers[PROXY_SECRET_HEADER] = proxySecret;
+  if (proxyUserId) headers[PROXY_USER_HEADER] = proxyUserId;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

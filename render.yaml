@@ -47,3 +47,12 @@ services:
       # switch to "enforce" once most active users run a build that sends it.
       - key: SECRET_MODE
         value: log
+      # Server-side Plus check (RevenueCat REST). "off" until the paywall is
+      # live; then "log" to measure, then "enforce". Needs REVENUECAT_SECRET_KEY.
+      - key: ENTITLEMENT_MODE
+        value: "off"
+      - key: REVENUECAT_SECRET_KEY
+        sync: false
+      # Ceiling on a free user's AI brain dumps per day (the app gives 3 in total).
+      - key: FREE_BRAIN_DUMPS_PER_DAY
+        value: "5"
