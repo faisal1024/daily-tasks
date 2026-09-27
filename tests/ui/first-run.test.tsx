@@ -225,7 +225,7 @@ describe("FirstRun: review fixes (7275263)", () => {
     expect(screen.getByTestId("first-run-three")).toBeOnTheScreen();
     expect(
       screen.getByText(
-        "Your free AI sorts are used up, so these are your first few lines, tidied. Plus turns your notes into clear tasks.",
+        "Your free AI sorts are used up, so we kept the first things you wrote. Untick any that aren't for today.",
       ),
     ).toBeOnTheScreen();
     expect(screen.queryByText(/We couldn't sort this one/)).toBeNull();

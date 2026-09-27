@@ -988,26 +988,24 @@ export default function HomeScreen() {
           // per install, persisted: "Reset all data" doesn't grant another), or
           // else as one of the free Today sorts. Otherwise the simple split,
           // and it says so (a silent split looks like the AI got it wrong).
-          let usedFreeSort = false;
-          let useAi = hasPlus;
-          if (!useAi && !firstRunAiUsed.current) useAi = await claimFirstAiSort();
+          // The first-run claim is always made on the first sort (even with
+          // Plus), so a Plus check that later turns out free can't mint a
+          // second one after "Reset all data".
+          const firstClaim = !firstRunAiUsed.current && (await claimFirstAiSort());
           firstRunAiUsed.current = true;
-          if (!useAi) {
-            const left = await claimFreeAiDump();
-            if (left !== null) {
-              useAi = true;
-              usedFreeSort = true;
-              setFreeAiLeft(left);
-            }
-          }
-          const sorted: SortedBrainDump = useAi
+          let freeLeft: number | null = null;
+          if (!hasPlus && !firstClaim) freeLeft = await claimFreeAiDump();
+          const useAi = hasPlus || firstClaim || freeLeft !== null;
+          if (!useAi) track("plus_gate_hit", { feature: "brain_dump", source: "free_exhausted" });
+          let sorted: SortedBrainDump = useAi
             ? await Promise.race([sortBrainDump({ text, openSlots: 3, goalTitle: null }), fallback])
-            : { result: localBrainDump(text, 3), notice: FREE_LIMIT_NOTICE, freeLimit: true };
+            : { result: localBrainDump(text, 3), notice: null, freeLimit: true };
           clearTimeout(timer);
-          // A free sort that didn't reach the AI doesn't count.
-          if (usedFreeSort && sorted.result.source !== "ai") {
-            void refundFreeAiDump();
-            setFreeAiLeft((n) => (n === null ? n : n + 1));
+          if (freeLeft !== null) {
+            // A free sort that didn't reach the AI doesn't count; one that did
+            // says how many are left (never spent silently).
+            if (sorted.result.source !== "ai") void refundFreeAiDump();
+            else sorted = { ...sorted, notice: freeAiDumpNotice(freeLeft), freeSortUsed: true };
           }
           track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
           return sorted;

@@ -302,13 +302,21 @@ describe("Today: first run, AI sort accounting", () => {
     expect(await AsyncStorage.getItem(FREE_KEY)).toBeNull();
   });
 
-  it("a Plus user never claims the one-per-install first sort (nor a free sort)", async () => {
+  it("a Plus user uses the AI and never a free sort; the first-run claim is still made (no second one after a reset)", async () => {
     mockStore = makeStore({}, { hasPlus: true });
     await render(<HomeScreen />);
     await dump("walk");
     expect(sortBrainDump).toHaveBeenCalledTimes(1);
-    expect(await AsyncStorage.getItem(FIRST_KEY)).toBeNull();
+    expect(await AsyncStorage.getItem(FIRST_KEY)).not.toBeNull();
     expect(await AsyncStorage.getItem(FREE_KEY)).toBeNull();
+  });
+
+  it("a free sort used during first run says how many are left", async () => {
+    await AsyncStorage.setItem(FIRST_KEY, "2026-09-01T00:00:00.000Z");
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("walk");
+    expect(screen.getByText("Sorted by AI · 2 free sorts left.")).toBeOnTheScreen();
   });
 
   it("the Today sheet counts a free sort used during first run", async () => {
