@@ -5,6 +5,36 @@ independent audits (product/monetization, UX/design on the real app, architectur
 market/growth with sources), combined here into one plan. Supersedes §0.6 of the master
 plan from Phase 8 on._
 
+## 0. Status (updated as phases land)
+
+Legend: ✅ done · 🔄 in progress · ⬜ not started · ⏸ blocked on the owner
+
+### Done (shipped in v1.0.11, TestFlight build 38, 26 Sept 2026)
+- ✅ **Phase 1** — AI proxy hardening: shared secret (log mode), rate limits, testable server (PR #34)
+- ✅ **Phase 2** — Today-screen revamp, rating prompt, UI test infrastructure (PR #35)
+- ✅ **Phase 3** — AI helpers: brain dump → three, break it down (PR #36)
+- ✅ **Phase 4** — Plus paywall (RevenueCat, dormant until keys), grandfathering, anonymous analytics (PR #37)
+- ✅ **Phase 5** — Home + lock-screen widgets with tap-to-complete (PR #38)
+- ✅ **Phase 6** — Weekly review, iPad two-column Today, shorter AI steps (PR #39)
+- ✅ **Phase 7** — New app icon everywhere (PR #40)
+- ✅ **Live ops** — proxy secret on Render, Anthropic key rotated, $20/mo spend cap, PostHog project (IP discard on)
+- ✅ **Release** — 1.0.10 live on the App Store; 1.0.11 (build 38) on TestFlight
+
+### Left
+| Phase | Status | Notes |
+|---|---|---|
+| 8 — Foundation fixes | 🔄 in progress | engineering + UX quick wins, privacy policy |
+| 9 — The ritual | ⬜ | needs decisions 3–5 (§6) |
+| 10 — Today revamp + IA | ⬜ | needs decision 5 (§6) |
+| 11 — Money & cost controls | ⏸ | needs App Store Connect setup (Paid Apps agreement, tax form, In-App Purchase key) + decisions 2, 3, 6 |
+| 12 — Name, listing, launch | ⏸ | needs decision 1 (name) |
+
+### Owner to-dos outside the code
+- ⏸ App Store Connect: renew the Paid Apps Agreement, W-9 tax form (after bank processing), generate the In-App Purchase key (.p8) for RevenueCat
+- ⏸ RevenueCat: confirm the account email; connect the App Store app once the key exists
+- ⬜ Test 1.0.11 on your phone via TestFlight (widget layout on device, next-morning widget ticks)
+- ⬜ Answer the decisions in §6
+
 ## 1. Diagnosis (where all four audits agree)
 
 **The product has one real differentiator, and it's hidden.** The thing Things, Todoist,
