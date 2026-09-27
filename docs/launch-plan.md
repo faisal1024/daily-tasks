@@ -11,14 +11,24 @@ App Store Connect (appstoreconnect.apple.com):
    shows "Active".)
 2. **Users and Access → Integrations → In-App Purchase** → generate an
    **In-App Purchase key** (.p8). Download it once; keep it safe.
-3. **Apps → Three Today → Subscriptions**: create a subscription group
-   "Three Today Plus" with two products, and one non-consumable:
-   | Product | Product ID | Price | Offer |
+3. **Apps → Three Today → Monetization → Subscriptions**: create a subscription
+   group **"Three Today Plus"** (give the group itself a localization: display
+   name "Three Today Plus"). In it, create two auto-renewable subscriptions:
+   | Product | Product ID | Duration | Price |
    |---|---|---|---|
-   | Monthly | `plus_monthly` | $4.99 | 7-day free trial (introductory offer) |
-   | Yearly | `plus_annual` | $34.99 | 7-day free trial (introductory offer) |
-   | Lifetime (In-App Purchase, non-consumable) | `plus_lifetime` | $79.99 | none |
-   Give each a display name and a short description ("AI helpers for your daily three").
+   | Monthly | `plus_monthly` | 1 month | $4.99 |
+   | Yearly | `plus_annual` | 1 year | $34.99 |
+   For **each** subscription:
+   - Localization: display name ("Plus Monthly" / "Plus Yearly") and description
+     ("AI helpers for your daily three").
+   - Subscription Prices → set the price (all territories).
+   - Subscription Prices → **Set Up Introductory Offer** → Free, **1 week**, all territories.
+   - **Review Information → Screenshot**: a picture of the paywall (use any Plus
+     screen from TestFlight) and a short note ("Opened from Settings › Plus").
+   Then **Monetization → In-App Purchases → + → Non-Consumable**: `plus_lifetime`,
+   reference name "Plus Lifetime", price $79.99, the same localization and review
+   screenshot. (Lifetime is not a subscription, so it lives here.)
+   Every product must show **"Ready to Submit"**, not "Missing Metadata".
 4. **App Store Small Business Program**: developer.apple.com → Programs →
    enrol (Apple's commission becomes 15% instead of 30%).
 
@@ -26,22 +36,32 @@ RevenueCat (app.revenuecat.com):
 5. Confirm the account email. Create the project → add the iOS app
    (bundle `com.faisalislam.dailytasks`) → upload the In-App Purchase key.
 6. Create the entitlement **`plus`**, attach all three products, and an offering
-   "default" with packages `$rc_monthly`, `$rc_annual`, `$rc_lifetime`.
+   "default" with packages `$rc_monthly`, `$rc_annual`, `$rc_lifetime`. Make
+   "default" the **Current** offering (the app reads the current one).
 7. Copy the **public Apple API key** (starts `appl_`) into EAS:
    `eas env:create --name EXPO_PUBLIC_REVENUECAT_IOS_KEY --environment production --visibility plaintext --value appl_...`
 8. Create a **V1 secret key** (starts `sk_`) for the server (used later, step 11).
-9. App Store Connect → App Information → App Store Server Notifications →
-   paste the URL from RevenueCat → App settings → Apple Server Notifications.
+9. In RevenueCat → Project → the iOS app → copy the **Apple Server Notification
+   URL**. In App Store Connect → App Information → App Store Server Notifications,
+   paste it for both **Production** and **Sandbox**, choosing Version 2.
 
 ## 2. The release (me, once 1 is done)
 
-10. Build 1.1.0 with the RevenueCat key, send it to TestFlight, and test a sandbox
-    purchase, restore, and the trial reminder.
-11. Server: set `REVENUECAT_SECRET_KEY` and `GRANDFATHER_GRANTS_UNTIL` (about 6 weeks
-    after release) on Render; later move to Cloudflare (docs/momentum-ai-proxy.md).
+10. **(you)** App Store Connect → Users and Access → **Sandbox** → add a Sandbox
+    tester (any email you control). Then I build 1.1.0 with the RevenueCat key and
+    send it to TestFlight, and we test a sandbox purchase, restore, and the trial
+    reminder with that tester.
+11. Server: set `REVENUECAT_SECRET_KEY` and `GRANDFATHER_GRANTS_UNTIL` on Render.
+    Use an exact date about 6 weeks after release, written like `2026-12-15`; the
+    same date goes in What's New ("open the app before …"). Later move to
+    Cloudflare (docs/momentum-ai-proxy.md).
 12. Listing: paste `docs/app-store-listing.md` (or `eas metadata:push`), upload the
     screenshots from `~/Downloads/three-today-appstore-screenshots/`, update the App
-    Privacy label as listed there, add the review notes, submit.
+    Privacy label as listed there, add the review notes.
+    **Before Submit:** on the 1.1.0 version page, open **In-App Purchases and
+    Subscriptions** and select `plus_monthly`, `plus_annual` and `plus_lifetime`.
+    First-ever in-app purchases must be submitted with an app version; if this is
+    skipped, the reviewer sees an empty paywall and rejects the build. Then submit.
 
 ## 3. First month
 
@@ -78,13 +98,20 @@ on the App Store". Hashtags: #todolist #adhdtips #productivity #3things.
   not a download link.
 - Indie Hackers / X (#buildinpublic): monthly numbers (installs, trials, revenue).
 
-### Apple Search Ads (only after the listing converts organically)
-- Start with **Search Results**, a $5–10/day cap, exact match only, max CPT $1–1.50,
-  and a target of ≤ $3 per install.
-- Keywords: `3 things`, `three things app`, `daily focus`, `top 3 tasks`,
-  `daily priorities`, `adhd planner simple`, `simple to do list`, `brain dump app`.
-- Negative keywords: `todoist`, `things 3`, `notion` (expensive, low intent).
-- Pause any keyword above $3 per install after 50 taps.
+### Apple Ads (a small, capped test, not a growth channel)
+The maths: at the targets (10% of installs start a trial, 35% of trials pay), a
+$3 install costs about **$86 per paying user**, while a yearly subscriber brings
+about $29.70 in the first year (after the 15% commission). Paid installs only
+pay back below roughly **$1**. So treat ads as a learning budget:
+- **$300 total, stop after 4 weeks.** Search Results campaign, exact match,
+  max cost per tap $0.75–1.
+- Keywords: `3 things`, `three things app`, `top 3 tasks`, `daily priorities`,
+  `simple to do list`, `brain dump app`, `adhd planner simple`.
+- Pause a keyword with no trial after 25 taps.
+- Keep only keywords that come in under about $1 per install; the rest of the
+  growth is organic (videos, communities, reviews).
+
+Filming tip for the videos: use a demo data set (made-up tasks), never your real list.
 
 ## 5. The screenshots
 

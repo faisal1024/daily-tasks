@@ -14,19 +14,19 @@ limits. The same copy is in `store.config.json` for `eas metadata:push`.
 Check the name is free: App Store Connect → the app → App Information → Name.
 If Apple says it's taken, use **Three Today – Daily Focus** (25).
 
-## Keywords (96 / 100)
+## Keywords (98 / 100)
 
 ```
-todo,to do list,planner,focus,adhd,priorities,habit,checklist,productivity,organizer,widget,goal
+todo,list,planner,focus,adhd,priority,simple,minimal,checklist,goal,organizer,routine,reminder,top
 ```
 
 Words already in the name and subtitle (three, today, tasks, day, brain, dump,
 daily) are left out on purpose: Apple indexes those already.
 
-## Promotional text (117 / 170)
+## Promotional text (119 / 170)
 
 ```
-New: dump everything on your mind and get today's three, picked for you. Tomorrow starts fresh, with no overdue pile.
+Three tasks a day, and every morning starts fresh with no overdue pile. Dump what's on your mind and get today's three.
 ```
 
 ## Description
@@ -45,7 +45,7 @@ A MORNING, A FEW WINS, AN EVENING
 • Evening: say how the day felt in one tap, and your coach drafts tomorrow's three.
 
 MADE TO KEEP GOING
-• Day N: days you've shown up, which never goes backwards.
+• A day count that only goes up: every day you plan counts.
 • Streak freezes, so one missed day doesn't wipe out a good run.
 • A weekly review that shows what's working.
 • Home Screen and Lock Screen widgets.
@@ -59,10 +59,10 @@ Plus adds the AI helpers: AI brain dump sorting (3 free to try), Break it down, 
 • Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel in iPhone Settings › your name › Subscriptions.
 • A one-time Lifetime purchase is available in the app's Settings.
 
-Private by design: your tasks stay on your device. There's no account and no ads.
+Private by design: your tasks are stored on your device, with no account and no ads. AI features send only the text they need, and nothing is kept on our server.
 
 Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
-Privacy Policy: https://github.com/faisal1024/daily-tasks/blob/main/docs/privacy-policy.md
+Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html
 ```
 
 ## What's New in 1.1.0
@@ -74,7 +74,7 @@ Daily Tasks is now Three Today, rebuilt around a calm daily ritual:
 • An evening check-in that drafts tomorrow's three.
 • Plan around your Calendar and Reminders (Plus).
 • Progress and history together in one tab.
-• Introducing Three Today Plus, with a free trial. Early supporters keep Plus for free.
+• Introducing Three Today Plus, with a free trial. Already using the app? Plus is free for you, for life: just open the app before <date>.
 ```
 
 ## URLs
