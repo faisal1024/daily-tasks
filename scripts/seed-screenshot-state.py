@@ -106,6 +106,10 @@ def base(tasks, completions, locked=True):
             "selectedCosmeticId": "sprout",
         },
         "completedMilestoneIds": [],
+        # A seeded simulator must never claim a real early-supporter grant or
+        # send analytics from screenshot sessions.
+        "plusGrandfathered": False,
+        "analyticsEnabled": False,
         "lastReviewPromptAt": iso(-2),
         "reviewDueAt": None,
     }
@@ -133,6 +137,7 @@ def scene(name):
         tasks = [task("t1", "Reply to Maya about Friday"), task("t2", "Finish the quarterly report", steps), task("t3", "20-minute easy run")]
         return base(tasks, ["t1"])
     if name == "evening":
+        # No name: the greeting ("Good morning, …") would clash with an evening scene.
         tasks = [task("t1", "Finish the quarterly report"), task("t2", "Call the dentist"), task("t3", "20-minute easy run")]
         state = base(tasks, ["t1", "t2", "t3"])
         state["todayReflectionResult"] = "good"
@@ -150,6 +155,7 @@ def scene(name):
             "source": "ai",
         }
         state["coachMemory"] = "Finishes work tasks early in the day; runs go better after 5 pm."
+        state["momentumProfile"]["name"] = None
         return state
     if name == "progress":
         tasks = [task("t1", "Finish the quarterly report"), task("t2", "Call the dentist"), task("t3", "Plan the weekend trip")]
@@ -161,14 +167,18 @@ def scene(name):
 
 def main():
     udid, name = sys.argv[1], sys.argv[2]
+    if udid == "booted":
+        raise SystemExit("Pass the simulator's UDID, not 'booted' (this wipes the app's stored data).")
+    # The app must not be running, or its in-memory state overwrites the seed.
+    subprocess.run(["xcrun", "simctl", "terminate", udid, BUNDLE], capture_output=True)
     container = subprocess.check_output(
         ["xcrun", "simctl", "get_app_container", udid, BUNDLE, "data"], text=True
     ).strip()
     folder = Path(container) / "Library" / "Application Support" / BUNDLE / "RCTAsyncLocalStorage_V1"
     folder.mkdir(parents=True, exist_ok=True)
     manifest_path = folder / "manifest.json"
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-    # Start clean: drop every stored key (state, backup, counters).
+    # Start clean: drop every stored key (state, backup, free-use counters,
+    # first-run claim, analytics id), so each scene starts from a fresh install.
     for child in folder.iterdir():
         if child.name != "manifest.json":
             child.unlink()

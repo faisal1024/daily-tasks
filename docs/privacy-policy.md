@@ -53,6 +53,8 @@ Plus subscriptions and purchases are processed by Apple; we never see your payme
 
 **Notifications.** Used solely to deliver the local reminders you enable in Settings. Reminders are scheduled by iOS itself; the app never sends or receives push notifications from a remote server.
 
+**Calendar and Reminders (optional).** Requested only if you turn on "Plan around my calendar" in Settings, and used only as described under Smart features. The app never changes your calendar or reminders.
+
 ## Update check
 
 When the app opens, it may ask Apple's public App Store lookup service whether a newer version of Three Today is available. This request contains only the app's bundle identifier.

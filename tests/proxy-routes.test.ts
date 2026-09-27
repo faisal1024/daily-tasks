@@ -356,7 +356,7 @@ describe("helper routes over HTTP", () => {
     });
   });
 
-  it("drops brain-dump items that share no words with the dump, keeping real ones", async () => {
+  it("keeps a brain-dump answer whole once any pick comes from the dump (rewrites are fine)", async () => {
     const provider = fakeProvider(async () => ({
       picks: [
         { text: "Finish the report", reason: "due" },
@@ -368,9 +368,15 @@ describe("helper routes over HTTP", () => {
     const { post } = await start({ provider });
     const res = await post(BRAIN_DUMP_ROUTE);
     expect(res.status).toBe(200);
+    // Only a fully invented answer is rejected; per-item filtering dropped real
+    // rewrites ("do my taxes" → "File tax return") and non-Latin text.
     expect(await res.json()).toEqual({
-      picks: [{ text: "Finish the report", reason: "due" }, { text: "Call Mum" }],
-      parked: [{ text: "Buy running shoes" }],
+      picks: [
+        { text: "Finish the report", reason: "due" },
+        { text: "Check in with yourself", reason: "invented" },
+        { text: "Call Mum" },
+      ],
+      parked: [{ text: "Meditate for ten minutes" }, { text: "Buy running shoes" }],
     });
   });
 
@@ -507,7 +513,7 @@ describe("brain-dump contract", () => {
     expect(isValidBrainDump("{}")).toBe(false);
   });
 
-  it("fromDump: an item must share a meaningful word or 4-letter stem with the dump", () => {
+  it("fromDump: an item must share a meaningful word or a word prefix with the dump", () => {
     // Exact word, case-insensitive.
     expect(fromDump("Call MUM", "call mum tonight")).toBe(true);
     expect(fromDump("REPORT draft", "finish the Report")).toBe(true);
@@ -516,7 +522,13 @@ describe("brain-dump contract", () => {
     expect(fromDump("Answer emails", "email Sam back")).toBe(true);
     // Stopwords and short words alone don't count as a match.
     expect(fromDump("Take the dog", "take the bins")).toBe(false);
-    expect(fromDump("Do it", "do it now")).toBe(false);
+    // An item with no meaningful words can't be judged: keep it.
+    expect(fromDump("Do it", "do it today")).toBe(true);
+    // Rewrites that keep a stem.
+    expect(fromDump("File tax return", "do my taxes")).toBe(true);
+    expect(fromDump("Go for a run", "running")).toBe(true);
+    // Unspaced scripts (Chinese, Japanese, Thai…) can't be split into words: keep.
+    expect(fromDump("买牛奶", "买牛奶 打电话给妈妈")).toBe(true);
     expect(fromDump("Check in with yourself", "call mum\nfinish report")).toBe(false);
     // Non-Latin text is matched by letters, not ASCII only.
     expect(fromDump("Позвонить маме", "позвонить маме вечером")).toBe(true);
@@ -527,19 +539,15 @@ describe("brain-dump contract", () => {
     expect(fromDump("Anything at all", "the a to")).toBe(true);
   });
 
-  it("filters invented picks and parked items the same way when given the payload", () => {
+  it("keeps every item when one pick is from the dump; rejects only fully invented answers", () => {
     const payload = { text: "finish report\nbuy groceries\ncall mum", openSlots: 3, goalTitle: null };
     const result = {
       picks: [{ text: "Finish the report" }, { text: "Journal for 5 minutes" }],
       parked: [{ text: "Groceries" }, { text: "Stretch" }, { text: "Call Mum" }],
     };
     expect(isValidBrainDump(result, payload)).toBe(true);
-    expect(sanitizeBrainDump(result, payload)).toEqual({
-      picks: [{ text: "Finish the report" }],
-      parked: [{ text: "Groceries" }, { text: "Call Mum" }],
-    });
-    // Without a payload nothing is filtered (backwards compatible).
-    expect(sanitizeBrainDump(result).parked).toHaveLength(3);
+    // Sanitizing never drops items for not matching (it only trims and caps).
+    expect(sanitizeBrainDump(result)).toEqual(result);
     // All picks invented: invalid, even though a parked item is real.
     expect(isValidBrainDump({ picks: [{ text: "Stretch" }], parked: [{ text: "Call mum" }] }, payload)).toBe(false);
   });

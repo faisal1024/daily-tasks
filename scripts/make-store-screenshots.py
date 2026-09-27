@@ -15,13 +15,26 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+# (title, subtitle, is a Plus feature). "\n" forces a line break; the key
+# message is always in the title (subtitles don't read at thumbnail size).
 CAPTIONS = [
-    ("Every day starts fresh", "No overdue pile. Just today's three."),
-    ("Dump it all. Get your three.", "Type or talk. We pick; the rest is saved."),
-    ("Your coach drafts tomorrow", "One tap in the evening, three ready by morning."),
-    ("Break stuck tasks into steps", "Tiny next steps when a task feels too big."),
-    ("See your progress, not your misses", "Day N never goes backwards."),
+    ("Three tasks.\nNo overdue pile.", "Every day starts fresh.", False),
+    ("Dump it all.\nGet your three.", "3 free AI sorts to try. The rest is saved.", False),
+    ("Your coach drafts\ntomorrow", "One tap in the evening, three ready by morning.", True),
+    ("Break big tasks\ninto tiny steps", "When a task feels too big to start.", True),
+    ("See your progress,\nnot your misses", "Your day count only goes up.", False),
 ]
+
+# Keep only the top part of a capture where the rest is empty space, so the
+# app fills the frame: {(device, index): fraction of the height kept}.
+CROP = {
+    ("iphone", 1): 0.58,
+    ("iphone", 4): 0.64,
+    ("ipad", 1): 0.42,
+    ("ipad", 2): 0.40,
+    ("ipad", 3): 0.52,
+    ("ipad", 4): 0.50,
+}
 
 # App Store sizes: iPhone 6.9" and iPad 13".
 SIZES = {"iphone": (1320, 2868), "ipad": (2064, 2752)}
@@ -43,19 +56,21 @@ def font(path, size, style=None):
 
 
 def fit_lines(draw, text, f, max_width):
-    words, lines, line = text.split(), [], ""
-    for word in words:
-        trial = f"{line} {word}".strip()
-        if draw.textlength(trial, font=f) <= max_width:
-            line = trial
-        else:
-            lines.append(line)
-            line = word
-    lines.append(line)
+    lines = []
+    for part in text.split("\n"):
+        line = ""
+        for word in part.split():
+            trial = f"{line} {word}".strip()
+            if not line or draw.textlength(trial, font=f) <= max_width:
+                line = trial
+            else:
+                lines.append(line)
+                line = word
+        lines.append(line)
     return lines
 
 
-def compose(raw_path, out_path, size, title, body):
+def compose(raw_path, out_path, size, title, body, plus=False, crop=None):
     width, height = size
     canvas = Image.new("RGB", size, BACKGROUND)
     draw = ImageDraw.Draw(canvas)
@@ -63,7 +78,18 @@ def compose(raw_path, out_path, size, title, body):
     title_font = font(TITLE_FONT, int(width * 0.075), "Bold")
     body_font = font(BODY_FONT, int(width * 0.038), "Medium")
 
-    y = int(height * 0.055)
+    y = int(height * 0.05)
+    if plus:
+        # A small "PLUS" pill: paid features are labelled (App Store 2.3.2).
+        pill_font = font(TITLE_FONT, int(width * 0.03), "Bold")
+        label = "PLUS"
+        tw = draw.textlength(label, font=pill_font)
+        ph = int(pill_font.size * 1.6)
+        pw = int(tw + pill_font.size * 1.6)
+        px = (width - pw) // 2
+        draw.rounded_rectangle([px, y, px + pw, y + ph], ph // 2, fill=(255, 211, 122))
+        draw.text((px + (pw - tw) / 2, y + (ph - pill_font.size) / 2 - pill_font.size * 0.12), label, font=pill_font, fill=(40, 30, 90))
+        y += ph + int(height * 0.012)
     for line in fit_lines(draw, title, title_font, width - 2 * margin):
         w = draw.textlength(line, font=title_font)
         draw.text(((width - w) / 2, y), line, font=title_font, fill="white")
@@ -76,11 +102,14 @@ def compose(raw_path, out_path, size, title, body):
 
     # The screen, scaled to the space left, with rounded corners and a shadow.
     shot = Image.open(raw_path).convert("RGB")
+    if crop:
+        shot = shot.crop((0, 0, shot.width, int(shot.height * crop)))
     top = y + int(height * 0.035)
     avail_h = height - top - int(height * 0.03)
     avail_w = width - 2 * margin
     scale = min(avail_w / shot.width, avail_h / shot.height)
     shot = shot.resize((int(shot.width * scale), int(shot.height * scale)), Image.LANCZOS)
+    top += (avail_h - shot.height) // 2  # a cropped (short) screen sits centred
     radius = int(shot.width * 0.07)
     mask = Image.new("L", shot.size, 0)
     ImageDraw.Draw(mask).rounded_rectangle([0, 0, shot.width, shot.height], radius, fill=255)
@@ -103,11 +132,11 @@ def main():
             continue
         dest = out_dir / device
         dest.mkdir(parents=True, exist_ok=True)
-        for index, (title, body) in enumerate(CAPTIONS, start=1):
+        for index, (title, body, plus) in enumerate(CAPTIONS, start=1):
             raw = src / f"{index:02d}.png"
             if raw.exists():
-                compose(raw, dest / f"{index:02d}.png", size, title, body)
-                print(f"{device} {index:02d}: {title}")
+                compose(raw, dest / f"{index:02d}.png", size, title, body, plus, CROP.get((device, index)))
+                print(f"{device} {index:02d}: {title.replace(chr(10), ' ')}")
 
 
 if __name__ == "__main__":

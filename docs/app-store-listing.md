@@ -42,17 +42,16 @@ There's no overdue list and no red badges. Anything you didn't finish waits for 
 A MORNING, A FEW WINS, AN EVENING
 • Morning: pick your three, or use the ones your coach drafted last night.
 • Day: tick them off. The next one is always the only one in front of you.
-• Evening: say how the day felt in one tap, and your coach drafts tomorrow's three.
+• Evening: say how the day felt in one tap, and tomorrow starts with what's still open (with Plus, your AI coach drafts tomorrow's three).
 
 MADE TO KEEP GOING
 • A day count that only goes up: every day you plan counts.
 • Streak freezes, so one missed day doesn't wipe out a good run.
 • A weekly review that shows what's working.
 • Home Screen and Lock Screen widgets.
-• Break a stuck task into tiny steps.
 
 THREE TODAY PLUS
-Plus adds the AI helpers: AI brain dump sorting (3 free to try), Break it down, fresh AI ideas for your goal, a coach that drafts tomorrow in the evening, and planning around today's Calendar and Reminders. Your three tasks stay free forever.
+Plus adds the AI helpers: AI brain dump sorting (3 free to try), Break it down (turn a stuck task into tiny steps), fresh AI ideas for your goal, a coach that drafts tomorrow in the evening, and planning around today's Calendar and Reminders. Your three tasks stay free forever.
 
 • Monthly and yearly plans include a free trial for new subscribers.
 • Payment is charged to your Apple ID at confirmation of purchase (or when the trial ends).
@@ -81,7 +80,7 @@ Daily Tasks is now Three Today, rebuilt around a calm daily ritual:
 
 | Field | URL |
 |---|---|
-| Privacy Policy URL | the published gist (unchanged): `https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html` |
+| Privacy Policy URL | the published gist (republished as "Three Today"): `https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html` |
 | Support URL | `https://github.com/faisal1024/daily-tasks#support` |
 | Terms of Use (EULA) | Apple's standard EULA (linked in the description; leave "License Agreement" as the standard one) |
 
@@ -95,7 +94,9 @@ Where to find things:
 • The Lifetime purchase is shown only when the paywall is opened from Settings › Plus.
 • Restore purchases: on the paywall and in Settings.
 
-AI features: brain dump sorting, Break it down, goal ideas and the evening check-in send only the text needed (for example task titles or what was typed) to our server, which forwards it to an AI model to create suggestions. Nothing is stored on our server. Details are in the privacy policy.
+AI features: brain dump sorting, Break it down, goal ideas and the evening check-in send only the text needed (for example task titles or what was typed) to our server, which forwards it to an AI model to create suggestions. Request contents aren't stored on our server. Details are in the privacy policy.
+
+The Plus paywall also appears once at the end of the first-run flow (closable), and from "New ideas" in the ideas sheet.
 
 Calendar and Reminders: only used if the user turns on Settings › "Plan around my calendar" (a Plus feature). Today's event titles and times and reminders due today are sent with AI suggestion requests so the three fit around the day.
 
@@ -108,11 +109,14 @@ Made by `scripts/make-store-screenshots.py` from simulator captures, in
 `~/Downloads/three-today-appstore-screenshots/` (iPhone 6.9" 1320×2868 and
 iPad 13" 2064×2752), in this order:
 
-1. "Every day starts fresh" (Today, set, next task up front)
+1. "Three tasks. No overdue pile." (Today, set, next task up front)
 2. "Dump it all. Get your three." (first run: the three picked from a dump)
-3. "Your coach drafts tomorrow" (the evening check-in and tomorrow's draft)
-4. "Break stuck tasks into steps" (steps on the next task)
+3. PLUS "Your coach drafts tomorrow" (the evening check-in and tomorrow's draft)
+4. PLUS "Break big tasks into tiny steps" (steps on the next task)
 5. "See your progress, not your misses" (Progress: Day N, week, milestones)
+
+Paid features carry a "PLUS" label on the screenshot (guideline 2.3.2). A widget
+screenshot from a real phone can be added as a 6th.
 
 ## App Privacy label (update before submitting)
 
@@ -120,4 +124,12 @@ In App Store Connect → App Privacy, add to what's already there:
 - **Identifiers → User ID**: App Functionality; not linked to the user; not used for tracking (the anonymous RevenueCat id sent to our server for the Plus check and limits).
 - **User Content → Other User Content**: already declared for AI requests. It now also covers brain dumps from free users and Calendar/Reminders titles when that setting is on.
 - **Purchases → Purchase History**: App Functionality; not linked; no tracking (RevenueCat).
-- **Usage Data → Product Interaction**: App Analytics; not linked; no tracking (PostHog, if the analytics key is set in the build).
+- **Usage Data → Product Interaction**: Analytics; not linked; no tracking (PostHog, if the analytics key is set in the build).
+- **Identifiers → Device ID**: Analytics; not linked; no tracking (PostHog's random per-install id), in addition to User ID above.
+- **Diagnostics → Other Diagnostic Data**: Analytics; not linked; no tracking (error-kind events, no content).
+- Declaring these even if the analytics key isn't set is safe; under-declaring is not.
+
+## Before the first `eas metadata:push`
+
+Run `eas metadata:pull` first and keep the categories, age rating (advisory) and
+review contact it brings back, so a push doesn't reset them.
