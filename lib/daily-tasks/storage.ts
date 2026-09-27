@@ -641,7 +641,11 @@ export async function clearState(): Promise<void> {
   // "Reset all data" is deliberate: drop the backup too, and allow writes again.
   writesBlocked = false;
   try {
-    await AsyncStorage.multiRemove([STORAGE_KEY, BACKUP_KEY]);
+    // Quarantined copies hold full task text too: a reset must remove them.
+    const quarantined = (await AsyncStorage.getAllKeys()).filter((key) =>
+      key.startsWith(QUARANTINE_PREFIX),
+    );
+    await AsyncStorage.multiRemove([STORAGE_KEY, BACKUP_KEY, ...quarantined]);
   } catch (err) {
     console.warn("[daily-tasks] failed to clear state", err);
   }
