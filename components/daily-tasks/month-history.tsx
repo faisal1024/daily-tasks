@@ -62,7 +62,10 @@ export function MonthHistory() {
             disabled={onThisMonth}
             hitSlop={8}
             accessibilityRole={onThisMonth ? "header" : "button"}
-            accessibilityLabel={onThisMonth ? formatMonthLabel(month) : `${formatMonthLabel(month)}. Go to this month`}
+            // Includes the counts: a label replaces the text inside it for VoiceOver.
+            accessibilityLabel={`${formatMonthLabel(month)}, ${stats.activeDays} active ${
+              stats.activeDays === 1 ? "day" : "days"
+            }, ${stats.perfectDays} perfect${onThisMonth ? "" : ". Go to this month"}`}
             style={{ alignItems: "center" }}
           >
             <Text className="text-lg font-semibold text-foreground">{formatMonthLabel(month)}</Text>
