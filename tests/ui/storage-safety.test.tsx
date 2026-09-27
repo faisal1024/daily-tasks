@@ -107,4 +107,15 @@ describe("loadState safety", () => {
     await saveState({ ...buildInitialState(), hasSeenOnboarding: true });
     expect(JSON.parse((await AsyncStorage.getItem(KEY)) as string).hasSeenOnboarding).toBe(true);
   });
+
+  it("Reset all data also removes quarantined copies (they hold task text), and nothing else", async () => {
+    await AsyncStorage.setItem(KEY, savedJson("Main"));
+    await AsyncStorage.setItem(BACKUP, savedJson("Backup"));
+    await AsyncStorage.setItem(`${KEY}:corrupt:1790000000000`, "old broken");
+    await AsyncStorage.setItem(`${KEY}:corrupt:1790000001000`, "newer broken");
+    await AsyncStorage.setItem("daily-tasks/analytics-id", "anon_keep");
+
+    await clearState();
+    expect(await AsyncStorage.getAllKeys()).toEqual(["daily-tasks/analytics-id"]);
+  });
 });
