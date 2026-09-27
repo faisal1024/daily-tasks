@@ -95,6 +95,10 @@ export default function SettingsScreen() {
           : "Check your connection and try again.",
     );
   };
+  const handleRedeem = async () => {
+    const shown = await plus.redeemCode();
+    if (!shown) Alert.alert("Couldn't open code redemption", "Check your connection and try again.");
+  };
   const [nameDraft, setNameDraft] = useState(state.momentumProfile.name ?? "");
   const [profileModalVisible, setProfileModalVisible] = useState(false);
 
@@ -274,6 +278,19 @@ export default function SettingsScreen() {
                     {restoring ? "Restoring…" : "Restore purchases"}
                   </Text>
                 </Pressable>
+                {!hasPlus && (
+                  <Pressable
+                    onPress={() => void handleRedeem()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Redeem a code"
+                    accessibilityHint="Opens Apple's sheet for entering an offer code"
+                    hitSlop={8}
+                  >
+                    <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                      Redeem a code
+                    </Text>
+                  </Pressable>
+                )}
                 {plus.entitlementActive && (
                   <Pressable
                     onPress={() => void openExternal(MANAGE_SUBSCRIPTIONS_URL)}

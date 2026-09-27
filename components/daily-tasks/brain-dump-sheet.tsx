@@ -244,6 +244,19 @@ export function BrainDumpSheet({
                   <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
                     {sorted.notice}
                   </Text>
+                  {/* What was typed is kept, so it can be sorted again after upgrading. */}
+                  {sorted.freeLimit && onUpgrade && (
+                    <Pressable
+                      onPress={onUpgrade}
+                      accessibilityRole="button"
+                      accessibilityLabel="Get AI sorting with Plus"
+                      hitSlop={12}
+                    >
+                      <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                        Get Plus
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               )}
               <Text className="text-base" style={{ color: colors.muted }}>

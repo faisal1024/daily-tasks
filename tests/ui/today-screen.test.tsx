@@ -1027,7 +1027,7 @@ describe("Plus gates (free plan)", () => {
     expect(mockTrack).toHaveBeenCalledWith("plus_gate_hit", { feature: "brain_dump", source: "free_exhausted" });
     expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "D" })).not.toBeChecked();
-    expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
+    expect(screen.getByTestId("brain-dump-notice")).toHaveTextContent(/free AI sorts are used up/);
 
     // Back on the write step the offer is still there for next time; from a
     // fresh sheet, Get Plus closes it and opens the paywall.
@@ -1187,7 +1187,9 @@ describe("Free AI brain dumps (free plan)", () => {
     await sortAsFree("a\nb");
     expect(sortBrainDump).toHaveBeenCalledTimes(3);
     expect(mockTrack).toHaveBeenCalledWith("plus_gate_hit", { feature: "brain_dump", source: "free_exhausted" });
-    expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
+    // The simple split says why it isn't the AI, and offers Plus right there.
+    expect(screen.getByTestId("brain-dump-notice")).toHaveTextContent(/free AI sorts are used up/);
+    expect(screen.getByRole("button", { name: "Get AI sorting with Plus" })).toBeOnTheScreen();
     expect(screen.getByRole("checkbox", { name: "A" })).toBeChecked();
   });
 

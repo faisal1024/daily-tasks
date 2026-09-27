@@ -68,7 +68,7 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 `app_opened` (once per day), `onboarding_completed`, `task_completed`, `perfect_day`,
 `brain_dump_sorted`, `break_down_used`, `plus_gate_hit`, `paywall_viewed`,
 `paywall_closed`, `purchase_started`, `purchase_completed`, `purchase_failed`,
-`restore_completed`. Properties are limited to `source`, `plan`, `outcome`, `trial`,
+`restore_completed`, `redeem_code_opened`. Properties are limited to `source`, `plan`, `outcome`, `trial`,
 `count`, `feature`, `active`, `plus` with short enum/number/boolean values. Never
 task, goal or brain-dump text; no person profiles; `$ip` null, `$geoip_disable`, and
 the project discards client IPs. Analytics starts off and is only enabled once the

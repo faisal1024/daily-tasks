@@ -230,6 +230,23 @@ export async function restore(): Promise<boolean | null> {
   }
 }
 
+/**
+ * Show Apple's "Redeem code" sheet for offer codes made in App Store Connect
+ * (codes must go through Apple, never a check in the app). Returns false when
+ * it couldn't be shown. A redeemed code arrives later through the
+ * customer-info listener, like any other purchase.
+ */
+export async function redeemCode(): Promise<boolean> {
+  const sdk = loadSdk();
+  if (!configured || !sdk || Platform.OS !== "ios") return false;
+  try {
+    await sdk.default.presentCodeRedemptionSheet();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Test-only: forget configuration between tests. */
 export function __resetPurchasesForTests(): void {
   configured = false;

@@ -64,19 +64,37 @@ function clampSlots(openSlots: number): number {
 export function localBrainDump(text: string, openSlots: number): BrainDumpResult {
   let parts = text
     .split(/\r?\n|;|•/)
-    .map((part) => part.trim())
+    .map(tidyDumpLine)
     .filter(Boolean);
   // One line written as a list ("report, dentist, groceries"): split on commas.
   if (parts.length === 1 && parts[0].includes(",")) {
     parts = parts[0]
       .split(",")
-      .map((part) => part.trim())
+      .map(tidyDumpLine)
       .filter(Boolean);
   }
   const seen = new Set<string>();
   const picks = uniqueTexts(parts, clampSlots(openSlots), seen);
   const parked = uniqueTexts(parts, MAX_PARKED, seen);
   return { picks, parked, source: "local" };
+}
+
+// Filler at the start of a dump line: "I need to call mum" → "call mum".
+// Longest phrases first, so "I need to" wins over "need to".
+const FILLER_PREFIX =
+  /^(?:(?:and|also|then|oh|ok|okay)\s+)?(?:(?:i|we)\s+(?:really\s+)?(?:need|have|ought|want|got)\s+to|(?:i|we)\s+(?:should|must|gotta)|(?:really\s+)?(?:need|have|got|want)\s+to|gotta|should|must|(?:please\s+)?(?:remember|don'?t\s+forget|do\s+not\s+forget)\s+to|(?:to[\s-]?do|todo|reminder|task)\s*:)\s+/i;
+
+/**
+ * Light tidy-up for the offline split (the AI rewrites properly): drop filler
+ * like "need to" and trailing punctuation. Never empties a line: if nothing
+ * is left, the original words stay.
+ */
+export function tidyDumpLine(line: string): string {
+  const original = line.replace(/\s+/g, " ").trim();
+  let text = original;
+  for (let i = 0; i < 2; i++) text = text.replace(FILLER_PREFIX, "");
+  text = text.replace(/[\s.,;:!?…]+$/u, "").trim();
+  return text || original.replace(/[\s.,;:!?…]+$/u, "").trim();
 }
 
 /** Normalize the proxy's brain-dump response; throws if nothing usable. */
@@ -170,7 +188,13 @@ export interface SortedBrainDump {
   result: BrainDumpResult;
   /** Shown above the review when we fell back to the simple split. */
   notice: string | null;
+  /** The simple split was used because the free AI sorts ran out (offer Plus). */
+  freeLimit?: boolean;
 }
+
+/** Shown on the review when a free user's AI sorts are used up. */
+export const FREE_LIMIT_NOTICE =
+  "Your free AI sorts are used up, so this is a simple split of your lines. With Plus, AI turns them into clear tasks and picks what matters most.";
 
 /**
  * Sort a brain dump with the AI, falling back to the simple local split (with a
