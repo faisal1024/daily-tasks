@@ -51,7 +51,8 @@ export function CalendarGrid({
 
   return (
     <View className="gap-2">
-      <View className="flex-row">
+      {/* Single letters read ambiguously; each day's own label names the weekday. */}
+      <View className="flex-row" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         {WEEKDAYS.map((w, i) => (
           <View key={`${w}-${i}`} className="flex-1 items-center">
             <Text className="text-xs font-semibold" style={{ color: colors.muted }}>
@@ -93,21 +94,24 @@ export function CalendarGrid({
                   key={cell.key}
                   onPress={() => onSelectDate(dateKey)}
                   accessibilityRole="button"
-                  accessibilityLabel={`View ${dateKey}`}
+                  accessibilityLabel={`${spokenDate(dateKey)}${isToday ? ", today" : ""}: ${
+                    total > 0 ? `${completed} of ${total} done` : "no tasks"
+                  }`}
+                  accessibilityState={{ selected: isSelected }}
                   style={{ flex: 1, aspectRatio: 1 }}
                   className="items-center justify-center p-1"
                 >
                   <View
                     className="rounded-full items-center justify-center"
                     style={{
-                      width: 36,
-                      height: 36,
+                      width: "84%",
+                      aspectRatio: 1,
                       backgroundColor: bg,
                       borderWidth: isSelected ? 3 : isToday ? 2 : 0,
                       borderColor: isSelected ? colors.foreground : colors.primary,
                     }}
                   >
-                    <Text className="text-sm font-medium" style={{ color: textColor }}>
+                    <Text className="text-sm font-medium" style={{ color: textColor }} maxFontSizeMultiplier={1.4}>
                       {cell.day}
                     </Text>
                     {dot && (
@@ -131,4 +135,14 @@ export function CalendarGrid({
       </View>
     </View>
   );
+}
+
+/** "Sunday, September 27" for VoiceOver (not the raw 2026-09-27 key). */
+function spokenDate(dateKey: string): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
 }

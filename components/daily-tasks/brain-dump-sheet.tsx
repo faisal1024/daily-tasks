@@ -13,7 +13,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BodyFont, Fonts } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
+import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
 import { MAX_BRAIN_DUMP_CHARS, type SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
 
@@ -46,6 +47,7 @@ export function BrainDumpSheet({
   onUpgrade,
 }: BrainDumpSheetProps) {
   const colors = useColors();
+  const sheetAnimation = useSheetAnimation();
   const insets = useSafeAreaInsets();
   const [stage, setStage] = useState<Stage>("write");
   const [text, setText] = useState("");
@@ -114,7 +116,7 @@ export function BrainDumpSheet({
     <Modal
       visible={visible}
       onRequestClose={close}
-      animationType="slide"
+      animationType={sheetAnimation}
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
     >
       <KeyboardAvoidingView
@@ -126,7 +128,7 @@ export function BrainDumpSheet({
           className="flex-row items-center justify-between px-5"
           style={{ paddingTop: Platform.OS === "ios" ? 18 : insets.top + 12 }}
         >
-          <Text accessibilityRole="header" className="text-2xl text-foreground" style={{ fontFamily: Fonts.rounded }}>
+          <Text accessibilityRole="header" className="text-2xl text-foreground" style={{ fontFamily: Fonts.rounded, fontWeight: "700" }}>
             Brain dump
           </Text>
           <Pressable
@@ -170,7 +172,7 @@ export function BrainDumpSheet({
                   color: colors.foreground,
                   borderColor: colors.border,
                   backgroundColor: colors.surface,
-                  fontFamily: BodyFont.semibold,
+                  fontWeight: "600",
                 }}
               />
               <Pressable
@@ -181,7 +183,7 @@ export function BrainDumpSheet({
                 className="rounded-2xl py-4 items-center"
                 style={{ backgroundColor: colors.primary, opacity: text.trim() ? 1 : 0.5 }}
               >
-                <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
+                <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: "#fff" }}>
                   Sort it for me
                 </Text>
               </Pressable>
@@ -261,7 +263,7 @@ export function BrainDumpSheet({
                       size={24}
                       color={on ? colors.primary : colors.muted}
                     />
-                    <Text className="flex-1 text-base text-foreground" style={{ fontFamily: BodyFont.bold }}>
+                    <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "700" }}>
                       {item}
                     </Text>
                     {!on && (
@@ -279,7 +281,7 @@ export function BrainDumpSheet({
                 className="rounded-2xl py-4 items-center mt-2"
                 style={{ backgroundColor: colors.primary }}
               >
-                <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
+                <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: "#fff" }}>
                   {chosenItems.length === 0 ? "Save all for later" : `Add ${chosenItems.length} to today`}
                 </Text>
               </Pressable>

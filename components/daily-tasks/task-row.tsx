@@ -23,7 +23,6 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 
-import { BodyFont } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import {
   TASK_ROW_ACTION_LABELS,
@@ -193,7 +192,7 @@ export function TaskRow({
         >
           <Ionicons name={action === "delete" ? "trash-outline" : "bookmark-outline"} size={20} color="#fff" />
           <Text
-            style={{ color: "#fff", fontFamily: BodyFont.bold, fontSize: 13 }}
+            style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}
             maxFontSizeMultiplier={1.3}
             numberOfLines={1}
             adjustsFontSizeToFit
@@ -278,7 +277,7 @@ export function TaskRow({
                 returnKeyType="done"
                 maxLength={80}
                 accessibilityLabel={`Edit task ${index + 1}`}
-                style={{ color: colors.foreground, fontFamily: BodyFont.semibold, fontSize: textSize, paddingVertical: 2 }}
+                style={{ color: colors.foreground, fontWeight: "600", fontSize: textSize, paddingVertical: 2 }}
               />
             ) : (
               <Pressable
@@ -294,7 +293,7 @@ export function TaskRow({
                 <Text
                   style={{
                     color: completed ? colors.muted : colors.foreground,
-                    fontFamily: hero ? BodyFont.bold : BodyFont.semibold,
+                    fontWeight: hero ? "700" : "600",
                     fontSize: textSize,
                     lineHeight: Math.round(textSize * 1.3),
                     textDecorationLine: completed ? "line-through" : "none",

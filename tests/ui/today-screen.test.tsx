@@ -1378,13 +1378,21 @@ describe("Today card (Phase 10a)", () => {
     expect(screen.getByRole("checkbox", { name: "Up next. Task 1: Walk" })).toBeOnTheScreen();
   });
 
-  it("has no hero once everything is done: the gradient card instead, and no status line", async () => {
+  it("has no hero once everything is done: the gradient card instead (with room left, the status line stays)", async () => {
     mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch"), todayCompletions: ["t0", "t1"] });
     await render(<HomeScreen />);
     expect(upNext()).toHaveLength(0);
     const card = within(screen.getByTestId("perfect-day-card"));
     expect(card.getByText("Everything you picked is done.")).toBeOnTheScreen();
     expect(card.getByText(/^You showed up today\./)).toBeOnTheScreen();
+    // Phase 10b: only a full three-for-three day drops the line (Change stays reachable).
+    expect(screen.getByTestId("status-line")).toBeOnTheScreen();
+  });
+
+  it("a full three-for-three set day has no status line", async () => {
+    mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch", "Hydrate"), todayCompletions: ["t0", "t1", "t2"] });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("perfect-day-card")).toBeOnTheScreen();
     expect(screen.queryByTestId("status-line")).toBeNull();
   });
 
@@ -1504,5 +1512,29 @@ describe("Today card (Phase 10a)", () => {
     const box = screen.getByRole("checkbox", { name: "Up next. Task 1: Walk" });
     await fireEvent(box, "accessibilityAction", { nativeEvent: { actionName: "notToday" } });
     expect(mockTrack).toHaveBeenCalledWith("task_not_today", { source: "set" });
+  });
+});
+
+describe("status line on a finished day (Phase 10b)", () => {
+  it("a set day with everything done but room left keeps the line, and Change is reachable", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk"), todayCompletions: ["t0"], ...SET });
+    await render(<HomeScreen />);
+    expect(screen.getByText("Today is set. All done.")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Change today's tasks" }));
+    expect(mockStore.unlockToday).toHaveBeenCalledTimes(1);
+  });
+
+  it("an open day with everything done but room left says so (no Set today)", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayCompletions: ["t0", "t1"] });
+    await render(<HomeScreen />);
+    expect(screen.getByText("All done so far. Add another, or enjoy the space.")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Set today's tasks" })).toBeNull();
+  });
+
+  it("a full three-for-three day hides the line", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read", "Call"), todayCompletions: ["t0", "t1", "t2"], ...SET });
+    await render(<HomeScreen />);
+    expect(screen.queryByText(/^Today is set\./)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Change today's tasks" })).toBeNull();
   });
 });

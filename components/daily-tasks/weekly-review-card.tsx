@@ -1,7 +1,7 @@
 import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { BodyFont, Fonts } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { comparisonText, hasInsights, type WeeklyReview } from "@/lib/daily-tasks/weekly-review";
 
@@ -28,7 +28,7 @@ export function WeeklyReviewCard({ review, plus, canUnlock, onUnlock }: WeeklyRe
   return (
     <View className="rounded-2xl bg-surface border border-border p-4 gap-4" testID="weekly-review">
       <View className="gap-1">
-        <Text className="text-lg text-foreground" style={{ fontFamily: Fonts.rounded }}>
+        <Text className="text-lg text-foreground" style={{ fontFamily: Fonts.rounded, fontWeight: "700" }}>
           {review.headline}
         </Text>
         <Text className="text-sm" style={{ color: colors.muted }}>
@@ -66,7 +66,7 @@ export function WeeklyReviewCard({ review, plus, canUnlock, onUnlock }: WeeklyRe
                 className="text-xs"
                 style={{
                   color: day.isToday ? colors.foreground : colors.muted,
-                  fontFamily: day.isToday ? BodyFont.bold : undefined,
+                  fontWeight: day.isToday ? "700" : undefined,
                 }}
               >
                 {day.isToday ? "Today" : day.letter}
@@ -105,7 +105,7 @@ export function WeeklyReviewCard({ review, plus, canUnlock, onUnlock }: WeeklyRe
             testID="weekly-review-unlock"
           >
             <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
-            <Text className="flex-1 text-sm" style={{ color: colors.foreground, fontFamily: BodyFont.semibold }}>
+            <Text className="flex-1 text-sm" style={{ color: colors.foreground, fontWeight: "600" }}>
               Your patterns are ready: best days and tasks that keep moving
             </Text>
             <Text className="text-sm font-semibold" style={{ color: colors.primary }}>

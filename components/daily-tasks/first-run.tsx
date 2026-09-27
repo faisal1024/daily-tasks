@@ -15,7 +15,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 
-import { BodyFont, Fonts } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
+import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
 import { MAX_BRAIN_DUMP_CHARS, type SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { PRIVACY_URL } from "@/lib/daily-tasks/links";
@@ -60,6 +61,7 @@ export function FirstRun({
   resumeCount = 0,
 }: FirstRunProps) {
   const colors = useColors();
+  const sheetAnimation = useSheetAnimation();
   const [step, setStep] = useState<FirstRunStep>("dump");
   const [text, setText] = useState("");
   const [picks, setPicks] = useState<string[]>([]);
@@ -225,7 +227,7 @@ export function FirstRun({
   })();
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => {}}>
+    <Modal visible={visible} animationType={sheetAnimation} presentationStyle="fullScreen" onRequestClose={() => {}}>
       <KeyboardAvoidingView
         style={{ flex: 1, backgroundColor: colors.background }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -320,7 +322,7 @@ export function FirstRun({
                         color={on ? colors.primary : colors.muted}
                         accessibilityElementsHidden
                       />
-                      <Text className="flex-1 text-base text-foreground" style={{ fontFamily: BodyFont.semibold }}>
+                      <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "600" }}>
                         {pick}
                       </Text>
                     </Pressable>
@@ -355,7 +357,7 @@ export function FirstRun({
                     accessible
                     accessibilityLabel={`Step ${index + 1}: ${line}`}
                   >
-                    <Text style={{ color: colors.primary, fontFamily: BodyFont.bold }}>{index + 1}</Text>
+                    <Text style={{ color: colors.primary, fontWeight: "700" }}>{index + 1}</Text>
                     <Text className="flex-1 text-base text-foreground">{line}</Text>
                   </View>
                 ))}
@@ -376,7 +378,7 @@ function Title({ title, body }: { title: string; body: string }) {
   const colors = useColors();
   return (
     <View className="gap-2">
-      <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 28 }}>
+      <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontWeight: "700", fontSize: 28 }}>
         {title}
       </Text>
       <Text className="text-base" style={{ color: colors.muted }}>
@@ -398,7 +400,7 @@ function Primary({ label, onPress, disabled = false }: { label: string; onPress:
       className="rounded-full py-4 items-center"
       style={{ backgroundColor: disabled ? colors.border : colors.primary }}
     >
-      <Text style={{ color: disabled ? colors.muted : "#fff", fontFamily: BodyFont.bold, fontSize: 17 }}>{label}</Text>
+      <Text style={{ color: disabled ? colors.muted : "#fff", fontWeight: "700", fontSize: 17 }}>{label}</Text>
     </Pressable>
   );
 }

@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
@@ -34,6 +35,8 @@ export function CelebrationOverlay({
   const colors = useColors();
   const progress = useSharedValue(0);
   const ring = useSharedValue(0);
+  // Reduce Motion: appear without scaling, and no expanding ring.
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (!visible) {
@@ -41,16 +44,21 @@ export function CelebrationOverlay({
       ring.value = 0;
       return;
     }
-    progress.value = withTiming(1, { duration: 320, easing: Easing.out(Easing.cubic) });
-    ring.value = withTiming(1, { duration: 1200, easing: Easing.out(Easing.cubic) });
+    if (reduceMotion) {
+      progress.value = withTiming(1, { duration: 150 });
+      ring.value = 1;
+    } else {
+      progress.value = withTiming(1, { duration: 320, easing: Easing.out(Easing.cubic) });
+      ring.value = withTiming(1, { duration: 1200, easing: Easing.out(Easing.cubic) });
+    }
     const timer = setTimeout(onDismiss, DURATION);
     return () => clearTimeout(timer);
-  }, [visible, onDismiss, progress, ring]);
+  }, [visible, onDismiss, progress, ring, reduceMotion]);
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
   const cardStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ scale: 0.85 + progress.value * 0.15 }],
+    transform: [{ scale: reduceMotion ? 1 : 0.85 + progress.value * 0.15 }],
   }));
   const ringStyle = useAnimatedStyle(() => ({
     opacity: (1 - ring.value) * 0.45,

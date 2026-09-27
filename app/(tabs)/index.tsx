@@ -673,8 +673,9 @@ export default function HomeScreen() {
                 })}
               </View>
 
-              {/* On a finished day the card and gradient say it all. */}
-              {!progress.isPerfect && (
+              {/* A full three-for-three day: the card and gradient say it all.
+                  With room left, keep the line (and its Change on a set day). */}
+              {!(progress.isPerfect && total >= MAX_TASKS) && (
               <StatusLine
                 status={status}
                 onLock={confirmLock}

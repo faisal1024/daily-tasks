@@ -5,8 +5,6 @@
 export {
   Colors,
   Fonts,
-  DisplayFont,
-  BodyFont,
   SchemeColors,
   ThemeColors,
   type ColorScheme,

@@ -1,7 +1,7 @@
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { BodyFont, Fonts } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import type { TomorrowDraft } from "@/lib/daily-tasks/types";
 
@@ -28,7 +28,7 @@ export function MorningHero({
       >
         <View className="flex-row items-center gap-2">
           <Ionicons name="sparkles" size={20} color="#fff" accessibilityElementsHidden />
-          <Text style={{ color: "#fff", fontFamily: Fonts.rounded, fontSize: 22 }}>
+          <Text style={{ color: "#fff", fontFamily: Fonts.rounded, fontWeight: "700", fontSize: 22 }}>
             What&apos;s on your mind today?
           </Text>
         </View>
@@ -39,7 +39,7 @@ export function MorningHero({
           className="self-start rounded-full px-4 py-2 mt-1"
           style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
         >
-          <Text style={{ color: "#fff", fontFamily: BodyFont.bold, fontSize: 15 }}>
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
             Start my day
           </Text>
         </View>
@@ -84,7 +84,7 @@ export function TomorrowDraftCard({
     >
       <View className="flex-row items-start gap-2">
         <View className="flex-1 gap-1">
-          <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 20 }}>
+          <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontWeight: "700", fontSize: 20 }}>
             {tasks.length >= 3 ? "Your three for today" : "Ready for today"}
           </Text>
           {draft.because ? (
@@ -107,7 +107,7 @@ export function TomorrowDraftCard({
         {tasks.map((text) => (
           <View key={text} className="flex-row items-center gap-2">
             <Ionicons name="ellipse-outline" size={16} color={colors.primary} accessibilityElementsHidden />
-            <Text className="flex-1 text-base text-foreground" style={{ fontFamily: BodyFont.semibold }}>
+            <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "600" }}>
               {text}
             </Text>
           </View>
@@ -122,7 +122,7 @@ export function TomorrowDraftCard({
           style={{ backgroundColor: colors.primary }}
           testID="tomorrow-draft-use"
         >
-          <Text style={{ color: "#fff", fontFamily: BodyFont.bold, fontSize: 16 }}>
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>
             {tasks.length === 1 ? "Use this" : "Use these"}
           </Text>
         </Pressable>
@@ -133,7 +133,7 @@ export function TomorrowDraftCard({
           className="flex-1 rounded-2xl py-3 items-center border"
           style={{ borderColor: colors.border }}
         >
-          <Text style={{ color: colors.primary, fontFamily: BodyFont.bold, fontSize: 16 }}>Change</Text>
+          <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 16 }}>Change</Text>
         </Pressable>
       </View>
     </View>

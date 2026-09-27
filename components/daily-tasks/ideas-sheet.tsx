@@ -11,7 +11,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BodyFont, Fonts } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
+import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
 import { suggestionsHint } from "@/lib/daily-tasks/ai-status";
 import { THINKING_HINT_DELAY_MS, type IdeasSource } from "@/lib/daily-tasks/today-view";
@@ -71,6 +72,7 @@ export function IdeasSheet({
   onLock,
 }: IdeasSheetProps) {
   const colors = useColors();
+  const sheetAnimation = useSheetAnimation();
   const insets = useSafeAreaInsets();
   const stillThinking = useStillThinking(regenerating);
   const available = ideas.filter((idea) => !addedTexts.has(keyOf(idea.text)));
@@ -87,7 +89,7 @@ export function IdeasSheet({
     <Modal
       visible={visible}
       onRequestClose={onClose}
-      animationType="slide"
+      animationType={sheetAnimation}
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
     >
       <View
@@ -102,7 +104,7 @@ export function IdeasSheet({
           <Text
             accessibilityRole="header"
             className="text-2xl text-foreground"
-            style={{ fontFamily: Fonts.rounded }}
+            style={{ fontFamily: Fonts.rounded, fontWeight: "700" }}
           >
             {savedOnly ? "Saved for later" : goalTitle ? `Ideas for ${goalTitle}` : "Ideas for today"}
           </Text>
@@ -215,7 +217,7 @@ export function IdeasSheet({
                     color={added ? colors.success : colors.primary}
                   />
                   <View className="flex-1 gap-0.5">
-                    <Text className="text-base text-foreground" style={{ fontFamily: BodyFont.bold }}>
+                    <Text className="text-base text-foreground" style={{ fontWeight: "700" }}>
                       {idea.text}
                     </Text>
                     {typeof idea.estimatedMinutes === "number" && (
@@ -242,7 +244,7 @@ export function IdeasSheet({
               className="rounded-2xl py-4 items-center"
               style={{ backgroundColor: colors.primary }}
             >
-              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
+              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: "#fff" }}>
                 {available.length > remainingSlots
                   ? `Add the first ${remainingSlots}`
                   : "Add all"}
@@ -300,7 +302,7 @@ export function IdeasSheet({
                   className="rounded-2xl py-4 items-center"
                   style={{ backgroundColor: colors.primary }}
                 >
-                  <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
+                  <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: "#fff" }}>
                     Set these three
                   </Text>
                 </Pressable>
@@ -317,7 +319,7 @@ export function IdeasSheet({
               >
                 <Text
                   className="text-lg"
-                  style={{ fontFamily: Fonts.rounded, color: onLock ? colors.primary : "#fff" }}
+                  style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: onLock ? colors.primary : "#fff" }}
                 >
                   Done
                 </Text>

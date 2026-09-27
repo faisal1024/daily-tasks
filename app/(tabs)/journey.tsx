@@ -3,7 +3,7 @@ import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
-import { GradientCard } from "@/components/daily-tasks/gradient-card";
+import { MonthHistory } from "@/components/daily-tasks/month-history";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { WeeklyReviewCard } from "@/components/daily-tasks/weekly-review-card";
@@ -77,6 +77,8 @@ export default function JourneyScreen() {
         <Text
           className="text-foreground"
           style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
+          accessibilityRole="header"
+          maxFontSizeMultiplier={1.6}
         >
           Your progress
         </Text>
@@ -102,21 +104,20 @@ export default function JourneyScreen() {
           </View>
         ) : null}
 
-        {/* Growth hero — gradient card (scheme-aware, self-measuring) */}
-        <GradientCard
+        {/* Growth hero: a calm tinted card (the one gradient is Today's finished day). */}
+        <View
           className="rounded-3xl p-7 items-center"
-          style={{
-            shadowColor: colors.primary,
-            shadowOpacity: 0.2,
-            shadowRadius: 22,
-            shadowOffset: { width: 0, height: 12 },
-            elevation: 5,
-          }}
+          style={{ backgroundColor: `${colors.primary}12` }}
+          testID="growth-hero"
         >
-          <Text style={{ fontSize: 84 }}>{stage.glyph}</Text>
+          <Text style={{ fontSize: 84 }} accessibilityElementsHidden importantForAccessibility="no">
+            {stage.glyph}
+          </Text>
           <Text
+            accessibilityRole="header"
+            maxFontSizeMultiplier={1.6}
             style={{
-              color: "#fff",
+              color: colors.foreground,
               fontFamily: Fonts.rounded,
               fontWeight: "800",
               fontSize: 28,
@@ -125,12 +126,12 @@ export default function JourneyScreen() {
           >
             Day {daysShowedUp} · {stage.label}
           </Text>
-          <Text style={{ color: "rgba(255,255,255,0.9)", fontWeight: "700", fontSize: 15, marginTop: 6, textAlign: "center" }}>
+          <Text style={{ color: colors.muted, fontWeight: "700", fontSize: 15, marginTop: 6, textAlign: "center" }}>
             {stage.nextAt
               ? `Days you've shown up. ${stage.nextAt - daysShowedUp} more to grow.`
               : "Days you've shown up. Fully grown."}
           </Text>
-        </GradientCard>
+        </View>
 
         {/* Streak stats — colorful tinted cards */}
         <View className="flex-row gap-3">
@@ -262,6 +263,12 @@ export default function JourneyScreen() {
           </View>
         )}
 
+
+        {/* Month by month (this used to be its own Calendar tab). */}
+        <View className="gap-3">
+          <SectionLabel icon="calendar-number-outline" label="History" />
+          <MonthHistory />
+        </View>
       </ScrollView>
 
       <CelebrationOverlay
@@ -297,10 +304,11 @@ function StatCard({
   value: number;
   tint: string;
 }) {
+  const colors = useColors();
   return (
     <View
       className="flex-1 rounded-3xl p-4 border"
-      style={{ backgroundColor: `${tint}14`, borderColor: `${tint}33` }}
+      style={{ backgroundColor: colors.surface, borderColor: colors.border }}
     >
       <View className="flex-row items-center gap-1.5">
         <Ionicons
@@ -310,11 +318,18 @@ function StatCard({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         />
-        <Text className="text-sm uppercase font-extrabold" style={{ color: tint }}>
+        {/* Colour on the icon only: tinted label text was too faint to read. */}
+        <Text className="text-sm uppercase font-extrabold" style={{ color: colors.muted }}>
           {label}
         </Text>
       </View>
-      <Text className="text-4xl font-extrabold text-foreground mt-1.5">{value}</Text>
+      <Text
+        className="text-4xl text-foreground mt-1.5"
+        style={{ fontFamily: Fonts.rounded, fontWeight: "800" }}
+        maxFontSizeMultiplier={1.6}
+      >
+        {value}
+      </Text>
     </View>
   );
 }

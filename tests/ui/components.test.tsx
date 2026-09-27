@@ -4,13 +4,11 @@ import { act, fireEvent, screen } from "@testing-library/react-native";
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { StatusLine } from "@/components/daily-tasks/status-line";
-import { TaskCard } from "@/components/daily-tasks/task-card";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
 import { THINKING_HINT_DELAY_MS, todayProgress, todayStatus } from "@/lib/daily-tasks/today-view";
 
 import { renderWithProviders as render } from "./render";
 
-const task = (text: string) => ({ id: text, text, createdAt: "", carriedOver: false });
 
 describe("TodayHeader", () => {
   it("shows a plain 'Today' title, the date with progress, one Day N chip and a thin bar", async () => {
@@ -149,56 +147,6 @@ describe("StatusLine", () => {
       />,
     );
     expect(screen.queryByRole("button")).toBeNull();
-  });
-});
-
-describe("TaskCard", () => {
-  it("exposes one checkbox per task with position, name and state", async () => {
-    const onToggle = jest.fn();
-    await render(
-      <TaskCard
-        task={task("Walk 20 minutes")}
-        index={1}
-        completed={false}
-        onToggle={onToggle}
-        onEdit={jest.fn()}
-        onDelete={jest.fn()}
-      />,
-    );
-    const box = screen.getByRole("checkbox", { name: "Task 2: Walk 20 minutes" });
-    expect(box).not.toBeChecked();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-    await fireEvent.press(box);
-    expect(onToggle).toHaveBeenCalledTimes(1);
-  });
-
-  it("marks completed tasks as checked", async () => {
-    await render(
-      <TaskCard
-        task={task("Stretch")}
-        completed
-        onToggle={jest.fn()}
-        onEdit={jest.fn()}
-        onDelete={jest.fn()}
-      />,
-    );
-    expect(screen.getByRole("checkbox", { name: "Stretch" })).toBeChecked();
-  });
-
-  it("hides edit and delete when the day is locked", async () => {
-    await render(
-      <TaskCard
-        task={task("Stretch")}
-        completed={false}
-        onToggle={jest.fn()}
-        onEdit={jest.fn()}
-        onDelete={jest.fn()}
-        canEdit={false}
-        canDelete={false}
-      />,
-    );
-    expect(screen.queryByLabelText("Edit task")).toBeNull();
-    expect(screen.queryByLabelText("Delete task")).toBeNull();
   });
 });
 

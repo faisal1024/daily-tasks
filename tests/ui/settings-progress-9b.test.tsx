@@ -120,24 +120,48 @@ describe("Progress: Set a goal", () => {
   });
 });
 
-describe("Settings: Set today's three (Phase 10a wording)", () => {
+describe("Settings: Setting the day (Phase 10b)", () => {
   const walk = [{ id: "t1", text: "Walk", createdAt: "", carriedOver: false }];
-  const setSwitch = () => screen.getByRole("switch", { name: "Set today's three" });
+  const autoSwitch = () => screen.getByRole("switch", { name: "Set the day automatically" });
+  const picker = () => screen.getByLabelText("Time to set the day");
 
-  it("says 'Set today's three' while open, and sets the day from the switch", async () => {
-    // Auto-set off: otherwise a run after noon starts with the day already set.
+  it("has no Today's Three list or switch any more (that lives on Today)", async () => {
     await renderWith(<SettingsScreen />, {
       tasks: walk,
       autoLock: { enabled: false, hour: 12, minute: 0 },
     });
-    await waitFor(() => expect(setSwitch()).toBeOnTheScreen());
-    expect(screen.getByText("Set today's three")).toBeOnTheScreen();
-    expect(screen.getByText("Setting the day")).toBeOnTheScreen();
-    expect(screen.queryByText(/Lock today's list|Daily lock/)).toBeNull();
-    await fireEvent(setSwitch(), "valueChange", true);
-    await waitFor(() => expect(screen.getByText("Today's three are set")).toBeOnTheScreen());
-    expect(setSwitch().props.value).toBe(true);
-    await fireEvent(setSwitch(), "valueChange", false);
-    await waitFor(() => expect(screen.getByText("Set today's three")).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByText("Setting the day")).toBeOnTheScreen());
+    expect(screen.queryByRole("switch", { name: "Set today's three" })).toBeNull();
+    expect(screen.queryByText("Today's Three")).toBeNull();
+    expect(screen.queryByText("Walk")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("explains a set day, with a named auto-set switch and a 'Time' row", async () => {
+    await renderWith(<SettingsScreen />, { autoLock: { enabled: false, hour: 12, minute: 0 } });
+    await waitFor(() => expect(screen.getByText("Setting the day")).toBeOnTheScreen());
+    expect(
+      screen.getByText("A set day keeps your three fixed; you can still check them off."),
+    ).toBeOnTheScreen();
+    expect(screen.getByText("Days with at least one task are set at this time.")).toBeOnTheScreen();
+    expect(screen.getByText("Time")).toBeOnTheScreen();
+    expect(autoSwitch().props.value).toBe(false);
+    // Off: the picker is disabled; turning auto-set on enables it.
+    expect(picker().props.disabled).toBe(true);
+    expect(screen.getByTestId("time-picker-row")).toBeDisabled();
+    await fireEvent(autoSwitch(), "valueChange", true);
+    await waitFor(() => expect(picker().props.disabled).toBe(false));
+  });
+
+  it("a picked time is saved (any minute, no 5-minute snapping)", async () => {
+    await renderWith(<SettingsScreen />, { autoLock: { enabled: true, hour: 12, minute: 0 } });
+    await waitFor(() => expect(picker()).toBeOnTheScreen());
+    expect((picker().props.value as Date).getHours()).toBe(12);
+    expect(picker().props.minuteInterval).toBeUndefined();
+    const picked = new Date();
+    picked.setHours(21, 37, 0, 0);
+    await fireEvent(picker(), "change", { type: "set" }, picked);
+    await waitFor(() => expect((picker().props.value as Date).getHours()).toBe(21));
+    expect((picker().props.value as Date).getMinutes()).toBe(37);
   });
 });

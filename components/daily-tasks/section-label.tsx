@@ -1,7 +1,7 @@
 import { Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { DisplayFont } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 
 interface SectionLabelProps {
@@ -36,7 +36,7 @@ export function SectionLabel({ icon, label }: SectionLabelProps) {
           importantForAccessibility="no-hide-descendants"
         />
       )}
-      <Text className="text-base" style={{ color: colors.primary, fontFamily: DisplayFont.semibold }}>
+      <Text className="text-base" style={{ color: colors.primary, fontFamily: Fonts.rounded, fontWeight: "600" }}>
         {label}
       </Text>
     </View>
