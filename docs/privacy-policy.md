@@ -1,13 +1,13 @@
 # Privacy Policy — Daily Tasks
 
-**Effective date: 26 September 2026 (last updated for brain dump and break it down)**
+**Effective date: 27 September 2026 (last updated for anonymous usage stats, Plus purchases and the widget)**
 
 <!-- Keep in sync with the published copy (gist a43d6373453761af70d495d640e38ffa,
      privacy-policy.html), which App Store Connect links to. The app links here. -->
 
 ## Summary
 
-Daily Tasks is local-first. Your tasks, history, streaks, and settings are stored on your own device. There is no account, no sign-in, no analytics, no advertising, and no tracking. The only information that ever leaves your device is a small request when you use one of the smart (AI) features described below.
+Daily Tasks is local-first. Your tasks, history, streaks, and settings are stored on your own device. There is no account, no sign-in, no advertising, and no tracking across apps or websites. Information leaves your device only in three cases, each described below: a small request when you use one of the smart (AI) features, anonymous usage counts (which you can turn off), and, if you buy Plus, the purchase record handled by Apple and our subscription provider.
 
 ## What we store on your device
 
@@ -18,7 +18,7 @@ The app stores the following data locally using the operating system's standard 
 - Your goal, onboarding answers (such as time per day, experience level, and main struggle), and the optional first name you enter for greetings
 - Your progress (XP, level, streaks, milestones) and your reminder preferences
 
-This data is not synced to any server or account.
+This data is not synced to any server or account. The Home Screen and Lock Screen widget reads today's tasks from storage shared between the app and its widget on your device; nothing is sent anywhere for the widget.
 
 ## Smart features (AI)
 
@@ -32,6 +32,14 @@ These requests do **not** include your name, an account, a device identifier, ad
 
 This data is used only to provide these features inside the app. It is not linked to your identity, not used for advertising, and not sold or shared for any other purpose. If our server can't be reached, suggestions and brain dump fall back to simple on-device versions. Please don't include sensitive personal information (such as health, financial or account details) in a brain dump or task title.
 
+## Anonymous usage stats
+
+To understand which features help, the app sends anonymous usage counts to our analytics provider (PostHog, US servers). Examples: "opened the app", "finished a task", "used brain dump", "viewed Plus", or that the app hit an error (only the kind of error, never its details). Each event carries only a random identifier created on your device, the app version, and a few short labels (for example which screen a feature was opened from). It never includes your tasks, goals, brain dump, reflections, name, contact details, device identifiers, or location, and the analytics provider is set to discard IP addresses. This data is not linked to your identity and is not used for advertising or tracking. You can turn it off at any time in Settings → Data → Share anonymous usage stats; resetting all data also creates a new random identifier.
+
+## Purchases (Plus)
+
+Plus subscriptions and purchases are processed by Apple; we never see your payment details. To check whether Plus is active on your device, the app uses RevenueCat, a subscription service, with an anonymous app user ID it creates on your device. RevenueCat receives your purchase history for this app (products, dates, and status) from Apple so it can confirm your access and let you restore purchases. This is not linked to your name or used for advertising.
+
 ## Permissions we request
 
 **Notifications.** Used solely to deliver the local reminders you enable in Settings. Reminders are scheduled by iOS itself; the app never sends or receives push notifications from a remote server.
@@ -42,7 +50,7 @@ When the app opens, it may ask Apple's public App Store lookup service whether a
 
 ## Third parties
 
-Apart from the AI provider used for suggestions (above), we do not use third-party analytics, advertising, crash reporting, or tracking services.
+We use three service providers, each only for the purpose described above: an AI provider (Anthropic) for the smart features, PostHog for anonymous usage counts, and RevenueCat for Plus purchases. We do not use advertising, crash reporting, or tracking services, and we do not sell or share personal data.
 
 ## Children
 
@@ -50,7 +58,7 @@ Daily Tasks is suitable for all ages and does not knowingly collect personal inf
 
 ## Your control
 
-You can delete all data stored on your device at any time from Settings → Reset all data in the app, or by deleting the app. We do not keep a copy of your tasks or history on our servers.
+You can delete all data stored on your device at any time from Settings → Reset all data in the app, or by deleting the app. We do not keep a copy of your tasks or history on our servers. You can turn off anonymous usage stats in Settings, and manage or cancel a subscription in your Apple ID settings.
 
 ## Changes to this policy
 

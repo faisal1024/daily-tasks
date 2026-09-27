@@ -133,6 +133,7 @@ type Action =
   | { type: "selectJourneyCosmetic"; id: string }
   | { type: "acknowledgeMilestoneCelebration" }
   | { type: "markReviewPrompted"; at: string }
+  | { type: "markReviewDue"; at: string }
   | { type: "parkTasks"; texts: string[]; at: string }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
@@ -178,7 +179,9 @@ function resetMilestonesIfGoalChanged(
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "markReviewPrompted":
-      return { ...state, lastReviewPromptAt: action.at };
+      return { ...state, lastReviewPromptAt: action.at, reviewDueAt: null };
+    case "markReviewDue":
+      return state.reviewDueAt ? state : { ...state, reviewDueAt: action.at };
     case "applyWidgetToggles": {
       // Taps belong to the day the widget showed, which is the day these tasks
       // belong to (lastOpenedDate), even if the app is only opened tomorrow:
@@ -660,6 +663,7 @@ interface StoreContextValue {
   pendingMilestoneCelebration: string | null;
   acknowledgeMilestoneCelebration: () => void;
   markReviewPrompted: () => void;
+  markReviewDue: () => void;
   parkTasks: (texts: string[]) => void;
   removeParkedTask: (id: string) => void;
   addParkedTask: (id: string) => void;
@@ -707,6 +711,29 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     invalidateWidgetSnapshot();
     setWidgetNonce((n) => n + 1);
   }, []);
+
+  // The day the store's tasks belong to, readable from stable callbacks.
+  const todayRef = useRef(today);
+  todayRef.current = today;
+  /**
+   * Run the day change now if the clock has passed midnight since the last
+   * check, and return the store's day. Actions stamp this, never the raw
+   * clock: a tap at 00:00:10 (before the minute tick) must not write
+   * yesterday's tasks into today's history. A clock that moved BACK (travel
+   * west, a manual fix) keeps the current day instead of rolling "over" to
+   * an earlier one.
+   */
+  const ensureDay = useCallback((): string => {
+    const fresh = todayKey();
+    if (!hydratedRef.current) return fresh;
+    if (fresh <= todayRef.current) return todayRef.current;
+    // Widget taps first, so they land on the day they were made.
+    syncWidgetTaps();
+    todayRef.current = fresh;
+    setToday(fresh);
+    dispatch({ type: "rollover", today: fresh });
+    return fresh;
+  }, [syncWidgetTaps]);
   const plus = usePlus();
   // Confirmed access: what the automatic AI fetch waits for.
   const plusConfirmed = hasPlusAccess({
@@ -851,12 +878,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       void refreshNotificationPermission();
       // Widget taps first, so they land on the day they were made.
       syncWidgetTaps();
-      const fresh = todayKey();
-      if (fresh !== today) {
-        setToday(fresh);
-        dispatch({ type: "rollover", today: fresh });
-        return;
-      }
+      const before = todayRef.current;
+      const fresh = ensureDay();
+      if (fresh !== before) return;
       const eligible = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
       if (shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) {
         dispatch({ type: "autoLockToday", today: fresh, at: scheduledAutoLockAt(fresh, state.autoLock) });
@@ -864,24 +888,20 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     };
     const sub = RNAppState.addEventListener("change", onChange);
     return () => sub.remove();
-  }, [refreshNotificationPermission, syncWidgetTaps, state.autoLock, state.tasks, state.todayLocked, today]);
+  }, [refreshNotificationPermission, syncWidgetTaps, ensureDay, state.autoLock, state.tasks, state.todayLocked]);
 
   useEffect(() => {
     const id = setInterval(() => {
-      const fresh = todayKey();
-      if (fresh !== today) {
-        syncWidgetTaps();
-        setToday(fresh);
-        dispatch({ type: "rollover", today: fresh });
-        return;
-      }
+      const before = todayRef.current;
+      const fresh = ensureDay();
+      if (fresh !== before) return;
       const eligible = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
       if (shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) {
         dispatch({ type: "autoLockToday", today: fresh, at: scheduledAutoLockAt(fresh, state.autoLock) });
       }
     }, 60_000);
     return () => clearInterval(id);
-  }, [syncWidgetTaps, state.autoLock, state.tasks, state.todayLocked, today]);
+  }, [ensureDay, state.autoLock, state.tasks, state.todayLocked]);
 
   const isCompleted = useCallback(
     (id: TaskId) => state.todayCompletions.includes(id),
@@ -889,34 +909,34 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   );
 
   const addTask = useCallback((text: string) => {
-    dispatch({ type: "addTask", text, today: todayKey() });
-  }, []);
+    dispatch({ type: "addTask", text, today: ensureDay() });
+  }, [ensureDay]);
   const addTasks = useCallback((texts: string[]) => {
-    dispatch({ type: "addTasks", texts, today: todayKey() });
-  }, []);
+    dispatch({ type: "addTasks", texts, today: ensureDay() });
+  }, [ensureDay]);
   const editTask = useCallback((id: TaskId, text: string) => {
-    dispatch({ type: "editTask", id, text, today: todayKey() });
-  }, []);
+    dispatch({ type: "editTask", id, text, today: ensureDay() });
+  }, [ensureDay]);
   const deleteTask = useCallback((id: TaskId) => {
-    dispatch({ type: "deleteTask", id, today: todayKey() });
-  }, []);
+    dispatch({ type: "deleteTask", id, today: ensureDay() });
+  }, [ensureDay]);
   const toggleTask = useCallback((id: TaskId) => {
-    dispatch({ type: "toggleTask", id, today: todayKey() });
-  }, []);
+    dispatch({ type: "toggleTask", id, today: ensureDay() });
+  }, [ensureDay]);
   const lockToday = useCallback(() => {
-    dispatch({ type: "lockToday", today: todayKey(), at: new Date().toISOString() });
-  }, []);
+    dispatch({ type: "lockToday", today: ensureDay(), at: new Date().toISOString() });
+  }, [ensureDay]);
   const unlockToday = useCallback(() => {
-    dispatch({ type: "unlockToday", today: todayKey() });
-  }, []);
+    dispatch({ type: "unlockToday", today: ensureDay() });
+  }, [ensureDay]);
   const resolveRollover = useCallback((carriedTaskIds: TaskId[]) => {
     dispatch({
       type: "resolveRollover",
       carriedTaskIds,
-      today: todayKey(),
+      today: ensureDay(),
       now: new Date(),
     });
-  }, []);
+  }, [ensureDay]);
   const setNotificationsEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "setNotificationsEnabled", enabled });
   }, []);
@@ -1037,11 +1057,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     [],
   );
   const setTodayReflection = useCallback((text: string) => {
-    dispatch({ type: "setTodayReflection", text, today: todayKey() });
-  }, []);
+    dispatch({ type: "setTodayReflection", text, today: ensureDay() });
+  }, [ensureDay]);
   const setTodayReflectionResult = useCallback((result: ReflectionResult) => {
-    dispatch({ type: "setTodayReflectionResult", result, today: todayKey(), now: new Date() });
-  }, []);
+    dispatch({ type: "setTodayReflectionResult", result, today: ensureDay(), now: new Date() });
+  }, [ensureDay]);
   const resetAll = useCallback(async () => {
     await Promise.all([clearState(), resetAnalyticsIdentity()]);
     dispatch({ type: "reset", state: buildInitialState() });
@@ -1058,6 +1078,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const markReviewPrompted = useCallback(() => {
     dispatch({ type: "markReviewPrompted", at: new Date().toISOString() });
   }, []);
+  const markReviewDue = useCallback(() => {
+    dispatch({ type: "markReviewDue", at: new Date().toISOString() });
+  }, []);
   const parkTasksCb = useCallback((texts: string[]) => {
     dispatch({ type: "parkTasks", texts, at: new Date().toISOString() });
   }, []);
@@ -1065,8 +1088,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "removeParkedTask", id });
   }, []);
   const addParkedTask = useCallback((id: string) => {
-    dispatch({ type: "addParkedTask", id, today: todayKey() });
-  }, []);
+    dispatch({ type: "addParkedTask", id, today: ensureDay() });
+  }, [ensureDay]);
   const setTaskStepsCb = useCallback((taskId: TaskId, texts: string[], forText?: string) => {
     dispatch({
       type: "setTaskSteps",
@@ -1074,15 +1097,15 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       texts,
       at: new Date().toISOString(),
       forText,
-      today: todayKey(),
+      today: ensureDay(),
     });
-  }, []);
+  }, [ensureDay]);
   const toggleTaskStepCb = useCallback((taskId: TaskId, stepId: string) => {
-    dispatch({ type: "toggleTaskStep", taskId, stepId, today: todayKey() });
-  }, []);
+    dispatch({ type: "toggleTaskStep", taskId, stepId, today: ensureDay() });
+  }, [ensureDay]);
   const clearTaskStepsCb = useCallback((taskId: TaskId) => {
-    dispatch({ type: "clearTaskSteps", taskId, today: todayKey() });
-  }, []);
+    dispatch({ type: "clearTaskSteps", taskId, today: ensureDay() });
+  }, [ensureDay]);
   const setAnalyticsEnabledCb = useCallback((enabled: boolean) => {
     // Apply immediately so nothing queued is sent after opting out.
     applyAnalyticsEnabled(enabled);
@@ -1139,6 +1162,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       pendingMilestoneCelebration: state.pendingMilestoneCelebration,
       acknowledgeMilestoneCelebration,
       markReviewPrompted,
+      markReviewDue,
       parkTasks: parkTasksCb,
       removeParkedTask: removeParkedTaskCb,
       addParkedTask,
@@ -1188,6 +1212,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       momentumMilestones,
       acknowledgeMilestoneCelebration,
       markReviewPrompted,
+      markReviewDue,
       parkTasksCb,
       removeParkedTaskCb,
       addParkedTask,

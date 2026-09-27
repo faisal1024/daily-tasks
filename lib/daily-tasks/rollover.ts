@@ -87,7 +87,9 @@ function completedIdsFromRecord(record: DayRecord): TaskId[] {
 }
 
 export function applyRollover(state: AppState, today: string): AppState {
-  if (state.lastOpenedDate === today) return state;
+  // Same day, or the clock moved back (travel west, manual change): keep the
+  // current day rather than "rolling over" into an earlier one.
+  if (today <= state.lastOpenedDate) return state;
 
   const previousDate = state.lastOpenedDate;
   const existingTodayRecord = state.history[today];

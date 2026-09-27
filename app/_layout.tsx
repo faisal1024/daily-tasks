@@ -11,6 +11,7 @@ import { ThemeProvider } from "@/lib/theme-provider";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
 import { PlusProvider } from "@/lib/daily-tasks/plus-context";
 import { PaywallHost } from "@/components/daily-tasks/paywall-sheet";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 export const unstable_settings = {
   anchor: "(tabs)",
@@ -34,15 +35,17 @@ export default function RootLayout() {
     <ThemeProvider>
       <SafeAreaProvider>
         <GestureHandlerRootView style={{ flex: 1 }}>
-          <PlusProvider>
-            <DailyTasksProvider>
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="(tabs)" />
-              </Stack>
-              <PaywallHost />
-              <StatusBar style="auto" />
-            </DailyTasksProvider>
-          </PlusProvider>
+          <ErrorBoundary>
+            <PlusProvider>
+              <DailyTasksProvider>
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="(tabs)" />
+                </Stack>
+                <PaywallHost />
+                <StatusBar style="auto" />
+              </DailyTasksProvider>
+            </PlusProvider>
+          </ErrorBoundary>
         </GestureHandlerRootView>
       </SafeAreaProvider>
     </ThemeProvider>

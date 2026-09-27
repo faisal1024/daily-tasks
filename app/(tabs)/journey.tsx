@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ScrollView, Text, View, Pressable } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
@@ -9,7 +9,7 @@ import { WeeklyReviewCard } from "@/components/daily-tasks/weekly-review-card";
 import { ScreenContainer } from "@/components/screen-container";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
-import { JOURNEY_COSMETICS, stageForLevel } from "@/lib/daily-tasks/journey";
+import { stageForLevel } from "@/lib/daily-tasks/journey";
 import { pickCelebration } from "@/lib/daily-tasks/milestones";
 import { track } from "@/lib/daily-tasks/analytics";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -24,7 +24,6 @@ export default function JourneyScreen() {
     journeyProgress,
     pendingLevelUp,
     acknowledgeLevelUp,
-    selectJourneyCosmetic,
     momentumMilestones,
     pendingMilestoneCelebration,
     acknowledgeMilestoneCelebration,
@@ -65,7 +64,7 @@ export default function JourneyScreen() {
           className="text-foreground"
           style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
         >
-          Your journey 🌱
+          Your progress
         </Text>
 
         {/* Growth hero — gradient card (scheme-aware, self-measuring) */}
@@ -114,13 +113,13 @@ export default function JourneyScreen() {
         {/* Streak stats — colorful tinted cards */}
         <View className="flex-row gap-3">
           <StatCard
-            emoji="🔥"
+            icon="flame"
             label="Showed up"
             value={journey.showedUpStreak}
             tint={colors.accent}
           />
           <StatCard
-            emoji="⭐"
+            icon="star"
             label="Best run"
             value={journey.longestShowedUpStreak}
             tint={colors.primary}
@@ -142,7 +141,7 @@ export default function JourneyScreen() {
         </View>
 
         <View className="gap-3">
-          <SectionLabel emoji="🗓️" label="Your last 7 days" />
+          <SectionLabel icon="calendar-outline" label="Your last 7 days" />
           <WeeklyReviewCard
             review={weeklyReview}
             // Patterns only once Plus is confirmed, and no upsell while it's
@@ -161,7 +160,7 @@ export default function JourneyScreen() {
           <View className="gap-3">
             <View className="flex-row items-center justify-between">
               <SectionLabel
-                emoji="🎯"
+                icon="trail-sign-outline"
                 label={goalTitle ? `Path to ${goalTitle}` : "Your milestones"}
               />
               <Text className="text-base font-extrabold" style={{ color: colors.primary }}>
@@ -222,63 +221,6 @@ export default function JourneyScreen() {
           </View>
         )}
 
-        {/* Cosmetics */}
-        <View className="gap-3">
-          <SectionLabel emoji="🎨" label="Looks" />
-          <Text className="text-sm text-muted -mt-1">
-            Unlock new journey styles as you level up.
-          </Text>
-          <View className="flex-row flex-wrap gap-3">
-            {JOURNEY_COSMETICS.map((cosmetic) => {
-              const unlocked = !cosmetic.premium && journeyLevel >= cosmetic.unlockLevel;
-              const selected = journey.selectedCosmeticId === cosmetic.id;
-              const lockLabel = cosmetic.premium
-                ? "Premium"
-                : `Level ${cosmetic.unlockLevel}`;
-
-              return (
-                <Pressable
-                  key={cosmetic.id}
-                  disabled={!unlocked}
-                  onPress={() => selectJourneyCosmetic(cosmetic.id)}
-                  className="bg-surface rounded-2xl p-4 border items-center"
-                  style={{
-                    width: "30%",
-                    minWidth: 96,
-                    opacity: unlocked ? 1 : 0.55,
-                    borderColor: selected ? colors.primary : colors.border,
-                    borderWidth: selected ? 2 : 1,
-                  }}
-                >
-                  <Text className="text-sm font-semibold text-foreground text-center">
-                    {cosmetic.label}
-                  </Text>
-                  {unlocked ? (
-                    selected ? (
-                      <View className="flex-row items-center gap-1 mt-2">
-                        <Ionicons name="checkmark-circle" size={14} color={colors.primary} />
-                        <Text className="text-xs" style={{ color: colors.primary }}>
-                          Active
-                        </Text>
-                      </View>
-                    ) : (
-                      <Text className="text-xs text-muted mt-2">Tap to use</Text>
-                    )
-                  ) : (
-                    <View className="flex-row items-center gap-1 mt-2">
-                      <Ionicons
-                        name={cosmetic.premium ? "diamond-outline" : "lock-closed"}
-                        size={12}
-                        color={colors.muted}
-                      />
-                      <Text className="text-xs text-muted">{lockLabel}</Text>
-                    </View>
-                  )}
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
       </ScrollView>
 
       <CelebrationOverlay
@@ -299,12 +241,12 @@ export default function JourneyScreen() {
 }
 
 function StatCard({
-  emoji,
+  icon,
   label,
   value,
   tint,
 }: {
-  emoji: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
   value: number;
   tint: string;
@@ -314,9 +256,12 @@ function StatCard({
       className="flex-1 rounded-3xl p-4 border"
       style={{ backgroundColor: `${tint}14`, borderColor: `${tint}33` }}
     >
-      <Text className="text-sm uppercase font-extrabold" style={{ color: tint }}>
-        {emoji}  {label}
-      </Text>
+      <View className="flex-row items-center gap-1.5">
+        <Ionicons name={icon} size={14} color={tint} accessibilityElementsHidden />
+        <Text className="text-sm uppercase font-extrabold" style={{ color: tint }}>
+          {label}
+        </Text>
+      </View>
       <Text className="text-4xl font-extrabold text-foreground mt-1.5">{value}</Text>
     </View>
   );

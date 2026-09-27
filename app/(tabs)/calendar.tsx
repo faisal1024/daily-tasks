@@ -55,7 +55,7 @@ export default function CalendarScreen() {
             className="text-foreground"
             style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
           >
-            Your streak map 📅
+            Your streak map
           </Text>
         </View>
 

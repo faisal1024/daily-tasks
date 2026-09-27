@@ -160,3 +160,40 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
 
   return reminders;
 }
+
+/** How many days ahead a morning nudge is scheduled (iOS allows 64 pending). */
+export const UPCOMING_MORNING_DAYS = 6;
+
+/**
+ * One gentle morning nudge on each of the next few days. Today's reminders
+ * are only planned when the app runs, so without these a day the app isn't
+ * opened (exactly when a nudge matters) would get none. Rescheduled on every
+ * sync, so opening the app replaces them with the day's real plan.
+ */
+export function planUpcomingMornings(input: {
+  now: Date;
+  settings: NotificationConfig;
+  permissionState: NotificationPermissionState;
+  days?: number;
+}): PlannedReminder[] {
+  const { now, settings, permissionState, days = UPCOMING_MORNING_DAYS } = input;
+  if (!settings.enabled || !settings.morning || !canScheduleReminders(permissionState)) return [];
+  const copy = REMINDER_COPY.morning;
+  const out: PlannedReminder[] = [];
+  for (let offset = 1; offset <= days; offset++) {
+    // Calendar arithmetic (not +24h) so DST changes keep the local hour.
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+    const hour = isWeekend(day)
+      ? REMINDER_HOURS.weekendMorningStart
+      : REMINDER_HOURS.weekdayMorningStart;
+    const at = candidateAt(day, hour);
+    out.push({
+      identifier: buildReminderIdentifier("morning", at),
+      kind: "morning",
+      at,
+      title: copy.title,
+      body: copy.body,
+    });
+  }
+  return out;
+}

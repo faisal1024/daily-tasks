@@ -212,12 +212,12 @@ export default function SettingsScreen() {
             className="text-foreground"
             style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
           >
-            Tune your day ⚙️
+            Tune your day
           </Text>
         </View>
 
         {plus.paywallEnabled && (
-          <Section emoji="✨" title="Plus">
+          <Section icon="sparkles-outline" title="Plus">
             <View className="bg-surface rounded-2xl p-4 border border-border gap-3" testID="settings-plus">
               <Text className="text-sm" style={{ color: colors.muted }}>
                 {plusStatusLabel({
@@ -268,7 +268,7 @@ export default function SettingsScreen() {
         )}
 
         <Section
-          emoji="🚀"
+          icon="flag-outline"
           title="Momentum"
           subtitle="Personalize your accountability coach without adding a backlog."
         >
@@ -328,7 +328,7 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
-          emoji="🤖"
+          icon="sparkles-outline"
           title="AI adaptation"
           subtitle="How your coach tunes tomorrow based on today's follow-through."
         >
@@ -440,7 +440,7 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
-          emoji="🎯"
+          icon="list-outline"
           title="Today's Three"
           subtitle="Review or finish the focus commitments you chose."
         >
@@ -500,7 +500,7 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
-          emoji="🔒"
+          icon="lock-closed-outline"
           title="Daily lock"
           subtitle="Choose whether Today's Three sets itself automatically."
         >
@@ -531,7 +531,7 @@ export default function SettingsScreen() {
         </Section>
 
         <Section
-          emoji="🔔"
+          icon="notifications-outline"
           title="Reminders"
           subtitle="Smart, local nudges that react to Today's Three."
         >
@@ -615,7 +615,7 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        <Section emoji="💾" title="Data" subtitle="Stored only on this device.">
+        <Section icon="folder-outline" title="Data" subtitle="Stored only on this device.">
           {getPostHogKey() !== null && (
             <View className="bg-surface rounded-2xl p-4 border border-border flex-row items-center justify-between gap-4">
               <View className="flex-1">
@@ -659,7 +659,7 @@ export default function SettingsScreen() {
           </Pressable>
         </Section>
 
-        <Section emoji="💬" title="Help">
+        <Section icon="help-circle-outline" title="Help">
           <View className="bg-surface rounded-2xl border border-border overflow-hidden">
             <HelpRow
               icon="chatbubble-ellipses-outline"
@@ -759,12 +759,12 @@ function formatChoice(value: string): string {
 }
 
 function Section({
-  emoji,
+  icon,
   title,
   subtitle,
   children,
 }: {
-  emoji?: string;
+  icon?: React.ComponentProps<typeof Ionicons>["name"];
   title: string;
   subtitle?: string;
   children: React.ReactNode;
@@ -773,7 +773,7 @@ function Section({
   return (
     <View className="gap-3">
       <View className="gap-1.5">
-        <SectionLabel emoji={emoji} label={title} />
+        <SectionLabel icon={icon} label={title} />
         {subtitle && (
           <Text className="text-sm mt-0.5" style={{ color: colors.muted }}>
             {subtitle}

@@ -237,8 +237,8 @@ export function IdeasSheet({
             >
               <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
                 {available.length > remainingSlots
-                  ? `Add the first ${remainingSlots} ✨`
-                  : "Add all ✨"}
+                  ? `Add the first ${remainingSlots}`
+                  : "Add all"}
               </Text>
             </Pressable>
           )}

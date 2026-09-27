@@ -23,17 +23,18 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⏸ blocked on the ow
 ### Left
 | Phase | Status | Notes |
 |---|---|---|
-| 8 — Foundation fixes | 🔄 in progress | engineering + UX quick wins, privacy policy |
-| 9 — The ritual | ⬜ | needs decisions 3–5 (§6) |
-| 10 — Today revamp + IA | ⬜ | needs decision 5 (§6) |
-| 11 — Money & cost controls | ⏸ | needs App Store Connect setup (Paid Apps agreement, tax form, In-App Purchase key) + decisions 2, 3, 6 |
-| 12 — Name, listing, launch | ⏸ | needs decision 1 (name) |
+| 8 — Foundation fixes | 🔄 in review | see the Phase 8 checklist in §3 |
+| 9 — The ritual | ⬜ | decisions made (§6) |
+| 10 — Today revamp + IA | ⬜ | decisions made (§6) |
+| 11 — Money & cost controls | ⏸ | code can start; going live needs App Store Connect setup (Paid Apps agreement, tax form, In-App Purchase key) and a Cloudflare account |
+| 12 — Name, listing, launch | ⬜ | name chosen: **Three Today** (§6) |
 
 ### Owner to-dos outside the code
 - ⏸ App Store Connect: renew the Paid Apps Agreement, W-9 tax form (after bank processing), generate the In-App Purchase key (.p8) for RevenueCat
 - ⏸ RevenueCat: confirm the account email; connect the App Store app once the key exists
 - ⬜ Test 1.0.11 on your phone via TestFlight (widget layout on device, next-morning widget ticks)
-- ⬜ Answer the decisions in §6
+- ✅ Answer the decisions in §6 (27 Sept 2026)
+- ⬜ Create a free Cloudflare account (for Phase 11's proxy move)
 
 ## 1. Diagnosis (where all four audits agree)
 
@@ -109,19 +110,23 @@ Each phase = one PR, tester agent + 3 reviewers, merge, TestFlight when noted.
 
 ### Phase 8 — Foundation fixes (~1 week) → TestFlight
 Engineering quick wins:
-- Backup + quarantine on load failure; never overwrite a corrupt blob.
-- Fix the `todayKey()` vs store `today` midnight duplication bug; guard backwards day change.
-- Sentry + root ErrorBoundary (PII scrubbed).
-- Serialise `syncNotifications`; schedule reminders 7 days ahead.
-- Reconcile the privacy policy/label with PostHog + RevenueCat + widget (drafted).
+- ✅ Backup + quarantine on load failure; never overwrite a corrupt blob (unreadable storage
+  → use the backup and don't write that session).
+- ✅ Actions stamp the store's day and run the day change first (fixes the 00:00 duplication
+  bug); a clock that moves back keeps the current day.
+- ✅ Root ErrorBoundary (calm fallback, anonymous `app_error` event). ⏸ Sentry: needs a
+  Sentry account + DSN; add when created.
+- ✅ Reminder syncs run one at a time; a morning nudge is scheduled for each of the next 6 days.
+- ✅ Privacy policy (repo copy) reconciled with PostHog + RevenueCat + widget; ⬜ publish to the
+  gist + update the App Store privacy label after merge.
 UX quick wins:
-- Parked ideas reachable when the day is full ("Saved ideas (2)" under the status line).
-- Inline **Unlock** next to the lock status; auto-lock explained once on first run.
-- Review prompt moves to the next launch; drop "Missed" on a perfect day; no rating +
-  celebration + reflection stacked in 4 seconds.
-- Emoji → SF Symbols in titles/sections; remove "Looks" cosmetics (they do nothing);
-  tabs "Tasks"→"Today", "Journey"→"Progress"; fix "Good night" greeting after 9 pm.
-- Live appearance change (dark mode without relaunch); `useWindowDimensions` in the header.
+- ✅ Saved brain-dump ideas reachable when the day is full ("Saved for later (N)").
+- ✅ Inline **Unlock** next to the lock status (was Settings-only); lock copy updated.
+- ✅ Rating prompt waits for a later app open (≥ 1 h after the perfect day); "Missed" removed
+  from the perfect-day check-in.
+- ✅ Emoji → icons in titles/sections; "Looks" cosmetics removed; tabs "Today" / "Progress";
+  after-midnight greeting "Hello" (was "Good night"), 9 pm–midnight is "Good evening".
+- ✅ Follows system Light/Dark live; header uses live window width.
 
 ### Phase 9 — The ritual (~2–3 weeks) → TestFlight
 - **Onboarding rebuilt:** dump → three → set → "want a nudge?" (notification) → "add the
@@ -180,13 +185,17 @@ D1 ≥ 30%, D7 ≥ 15%; ≥ 10% of installs start a trial; ≥ 35% trial → pai
 subscriptions (category norm 77%). Watch AI monthly churn (36% worse in RC data): keep AI
 the accelerator, not the whole value.
 
-## 6. Decisions needed from the owner
-1. Name (pick or veto the candidates above).
-2. Pricing: $34.99/yr and $79.99 lifetime (Settings only) vs the earlier $29.99/$59.99.
-3. Accept the soft-hard paywall (morning AI plan behind the trial; 3 free brain dumps).
-4. Calendar/Reminders read access (a permission prompt; big trust gain).
-5. Drop XP/levels/"Looks" in favour of one "Day N" chip.
-6. Proxy hosting: Cloudflare Workers (port) vs Render Starter ($7/mo).
+## 6. Decisions (made 27 Sept 2026)
+1. **Name: Three Today** — App Store name "Three Today: 3 Tasks a Day", subtitle "Brain dump
+   to your daily three" (verify availability in App Store Connect in Phase 12). Chosen for the
+   sunrise icon, search terms "three"/"today", and clarity; "Trio" clashes with an existing
+   app, "Enough" has no search intent.
+2. **Pricing:** $4.99/mo, $34.99/yr (7-day trial), $79.99 lifetime shown only in Settings.
+3. **Paywall:** morning AI plan behind the 7-day trial; 3 free AI brain dumps.
+4. **Calendar/Reminders read access:** yes (Phase 9).
+5. **XP/levels/"Looks":** dropped; one "Day N" chip (Looks removed in Phase 8, chip in Phase 9).
+6. **Proxy hosting:** Cloudflare Workers — its free tier (100k requests/day, no cold starts)
+   is cheaper than Render Starter ($7/mo). Phase 11.
 
 ## Sources
 Audit reports: product (internal), UX walk-through (20 screenshots), engineering, and market

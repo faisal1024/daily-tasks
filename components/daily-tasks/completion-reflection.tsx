@@ -147,5 +147,5 @@ const REFLECTION_CHOICES: { value: ReflectionResult; label: string }[] = [
   { value: "easy", label: "Easy" },
   { value: "good", label: "Good" },
   { value: "hard", label: "Hard" },
-  { value: "missed", label: "Missed" },
+  // No "Missed": this check-in only appears on a day where everything got done.
 ];

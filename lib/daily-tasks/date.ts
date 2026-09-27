@@ -46,7 +46,7 @@ export function greetingFor(now: Date = new Date()): GreetingKind {
   const h = now.getHours();
   if (h >= 5 && h < 12) return "morning";
   if (h >= 12 && h < 17) return "afternoon";
-  if (h >= 17 && h < 21) return "evening";
+  if (h >= 17) return "evening";
   return "night";
 }
 
@@ -59,7 +59,8 @@ export function greetingText(kind: GreetingKind): string {
     case "evening":
       return "Good evening";
     case "night":
-      return "Good night";
+      // After midnight: a plain hello ("Good night" reads as a goodbye).
+      return "Hello";
   }
 }
 
