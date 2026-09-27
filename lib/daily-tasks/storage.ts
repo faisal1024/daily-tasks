@@ -713,3 +713,18 @@ export async function clearState(): Promise<void> {
 export function __resetStorageForTests(): void {
   writesBlocked = false;
 }
+
+// The free AI sort on first run, used once per install: its own key so that
+// neither a relaunch mid-flow nor "Reset all data" grants another.
+const FIRST_AI_SORT_KEY = "daily-tasks/first-ai-sort-used";
+
+/** Claim the one first-run AI sort; false if it was already used (or unreadable). */
+export async function claimFirstAiSort(): Promise<boolean> {
+  try {
+    if (await AsyncStorage.getItem(FIRST_AI_SORT_KEY)) return false;
+    await AsyncStorage.setItem(FIRST_AI_SORT_KEY, new Date().toISOString());
+    return true;
+  } catch {
+    return false;
+  }
+}

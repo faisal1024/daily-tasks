@@ -40,6 +40,7 @@ import {
 } from "@/lib/daily-tasks/ai-status";
 import { proxyRouteUrl } from "@/lib/daily-tasks/ai-client";
 import { readTodayAgenda } from "@/lib/daily-tasks/agenda";
+import { claimFirstAiSort } from "@/lib/daily-tasks/storage";
 import { localBrainDump, requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
@@ -881,7 +882,8 @@ export default function HomeScreen() {
             );
           });
           // One AI sort per first run; "Start over" gets the simple split.
-          const useAi = !firstRunAiUsed.current;
+          // Once per install (persisted), not once per launch.
+          const useAi = !firstRunAiUsed.current && (await claimFirstAiSort());
           firstRunAiUsed.current = true;
           const sorted = useAi
             ? await Promise.race([sortBrainDump({ text, openSlots: 3, goalTitle: null }), fallback])
