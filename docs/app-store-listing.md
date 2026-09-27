@@ -73,7 +73,7 @@ Daily Tasks is now Three Today, rebuilt around a calm daily ritual:
 • An evening check-in that drafts tomorrow's three (Plus).
 • Plan around your Calendar and Reminders (Plus).
 • Progress and history together in one tab.
-• Introducing Three Today Plus, with a free trial. Already using the app? Plus is free for you, for life: just open the app before <date>.
+• Introducing Three Today Plus, with a free trial. Already using the app? Plus is free for you, for life: just open the app before December 15, 2026.
 ```
 
 ## URLs
