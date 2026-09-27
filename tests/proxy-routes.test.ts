@@ -54,43 +54,20 @@ import {
 
 const PLAN_PAYLOAD = {
   profile: { goalTitle: "Run a 5K", timeAvailability: "30_min" },
-  settings: {
-    suggestionTone: "calm",
-    adaptivePlanning: true,
-    eveningReflection: true,
-  },
-  recentPerformance: {
-    completed: 3,
-    total: 6,
-    missed: 3,
-    daysReviewed: 2,
-    completionRate: 0.5,
-  },
+  settings: { suggestionTone: "calm", adaptivePlanning: true, eveningReflection: true },
+  recentPerformance: { completed: 3, total: 6, missed: 3, daysReviewed: 2, completionRate: 0.5 },
   recentReflection: null,
   recentReflectionResult: null,
   recentTasks: [],
 };
 const PLAN_RESULT = {
-  milestones: [
-    { id: "m1", title: "First mile", description: "", completedAt: null },
-  ],
+  milestones: [{ id: "m1", title: "First mile", description: "", completedAt: null }],
   todaySuggestions: [
-    {
-      id: "t1",
-      text: "Walk 20 minutes",
-      estimatedMinutes: 20,
-      difficulty: "easy",
-      reason: "r",
-      source: "ai",
-    },
+    { id: "t1", text: "Walk 20 minutes", estimatedMinutes: 20, difficulty: "easy", reason: "r", source: "ai" },
   ],
   taskPool: [],
 };
-const DUMP_PAYLOAD = {
-  text: "call mum\nfinish report\nbuy shoes",
-  openSlots: 2,
-  goalTitle: "Run a 5K",
-};
+const DUMP_PAYLOAD = { text: "call mum\nfinish report\nbuy shoes", openSlots: 2, goalTitle: "Run a 5K" };
 const DUMP_RESULT = {
   picks: [
     { text: "Finish the report", reason: "due" },
@@ -99,13 +76,7 @@ const DUMP_RESULT = {
   parked: [{ text: "Buy running shoes" }],
 };
 const BREAK_PAYLOAD = { task: "Clean the kitchen", goalTitle: null };
-const BREAK_RESULT = {
-  steps: [
-    { text: "Clear the counter" },
-    { text: "Load the dishwasher" },
-    { text: "Wipe surfaces" },
-  ],
-};
+const BREAK_RESULT = { steps: [{ text: "Clear the counter" }, { text: "Load the dishwasher" }, { text: "Wipe surfaces" }] };
 
 const PAYLOAD_FOR: Record<string, unknown> = {
   [PLAN_ROUTE]: PLAN_PAYLOAD,
@@ -143,10 +114,7 @@ const servers: Server[] = [];
 async function start({
   provider = fakeProvider(),
   env = {},
-}: {
-  provider?: ReturnType<typeof fakeProvider>;
-  env?: Record<string, string>;
-} = {}) {
+}: { provider?: ReturnType<typeof fakeProvider>; env?: Record<string, string> } = {}) {
   const config = readConfig({ RATE_LIMIT_PER_MIN: "1000", ...env });
   const logger = { error: vi.fn(), warn: vi.fn(), log: vi.fn() };
   const { server } = createProxyServer({ provider, config, logger });
@@ -163,22 +131,13 @@ async function start({
     fetch(`${base}${route}`, {
       method,
       headers: { "Content-Type": "application/json", ...headers },
-      body:
-        method === "GET"
-          ? undefined
-          : typeof body === "string"
-            ? body
-            : JSON.stringify(body),
+      body: method === "GET" ? undefined : typeof body === "string" ? body : JSON.stringify(body),
     });
   return { base, post, provider, logger };
 }
 
 afterEach(async () => {
-  await Promise.all(
-    servers
-      .splice(0)
-      .map((server) => new Promise((resolve) => server.close(resolve))),
-  );
+  await Promise.all(servers.splice(0).map((server) => new Promise((resolve) => server.close(resolve))));
 });
 
 describe("route table", () => {
@@ -216,10 +175,7 @@ describe("route table", () => {
       validatePayload: validateBreakDownPayload,
     });
     // Tool names must differ so Anthropic's forced tool_choice can't mix them up.
-    expect(
-      new Set([PLAN_TOOL_NAME, BRAIN_DUMP_TOOL_NAME, BREAK_DOWN_TOOL_NAME])
-        .size,
-    ).toBe(3);
+    expect(new Set([PLAN_TOOL_NAME, BRAIN_DUMP_TOOL_NAME, BREAK_DOWN_TOOL_NAME]).size).toBe(3);
   });
 });
 
@@ -283,20 +239,14 @@ describe("helper routes over HTTP", () => {
       const res = await post(route, BREAK_PAYLOAD);
       expect(res.status, route).toBe(404);
     }
-    expect((await post(BRAIN_DUMP_ROUTE, undefined, {}, "GET")).status).toBe(
-      404,
-    );
-    expect((await post(BREAK_DOWN_ROUTE, undefined, {}, "PUT")).status).toBe(
-      404,
-    );
+    expect((await post(BRAIN_DUMP_ROUTE, undefined, {}, "GET")).status).toBe(404);
+    expect((await post(BREAK_DOWN_ROUTE, undefined, {}, "PUT")).status).toBe(404);
     expect(provider.generatePlan).not.toHaveBeenCalled();
   });
 
   it("matches routes on the path only, ignoring a query string", async () => {
     const { post } = await start();
-    expect((await post(`${BREAK_DOWN_ROUTE}?x=1`, BREAK_PAYLOAD)).status).toBe(
-      200,
-    );
+    expect((await post(`${BREAK_DOWN_ROUTE}?x=1`, BREAK_PAYLOAD)).status).toBe(200);
   });
 
   it("validates each route's payload with its own validator (a plan payload isn't a brain dump)", async () => {
@@ -317,10 +267,7 @@ describe("helper routes over HTTP", () => {
     [{ ...DUMP_PAYLOAD, openSlots: 4 }, "openSlots must be 1-3"],
     [{ ...DUMP_PAYLOAD, openSlots: "2" }, "openSlots must be 1-3"],
     [{ ...DUMP_PAYLOAD, text: "   " }, "Missing or too long text"],
-    [
-      { ...DUMP_PAYLOAD, text: "x".repeat(MAX_BRAIN_DUMP_CHARS + 1) },
-      "Missing or too long text",
-    ],
+    [{ ...DUMP_PAYLOAD, text: "x".repeat(MAX_BRAIN_DUMP_CHARS + 1) }, "Missing or too long text"],
     [{ ...DUMP_PAYLOAD, goalTitle: 42 }, "Invalid goalTitle"],
     [[], "Missing or too long text"],
   ])("brain-dump rejects %j with 400", async (payload, error) => {
@@ -348,19 +295,13 @@ describe("helper routes over HTTP", () => {
 
     const dump = await post(BRAIN_DUMP_ROUTE);
     expect(dump.status).toBe(502);
-    expect(await dump.json()).toEqual({
-      error: "AI response did not include a valid brain-dump",
-    });
+    expect(await dump.json()).toEqual({ error: "AI response did not include a valid brain-dump" });
 
     const steps = await post(BREAK_DOWN_ROUTE);
     expect(steps.status).toBe(502);
-    expect(await steps.json()).toEqual({
-      error: "AI response did not include a valid break-down",
-    });
+    expect(await steps.json()).toEqual({ error: "AI response did not include a valid break-down" });
 
-    const logged = logger.error.mock.calls
-      .map((call) => String(call[0]))
-      .join("\n");
+    const logged = logger.error.mock.calls.map((call) => String(call[0])).join("\n");
     expect(logged).toContain("brain-dump");
     expect(logged).not.toContain("secret user words");
     expect(logged).not.toContain("private words");
@@ -401,9 +342,7 @@ describe("helper routes over HTTP", () => {
       // Over-long items are shortened (never dropped); non-text items are.
       picks: [
         { text: "Finish report", reason: "due" },
-        {
-          text: `${`Report ${"x".repeat(MAX_TASK_TEXT)}`.slice(0, MAX_TASK_TEXT - 1)}…`,
-        },
+        { text: `${`Report ${"x".repeat(MAX_TASK_TEXT)}`.slice(0, MAX_TASK_TEXT - 1)}…` },
       ],
       parked: [{ text: "Buy shoes" }],
     });
@@ -424,10 +363,7 @@ describe("helper routes over HTTP", () => {
         { text: "Check in with yourself", reason: "invented" },
         { text: "Call Mum" },
       ],
-      parked: [
-        { text: "Meditate for ten minutes" },
-        { text: "Buy running shoes" },
-      ],
+      parked: [{ text: "Meditate for ten minutes" }, { text: "Buy running shoes" }],
     }));
     const { post } = await start({ provider });
     const res = await post(BRAIN_DUMP_ROUTE);
@@ -440,10 +376,7 @@ describe("helper routes over HTTP", () => {
         { text: "Check in with yourself", reason: "invented" },
         { text: "Call Mum" },
       ],
-      parked: [
-        { text: "Meditate for ten minutes" },
-        { text: "Buy running shoes" },
-      ],
+      parked: [{ text: "Meditate for ten minutes" }, { text: "Buy running shoes" }],
     });
   });
 
@@ -456,9 +389,7 @@ describe("helper routes over HTTP", () => {
     const { post, logger } = await start({ provider });
     const res = await post(BRAIN_DUMP_ROUTE);
     expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({
-      error: "AI response did not include a valid brain-dump",
-    });
+    expect(await res.json()).toEqual({ error: "AI response did not include a valid brain-dump" });
     expect(logger.error).toHaveBeenCalled();
   });
 
@@ -537,19 +468,11 @@ describe("helper routes over HTTP", () => {
   });
 
   it("requires the shared secret on helper routes too", async () => {
-    const { post, provider } = await start({
-      env: { PROXY_SHARED_SECRET: "s3cret" },
-    });
+    const { post, provider } = await start({ env: { PROXY_SHARED_SECRET: "s3cret" } });
     expect((await post(BRAIN_DUMP_ROUTE)).status).toBe(401);
-    expect(
-      (await post(BREAK_DOWN_ROUTE, undefined, { [SECRET_HEADER]: "wrong" }))
-        .status,
-    ).toBe(401);
+    expect((await post(BREAK_DOWN_ROUTE, undefined, { [SECRET_HEADER]: "wrong" })).status).toBe(401);
     expect(provider.generatePlan).not.toHaveBeenCalled();
-    expect(
-      (await post(BREAK_DOWN_ROUTE, undefined, { [SECRET_HEADER]: "s3cret" }))
-        .status,
-    ).toBe(200);
+    expect((await post(BREAK_DOWN_ROUTE, undefined, { [SECRET_HEADER]: "s3cret" })).status).toBe(200);
   });
 
   it("returns 500 with the config message on helper routes when the provider has no key", async () => {
@@ -557,9 +480,7 @@ describe("helper routes over HTTP", () => {
     const { post } = await start({ provider });
     const res = await post(BRAIN_DUMP_ROUTE);
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({
-      error: "FAKE_API_KEY is not configured",
-    });
+    expect(await res.json()).toEqual({ error: "FAKE_API_KEY is not configured" });
   });
 });
 
@@ -590,13 +511,9 @@ describe("limits and budgets are shared across routes", () => {
   });
 
   it("invalid helper payloads don't spend the daily budget", async () => {
-    const { post, provider } = await start({
-      env: { DAILY_LIMIT_PER_CLIENT: "1" },
-    });
+    const { post, provider } = await start({ env: { DAILY_LIMIT_PER_CLIENT: "1" } });
     for (let i = 0; i < 3; i++) {
-      expect(
-        (await post(BRAIN_DUMP_ROUTE, { text: "", openSlots: 1 })).status,
-      ).toBe(400);
+      expect((await post(BRAIN_DUMP_ROUTE, { text: "", openSlots: 1 })).status).toBe(400);
       expect((await post(BREAK_DOWN_ROUTE, { task: "" })).status).toBe(400);
     }
     expect((await post(BREAK_DOWN_ROUTE)).status).toBe(200);
@@ -606,10 +523,7 @@ describe("limits and budgets are shared across routes", () => {
 
   it("a 502 from a helper route still spends the budget (the AI was called)", async () => {
     const provider = fakeProvider(async () => ({ steps: [] }));
-    const { post } = await start({
-      provider,
-      env: { DAILY_LIMIT_PER_CLIENT: "1" },
-    });
+    const { post } = await start({ provider, env: { DAILY_LIMIT_PER_CLIENT: "1" } });
     expect((await post(BREAK_DOWN_ROUTE)).status).toBe(502);
     expect((await post(BREAK_DOWN_ROUTE)).status).toBe(429);
     expect(provider.generatePlan).toHaveBeenCalledTimes(1);
@@ -619,93 +533,43 @@ describe("limits and budgets are shared across routes", () => {
 describe("brain-dump contract", () => {
   it("accepts a valid payload at the limits", () => {
     expect(validateBrainDumpPayload(DUMP_PAYLOAD)).toBeNull();
-    expect(
-      validateBrainDumpPayload({
-        text: "x".repeat(MAX_BRAIN_DUMP_CHARS),
-        openSlots: 1,
-      }),
-    ).toBeNull();
-    expect(
-      validateBrainDumpPayload({ text: "a", openSlots: 3, goalTitle: null }),
-    ).toBeNull();
-    expect(
-      validateBrainDumpPayload({
-        text: "a",
-        openSlots: 3,
-        goalTitle: "g".repeat(120),
-      }),
-    ).toBeNull();
+    expect(validateBrainDumpPayload({ text: "x".repeat(MAX_BRAIN_DUMP_CHARS), openSlots: 1 })).toBeNull();
+    expect(validateBrainDumpPayload({ text: "a", openSlots: 3, goalTitle: null })).toBeNull();
+    expect(validateBrainDumpPayload({ text: "a", openSlots: 3, goalTitle: "g".repeat(120) })).toBeNull();
   });
 
   it("rejects bad payloads", () => {
     expect(validateBrainDumpPayload(null)).toBe("Invalid JSON payload");
     expect(validateBrainDumpPayload("text")).toBe("Invalid JSON payload");
-    expect(validateBrainDumpPayload({ text: 5, openSlots: 1 })).toBe(
-      "Missing or too long text",
+    expect(validateBrainDumpPayload({ text: 5, openSlots: 1 })).toBe("Missing or too long text");
+    expect(validateBrainDumpPayload({ text: "a", openSlots: 1.5 })).toBe("openSlots must be 1-3");
+    expect(validateBrainDumpPayload({ text: "a" })).toBe("openSlots must be 1-3");
+    expect(validateBrainDumpPayload({ text: "a", openSlots: 1, goalTitle: "g".repeat(121) })).toBe(
+      "Invalid goalTitle",
     );
-    expect(validateBrainDumpPayload({ text: "a", openSlots: 1.5 })).toBe(
-      "openSlots must be 1-3",
-    );
-    expect(validateBrainDumpPayload({ text: "a" })).toBe(
-      "openSlots must be 1-3",
-    );
-    expect(
-      validateBrainDumpPayload({
-        text: "a",
-        openSlots: 1,
-        goalTitle: "g".repeat(121),
-      }),
-    ).toBe("Invalid goalTitle");
   });
 
   it("builds a prompt with the goal, slot count and the trimmed dump inside delimiters", () => {
-    const prompt = buildBrainDumpPrompt({
-      text: "  call mum \n",
-      openSlots: 1,
-      goalTitle: "Run a 5K",
-    });
+    const prompt = buildBrainDumpPrompt({ text: "  call mum \n", openSlots: 1, goalTitle: "Run a 5K" });
     expect(prompt).toContain("The person's bigger goal: Run a 5K");
     expect(prompt).toContain("Pick at most 1 item(s) for today.");
     expect(prompt).toContain('"""\ncall mum\n"""');
-    expect(
-      buildBrainDumpPrompt({ text: "x", openSlots: 3, goalTitle: null }),
-    ).toContain("No specific goal set.");
+    expect(buildBrainDumpPrompt({ text: "x", openSlots: 3, goalTitle: null })).toContain(
+      "No specific goal set.",
+    );
   });
 
   it("requires at least one usable pick and array-shaped picks and parked", () => {
     expect(isValidBrainDump(DUMP_RESULT)).toBe(true);
-    expect(isValidBrainDump({ picks: [{ text: "Walk" }], parked: [] })).toBe(
-      true,
-    );
-    expect(isValidBrainDump({ picks: [], parked: [{ text: "Walk" }] })).toBe(
-      false,
-    );
-    expect(isValidBrainDump({ picks: [{ text: "   " }], parked: [] })).toBe(
-      false,
-    );
+    expect(isValidBrainDump({ picks: [{ text: "Walk" }], parked: [] })).toBe(true);
+    expect(isValidBrainDump({ picks: [], parked: [{ text: "Walk" }] })).toBe(false);
+    expect(isValidBrainDump({ picks: [{ text: "   " }], parked: [] })).toBe(false);
     // Long picks are shortened by the sanitizer, not rejected...
-    expect(
-      isValidBrainDump({
-        picks: [{ text: "x".repeat(MAX_TASK_TEXT + 1) }],
-        parked: [],
-      }),
-    ).toBe(true);
-    expect(
-      isValidBrainDump({
-        picks: [{ text: "x".repeat(MAX_ECHO_TEXT) }],
-        parked: [],
-      }),
-    ).toBe(true);
+    expect(isValidBrainDump({ picks: [{ text: "x".repeat(MAX_TASK_TEXT + 1) }], parked: [] })).toBe(true);
+    expect(isValidBrainDump({ picks: [{ text: "x".repeat(MAX_ECHO_TEXT) }], parked: [] })).toBe(true);
     // ...but an echo of the input is unusable, so the client falls back.
-    expect(
-      isValidBrainDump({
-        picks: [{ text: "x".repeat(MAX_ECHO_TEXT + 1) }],
-        parked: [],
-      }),
-    ).toBe(false);
-    expect(
-      isValidBrainDump({ picks: [{ text: "x".repeat(250) }], parked: [] }),
-    ).toBe(false);
+    expect(isValidBrainDump({ picks: [{ text: "x".repeat(MAX_ECHO_TEXT + 1) }], parked: [] })).toBe(false);
+    expect(isValidBrainDump({ picks: [{ text: "x".repeat(250) }], parked: [] })).toBe(false);
     expect(isValidBrainDump({ picks: [{ text: "Walk" }] })).toBe(false);
     expect(isValidBrainDump({ picks: "Walk", parked: [] })).toBe(false);
     expect(isValidBrainDump({ picks: ["Walk"], parked: [] })).toBe(false);
@@ -729,9 +593,7 @@ describe("brain-dump contract", () => {
     expect(fromDump("Go for a run", "running")).toBe(true);
     // Unspaced scripts (Chinese, Japanese, Thai…) can't be split into words: keep.
     expect(fromDump("买牛奶", "买牛奶 打电话给妈妈")).toBe(true);
-    expect(fromDump("Check in with yourself", "call mum\nfinish report")).toBe(
-      false,
-    );
+    expect(fromDump("Check in with yourself", "call mum\nfinish report")).toBe(false);
     // Non-Latin text is matched by letters, not ASCII only.
     expect(fromDump("Позвонить маме", "позвонить маме вечером")).toBe(true);
     expect(fromDump("Купить молоко", "позвонить маме")).toBe(false);
@@ -742,29 +604,16 @@ describe("brain-dump contract", () => {
   });
 
   it("keeps every item when one pick is from the dump; rejects only fully invented answers", () => {
-    const payload = {
-      text: "finish report\nbuy groceries\ncall mum",
-      openSlots: 3,
-      goalTitle: null,
-    };
+    const payload = { text: "finish report\nbuy groceries\ncall mum", openSlots: 3, goalTitle: null };
     const result = {
       picks: [{ text: "Finish the report" }, { text: "Journal for 5 minutes" }],
-      parked: [
-        { text: "Groceries" },
-        { text: "Stretch" },
-        { text: "Call Mum" },
-      ],
+      parked: [{ text: "Groceries" }, { text: "Stretch" }, { text: "Call Mum" }],
     };
     expect(isValidBrainDump(result, payload)).toBe(true);
     // Sanitizing never drops items for not matching (it only trims and caps).
     expect(sanitizeBrainDump(result)).toEqual(result);
     // All picks invented: invalid, even though a parked item is real.
-    expect(
-      isValidBrainDump(
-        { picks: [{ text: "Stretch" }], parked: [{ text: "Call mum" }] },
-        payload,
-      ),
-    ).toBe(false);
+    expect(isValidBrainDump({ picks: [{ text: "Stretch" }], parked: [{ text: "Call mum" }] }, payload)).toBe(false);
   });
 
   it("fromDump: unspaced scripts (Japanese, Korean, Thai, Chinese) always pass", () => {
@@ -881,28 +730,13 @@ describe("brain-dump contract", () => {
   it("drops echo items (over MAX_ECHO_TEXT) instead of shortening them into tasks", () => {
     const echo = "call mum and ".repeat(20);
     expect(echo.length).toBeGreaterThan(MAX_ECHO_TEXT);
-    const dump = {
-      picks: [{ text: "Call mum" }, { text: echo }],
-      parked: [{ text: echo }, { text: "Buy shoes" }],
-    };
+    const dump = { picks: [{ text: "Call mum" }, { text: echo }], parked: [{ text: echo }, { text: "Buy shoes" }] };
     expect(isValidBrainDump(dump)).toBe(true);
-    expect(sanitizeBrainDump(dump)).toEqual({
-      picks: [{ text: "Call mum" }],
-      parked: [{ text: "Buy shoes" }],
-    });
+    expect(sanitizeBrainDump(dump)).toEqual({ picks: [{ text: "Call mum" }], parked: [{ text: "Buy shoes" }] });
 
-    const steps = {
-      steps: [
-        { text: "Open the doc" },
-        { text: echo },
-        { text: "Write one line" },
-      ],
-    };
+    const steps = { steps: [{ text: "Open the doc" }, { text: echo }, { text: "Write one line" }] };
     expect(isValidBreakDown(steps)).toBe(true);
-    expect(sanitizeBreakDown(steps).steps).toEqual([
-      { text: "Open the doc" },
-      { text: "Write one line" },
-    ]);
+    expect(sanitizeBreakDown(steps).steps).toEqual([{ text: "Open the doc" }, { text: "Write one line" }]);
   });
 
   it("schema caps picks at 3 and parked at MAX_PARKED", () => {
@@ -924,65 +758,44 @@ describe("brain-dump contract", () => {
 describe("break-down contract", () => {
   it("validates the task payload", () => {
     expect(validateBreakDownPayload(BREAK_PAYLOAD)).toBeNull();
-    expect(
-      validateBreakDownPayload({ task: "x".repeat(MAX_TASK_CHARS) }),
-    ).toBeNull();
-    expect(
-      validateBreakDownPayload({ task: "x".repeat(MAX_TASK_CHARS + 1) }),
-    ).toBe("Missing or too long task");
-    expect(validateBreakDownPayload({ task: "  " })).toBe(
+    expect(validateBreakDownPayload({ task: "x".repeat(MAX_TASK_CHARS) })).toBeNull();
+    expect(validateBreakDownPayload({ task: "x".repeat(MAX_TASK_CHARS + 1) })).toBe(
       "Missing or too long task",
     );
-    expect(validateBreakDownPayload({ task: "a", goalTitle: {} })).toBe(
-      "Invalid goalTitle",
-    );
+    expect(validateBreakDownPayload({ task: "  " })).toBe("Missing or too long task");
+    expect(validateBreakDownPayload({ task: "a", goalTitle: {} })).toBe("Invalid goalTitle");
     expect(validateBreakDownPayload(undefined)).toBe("Invalid JSON payload");
   });
 
   it("builds a prompt with the trimmed task and optional goal context", () => {
-    expect(
-      buildBreakDownPrompt({ task: "  Clean kitchen  ", goalTitle: null }),
-    ).toBe("Task to break down: Clean kitchen");
-    expect(
-      buildBreakDownPrompt({ task: "Clean", goalTitle: "Tidy home" }),
-    ).toBe(
+    expect(buildBreakDownPrompt({ task: "  Clean kitchen  ", goalTitle: null })).toBe(
+      "Task to break down: Clean kitchen",
+    );
+    expect(buildBreakDownPrompt({ task: "Clean", goalTitle: "Tidy home" })).toBe(
       "Their bigger goal (context only): Tidy home\nTask to break down: Clean",
     );
   });
 
   it("accepts two or more usable steps and ignores unusable ones", () => {
     expect(isValidBreakDown(BREAK_RESULT)).toBe(true);
-    expect(isValidBreakDown({ steps: [{ text: "a" }, { text: "b" }] })).toBe(
-      true,
-    );
+    expect(isValidBreakDown({ steps: [{ text: "a" }, { text: "b" }] })).toBe(true);
     expect(isValidBreakDown({ steps: [{ text: "a" }] })).toBe(false);
-    expect(
-      isValidBreakDown({
-        steps: [{ text: "a" }, { text: " " }, { text: 3 }, null],
-      }),
-    ).toBe(false);
+    expect(isValidBreakDown({ steps: [{ text: "a" }, { text: " " }, { text: 3 }, null] })).toBe(false);
     // Long steps count (the sanitizer shortens them); echoes don't.
     expect(
-      isValidBreakDown({
-        steps: [{ text: "a" }, { text: "x".repeat(MAX_STEP_TEXT + 1) }],
-      }),
+      isValidBreakDown({ steps: [{ text: "a" }, { text: "x".repeat(MAX_STEP_TEXT + 1) }] }),
     ).toBe(true);
     expect(
-      isValidBreakDown({
-        steps: [{ text: "a" }, { text: "x".repeat(MAX_ECHO_TEXT + 1) }],
-      }),
+      isValidBreakDown({ steps: [{ text: "a" }, { text: "x".repeat(MAX_ECHO_TEXT + 1) }] }),
     ).toBe(false);
     expect(isValidBreakDown({ steps: "a, b" })).toBe(false);
     expect(isValidBreakDown(null)).toBe(false);
   });
 
   it("shortens a 70-character step to at most MAX_STEP_TEXT, ending with an ellipsis", () => {
-    const long =
-      "Open the laptop and write down every single thing that is due this week";
+    const long = "Open the laptop and write down every single thing that is due this week";
     expect(long.length).toBeGreaterThan(MAX_STEP_TEXT);
-    const result = {
-      steps: [{ text: long }, { text: "Pick one" }, { text: "Start it" }],
-    };
+    const result = { steps: [{ text: long }, { text: "Pick one" }, { text: "Start it" }] };
     expect(isValidBreakDown(result)).toBe(true);
     const [first, ...rest] = sanitizeBreakDown(result).steps;
     expect(Array.from(first.text).length).toBeLessThanOrEqual(MAX_STEP_TEXT);
