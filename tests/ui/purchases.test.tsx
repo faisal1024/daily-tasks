@@ -63,6 +63,31 @@ describe("purchases", () => {
     expect((await configuredWithAnnual(1))[0].trialDays).toBeNull();
   });
 
+  it.each([
+    ["unknown (0)", { plus_annual: { status: 0 } }],
+    ["missing", {}],
+  ])("promises no trial when eligibility is %s", async (_why, result) => {
+    process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+    configurePurchases();
+    mockSdk.getOfferings.mockResolvedValue({ current: { availablePackages: [ANNUAL] } });
+    mockSdk.checkTrialOrIntroductoryPriceEligibility.mockResolvedValue(result);
+    expect((await loadPackages())[0].trialDays).toBeNull();
+  });
+
+  it("promises no trial when the eligibility check fails", async () => {
+    process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+    configurePurchases();
+    mockSdk.getOfferings.mockResolvedValue({ current: { availablePackages: [ANNUAL] } });
+    mockSdk.checkTrialOrIntroductoryPriceEligibility.mockRejectedValue(new Error("offline"));
+    expect((await loadPackages())[0].trialDays).toBeNull();
+  });
+
+  it("treats a completed purchase without the entitlement as failed (not pending)", async () => {
+    await configuredWithAnnual();
+    mockSdk.purchasePackage.mockResolvedValue({ customerInfo: { entitlements: { active: {} } } });
+    expect(await purchase("$rc_annual")).toEqual({ outcome: "failed", active: false });
+  });
+
   it("maps an active entitlement to purchased", async () => {
     await configuredWithAnnual();
     mockSdk.purchasePackage.mockResolvedValue({ customerInfo: ACTIVE });

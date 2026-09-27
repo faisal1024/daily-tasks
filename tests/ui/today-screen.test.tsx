@@ -50,8 +50,12 @@ jest.mock("@/lib/daily-tasks/ai-helpers", () => {
   return { ...actual, requestBreakDown: jest.fn(), sortBrainDump: jest.fn() };
 });
 const mockOpenPaywall = jest.fn();
+let mockPaywall: { paywallSource: string | null; entitlementActive: boolean } = {
+  paywallSource: null,
+  entitlementActive: false,
+};
 jest.mock("@/lib/daily-tasks/plus-context", () => ({
-  usePlus: () => ({ paywallEnabled: true, openPaywall: mockOpenPaywall }),
+  usePlus: () => ({ paywallEnabled: true, openPaywall: mockOpenPaywall, ...mockPaywall }),
 }));
 jest.mock("@/components/daily-tasks/onboarding-modal", () => ({ OnboardingModal: () => null }));
 jest.mock("@/components/daily-tasks/rollover-modal", () => ({ RolloverModal: () => null }));
@@ -126,6 +130,7 @@ afterEach(() => {
   jest.useRealTimers();
   jest.clearAllMocks();
   mockProxyUrl = null;
+  mockPaywall = { paywallSource: null, entitlementActive: false };
 });
 
 describe("Today screen layout", () => {
@@ -973,27 +978,37 @@ describe("perfect-day moment: once per day and one rating at a time", () => {
 // --- Phase 4: Plus gates for free users --------------------------------------
 
 describe("Plus gates (free plan)", () => {
-  it("Break it down opens the paywall instead of calling the AI", async () => {
+  it("Break it down opens the paywall right away instead of calling the AI, then runs once Plus is bought", async () => {
     jest.useFakeTimers();
     mockProxyUrl = "https://proxy.test/api/momentum/plan";
-    mockStore = { ...makeStore({ tasks: tasks("Clean kitchen") }), hasPlus: false };
-    await render(<HomeScreen />);
+    (requestBreakDown as jest.Mock).mockResolvedValue(["Clear counter"]);
+    const free = { ...makeStore({ tasks: tasks("Clean kitchen") }), hasPlus: false };
+    mockStore = free;
+    const { rerender } = await render(<HomeScreen />);
+    expect(screen.getByTestId("break-down-plus")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
+    // No sheet is closing first, so no delay.
+    expect(mockOpenPaywall).toHaveBeenCalledWith("break_down");
     expect(requestBreakDown).not.toHaveBeenCalled();
-    expect(mockStore.setTaskSteps).not.toHaveBeenCalled();
-    // After any open sheet has animated away (iOS shows one modal at a time).
-    expect(mockOpenPaywall).not.toHaveBeenCalled();
+
+    // The paywall shows, the user buys, it closes.
+    mockPaywall = { paywallSource: "break_down", entitlementActive: false };
+    await rerender(<HomeScreen />);
+    mockPaywall = { paywallSource: null, entitlementActive: true };
+    mockStore = { ...free, hasPlus: true };
+    await rerender(<HomeScreen />);
+    expect(requestBreakDown).not.toHaveBeenCalled();
     await act(async () => {
       jest.advanceTimersByTime(650);
     });
-    expect(mockOpenPaywall).toHaveBeenCalledWith("break_down");
+    expect(requestBreakDown).toHaveBeenCalledWith(expect.objectContaining({ task: "Clean kitchen" }));
   });
 
   it("brain dump uses the on-device split (no AI call) and offers Plus, which opens the paywall", async () => {
     jest.useFakeTimers();
     mockProxyUrl = "https://proxy.test/api/momentum/plan";
     mockStore = { ...makeStore(), hasPlus: false };
-    await render(<HomeScreen />);
+    const { rerender } = await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("brain-dump-entry"));
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a\nb\nc\nd");
     expect(screen.getByTestId("brain-dump-upgrade")).toBeOnTheScreen();
@@ -1009,10 +1024,22 @@ describe("Plus gates (free plan)", () => {
     await fireEvent.press(screen.getByTestId("brain-dump-entry"));
     await fireEvent.press(screen.getByRole("button", { name: "Get AI sorting with Plus" }));
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    // Waits for the sheet to animate away before the paywall.
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
     await act(async () => {
       jest.advanceTimersByTime(650);
     });
     expect(mockOpenPaywall).toHaveBeenCalledWith("brain_dump");
+
+    // Closing the paywall (bought or not) brings the brain dump back.
+    mockPaywall = { paywallSource: "brain_dump", entitlementActive: false };
+    await rerender(<HomeScreen />);
+    mockPaywall = { paywallSource: null, entitlementActive: false };
+    await rerender(<HomeScreen />);
+    await act(async () => {
+      jest.advanceTimersByTime(650);
+    });
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
   });
 
   it("Plus users' brain dump still goes through the AI sorter with no upgrade offer", async () => {

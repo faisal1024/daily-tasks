@@ -68,9 +68,28 @@ describe("analytics", () => {
       source: "break_down",
       $process_person_profile: false,
       $ip: null,
+      $geoip_disable: true,
     });
     expect(event.properties.distinct_id).toMatch(/^anon_[0-9a-f]{32}$/);
     expect(event.properties).not.toHaveProperty("text");
+  });
+
+  it("starts off: nothing is queued or sent until the saved choice turns it on", async () => {
+    let fresh!: typeof import("@/lib/daily-tasks/analytics");
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- a fresh module instance
+      fresh = require("@/lib/daily-tasks/analytics");
+    });
+    fresh.__setAnalyticsFetchForTests(fetchMock as unknown as typeof fetch);
+    fresh.track("app_opened");
+    fresh.setAnalyticsEnabled(true);
+    await fresh.flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    fresh.track("task_completed", { count: 1 });
+    await fresh.flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const { body } = sentBody();
+    expect(body.batch.map((e: { event: string }) => e.event)).toEqual(["task_completed"]);
   });
 
   it("drops the queue on opt-out and sends nothing while off", async () => {

@@ -51,7 +51,7 @@ describe("PaywallSheet", () => {
     expect(screen.getByText("Break any task into tiny steps")).toBeOnTheScreen();
     expect(screen.getByTestId("paywall-plan-annual")).toBeChecked();
     expect(screen.getByTestId("paywall-plan-monthly")).not.toBeChecked();
-    expect(screen.getByTestId("paywall-buy")).toHaveTextContent("Start free trial");
+    expect(screen.getByTestId("paywall-buy")).toHaveTextContent("Start 7-day free trial");
     expect(screen.getByTestId("paywall-terms")).toHaveTextContent(/Renews automatically at \$29\.99\/year/);
 
     await fireEvent.press(screen.getByTestId("paywall-buy"));
@@ -60,7 +60,7 @@ describe("PaywallSheet", () => {
   });
 
   it.each([
-    ["failed", /didn't go through\. You haven't been charged/],
+    ["failed", /didn't go through\. If you were charged, tap Restore purchases/],
     ["pending", /waiting for approval/],
   ] as const)("stays open and explains a %s purchase", async (outcome, message) => {
     const props = setup({ onPurchase: jest.fn(async () => outcome) });
@@ -70,6 +70,32 @@ describe("PaywallSheet", () => {
     expect(props.onPurchase).toHaveBeenCalledWith(MONTHLY);
     expect(props.onClose).not.toHaveBeenCalled();
     expect(screen.getByTestId("paywall-message")).toHaveTextContent(message);
+  });
+
+  it("never leaves the last open's plan buyable when a reopen can't load plans", async () => {
+    const loadPackages = jest
+      .fn()
+      .mockResolvedValueOnce([ANNUAL])
+      .mockRejectedValueOnce(new Error("offline"));
+    const props = setup({ loadPackages });
+    const { rerender } = await render(<PaywallSheet source="settings" {...props} />);
+    await act(async () => {});
+    expect(screen.getByTestId("paywall-buy")).toBeEnabled();
+    await rerender(<PaywallSheet source={null} {...props} />);
+    await rerender(<PaywallSheet source="settings" {...props} />);
+    await act(async () => {});
+    expect(screen.getByTestId("paywall-error")).toBeOnTheScreen();
+    expect(screen.getByTestId("paywall-buy")).toBeDisabled();
+    expect(screen.queryByTestId("paywall-terms")).toBeNull();
+  });
+
+  it("can be closed while a purchase is still in flight", async () => {
+    const props = setup({ onPurchase: jest.fn(() => new Promise<PurchaseOutcome>(() => {})) });
+    await renderSheet(props);
+    await fireEvent.press(screen.getByTestId("paywall-buy"));
+    expect(screen.getByTestId("paywall-buy")).toBeDisabled();
+    await fireEvent.press(screen.getByTestId("paywall-close"));
+    expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 
   it("shows an error with a retry when plans can't load, and recovers", async () => {

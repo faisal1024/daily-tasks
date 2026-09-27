@@ -7,6 +7,7 @@ import {
   freeTrialDays,
   hasPlusAccess,
   planLabel,
+  purchaseButtonLabel,
   purchaseTerms,
   type PlusPackage,
 } from "../lib/daily-tasks/plus";
@@ -69,15 +70,18 @@ describe("paywall plans and terms", () => {
     expect(planLabel(pkg({ trialDays: 7 }))).toEqual({
       title: "Yearly",
       price: "$29.99/year",
-      detail: "Just $2.49/month",
+      detail: "About $2.49/month, billed yearly",
       badge: "7-day free trial",
     });
+    expect(purchaseButtonLabel(pkg({ trialDays: 7 }))).toBe("Start 7-day free trial");
+    expect(purchaseButtonLabel(pkg())).toBe("Subscribe");
   });
 
   it("states the renewal price and period by the button (with and without a trial), and no renewal for lifetime", () => {
     const trial = purchaseTerms(pkg({ trialDays: 7 }));
     expect(trial).toMatch(/^Free for 7 days, then \$29\.99\/year\./);
     expect(trial).toContain("Renews automatically at $29.99/year until you cancel.");
+    expect(trial).toContain("Settings › your name › Subscriptions");
     expect(purchaseTerms(pkg({ kind: "monthly", priceString: "$4.99" }))).toContain(
       "Renews automatically at $4.99/month",
     );
