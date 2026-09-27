@@ -35,6 +35,7 @@ import {
   MIN_STEPS,
   buildBrainDumpPrompt,
   buildBreakDownPrompt,
+  fromDump,
   isValidBrainDump,
   isValidBreakDown,
   sanitizeBrainDump,
@@ -320,7 +321,7 @@ describe("helper routes over HTTP", () => {
         ? {
             picks: [
               { text: "  Finish report  ", reason: "due", secret: "leak" },
-              { text: "x".repeat(MAX_TASK_TEXT + 1) },
+              { text: `Report ${"x".repeat(MAX_TASK_TEXT)}` },
               { text: 5 },
             ],
             parked: [{ text: "Buy shoes", reason: "drop me" }, "bare string"],
@@ -341,7 +342,7 @@ describe("helper routes over HTTP", () => {
       // Over-long items are shortened (never dropped); non-text items are.
       picks: [
         { text: "Finish report", reason: "due" },
-        { text: `${"x".repeat(MAX_TASK_TEXT - 1)}…` },
+        { text: `${`Report ${"x".repeat(MAX_TASK_TEXT)}`.slice(0, MAX_TASK_TEXT - 1)}…` },
       ],
       parked: [{ text: "Buy shoes" }],
     });
@@ -353,6 +354,37 @@ describe("helper routes over HTTP", () => {
         { text: `${"s".repeat(MAX_STEP_TEXT - 2)}🎉…` },
       ],
     });
+  });
+
+  it("drops brain-dump items that share no words with the dump, keeping real ones", async () => {
+    const provider = fakeProvider(async () => ({
+      picks: [
+        { text: "Finish the report", reason: "due" },
+        { text: "Check in with yourself", reason: "invented" },
+        { text: "Call Mum" },
+      ],
+      parked: [{ text: "Meditate for ten minutes" }, { text: "Buy running shoes" }],
+    }));
+    const { post } = await start({ provider });
+    const res = await post(BRAIN_DUMP_ROUTE);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      picks: [{ text: "Finish the report", reason: "due" }, { text: "Call Mum" }],
+      parked: [{ text: "Buy running shoes" }],
+    });
+  });
+
+  it("returns 502 when every brain-dump pick is invented, so the app falls back", async () => {
+    const provider = fakeProvider(async () => ({
+      picks: [{ text: "Check in with yourself" }, { text: "Drink water" }],
+      // A real parked item doesn't rescue a response with no real picks.
+      parked: [{ text: "Buy shoes" }],
+    }));
+    const { post, logger } = await start({ provider });
+    const res = await post(BRAIN_DUMP_ROUTE);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "AI response did not include a valid brain-dump" });
+    expect(logger.error).toHaveBeenCalled();
   });
 
   it("returns a generic 502 when the provider throws on a helper route", async () => {
@@ -473,6 +505,43 @@ describe("brain-dump contract", () => {
     expect(isValidBrainDump({ picks: ["Walk"], parked: [] })).toBe(false);
     expect(isValidBrainDump(null)).toBe(false);
     expect(isValidBrainDump("{}")).toBe(false);
+  });
+
+  it("fromDump: an item must share a meaningful word or 4-letter stem with the dump", () => {
+    // Exact word, case-insensitive.
+    expect(fromDump("Call MUM", "call mum tonight")).toBe(true);
+    expect(fromDump("REPORT draft", "finish the Report")).toBe(true);
+    // Four-letter stem: groceries / groc, emails / email.
+    expect(fromDump("Buy groceries", "groc run after work")).toBe(true);
+    expect(fromDump("Answer emails", "email Sam back")).toBe(true);
+    // Stopwords and short words alone don't count as a match.
+    expect(fromDump("Take the dog", "take the bins")).toBe(false);
+    expect(fromDump("Do it", "do it now")).toBe(false);
+    expect(fromDump("Check in with yourself", "call mum\nfinish report")).toBe(false);
+    // Non-Latin text is matched by letters, not ASCII only.
+    expect(fromDump("Позвонить маме", "позвонить маме вечером")).toBe(true);
+    expect(fromDump("Купить молоко", "позвонить маме")).toBe(false);
+    expect(fromDump("Ιατρός ραντεβού", "κλείσε ραντεβού")).toBe(true);
+    // Nothing meaningful to compare against: keep the item.
+    expect(fromDump("Anything at all", "")).toBe(true);
+    expect(fromDump("Anything at all", "the a to")).toBe(true);
+  });
+
+  it("filters invented picks and parked items the same way when given the payload", () => {
+    const payload = { text: "finish report\nbuy groceries\ncall mum", openSlots: 3, goalTitle: null };
+    const result = {
+      picks: [{ text: "Finish the report" }, { text: "Journal for 5 minutes" }],
+      parked: [{ text: "Groceries" }, { text: "Stretch" }, { text: "Call Mum" }],
+    };
+    expect(isValidBrainDump(result, payload)).toBe(true);
+    expect(sanitizeBrainDump(result, payload)).toEqual({
+      picks: [{ text: "Finish the report" }],
+      parked: [{ text: "Groceries" }, { text: "Call Mum" }],
+    });
+    // Without a payload nothing is filtered (backwards compatible).
+    expect(sanitizeBrainDump(result).parked).toHaveLength(3);
+    // All picks invented: invalid, even though a parked item is real.
+    expect(isValidBrainDump({ picks: [{ text: "Stretch" }], parked: [{ text: "Call mum" }] }, payload)).toBe(false);
   });
 
   it("drops echo items (over MAX_ECHO_TEXT) instead of shortening them into tasks", () => {
