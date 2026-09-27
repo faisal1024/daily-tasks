@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Linking,
   Modal,
@@ -13,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BodyFont, Fonts } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { PRIVACY_URL, TERMS_URL } from "@/lib/daily-tasks/links";
 import {
@@ -34,13 +36,25 @@ type LoadState = "loading" | "ready" | "error";
 interface PaywallSheetProps {
   source: PaywallSource | null;
   onClose: () => void;
+  /** Called once iOS has actually presented the sheet. */
+  onShown?: () => void;
   loadPackages: () => Promise<PlusPackage[]>;
   onPurchase: (pkg: PlusPackage) => Promise<PurchaseOutcome>;
   onRestore: () => Promise<boolean | null>;
 }
 
-export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRestore }: PaywallSheetProps) {
+export function PaywallSheet({
+  source,
+  onClose,
+  onShown,
+  loadPackages,
+  onPurchase,
+  onRestore,
+}: PaywallSheetProps) {
   const colors = useColors();
+  // White on the light-mode indigo passes contrast; on the lighter dark-mode
+  // indigo it doesn't, so use the dark background colour for text there.
+  const onPrimary = useColorScheme() === "dark" ? colors.background : "#fff";
   const insets = useSafeAreaInsets();
   const visible = source !== null;
   const [load, setLoad] = useState<LoadState>("loading");
@@ -55,6 +69,9 @@ export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRest
     const mine = ++session.current;
     setLoad("loading");
     setMessage(null);
+    // Never leave a previous open's plan selectable while reloading or failed.
+    setPackages([]);
+    setSelectedId(null);
     try {
       const loaded = sortPackages(await loadPackages());
       if (mine !== session.current) return;
@@ -83,6 +100,16 @@ export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRest
 
   const selected = packages.find((pkg) => pkg.id === selectedId) ?? null;
 
+  // accessibilityLiveRegion is Android-only: tell VoiceOver about status changes.
+  useEffect(() => {
+    if (message) AccessibilityInfo.announceForAccessibility(message);
+  }, [message]);
+  useEffect(() => {
+    if (load === "error") {
+      AccessibilityInfo.announceForAccessibility("Plans couldn't load. Try again.");
+    }
+  }, [load]);
+
   const buy = async () => {
     if (!selected || busy) return;
     setBusy("purchase");
@@ -93,7 +120,7 @@ export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRest
     else if (outcome === "pending") {
       setMessage("Your purchase is waiting for approval. Plus unlocks as soon as it goes through.");
     } else if (outcome === "failed") {
-      setMessage("The purchase didn't go through. You haven't been charged. Please try again.");
+      setMessage("The purchase didn't go through. If you were charged, tap Restore purchases.");
     }
   };
 
@@ -115,7 +142,10 @@ export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRest
   return (
     <Modal
       visible={visible}
-      onRequestClose={busy ? undefined : onClose}
+      // Always closable, even mid-purchase: a late result still arrives
+      // through RevenueCat's listener, so nobody can get stuck here.
+      onRequestClose={onClose}
+      onShow={onShown}
       animationType="slide"
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
     >
@@ -126,7 +156,6 @@ export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRest
         >
           <Pressable
             onPress={onClose}
-            disabled={busy !== null}
             accessibilityRole="button"
             accessibilityLabel="Close. Not now"
             hitSlop={12}
@@ -178,7 +207,7 @@ export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRest
 
           {load === "loading" && (
             <View className="items-center py-6" accessibilityLiveRegion="polite">
-              <ActivityIndicator color={colors.primary} />
+              <ActivityIndicator color={colors.primary} accessibilityLabel="Loading plans" />
             </View>
           )}
 
@@ -211,7 +240,7 @@ export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRest
                     onPress={() => setSelectedId(pkg.id)}
                     disabled={busy !== null}
                     accessibilityRole="radio"
-                    accessibilityState={{ checked: on }}
+                    accessibilityState={{ checked: on, selected: on }}
                     accessibilityLabel={[label.title, label.price, label.detail, label.badge]
                       .filter(Boolean)
                       .join(", ")}
@@ -240,7 +269,7 @@ export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRest
                     <View className="items-end gap-1">
                       {label.badge && (
                         <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: colors.primary }}>
-                          <Text className="text-xs font-semibold" style={{ color: "#fff" }}>
+                          <Text className="text-xs font-semibold" style={{ color: onPrimary }}>
                             {label.badge}
                           </Text>
                         </View>
@@ -268,15 +297,16 @@ export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRest
             onPress={() => void buy()}
             disabled={!selected || busy !== null}
             accessibilityRole="button"
+            accessibilityLabel={purchaseButtonLabel(selected)}
             accessibilityState={{ disabled: !selected || busy !== null, busy: busy === "purchase" }}
             className="rounded-2xl py-4 items-center"
             style={{ backgroundColor: colors.primary, opacity: selected && !busy ? 1 : 0.5 }}
             testID="paywall-buy"
           >
             {busy === "purchase" ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={onPrimary} />
             ) : (
-              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
+              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: onPrimary }}>
                 {purchaseButtonLabel(selected)}
               </Text>
             )}
@@ -293,6 +323,8 @@ export function PaywallSheet({ source, onClose, loadPackages, onPurchase, onRest
               onPress={() => void restore()}
               disabled={busy !== null}
               accessibilityRole="button"
+              accessibilityLabel="Restore purchases"
+              accessibilityState={{ busy: busy === "restore", disabled: busy !== null }}
               hitSlop={8}
               testID="paywall-restore"
             >
@@ -328,6 +360,7 @@ export function PaywallHost() {
     <PaywallSheet
       source={plus.paywallSource}
       onClose={plus.closePaywall}
+      onShown={plus.markPaywallShown}
       loadPackages={plus.loadPackages}
       onPurchase={plus.purchase}
       onRestore={plus.restore}

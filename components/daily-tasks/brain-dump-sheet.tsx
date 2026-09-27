@@ -193,13 +193,13 @@ export function BrainDumpSheet({
                 >
                   <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
                   <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
-                    Free plan: a simple split. Plus uses AI to pick what matters most.
+                    This uses a simple split. Want AI to pick what matters most?
                   </Text>
                   <Pressable
                     onPress={onUpgrade}
                     accessibilityRole="button"
                     accessibilityLabel="Get AI sorting with Plus"
-                    hitSlop={8}
+                    hitSlop={12}
                   >
                     <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
                       Get Plus

@@ -28,11 +28,13 @@ export interface PlusContextValue {
   paywallEnabled: boolean;
   /** RevenueCat says the Plus entitlement is active. */
   entitlementActive: boolean;
-  /** The entitlement has been checked at least once this launch. */
+  /** RevenueCat has answered at least once this launch. */
   entitlementKnown: boolean;
   paywallSource: PaywallSource | null;
   openPaywall: (source: PaywallSource) => void;
   closePaywall: () => void;
+  /** The paywall sheet reports that iOS actually presented it. */
+  markPaywallShown: () => void;
   loadPackages: () => Promise<PlusPackage[]>;
   purchase: (pkg: PlusPackage) => Promise<PurchaseOutcome>;
   restore: () => Promise<boolean | null>;
@@ -46,6 +48,7 @@ const noPaywall: PlusContextValue = {
   paywallSource: null,
   openPaywall: () => {},
   closePaywall: () => {},
+  markPaywallShown: () => {},
   loadPackages: async () => [],
   purchase: async () => "failed",
   restore: async () => null,
@@ -67,13 +70,17 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     const refresh = () =>
       fetchPlusActive().then((active) => {
         if (cancelled) return;
-        // null = couldn't check; keep what we had (RevenueCat caches offline).
-        if (active !== null) setEntitlementActive(active);
+        // null = couldn't check: stay "unknown" (so a subscriber is never shown
+        // the paywall by mistake) and try again on the next foreground.
+        if (active === null) return;
+        setEntitlementActive(active);
         setEntitlementKnown(true);
       });
     void refresh();
     const unsubscribe = onPlusChange((active) => {
-      if (!cancelled) setEntitlementActive(active);
+      if (cancelled) return;
+      setEntitlementActive(active);
+      setEntitlementKnown(true);
     });
     // Expiry or a refund made elsewhere shows up the next time the app opens.
     const sub = RNAppState.addEventListener("change", (status) => {
@@ -94,20 +101,46 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, []);
 
+  // If iOS refuses to present the sheet (another modal is still up), onShow
+  // never fires: forget the request so later gates can open it again.
+  const shownRef = useRef(false);
+  const watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearWatchdog = () => {
+    if (watchdog.current) clearTimeout(watchdog.current);
+    watchdog.current = null;
+  };
+  useEffect(() => clearWatchdog, []);
+
   const openPaywall = useCallback(
     (source: PaywallSource) => {
       if (!paywallEnabled || sourceRef.current) return;
       sourceRef.current = source;
+      shownRef.current = false;
       setPaywallSource(source);
-      track("paywall_viewed", { source });
+      clearWatchdog();
+      watchdog.current = setTimeout(() => {
+        watchdog.current = null;
+        if (shownRef.current || sourceRef.current !== source) return;
+        sourceRef.current = null;
+        setPaywallSource(null);
+      }, 2500);
     },
     [paywallEnabled],
   );
 
+  const markPaywallShown = useCallback(() => {
+    if (!sourceRef.current || shownRef.current) return;
+    shownRef.current = true;
+    clearWatchdog();
+    track("paywall_viewed", { source: sourceRef.current });
+  }, []);
+
   const closePaywall = useCallback(() => {
     if (!sourceRef.current) return;
-    track("paywall_closed", { source: sourceRef.current });
+    if (shownRef.current) track("paywall_closed", { source: sourceRef.current });
+    clearWatchdog();
     sourceRef.current = null;
+    shownRef.current = false;
     setPaywallSource(null);
   }, []);
 
@@ -141,11 +174,12 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       paywallSource,
       openPaywall,
       closePaywall,
+      markPaywallShown,
       loadPackages,
       purchase,
       restore,
     }),
-    [paywallBuild, paywallEnabled, entitlementActive, entitlementKnown, paywallSource, openPaywall, closePaywall, purchase, restore],
+    [paywallBuild, paywallEnabled, entitlementActive, entitlementKnown, paywallSource, openPaywall, closePaywall, markPaywallShown, purchase, restore],
   );
 
   return <PlusContext.Provider value={value}>{children}</PlusContext.Provider>;

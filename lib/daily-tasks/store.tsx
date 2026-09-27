@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { AppState as RNAppState, type AppStateStatus } from "react-native";
+import { Platform, AppState as RNAppState, type AppStateStatus } from "react-native";
 
 import { todayKey } from "./date";
 import {
@@ -65,8 +65,14 @@ import {
   nextIncompleteMilestone,
   type MilestoneView,
 } from "./milestones";
-import { setAnalyticsEnabled as applyAnalyticsEnabled, track } from "./analytics";
-import { hasPlusAccess } from "./plus";
+import {
+  resetAnalyticsIdentity,
+  setAnalyticsEnabled as applyAnalyticsEnabled,
+  track,
+} from "./analytics";
+import { getCurrentVersion } from "./app-update";
+import { GRANDFATHER_BEFORE_VERSION, hasPlusAccess } from "./plus";
+import { compareVersions } from "./version";
 import { usePlus } from "./plus-context";
 import { buildInitialState, clearState, loadState, makeId, saveState } from "./storage";
 import type {
@@ -578,10 +584,12 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, journey: { ...state.journey, selectedCosmeticId: action.id } };
     }
     case "reset":
-      // Resetting data must not take away an early supporter's free Plus.
+      // Resetting data must not take away an early supporter's free Plus, or
+      // quietly turn analytics back on after the user switched it off.
       return {
         ...action.state,
         plusGrandfathered: action.state.plusGrandfathered || state.plusGrandfathered,
+        analyticsEnabled: state.analyticsEnabled && action.state.analyticsEnabled,
       };
   }
 }
@@ -650,11 +658,16 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     useState<NotificationPermissionState>("undetermined");
   const lastReminderSync = useRef<string | null>(null);
   const plus = usePlus();
-  const hasPlus = hasPlusAccess({
+  // Confirmed access: what the automatic AI fetch waits for.
+  const plusConfirmed = hasPlusAccess({
     paywallEnabled: plus.paywallEnabled,
     grandfathered: state.plusGrandfathered,
     entitlementActive: plus.entitlementActive,
   });
+  // Until RevenueCat answers, don't gate: a subscriber must never be shown the
+  // paywall (or a downgraded feature) just because the check is still running.
+  const plusPending = plus.paywallEnabled && !plus.entitlementKnown && !state.plusGrandfathered;
+  const hasPlus = plusConfirmed || plusPending;
 
   useEffect(() => {
     let cancelled = false;
@@ -684,8 +697,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // Anyone using a build without a paywall is an early user: once a paywall
   // build arrives they keep Plus. (Keyed on the build having a RevenueCat key,
   // not on the SDK starting, so a broken SDK never grants Plus for good.)
+  // Only iOS releases before the paywall version count (Android has no
+  // paywall yet, and a later build missing the key must not give Plus away).
   useEffect(() => {
     if (!ready || plus.paywallBuild || state.plusGrandfathered) return;
+    if (Platform.OS !== "ios") return;
+    if (compareVersions(getCurrentVersion(), GRANDFATHER_BEFORE_VERSION) >= 0) return;
     dispatch({ type: "grandfatherPlus" });
   }, [ready, plus.paywallBuild, state.plusGrandfathered]);
 
@@ -697,10 +714,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // One "app_opened" per day this app is used (drives D1/D7/D30 retention).
   const openedTracked = useRef<string | null>(null);
   useEffect(() => {
-    if (!ready || openedTracked.current === today) return;
+    if (!ready || plusPending || openedTracked.current === today) return;
     openedTracked.current = today;
-    track("app_opened", { plus: hasPlus });
-  }, [ready, today, hasPlus]);
+    track("app_opened", { plus: plusConfirmed });
+  }, [ready, today, plusPending, plusConfirmed]);
 
   const refreshNotificationPermission = useCallback(async () => {
     const status = await getNotificationPermissionStatus();
@@ -898,7 +915,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     const key = nextAiPlanFetchKey({
       ready,
       // Wait for Plus (the entitlement may still be loading at launch).
-      proxyUrl: hasPlus ? getMomentumAiProxyUrl() : null,
+      proxyUrl: plusConfirmed ? getMomentumAiProxyUrl() : null,
       profileComplete: isMomentumProfileComplete(state.momentumProfile),
       status: state.momentumPlanStatus,
       today,
@@ -911,7 +928,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     void requestMomentumPlan();
   }, [
     ready,
-    hasPlus,
+    plusConfirmed,
     today,
     state.momentumProfile,
     state.momentumPlan,
@@ -958,7 +975,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "setTodayReflectionResult", result, today: todayKey(), now: new Date() });
   }, []);
   const resetAll = useCallback(async () => {
-    await clearState();
+    await Promise.all([clearState(), resetAnalyticsIdentity()]);
     dispatch({ type: "reset", state: buildInitialState() });
   }, []);
   const acknowledgeLevelUp = useCallback(() => {

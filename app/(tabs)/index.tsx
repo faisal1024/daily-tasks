@@ -57,6 +57,11 @@ import {
 } from "@/lib/daily-tasks/today-view";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
 
+type Unlock =
+  | { kind: "break_down"; taskId: string; text: string }
+  | { kind: "brain_dump" }
+  | { kind: "new_ideas" };
+
 function haptic(fn: () => Promise<void>) {
   if (Platform.OS === "web") return;
   fn().catch(() => {});
@@ -92,22 +97,34 @@ export default function HomeScreen() {
     clearTaskSteps,
     hasPlus,
   } = useDailyTasks();
-  const { paywallEnabled, openPaywall } = usePlus();
+  const { paywallEnabled, paywallSource, entitlementActive, openPaywall } = usePlus();
 
-  // iOS shows one modal at a time: close whatever sheet is open first, then
-  // bring up the paywall once it has animated away.
+  // What to pick back up once the paywall closes (bought or not).
+  const pendingUnlock = useRef<Unlock | null>(null);
+  // iOS shows one modal at a time: when a sheet is closing first, wait for it
+  // to animate away before bringing up the paywall.
   const paywallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showPaywall = (source: PaywallSource, feature?: PlusFeature) => {
-    if (feature) track("plus_gate_hit", { feature });
+  const showPaywall = (
+    source: PaywallSource,
+    options: { feature?: PlusFeature; afterSheet?: boolean; resume?: Unlock } = {},
+  ) => {
+    if (options.feature) track("plus_gate_hit", { feature: options.feature });
+    pendingUnlock.current = options.resume ?? null;
     if (paywallTimer.current) clearTimeout(paywallTimer.current);
+    if (!options.afterSheet) {
+      openPaywall(source);
+      return;
+    }
     paywallTimer.current = setTimeout(() => {
       paywallTimer.current = null;
       openPaywall(source);
     }, 650);
   };
+  const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
       if (paywallTimer.current) clearTimeout(paywallTimer.current);
+      if (resumeTimer.current) clearTimeout(resumeTimer.current);
     },
     [],
   );
@@ -263,12 +280,20 @@ export default function HomeScreen() {
     }
   }, [state.todayLocked, state.pendingRollover, state.hasSeenOnboarding]);
 
-  const handleBreakDown = async (taskId: string, text: string) => {
+  const handleBreakDown = (taskId: string, text: string) => {
     if (breakingRef.current) return;
     if (!hasPlus) {
-      showPaywall("break_down", "break_down");
+      showPaywall("break_down", {
+        feature: "break_down",
+        resume: { kind: "break_down", taskId, text },
+      });
       return;
     }
+    void runBreakDown(taskId, text);
+  };
+
+  const runBreakDown = async (taskId: string, text: string) => {
+    if (breakingRef.current) return;
     breakingRef.current = taskId;
     setBreakingTaskId(taskId);
     try {
@@ -284,6 +309,49 @@ export default function HomeScreen() {
       setBreakingTaskId(null);
     }
   };
+
+  // When the paywall closes, pick up where the user was: run the break-down
+  // they asked for (if they now have Plus), or reopen the sheet they were in.
+  const resume = useRef<(unlock: Unlock) => void>(() => {});
+  resume.current = (unlock) => {
+    if (unlock.kind === "break_down") {
+      const task = state.tasks.find((t) => t.id === unlock.taskId);
+      if (hasPlus && task && task.text === unlock.text && !isCompleted(task.id)) {
+        void runBreakDown(task.id, task.text);
+      }
+      return;
+    }
+    if (state.todayLocked || state.pendingRollover) return;
+    if (unlock.kind === "brain_dump") {
+      setBrainDumpOpen(true);
+      return;
+    }
+    setIdeasOpen(true);
+    if (hasPlus) void requestMomentumPlan();
+  };
+  const paywallWasOpen = useRef(false);
+  useEffect(() => {
+    if (paywallSource) {
+      paywallWasOpen.current = true;
+      return;
+    }
+    if (!paywallWasOpen.current) return;
+    paywallWasOpen.current = false;
+    const unlock = pendingUnlock.current;
+    pendingUnlock.current = null;
+    if (!unlock) return;
+    // Let the paywall animate away before presenting another sheet.
+    resumeTimer.current = setTimeout(() => {
+      resumeTimer.current = null;
+      resume.current(unlock);
+    }, 650);
+  }, [paywallSource]);
+
+  const hadPlusEntitlement = useRef(entitlementActive);
+  useEffect(() => {
+    if (entitlementActive && !hadPlusEntitlement.current) showToast("You're on Plus. Thank you!");
+    hadPlusEntitlement.current = entitlementActive;
+  }, [entitlementActive]);
 
   const confirmLock = () => {
     const { title, message } = lockConfirmation(total);
@@ -378,10 +446,11 @@ export default function HomeScreen() {
                       canDelete={!state.todayLocked}
                       onBreakDown={
                         breakDownAvailable
-                          ? () => void handleBreakDown(task.id, task.text)
+                          ? () => handleBreakDown(task.id, task.text)
                           : undefined
                       }
                       breakingDown={breakingTaskId === task.id}
+                      breakDownNeedsPlus={!hasPlus}
                       breakDownDisabled={breakingTaskId !== null && breakingTaskId !== task.id}
                       onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
                       // Steps are a finishing aid, so clearing them is fine on a locked day.
@@ -493,7 +562,11 @@ export default function HomeScreen() {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
           if (!hasPlus) {
             setIdeasOpen(false);
-            showPaywall("new_ideas", "ai_ideas");
+            showPaywall("new_ideas", {
+              feature: "ai_ideas",
+              afterSheet: true,
+              resume: { kind: "new_ideas" },
+            });
             return;
           }
           void requestMomentumPlan();
@@ -529,7 +602,11 @@ export default function HomeScreen() {
             ? undefined
             : () => {
                 setBrainDumpOpen(false);
-                showPaywall("brain_dump", "brain_dump");
+                showPaywall("brain_dump", {
+                  feature: "brain_dump",
+                  afterSheet: true,
+                  resume: { kind: "brain_dump" },
+                });
               }
         }
         onConfirm={(picks, parked) => {
@@ -556,7 +633,7 @@ export default function HomeScreen() {
           completeMomentumOnboarding(profile);
           track("onboarding_completed", { source: profile.goalSource ?? "none" });
           // Offer the trial once, at the end of first-run onboarding (closable).
-          if (paywallEnabled && !hasPlus) showPaywall("onboarding");
+          if (paywallEnabled && !hasPlus) showPaywall("onboarding", { afterSheet: true });
         }}
       />
 

@@ -22,7 +22,8 @@ import { useColors } from "@/hooks/use-colors";
 import { Fonts } from "@/constants/theme";
 import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { aiFailureMessage } from "@/lib/daily-tasks/ai-status";
-import { getPostHogKey } from "@/lib/daily-tasks/analytics";
+import { getPostHogKey, track } from "@/lib/daily-tasks/analytics";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { MANAGE_SUBSCRIPTIONS_URL, PRIVACY_URL, SUPPORT_URL } from "@/lib/daily-tasks/links";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -82,6 +83,8 @@ export default function SettingsScreen() {
   } = useDailyTasks();
   const plus = usePlus();
   const [restoring, setRestoring] = useState(false);
+  // White fails contrast on the dark-mode indigo; use the dark background there.
+  const onPrimary = useColorScheme() === "dark" ? colors.background : "#fff";
 
   const handleRestore = async () => {
     if (restoring) return;
@@ -222,7 +225,7 @@ export default function SettingsScreen() {
                   className="rounded-2xl py-3 items-center"
                   style={{ backgroundColor: colors.primary }}
                 >
-                  <Text className="text-base font-semibold" style={{ color: "#fff" }}>
+                  <Text className="text-base font-semibold" style={{ color: onPrimary }}>
                     See Plus plans
                   </Text>
                 </Pressable>
@@ -232,6 +235,8 @@ export default function SettingsScreen() {
                   onPress={() => void handleRestore()}
                   disabled={restoring}
                   accessibilityRole="button"
+                  accessibilityLabel="Restore purchases"
+                  accessibilityState={{ busy: restoring, disabled: restoring }}
                   hitSlop={8}
                 >
                   <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
@@ -392,9 +397,14 @@ export default function SettingsScreen() {
               </View>
             </View>
             <Pressable
-              onPress={() =>
-                hasPlus ? void requestMomentumPlan() : plus.openPaywall("settings")
-              }
+              onPress={() => {
+                if (hasPlus) {
+                  void requestMomentumPlan();
+                  return;
+                }
+                track("plus_gate_hit", { feature: "ai_ideas" });
+                plus.openPaywall("new_ideas");
+              }}
               disabled={state.momentumPlanStatus === "loading"}
               className="self-start rounded-full px-4 py-2"
               style={{ backgroundColor: `${colors.primary}16` }}
@@ -405,7 +415,9 @@ export default function SettingsScreen() {
               >
                 {state.momentumPlanStatus === "loading"
                   ? "Refreshing..."
-                  : "Refresh with AI"}
+                  : hasPlus
+                    ? "Refresh with AI"
+                    : "Refresh with AI (Plus)"}
               </Text>
             </Pressable>
             {state.momentumPlanStatus === "error" && state.momentumPlanError && (
@@ -603,8 +615,8 @@ export default function SettingsScreen() {
                   Share anonymous usage stats
                 </Text>
                 <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                  Counts like &quot;opened the app&quot; help us improve it. Never your tasks,
-                  goals or name.
+                  Anonymous counts like &quot;finished a task&quot; or &quot;viewed Plus&quot; help us
+                  improve the app. Never your tasks, goals or name.
                 </Text>
               </View>
               <Switch

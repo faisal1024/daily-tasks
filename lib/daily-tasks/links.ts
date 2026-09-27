@@ -1,8 +1,8 @@
-// External links shown in the app. The privacy policy is the published one
-// (the same URL App Store Connect uses), not the repo copy.
+// External links shown in the app.
 
-export const PRIVACY_URL =
-  "https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html";
+// GitHub renders this as a page (the gist's raw URL is served as plain text).
+// Keep it in sync with the published gist copy App Store Connect links to.
+export const PRIVACY_URL = "https://github.com/faisal1024/daily-tasks/blob/main/docs/privacy-policy.md";
 
 // Apple's standard licence agreement, which covers subscriptions.
 export const TERMS_URL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/";

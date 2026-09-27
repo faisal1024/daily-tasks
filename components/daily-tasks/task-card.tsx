@@ -33,6 +33,8 @@ interface TaskCardProps {
   breakingDown?: boolean;
   /** Another card is breaking down; only one runs at a time. */
   breakDownDisabled?: boolean;
+  /** Break it down is a Plus feature for this user: mark it and say so. */
+  breakDownNeedsPlus?: boolean;
   onToggleStep?: (stepId: string) => void;
   onClearSteps?: () => void;
 }
@@ -49,6 +51,7 @@ export function TaskCard({
   onBreakDown,
   breakingDown = false,
   breakDownDisabled = false,
+  breakDownNeedsPlus = false,
   onToggleStep,
   onClearSteps,
 }: TaskCardProps) {
@@ -234,7 +237,11 @@ export function TaskCard({
               disabled={breakingDown || breakDownDisabled}
               accessibilityRole="button"
               accessibilityLabel={`Break down ${task.text}`}
-              accessibilityHint="Splits this task into a few tiny steps"
+              accessibilityHint={
+                breakDownNeedsPlus
+                  ? "Plus feature. Shows Plus plans."
+                  : "Splits this task into a few tiny steps"
+              }
               accessibilityState={{
                 busy: breakingDown,
                 disabled: breakingDown || breakDownDisabled,
@@ -251,6 +258,18 @@ export function TaskCard({
               <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
                 {breakingDown ? "Breaking it down…" : "Break it down"}
               </Text>
+              {breakDownNeedsPlus && !breakingDown && (
+                <View
+                  className="rounded-full px-1.5 flex-row items-center gap-0.5"
+                  style={{ backgroundColor: `${colors.primary}1f` }}
+                  testID="break-down-plus"
+                >
+                  <Ionicons name="sparkles" size={10} color={colors.primary} />
+                  <Text className="text-xs font-semibold" style={{ color: colors.primary }}>
+                    Plus
+                  </Text>
+                </View>
+              )}
             </Pressable>
           )}
         </View>

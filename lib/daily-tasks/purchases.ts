@@ -110,9 +110,10 @@ export async function loadPackages(): Promise<PlusPackage[]> {
   sdkPackages.clear();
   return packages.map((pkg) => {
     sdkPackages.set(pkg.identifier, pkg);
-    // 1 = INTRO_ELIGIBILITY_STATUS_INELIGIBLE. Unknown counts as eligible
-    // (Apple decides at purchase time and shows the real terms).
-    const trialEligible = eligibility[pkg.product.identifier]?.status !== 1;
+    // Only promise a trial when RevenueCat confirms it (2 = ELIGIBLE). Unknown
+    // or a failed check shows the plain price terms; Apple still applies a
+    // trial the user is due, so we never over-promise.
+    const trialEligible = eligibility[pkg.product.identifier]?.status === 2;
     return toPlusPackage(pkg, trialEligible);
   });
 }
@@ -127,7 +128,9 @@ export async function purchase(packageId: string): Promise<{ outcome: PurchaseOu
   try {
     const { customerInfo } = await sdk.default.purchasePackage(pkg);
     const active = isPlusActive(customerInfo);
-    return { outcome: active ? "purchased" : "pending", active };
+    // A completed transaction without the entitlement is a dashboard
+    // misconfiguration, not Ask to Buy (that arrives as error "20").
+    return { outcome: active ? "purchased" : "failed", active };
   } catch (error) {
     const e = error as { userCancelled?: boolean | null; code?: string };
     // Codes from PURCHASES_ERROR_CODE: "1" cancelled, "20" payment pending.

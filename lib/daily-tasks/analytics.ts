@@ -76,7 +76,8 @@ interface QueuedEvent {
   timestamp: string;
 }
 
-let enabled = true;
+// Off until the store applies the saved Settings choice after loading.
+let enabled = false;
 let distinctId: string | null = null;
 let queue: QueuedEvent[] = [];
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -156,12 +157,24 @@ export async function flush(): Promise<void> {
             // Anonymous events only: no person profiles, no stored IP.
             $process_person_profile: false,
             $ip: null,
+            $geoip_disable: true,
           },
         })),
       }),
     });
   } catch {
     // Dropped on purpose: analytics must never retry-storm or surface errors.
+  }
+}
+
+/** "Reset all data": forget the anonymous id so the next events start fresh. */
+export async function resetAnalyticsIdentity(): Promise<void> {
+  distinctId = null;
+  queue = [];
+  try {
+    await AsyncStorage.removeItem(ID_KEY);
+  } catch {
+    // a stale id only links the reset install to its earlier events
   }
 }
 

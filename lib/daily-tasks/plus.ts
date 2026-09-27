@@ -6,6 +6,12 @@
 /** RevenueCat entitlement that unlocks Plus. Must match the dashboard. */
 export const PLUS_ENTITLEMENT = "plus";
 
+/**
+ * Builds from this version on never auto-grandfather, even if one ships
+ * without a RevenueCat key by mistake. The first paywall release is 1.1.0.
+ */
+export const GRANDFATHER_BEFORE_VERSION = "1.1.0";
+
 export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas";
 
 export type PaywallSource =
@@ -95,7 +101,7 @@ export function planLabel(pkg: PlusPackage): PlanLabel {
       return {
         title: "Yearly",
         price: `${pkg.priceString}/year`,
-        detail: pkg.pricePerMonthString ? `Just ${pkg.pricePerMonthString}/month` : null,
+        detail: pkg.pricePerMonthString ? `About ${pkg.pricePerMonthString}/month, billed yearly` : null,
         badge: pkg.trialDays ? `${pkg.trialDays}-day free trial` : "Best value",
       };
     case "monthly":
@@ -115,7 +121,7 @@ export function planLabel(pkg: PlusPackage): PlanLabel {
 /** Main button text for the selected plan. */
 export function purchaseButtonLabel(pkg: PlusPackage | null): string {
   if (!pkg) return "Continue";
-  if (pkg.trialDays) return "Start free trial";
+  if (pkg.trialDays) return `Start ${pkg.trialDays}-day free trial`;
   return pkg.kind === "lifetime" ? "Buy lifetime" : "Subscribe";
 }
 
@@ -127,7 +133,7 @@ export function purchaseTerms(pkg: PlusPackage | null): string {
   if (!pkg) return "";
   if (pkg.kind === "lifetime") return `One-time payment of ${pkg.priceString}. No subscription.`;
   const period = pkg.kind === "annual" ? "year" : "month";
-  const renew = `Renews automatically at ${pkg.priceString}/${period} until you cancel. Cancel anytime in Settings › Apple ID › Subscriptions.`;
+  const renew = `Renews automatically at ${pkg.priceString}/${period} until you cancel. Cancel anytime in Settings › your name › Subscriptions.`;
   return pkg.trialDays ? `Free for ${pkg.trialDays} days, then ${pkg.priceString}/${period}. ${renew}` : renew;
 }
 
@@ -145,8 +151,8 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
   },
   {
     icon: "sparkles-outline",
-    title: "Ideas for your goal",
-    detail: "Fresh daily suggestions that adapt to how your days go.",
+    title: "AI ideas for your goal",
+    detail: "Fresh suggestions each day that adapt to how your days go.",
   },
 ];
 
@@ -160,7 +166,7 @@ export function paywallHeadline(source: PaywallSource): string {
     case "new_ideas":
       return "Get fresh ideas for your goal";
     default:
-      return "Get more done with Plus";
+      return "A little extra help, when you want it";
   }
 }
 
@@ -173,5 +179,5 @@ export function plusStatusLabel(input: {
   if (input.entitlementActive) return "Plus is active. Thank you!";
   if (input.grandfathered) return "Included free for early supporters.";
   if (!input.paywallEnabled) return "All features are included.";
-  return "Try Plus free: AI brain dump, break it down and daily ideas.";
+  return "Plus adds AI help: smart brain dump, break it down and fresh goal ideas.";
 }

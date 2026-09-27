@@ -12,9 +12,15 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 | Brain dump with the simple on-device split | |
 | Goal ideas from the on-device template plan | |
 
-- **Grandfathering:** anyone whose saved data predates the paywall, or who used any
-  build without a RevenueCat key, keeps Plus for free (`AppState.plusGrandfathered`).
-  Resetting data keeps the flag.
+- **Grandfathering:** anyone whose saved data predates the paywall, or who used an iOS
+  build older than `GRANDFATHER_BEFORE_VERSION` (1.1.0) without a RevenueCat key, keeps
+  Plus for free (`AppState.plusGrandfathered`). Resetting data keeps the flag. From 1.1.0
+  on, a build missing the key never grandfathers anyone. Android isn't grandfathered
+  (no Android paywall yet).
+- **While RevenueCat is still answering at launch** nobody is gated (a subscriber must
+  never see the paywall by mistake); the automatic AI fetch waits for a confirmed answer.
+- After the paywall closes, the gated action resumes: Break it down runs if the user now
+  has Plus, and the brain dump / ideas sheet reopens.
 - **Paywall placement:** once at the end of first-run onboarding (closable), and at
   value moments: Break it down, "Get Plus" in the brain dump, "New ideas", and
   Settings › Plus. Restore purchases is on the paywall and in Settings.
@@ -38,14 +44,17 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 2. **RevenueCat:** create the project + iOS app (App Store Connect API key / in-app
    purchase key), entitlement **`plus`** attached to all three products, and a
    current offering with the `$rc_annual`, `$rc_monthly` and `$rc_lifetime` packages.
-3. **PostHog:** create a project (US cloud), copy the project API key.
+3. **PostHog:** create a project (US cloud), turn on *Discard client IP data*, copy the
+   project API key. (Done: project 630531; key is in EAS production env.)
 4. **EAS env (production):** `EXPO_PUBLIC_REVENUECAT_IOS_KEY` (public SDK key) and
    `EXPO_PUBLIC_POSTHOG_KEY` (optionally `EXPO_PUBLIC_POSTHOG_HOST`).
 5. **Privacy, before shipping that build:** update the published policy (analytics
    section: anonymous usage events, what's never sent, the Settings switch; purchases
    handled by Apple + RevenueCat with an anonymous id) and the App Privacy label
    (add Purchases › Purchase History and Usage Data › Product Interaction, both
-   "not linked to you", "not used for tracking").
+   "not linked to you", "not used for tracking"). Add Apple's standard EULA link
+   (https://www.apple.com/legal/internet-services/itunes/dev/stdeula/) to the App
+   Description (App Review guideline 3.1.2 wants it in the metadata too).
 6. Test with a Sandbox Apple ID: trial purchase, cancel, restore, Ask to Buy (pending).
 
 ## Events
@@ -55,4 +64,6 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 `paywall_closed`, `purchase_started`, `purchase_completed`, `purchase_failed`,
 `restore_completed`. Properties are limited to `source`, `plan`, `outcome`, `trial`,
 `count`, `feature`, `active`, `plus` with short enum/number/boolean values. Never
-task, goal or brain-dump text; no person profiles; `$ip` is dropped.
+task, goal or brain-dump text; no person profiles; `$ip` null, `$geoip_disable`, and
+the project discards client IPs. Analytics starts off and is only enabled once the
+saved Settings choice is loaded; resetting data keeps an opt-out and forgets the id.
