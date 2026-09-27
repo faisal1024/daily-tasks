@@ -9,6 +9,7 @@ import { act, renderHook, waitFor } from "@testing-library/react-native";
 import { todayKey } from "@/lib/daily-tasks/date";
 import type { PlusContextValue } from "@/lib/daily-tasks/plus-context";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
+import * as storage from "@/lib/daily-tasks/storage";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import type { AppState as DailyState, Task } from "@/lib/daily-tasks/types";
 import {
@@ -201,6 +202,44 @@ describe("store: widget taps", () => {
       expect(result.current.state.history["2026-09-25"]).toMatchObject({ total: 3, completed: 3 });
       expect(result.current.state.pendingRollover).toBeNull();
       expect(markWidgetTogglesProcessed).toHaveBeenCalledWith(1);
+    } finally {
+      appState.restore();
+    }
+  });
+
+  it("leaves taps queued when iOS reports 'active' before saved state has loaded, then applies them to the saved day", async () => {
+    const appState = listenToAppState();
+    try {
+      const evening = new Date(2026, 8, 25, 23, 0);
+      fakeClockAt(new Date(2026, 8, 26, 9, 0));
+      const saved = storage.normalizeState(
+        JSON.parse(
+          JSON.stringify({
+            ...buildInitialState(evening),
+            hasSeenOnboarding: true,
+            tasks: TASKS,
+            todayCompletions: ["t0", "t1"],
+          }),
+        ),
+      );
+      let finishLoad!: (value: DailyState | null) => void;
+      const load = jest
+        .spyOn(storage, "loadState")
+        .mockImplementationOnce(() => new Promise((resolve) => (finishLoad = resolve)));
+      queue([{ seq: 1, id: "t2", date: "2026-09-25", done: true }]);
+
+      const hook = await renderHook(() => useDailyTasks(), { wrapper });
+      // Cold launch: "active" arrives while loadState() is still pending.
+      await act(async () => appState.emit("active"));
+      expect(hook.result.current.ready).toBe(false);
+      expect(markWidgetTogglesProcessed).not.toHaveBeenCalled();
+      expect(hook.result.current.state.todayCompletions).toEqual([]);
+
+      await act(async () => finishLoad(saved));
+      await waitFor(() => expect(hook.result.current.ready).toBe(true));
+      expect(hook.result.current.state.history["2026-09-25"]).toMatchObject({ total: 3, completed: 3 });
+      expect(markWidgetTogglesProcessed).toHaveBeenCalledWith(1);
+      load.mockRestore();
     } finally {
       appState.restore();
     }
