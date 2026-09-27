@@ -122,22 +122,51 @@ function textItems(list, max, limit) {
 }
 
 /** Rebuild the brain-dump response from validated fields only. */
-export function sanitizeBrainDump(result) {
+// Words too common to show an item came from the dump.
+const STOPWORDS = new Set(
+  "the a an and or for to of in on at with my your our do get go make take buy call the this that some more".split(" "),
+);
+function words(text) {
+  return (String(text).toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []).filter((w) => !STOPWORDS.has(w));
+}
+
+/**
+ * Whether an item plausibly comes from the person's own words: it shares at
+ * least one meaningful word (or a 4-letter stem, e.g. "groceries"/"groc")
+ * with the dump. The model is told to use only what they wrote; this makes
+ * sure an invented task ("Check in with yourself") never reaches the app.
+ */
+export function fromDump(itemText, dumpText) {
+  const dump = words(dumpText);
+  if (dump.length === 0) return true;
+  const stems = new Set(dump.map((w) => w.slice(0, 4)));
+  const exact = new Set(dump);
+  return words(itemText).some((w) => exact.has(w) || stems.has(w.slice(0, 4)));
+}
+
+export function sanitizeBrainDump(result, payload) {
+  const keep = (item) => !payload || fromDump(item.text, payload.text);
   return {
-    picks: textItems(result.picks, MAX_TASK_TEXT, 3),
-    parked: textItems(result.parked, MAX_TASK_TEXT, MAX_PARKED).map(({ text }) => ({ text })),
+    picks: textItems(result.picks, MAX_TASK_TEXT, 3).filter(keep),
+    parked: textItems(result.parked, MAX_TASK_TEXT, MAX_PARKED)
+      .filter(keep)
+      .map(({ text }) => ({ text })),
   };
 }
 
-export function isValidBrainDump(result) {
+export function isValidBrainDump(result, payload) {
   // Over-long items are shortened by sanitizeBrainDump rather than failing the
   // request; only an echo of the input (> MAX_ECHO_TEXT) makes an item unusable.
+  // At least one pick must come from the dump itself (see fromDump); if none
+  // does, the app falls back to its simple on-device split.
   return Boolean(
     result &&
       typeof result === "object" &&
       Array.isArray(result.picks) &&
       Array.isArray(result.parked) &&
-      result.picks.some((item) => isShortTask(item, MAX_ECHO_TEXT)),
+      result.picks.some(
+        (item) => isShortTask(item, MAX_ECHO_TEXT) && (!payload || fromDump(item.text, payload.text)),
+      ),
   );
 }
 

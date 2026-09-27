@@ -1,0 +1,35 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "copyright": "2026 Faisal Islam",
+    "info": {
+      "en-US": {
+        "title": "Three Today: 3 Tasks a Day",
+        "subtitle": "Brain dump to your daily three",
+        "description": "Your whole to-do list can wait. Today is three things.\n\nThree Today turns the pile in your head into the three tasks that matter today. Dump everything on your mind, by typing or talking, and get your three. The rest is saved for later, not stacked on top of tomorrow.\n\nEVERY DAY STARTS FRESH\nThere's no overdue list and no red badges. Anything you didn't finish waits for one tap: bring it into today, or let it go.\n\nA MORNING, A FEW WINS, AN EVENING\n• Morning: pick your three, or use the ones your coach drafted last night.\n• Day: tick them off. The next one is always the only one in front of you.\n• Evening: say how the day felt in one tap, and your coach drafts tomorrow's three.\n\nMADE TO KEEP GOING\n• Day N: days you've shown up, which never goes backwards.\n• Streak freezes, so one missed day doesn't wipe out a good run.\n• A weekly review that shows what's working.\n• Home Screen and Lock Screen widgets.\n• Break a stuck task into tiny steps.\n\nTHREE TODAY PLUS\nPlus adds the AI helpers: AI brain dump sorting (3 free to try), Break it down, fresh AI ideas for your goal, a coach that drafts tomorrow in the evening, and planning around today's Calendar and Reminders. Your three tasks stay free forever.\n\n• Monthly and yearly plans include a free trial for new subscribers.\n• Payment is charged to your Apple ID at confirmation of purchase (or when the trial ends).\n• Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel in iPhone Settings › your name › Subscriptions.\n• A one-time Lifetime purchase is available in the app's Settings.\n\nPrivate by design: your tasks stay on your device. There's no account and no ads.\n\nTerms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/\nPrivacy Policy: https://github.com/faisal1024/daily-tasks/blob/main/docs/privacy-policy.md",
+        "keywords": [
+          "todo",
+          "to do list",
+          "planner",
+          "focus",
+          "adhd",
+          "priorities",
+          "habit",
+          "checklist",
+          "productivity",
+          "organizer",
+          "widget",
+          "goal"
+        ],
+        "releaseNotes": "Daily Tasks is now Three Today, rebuilt around a calm daily ritual:\n• Dump everything on your mind and get your three, picked for you.\n• One calm card for today, with the next task up front.\n• An evening check-in that drafts tomorrow's three.\n• Plan around your Calendar and Reminders (Plus).\n• Progress and history together in one tab.\n• Introducing Three Today Plus, with a free trial. Early supporters keep Plus for free.",
+        "promoText": "New: dump everything on your mind and get today's three, picked for you. Tomorrow starts fresh, with no overdue pile.",
+        "privacyPolicyUrl": "https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html",
+        "supportUrl": "https://github.com/faisal1024/daily-tasks#support"
+      }
+    },
+    "review": {
+      "notes": "No account or login is needed.\n\nWhere to find things:\n• Plus paywall: Settings › Plus › \"See Plus plans\", or tap \"Break it down\" on the next task (after setting the day), or \"Get Plus\" in the brain dump after the 3 free AI sorts.\n• The Lifetime purchase is shown only when the paywall is opened from Settings › Plus.\n• Restore purchases: on the paywall and in Settings.\n\nAI features: brain dump sorting, Break it down, goal ideas and the evening check-in send only the text needed (for example task titles or what was typed) to our server, which forwards it to an AI model to create suggestions. Nothing is stored on our server. Details are in the privacy policy.\n\nCalendar and Reminders: only used if the user turns on Settings › \"Plan around my calendar\" (a Plus feature). Today's event titles and times and reminders due today are sent with AI suggestion requests so the three fit around the day.\n\nTo see the first-run flow, delete and reinstall the app.",
+      "demoRequired": false
+    }
+  }
+}
