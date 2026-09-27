@@ -83,7 +83,7 @@ export async function postToProxy({
       }
       throw new MomentumAiError(
         kindForStatus(response.status, proxyError),
-        `Momentum AI request failed with ${response.status}.`,
+        `AI request failed with ${response.status}.`,
         response.status,
       );
     }
@@ -93,17 +93,17 @@ export async function postToProxy({
       parsed = await response.json();
     } catch (error) {
       if (controller.signal.aborted) throw error;
-      throw new MomentumAiError("invalid_response", "Momentum AI returned malformed JSON.");
+      throw new MomentumAiError("invalid_response", "AI returned malformed JSON.");
     }
     return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new MomentumAiError("timeout", "Momentum AI request timed out.");
+      throw new MomentumAiError("timeout", "AI request timed out.");
     }
     if (error instanceof MomentumAiError) throw error;
     throw new MomentumAiError(
       "network",
-      error instanceof Error ? error.message : "Momentum AI network error.",
+      error instanceof Error ? error.message : "AI network error.",
     );
   } finally {
     clearTimeout(timer);

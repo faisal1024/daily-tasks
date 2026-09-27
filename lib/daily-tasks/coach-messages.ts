@@ -59,7 +59,7 @@ export const COACH_MESSAGES: CoachMessage[] = [
     tags: ["empty"],
     phase: "Commit",
     title: "Make the first step visible.",
-    body: "Momentum works best when today's tasks are plain, doable, and tied to what matters.",
+    body: "The day works best when today's tasks are plain, doable, and tied to what matters.",
   },
   {
     id: "empty-small-win",
@@ -73,7 +73,7 @@ export const COACH_MESSAGES: CoachMessage[] = [
     tags: ["choosing"],
     phase: "Set the day",
     title: "Choose, then stop choosing.",
-    body: "When the list feels honest, set it. Momentum works best when today has edges.",
+    body: "When the list feels honest, set it. The day works best when it has edges.",
   },
   {
     id: "choosing-protect-focus",
@@ -108,7 +108,7 @@ export const COACH_MESSAGES: CoachMessage[] = [
     tags: ["choosing"],
     phase: "Set the day",
     title: "Make the day real.",
-    body: "Once the list is set, Momentum stops being a planner and becomes your follow-through coach.",
+    body: "Once the list is set, your coach stops planning and helps you follow through.",
   },
   {
     id: "progress-next-ten",
@@ -135,7 +135,7 @@ export const COACH_MESSAGES: CoachMessage[] = [
     id: "progress-momentum",
     tags: ["progress"],
     phase: "Follow through",
-    title: "Momentum comes from finishing.",
+    title: "Progress comes from finishing.",
     body: "Check off one commitment before opening the door to anything new.",
   },
   {
@@ -192,7 +192,7 @@ export const COACH_MESSAGES: CoachMessage[] = [
     tags: ["complete"],
     phase: "Reflect",
     title: "Capture the win before tomorrow arrives.",
-    body: "A quick reflection helps Momentum make tomorrow easier, sharper, or just right.",
+    body: "A quick reflection helps your coach make tomorrow easier, sharper, or just right.",
   },
   {
     id: "complete-you-showed",
@@ -213,14 +213,14 @@ export const COACH_MESSAGES: CoachMessage[] = [
     tags: ["complete"],
     phase: "Reflect",
     title: "Close the loop.",
-    body: "Tell Momentum how the day felt so tomorrow's three can fit your real life better.",
+    body: "Tell your coach how the day felt so tomorrow's three can fit your real life better.",
   },
   {
     id: "recovery-kind-reset",
     tags: ["recovery"],
     phase: "Recover",
     title: "Make the next step kinder.",
-    body: "If recent days were heavy, Momentum can shrink the work without dropping the goal.",
+    body: "If recent days were heavy, your coach can shrink the work without dropping the goal.",
   },
   {
     id: "recovery-smaller",
@@ -248,7 +248,7 @@ export const COACH_MESSAGES: CoachMessage[] = [
     tags: ["stretch"],
     phase: "Stretch",
     title: "Trust the consistency you are building.",
-    body: "Momentum can raise the challenge slightly while keeping the day limited to three.",
+    body: "Your coach can raise the challenge slightly while keeping the day limited to three.",
   },
 ];
 

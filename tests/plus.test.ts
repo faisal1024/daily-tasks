@@ -6,9 +6,13 @@ import {
   defaultPackageId,
   freeTrialDays,
   hasPlusAccess,
+  PLUS_BENEFITS,
+  paywallHeadline,
   planLabel,
   purchaseButtonLabel,
   purchaseTerms,
+  visiblePackages,
+  type PaywallSource,
   type PlusPackage,
 } from "../lib/daily-tasks/plus";
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
@@ -88,5 +92,30 @@ describe("paywall plans and terms", () => {
     const lifetime = purchaseTerms(pkg({ kind: "lifetime", priceString: "$59.99" }));
     expect(lifetime).toContain("One-time payment of $59.99");
     expect(lifetime).not.toMatch(/Renews/);
+  });
+});
+
+describe("which plans a paywall shows (Phase 11a)", () => {
+  const annual = pkg();
+  const monthly = pkg({ id: "$rc_monthly", kind: "monthly" });
+  const lifetime = pkg({ id: "$rc_lifetime", kind: "lifetime", trialDays: null });
+  const all = [annual, monthly, lifetime];
+
+  it("keeps lifetime only for Settings", () => {
+    expect(visiblePackages(all, "settings")).toEqual(all);
+    const elsewhere: (PaywallSource | null)[] = ["win_back", "brain_dump", "onboarding", "break_down", null];
+    for (const source of elsewhere) {
+      expect(visiblePackages(all, source)).toEqual([annual, monthly]);
+    }
+  });
+
+  it("has a win-back headline", () => {
+    expect(paywallHeadline("win_back")).toBe("Want the AI helpers back?");
+  });
+
+  it("lists calendar planning, not the now-free weekly review", () => {
+    const titles = PLUS_BENEFITS.map((b) => b.title);
+    expect(titles).toContain("Plan around your calendar");
+    expect(titles).not.toContain("Weekly review");
   });
 });

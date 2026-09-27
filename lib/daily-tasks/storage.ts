@@ -339,7 +339,7 @@ function normalizeAdaptationSnapshot(value: unknown): AppState["adaptationSnapsh
       value.recommendation === "increase"
         ? value.recommendation
         : "maintain",
-    reason: typeof value.reason === "string" ? value.reason : "Momentum is staying steady.",
+    reason: typeof value.reason === "string" ? value.reason : "Your coach is keeping things steady.",
   };
 }
 

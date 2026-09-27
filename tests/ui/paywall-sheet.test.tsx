@@ -38,6 +38,14 @@ function setup(overrides: {
   };
 }
 
+const LIFETIME: PlusPackage = {
+  id: "$rc_lifetime",
+  kind: "lifetime",
+  priceString: "$79.99",
+  pricePerMonthString: null,
+  trialDays: null,
+};
+
 async function renderSheet(props: ReturnType<typeof setup>) {
   await render(<PaywallSheet source="break_down" {...props} />);
   // Let the plan load settle.
@@ -45,6 +53,27 @@ async function renderSheet(props: ReturnType<typeof setup>) {
 }
 
 describe("PaywallSheet", () => {
+  it("offers lifetime only when opened from Settings", async () => {
+    const props = setup({ loadPackages: jest.fn(async () => [LIFETIME, MONTHLY, ANNUAL]) });
+    const { rerender } = await render(<PaywallSheet source="win_back" {...props} />);
+    await act(async () => {});
+    expect(screen.getByTestId("paywall-plan-annual")).toBeChecked();
+    expect(screen.getByTestId("paywall-plan-monthly")).toBeOnTheScreen();
+    expect(screen.queryByTestId("paywall-plan-lifetime")).toBeNull();
+    expect(screen.getByText("Want the AI helpers back?")).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        "Your three tasks stay free. Plus brings back AI sorting, break it down and calendar planning.",
+      ),
+    ).toBeOnTheScreen();
+
+    await rerender(<PaywallSheet source={null} {...props} />);
+    await rerender(<PaywallSheet source="settings" {...props} />);
+    await act(async () => {});
+    expect(screen.getByTestId("paywall-plan-lifetime")).toBeOnTheScreen();
+    expect(screen.getByText("Your three tasks stay free forever. Plus adds the AI helpers.")).toBeOnTheScreen();
+  });
+
   it("loads plans with annual selected and its trial terms, and buying it closes the sheet", async () => {
     const props = setup();
     await renderSheet(props);

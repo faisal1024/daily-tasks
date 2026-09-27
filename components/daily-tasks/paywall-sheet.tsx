@@ -26,6 +26,7 @@ import {
   purchaseButtonLabel,
   purchaseTerms,
   sortPackages,
+  visiblePackages,
   type PaywallSource,
   type PlusPackage,
 } from "@/lib/daily-tasks/plus";
@@ -78,7 +79,8 @@ export function PaywallSheet({
     setPackages([]);
     setSelectedId(null);
     try {
-      const loaded = sortPackages(await loadPackages());
+      // Lifetime only when opened from Settings: the trial plans lead elsewhere.
+      const loaded = sortPackages(visiblePackages(await loadPackages(), source));
       if (mine !== session.current) return;
       if (loaded.length === 0) {
         setLoad("error");
@@ -192,7 +194,9 @@ export function PaywallSheet({
               {source ? paywallHeadline(source) : ""}
             </Text>
             <Text className="text-base text-center" style={{ color: colors.muted }}>
-              Your three tasks stay free forever. Plus adds the AI helpers.
+              {source === "win_back"
+                ? "Your three tasks stay free. Plus brings back AI sorting, break it down and calendar planning."
+                : "Your three tasks stay free forever. Plus adds the AI helpers."}
             </Text>
           </View>
 

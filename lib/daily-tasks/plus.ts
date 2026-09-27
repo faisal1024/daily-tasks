@@ -12,7 +12,7 @@ export const PLUS_ENTITLEMENT = "plus";
  */
 export const GRANDFATHER_BEFORE_VERSION = "1.1.0";
 
-export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "weekly_review";
+export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas";
 
 export type PaywallSource =
   | "onboarding"
@@ -20,8 +20,8 @@ export type PaywallSource =
   | "brain_dump"
   | "break_down"
   | "new_ideas"
-  | "weekly_review"
-  | "calendar";
+  | "calendar"
+  | "win_back";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -83,6 +83,14 @@ const ORDER: Record<PlanKind, number> = { annual: 0, monthly: 1, lifetime: 2, ot
 /** Annual first (the plan we recommend), then monthly, then lifetime. */
 export function sortPackages(packages: PlusPackage[]): PlusPackage[] {
   return [...packages].sort((a, b) => ORDER[a.kind] - ORDER[b.kind]);
+}
+
+/**
+ * What a paywall shows: lifetime only when opened from Settings (someone
+ * looking for it), so the trial plans lead everywhere else.
+ */
+export function visiblePackages(packages: PlusPackage[], source: PaywallSource | null): PlusPackage[] {
+  return source === "settings" ? packages : packages.filter((pkg) => pkg.kind !== "lifetime");
 }
 
 /** The plan selected when the paywall opens: annual if offered. */
@@ -158,8 +166,8 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
   },
   {
     icon: "calendar-outline",
-    title: "Weekly review",
-    detail: "See your best days and the tasks that keep sliding.",
+    title: "Plan around your calendar",
+    detail: "Your three fit around today's events and reminders.",
   },
   {
     icon: "apps-outline",
@@ -175,12 +183,12 @@ export function paywallHeadline(source: PaywallSource): string {
       return "Let AI sort your brain dump";
     case "break_down":
       return "Break any task into tiny steps";
-    case "weekly_review":
-      return "See how your weeks are going";
     case "new_ideas":
       return "Get fresh ideas for your goal";
     case "calendar":
       return "Plan your three around your day";
+    case "win_back":
+      return "Want the AI helpers back?";
     default:
       return "A little extra help, when you want it";
   }

@@ -8,11 +8,11 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 
 | Free | Plus |
 |---|---|
-| Today's three, lock, rollover, calendar, streaks, reminders, journey | AI brain dump sorting, Break it down, AI goal ideas ("New ideas", "Refresh with AI") |
-| Brain dump with the simple on-device split | |
+| Today's three, set/change, rollover, history, streaks, reminders, progress | AI brain dump sorting, Break it down, AI goal ideas ("New ideas", "Refresh with AI"), AI evening close, plan around your calendar |
+| Brain dump: the first-run sort + 3 AI sorts to try (per install, `lib/daily-tasks/free-uses.ts`), then the simple on-device split | |
 | Goal ideas from the on-device template plan | |
 | Home/lock-screen widgets (view today, progress, next task) | Tick tasks off from the widget |
-| Weekly review: headline, 7-day bars, tasks done, perfect days (Journey tab) | Weekly patterns: vs last week, best weekday, tasks that keep sliding |
+| Weekly review, including patterns (Progress tab), free since Phase 11a | |
 
 - **Grandfathering:** anyone whose saved data predates the paywall, or who used an iOS
   build older than `GRANDFATHER_BEFORE_VERSION` (1.1.0) without a RevenueCat key, keeps
@@ -23,11 +23,15 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
   never see the paywall by mistake); the automatic AI fetch waits for a confirmed answer.
 - After the paywall closes, the gated action resumes: Break it down runs if the user now
   has Plus, and the brain dump / ideas sheet reopens.
-- **Paywall placement:** once at the end of first-run onboarding (closable), and at
-  value moments: Break it down, "Get Plus" in the brain dump, "New ideas", the weekly
-  review's patterns row, and Settings › Plus. Restore purchases is on the paywall and in Settings.
-- The AI proxy does not check Plus yet (RevenueCat webhook → server check is a
-  later step). The app just doesn't call the AI for free users.
+- **Paywall placement:** once at the end of first run (closable), and at value moments:
+  Break it down, "Get Plus" in the brain dump (only after the free sorts), "New ideas",
+  the calendar setting, and Settings › Plus. Lifetime is shown only from Settings.
+  Restore purchases is on the paywall and in Settings.
+- **Trial reminder:** a local notification ~48 h before a free trial ends (daytime),
+  skipped if the trial was cancelled or is family-shared.
+- **Win-back:** once per lapse (RevenueCat's own expiry), at least 2 days after it,
+  right after the user ticks a task on Today; counted as offered only when shown.
+- The AI proxy's Plus check (RevenueCat REST, `ENTITLEMENT_MODE`) arrives in Phase 11b.
 
 ## Code map
 

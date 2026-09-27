@@ -1,6 +1,6 @@
 # Privacy Policy — Daily Tasks
 
-**Effective date: 29 September 2026 (last updated for Calendar and Reminders)**
+**Effective date: 30 September 2026 (last updated for free AI brain dumps)**
 
 <!-- Keep in sync with the published copy (gist a43d6373453761af70d495d640e38ffa,
      privacy-policy.html), which App Store Connect links to. The app links here. -->
@@ -25,7 +25,7 @@ This data is not synced to any server or account. The Home Screen and Lock Scree
 Four optional features use an AI model. When you use them, the app sends a request to our own server, which asks an AI model (currently provided by Anthropic) to respond. Each request contains only what that feature needs:
 
 - **Goal-based suggestions:** your goal and onboarding answers, a summary of recent completion counts, the titles of up to 12 of your recent tasks and whether each was completed, and your most recent optional reflection.
-- **Brain dump:** the text you type or dictate into the brain dump (up to 2,000 characters), how many open slots you have today, and your goal. When you first open the app, what you type on the first screen is sorted this way (for everyone, not just Plus), and the screen says so.
+- **Brain dump:** the text you type or dictate into the brain dump (up to 2,000 characters), how many open slots you have today, and your goal. When you first open the app, what you type on the first screen is sorted this way, and free users also get a few more AI-sorted brain dumps to try (the app shows how many are left); after that, brain dumps are sorted on your device unless you have Plus.
 - **Break it down:** the title of the task you ask to break down, and your goal.
 - **Evening check-in:** how your day felt (the option you tap), the titles of today's tasks and whether each was done, your optional note, your goal, and your coach memory (below).
 
@@ -63,7 +63,7 @@ Daily Tasks is suitable for all ages and does not knowingly collect personal inf
 
 ## Your control
 
-You can delete all data stored on your device at any time from Settings → Reset all data in the app, or by deleting the app. We do not keep a copy of your tasks or history on our servers. You can turn off anonymous usage stats in Settings, and manage or cancel a subscription in your Apple ID settings.
+You can delete all data stored on your device at any time from Settings → Reset all data in the app, or by deleting the app. Reset keeps a few small counters that aren't personal data (how many free AI sorts were used, and whether a Plus offer was already shown), so free trials aren't repeated; deleting the app removes them too. We do not keep a copy of your tasks or history on our servers. You can turn off anonymous usage stats in Settings, and manage or cancel a subscription in your Apple ID settings.
 
 ## Changes to this policy
 

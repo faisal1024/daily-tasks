@@ -13,7 +13,6 @@ import { useColors } from "@/hooks/use-colors";
 import { stageForDays } from "@/lib/daily-tasks/journey";
 import { pickCelebration } from "@/lib/daily-tasks/milestones";
 import { track } from "@/lib/daily-tasks/analytics";
-import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { buildWeeklyReview } from "@/lib/daily-tasks/weekly-review";
 
@@ -29,10 +28,7 @@ export default function JourneyScreen() {
     pendingMilestoneCelebration,
     acknowledgeMilestoneCelebration,
     today,
-    hasPlus,
-    plusConfirmed,
   } = useDailyTasks();
-  const { openPaywall } = usePlus();
   const weeklyReview = useMemo(() => buildWeeklyReview(state.history, today), [state.history, today]);
 
   const journey = state.journey;
@@ -165,17 +161,9 @@ export default function JourneyScreen() {
 
         <View className="gap-3">
           <SectionLabel icon="calendar-outline" label="Your last 7 days" />
-          <WeeklyReviewCard
-            review={weeklyReview}
-            // Patterns only once Plus is confirmed, and no upsell while it's
-            // still being checked (hasPlus is true while pending).
-            plus={plusConfirmed}
-            canUnlock={!hasPlus}
-            onUnlock={() => {
-              track("plus_gate_hit", { feature: "weekly_review" });
-              openPaywall("weekly_review");
-            }}
-          />
+          {/* Free for everyone: seeing your own patterns builds the habit
+              (the review's value is retention, not a paywall). */}
+          <WeeklyReviewCard review={weeklyReview} plus canUnlock={false} onUnlock={() => {}} />
         </View>
 
         {/* Milestones toward the goal: ticked off by hand */}
@@ -199,26 +187,25 @@ export default function JourneyScreen() {
                 <View
                   key={milestone.id}
                   className="bg-surface rounded-2xl p-4 border flex-row items-center gap-3"
-                  style={{ borderColor: isNext ? colors.primary : colors.border }}
+                  style={{ borderColor: colors.border }}
                 >
                   <Ionicons
-                    name={
-                      milestone.done
-                        ? "checkmark-circle"
-                        : isNext
-                          ? "ellipse"
-                          : "ellipse-outline"
-                    }
+                    // Only a reached milestone is filled; "next" is just a label,
+                    // so a new path never looks like it's already started.
+                    name={milestone.done ? "checkmark-circle" : "ellipse-outline"}
                     size={20}
-                    color={
-                      milestone.done
-                        ? colors.success
-                        : isNext
-                          ? colors.primary
-                          : colors.muted
-                    }
+                    color={milestone.done ? colors.success : colors.muted}
+                    accessibilityElementsHidden
                   />
                   <View className="flex-1 gap-1">
+                    {isNext ? (
+                      <Text
+                        className="text-xs font-bold uppercase"
+                        style={{ color: colors.primary, letterSpacing: 0.6 }}
+                      >
+                        Up next
+                      </Text>
+                    ) : null}
                     <Text
                       className="text-lg font-bold"
                       style={{ color: milestone.done ? colors.muted : colors.foreground }}
@@ -249,11 +236,11 @@ export default function JourneyScreen() {
                       accessibilityLabel={`Mark "${milestone.title}" as reached`}
                       hitSlop={8}
                       className="rounded-full px-3 py-1.5"
-                      style={{ backgroundColor: isNext ? `${colors.primary}18` : colors.background }}
+                      style={{ backgroundColor: `${colors.primary}14` }}
                       testID={`milestone-reach-${milestone.id}`}
                     >
                       <Text className="text-sm font-bold" style={{ color: colors.primary }}>
-                        Reached
+                        Mark reached
                       </Text>
                     </Pressable>
                   )}
