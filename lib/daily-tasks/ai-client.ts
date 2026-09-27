@@ -10,7 +10,8 @@ export const PROXY_SECRET_HEADER = "x-momentum-secret";
 export const PROXY_USER_HEADER = "x-rc-user";
 
 let proxyUserId: string | null = null;
-let proxyUserIdReady: Promise<unknown> = Promise.resolve();
+// The id lookup in flight, if any (null once it's done or never started).
+let proxyUserIdPending: Promise<unknown> | null = null;
 let grandfathered = false;
 /** Set by purchases.ts once RevenueCat has its (anonymous) app user id. */
 export function setProxyUserId(id: string | null): void {
@@ -18,7 +19,10 @@ export function setProxyUserId(id: string | null): void {
 }
 /** purchases.ts hands over the pending id lookup so the first request can wait for it. */
 export function setProxyUserIdPending(pending: Promise<unknown>): void {
-  proxyUserIdReady = pending;
+  proxyUserIdPending = pending;
+  void pending.finally(() => {
+    if (proxyUserIdPending === pending) proxyUserIdPending = null;
+  });
 }
 /**
  * Early supporters have Plus on the device but not in RevenueCat: they send
@@ -86,8 +90,15 @@ export async function postToProxy({
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (proxySecret) headers[PROXY_SECRET_HEADER] = proxySecret;
   // A request at launch may beat the id lookup: wait briefly for it.
-  if (!proxyUserId && !grandfathered) {
-    await Promise.race([proxyUserIdReady, new Promise((resolve) => setTimeout(resolve, ID_WAIT_MS))]);
+  if (!proxyUserId && !grandfathered && proxyUserIdPending) {
+    let waitTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      proxyUserIdPending,
+      new Promise((resolve) => {
+        waitTimer = setTimeout(resolve, ID_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(waitTimer);
   }
   if (proxyUserId && !grandfathered) headers[PROXY_USER_HEADER] = proxyUserId;
 
