@@ -52,6 +52,7 @@ import {
 import {
   acknowledgeLevel,
   awardPerfectDay,
+  registerShowedUp,
   awardTaskCompletion,
   levelForXp,
   levelProgress,
@@ -62,7 +63,6 @@ import {
 import {
   completeMilestone as completeMilestoneState,
   milestonesWithCompletion,
-  nextIncompleteMilestone,
   type MilestoneView,
 } from "./milestones";
 import {
@@ -83,6 +83,8 @@ import {
   saveState,
 } from "./storage";
 import { computeDayStreak } from "./streaks";
+import type { EveningClose } from "./evening";
+import { draftForTomorrow } from "./evening";
 import {
   invalidateWidgetSnapshot,
   markWidgetTogglesProcessed,
@@ -156,8 +158,21 @@ type Action =
   | { type: "clearTaskSteps"; taskId: TaskId; today: string }
   | { type: "applyWidgetToggles"; toggles: WidgetToggle[] }
   | { type: "grandfatherPlus" }
+  | { type: "setEveningClose"; close: EveningClose; today: string }
+  | { type: "applyTomorrowDraft"; tasks: string[]; today: string }
+  | { type: "dismissTomorrowDraft" }
+  | { type: "completeMilestone"; id: string }
   | { type: "setAnalyticsEnabled"; enabled: boolean }
   | { type: "reset"; state: AppState };
+
+/** Days with at least one task planned, counting today as a day ("Day N"). */
+export function countDaysShowedUp(history: AppState["history"], today: string): number {
+  let count = 0;
+  for (const record of Object.values(history)) {
+    if (record.date < today && record.total > 0) count += 1;
+  }
+  return count + 1;
+}
 
 /** Canonical count of today's completions that still map to a current task. */
 function countCompleted(state: AppState): number {
@@ -200,6 +215,35 @@ function reducer(state: AppState, action: Action): AppState {
         state,
       );
     }
+    case "setEveningClose":
+      return {
+        ...state,
+        tomorrowDraft: draftForTomorrow(action.close, action.today),
+        // The on-device close has no memory to add; keep what the coach knows.
+        coachMemory: action.close.memory ?? state.coachMemory,
+      };
+    case "applyTomorrowDraft": {
+      const next = reducer(state, { type: "addTasks", texts: action.tasks, today: action.today });
+      return { ...next, tomorrowDraft: null };
+    }
+    case "dismissTomorrowDraft":
+      return state.tomorrowDraft ? { ...state, tomorrowDraft: null } : state;
+    case "completeMilestone": {
+      // Milestones are the user's to tick when they've really got there.
+      const advanced = completeMilestoneState({
+        milestones: state.momentumPlan?.milestones ?? [],
+        completedMilestoneIds: state.completedMilestoneIds,
+        journey: state.journey,
+        id: action.id,
+      });
+      if (!advanced) return state;
+      return {
+        ...state,
+        completedMilestoneIds: advanced.completedMilestoneIds,
+        journey: advanced.journey,
+        pendingMilestoneCelebration: advanced.pendingMilestoneCelebration,
+      };
+    }
     case "grandfatherPlus":
       return state.plusGrandfathered ? state : { ...state, plusGrandfathered: true };
     case "setAnalyticsEnabled":
@@ -236,7 +280,12 @@ function reducer(state: AppState, action: Action): AppState {
     case "hydrate":
       return action.state;
     case "rollover": {
-      const next = applyRollover(state, action.today);
+      const rolled = applyRollover(state, action.today);
+      // A draft for a day that has already passed is no longer useful.
+      const next =
+        rolled !== state && rolled.tomorrowDraft && rolled.tomorrowDraft.forDate < action.today
+          ? { ...rolled, tomorrowDraft: null }
+          : rolled;
       // Held on the current day (clock a day behind): nothing changes, and
       // the plan mustn't be rebuilt for the earlier date.
       if (next === state && action.today !== state.lastOpenedDate) return state;
@@ -275,6 +324,8 @@ function reducer(state: AppState, action: Action): AppState {
             ...state.tasks,
             { id: makeId(), text, createdAt: new Date().toISOString(), carriedOver: false },
           ],
+          // Planning counts as showing up (no need to finish anything first).
+          journey: registerShowedUp(state.journey, action.today),
         },
         action.today,
       );
@@ -299,6 +350,7 @@ function reducer(state: AppState, action: Action): AppState {
               carriedOver: false,
             })),
           ],
+          journey: registerShowedUp(state.journey, action.today),
         },
         action.today,
       );
@@ -345,45 +397,20 @@ function reducer(state: AppState, action: Action): AppState {
       );
 
       let journey = state.journey;
-      let completedMilestoneIds = state.completedMilestoneIds;
-      let pendingMilestoneCelebration = state.pendingMilestoneCelebration;
       if (!isCompleted) {
         journey = awardTaskCompletion(journey, action.id, action.today);
-        const perfectAlreadyAwarded =
-          state.journey.awardDate === action.today && state.journey.perfectAwarded;
         if (isPerfectDay({ ...state, tasks: nextTasks, todayCompletions })) {
           journey = awardPerfectDay(journey, action.today);
-          // A newly-reached perfect day auto-advances the next milestone on the
-          // goal path (no manual marking needed).
-          if (!perfectAlreadyAwarded) {
-            const nextMilestone = nextIncompleteMilestone(
-              state.momentumPlan?.milestones ?? [],
-              completedMilestoneIds,
-            );
-            if (nextMilestone) {
-              const advanced = completeMilestoneState({
-                milestones: state.momentumPlan?.milestones ?? [],
-                completedMilestoneIds,
-                journey,
-                id: nextMilestone.id,
-              });
-              if (advanced) {
-                completedMilestoneIds = advanced.completedMilestoneIds;
-                journey = advanced.journey;
-                pendingMilestoneCelebration = advanced.pendingMilestoneCelebration;
-              }
-            }
-          }
         }
       }
+      // Milestones no longer advance on their own (a perfect day isn't the
+      // same as reaching one): the user ticks them on the Progress tab.
 
       return syncTodayHistory(
         {
           ...state,
           todayCompletions,
           journey,
-          completedMilestoneIds,
-          pendingMilestoneCelebration,
           tasks: nextTasks,
         },
         action.today,
@@ -680,6 +707,12 @@ interface StoreContextValue {
   acknowledgeMilestoneCelebration: () => void;
   markReviewPrompted: () => void;
   markReviewDue: () => void;
+  setEveningClose: (close: EveningClose) => void;
+  applyTomorrowDraft: (tasks: string[]) => void;
+  dismissTomorrowDraft: () => void;
+  completeMilestone: (id: string) => void;
+  /** Days with a plan (today included): the "Day N" chip. */
+  daysShowedUp: number;
   parkTasks: (texts: string[]) => void;
   removeParkedTask: (id: string) => void;
   addParkedTask: (id: string) => void;
@@ -896,6 +929,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       todayCompletions: [...state.todayCompletions].sort(),
       notifications: state.notifications,
       notificationPermission,
+      draft: state.tomorrowDraft,
     });
     if (lastReminderSync.current === signature) return;
     lastReminderSync.current = signature;
@@ -905,8 +939,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       permissionState: notificationPermission,
       taskCount: state.tasks.length,
       completedCount,
+      draft: state.tomorrowDraft,
     });
   }, [
+    state.tomorrowDraft,
     completedCount,
     notificationPermission,
     ready,
@@ -1030,6 +1066,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         profile: state.momentumProfile,
         history: state.history,
         settings: state.momentumSettings,
+        coachMemory: state.coachMemory,
         now,
       });
       if (!isLatestRequest(requestId, latestAiRequest.current)) return;
@@ -1044,7 +1081,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         now,
       });
     }
-  }, [hasPlus, state.history, state.momentumProfile, state.momentumSettings]);
+  }, [hasPlus, state.history, state.momentumProfile, state.momentumSettings, state.coachMemory]);
 
   // Auto-generate the AI plan once per (day + goal) when a proxy URL is
   // configured. No URL → this is a no-op and the app stays on the local
@@ -1144,6 +1181,23 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const markReviewDue = useCallback(() => {
     dispatch({ type: "markReviewDue", at: new Date().toISOString() });
   }, []);
+  const setEveningClose = useCallback((close: EveningClose) => {
+    // The close is about the day on screen, even if the clock just passed midnight.
+    dispatch({ type: "setEveningClose", close, today: todayRef.current });
+  }, []);
+  const applyTomorrowDraft = useCallback((tasks: string[]) => {
+    dispatch({ type: "applyTomorrowDraft", tasks, today: ensureDay() });
+  }, [ensureDay]);
+  const dismissTomorrowDraft = useCallback(() => {
+    dispatch({ type: "dismissTomorrowDraft" });
+  }, []);
+  const completeMilestone = useCallback((id: string) => {
+    dispatch({ type: "completeMilestone", id });
+  }, []);
+  const daysShowedUp = useMemo(
+    () => countDaysShowedUp(state.history, today),
+    [state.history, today],
+  );
   const parkTasksCb = useCallback((texts: string[]) => {
     dispatch({ type: "parkTasks", texts, at: new Date().toISOString() });
   }, []);
@@ -1226,6 +1280,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       acknowledgeMilestoneCelebration,
       markReviewPrompted,
       markReviewDue,
+      setEveningClose,
+      applyTomorrowDraft,
+      dismissTomorrowDraft,
+      completeMilestone,
+      daysShowedUp,
       parkTasks: parkTasksCb,
       removeParkedTask: removeParkedTaskCb,
       addParkedTask,
@@ -1276,6 +1335,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       acknowledgeMilestoneCelebration,
       markReviewPrompted,
       markReviewDue,
+      setEveningClose,
+      applyTomorrowDraft,
+      dismissTomorrowDraft,
+      completeMilestone,
+      daysShowedUp,
       parkTasksCb,
       removeParkedTaskCb,
       addParkedTask,

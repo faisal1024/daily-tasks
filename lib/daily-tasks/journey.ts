@@ -233,3 +233,22 @@ export function stageForLevel(level: number): JourneyStage {
   }
   return stage;
 }
+
+// Growth stages by days shown up (planning a day counts). Replaces levels in
+// the UI: it only grows, and nothing is lost by missing a day.
+const DAY_STAGES: { minDays: number; label: string; glyph: string }[] = [
+  { minDays: 1, label: "Seed", glyph: "🌱" },
+  { minDays: 3, label: "Sprout", glyph: "🌿" },
+  { minDays: 7, label: "Sapling", glyph: "🪴" },
+  { minDays: 21, label: "Tree", glyph: "🌳" },
+  { minDays: 60, label: "Grove", glyph: "🌲" },
+];
+
+export function stageForDays(days: number): { label: string; glyph: string; nextAt: number | null } {
+  let index = 0;
+  DAY_STAGES.forEach((stage, i) => {
+    if (days >= stage.minDays) index = i;
+  });
+  const next = DAY_STAGES[index + 1];
+  return { label: DAY_STAGES[index].label, glyph: DAY_STAGES[index].glyph, nextAt: next ? next.minDays : null };
+}

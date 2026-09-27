@@ -16,6 +16,8 @@ interface CompletionReflectionProps {
   result: ReflectionResult | null;
   onSelectResult: (result: ReflectionResult) => void;
   onSave: (text: string) => void;
+  /** Offer "Didn't get to it" (not on a day where everything got done). */
+  allowMissed?: boolean;
 }
 
 export function CompletionReflection({
@@ -23,6 +25,7 @@ export function CompletionReflection({
   result,
   onSelectResult,
   onSave,
+  allowMissed = false,
 }: CompletionReflectionProps) {
   const colors = useColors();
   const [editing, setEditing] = useState(false);
@@ -59,16 +62,16 @@ export function CompletionReflection({
         </View>
         <View className="flex-1 gap-1">
           <Text className="text-sm font-semibold text-foreground">
-            How did today go?
+            How did today feel?
           </Text>
           <Text className="text-sm" style={{ color: colors.muted }}>
-            One quick tap helps Momentum tune tomorrow. A note is optional.
+            One tap and your coach drafts tomorrow&apos;s three. A note is optional.
           </Text>
         </View>
       </View>
 
       <View className="flex-row flex-wrap gap-2">
-        {REFLECTION_CHOICES.map((choice) => {
+        {(allowMissed ? [...REFLECTION_CHOICES, MISSED_CHOICE] : REFLECTION_CHOICES).map((choice) => {
           const selected = result === choice.value;
           return (
             <Pressable
@@ -147,5 +150,10 @@ const REFLECTION_CHOICES: { value: ReflectionResult; label: string }[] = [
   { value: "easy", label: "Easy" },
   { value: "good", label: "Good" },
   { value: "hard", label: "Hard" },
-  // No "Missed": this check-in only appears on a day where everything got done.
 ];
+
+// Only offered when something is still open (never on a finished day).
+const MISSED_CHOICE: { value: ReflectionResult; label: string } = {
+  value: "missed",
+  label: "Didn't get to it",
+};

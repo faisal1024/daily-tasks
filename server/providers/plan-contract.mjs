@@ -84,6 +84,11 @@ export function buildPrompt(payload) {
     `Recent reflection: ${payload.recentReflection ?? "none"}`,
     `Recent reflection result: ${payload.recentReflectionResult ?? "none"}`,
     formatRecentTasks(payload.recentTasks),
+    `What you remember about them: ${
+      typeof payload.coachMemory === "string" && payload.coachMemory.trim()
+        ? payload.coachMemory.trim().slice(0, 500)
+        : "nothing yet"
+    }`,
     "Return three milestones and exactly three todaySuggestions.",
     "Tasks must be short verb phrases, 64 characters or fewer, specific enough to do today, and sized to the user's time.",
     "If recent completion is weak, make tasks easier. If recent completion is strong, make tasks a gentle step up.",

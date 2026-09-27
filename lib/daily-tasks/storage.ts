@@ -18,6 +18,7 @@ import type {
   PendingRollover,
   ReflectionResult,
   Task,
+  TomorrowDraft,
   ParkedTask,
   TaskStep,
 } from "./types";
@@ -498,6 +499,31 @@ export function normalizeState(value: unknown): AppState | null {
       typeof value.plusGrandfathered === "boolean" ? value.plusGrandfathered : true,
     analyticsEnabled:
       typeof value.analyticsEnabled === "boolean" ? value.analyticsEnabled : true,
+    coachMemory:
+      typeof value.coachMemory === "string" && value.coachMemory.trim()
+        ? value.coachMemory.slice(0, 500)
+        : null,
+    tomorrowDraft: normalizeTomorrowDraft(value.tomorrowDraft),
+  };
+}
+
+function normalizeTomorrowDraft(value: unknown): TomorrowDraft | null {
+  if (!isRecord(value) || typeof value.forDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.forDate)) {
+    return null;
+  }
+  const tasks = Array.isArray(value.tasks)
+    ? value.tasks
+        .filter((text): text is string => typeof text === "string" && text.trim().length > 0)
+        .map((text) => text.slice(0, 64))
+        .slice(0, 3)
+    : [];
+  if (tasks.length === 0) return null;
+  return {
+    forDate: value.forDate,
+    tasks,
+    note: typeof value.note === "string" ? value.note.slice(0, 160) : "",
+    because: typeof value.because === "string" ? value.because.slice(0, 100) : "",
+    source: value.source === "ai" ? "ai" : "local",
   };
 }
 
@@ -548,6 +574,8 @@ export function buildInitialState(now: Date = new Date()): AppState {
     parkedTasks: [],
     plusGrandfathered: false,
     analyticsEnabled: true,
+    coachMemory: null,
+    tomorrowDraft: null,
   };
 }
 

@@ -22,6 +22,16 @@ import {
   validateBreakDownPayload,
 } from "./providers/helpers-contract.mjs";
 import {
+  EVENING_SCHEMA,
+  EVENING_SYSTEM_PROMPT,
+  EVENING_TOOL_DESCRIPTION,
+  EVENING_TOOL_NAME,
+  buildEveningPrompt,
+  isValidEvening,
+  sanitizeEvening,
+  validateEveningPayload,
+} from "./providers/evening-contract.mjs";
+import {
   PLAN_TOOL_DESCRIPTION,
   PLAN_TOOL_NAME,
   RESPONSE_SCHEMA,
@@ -34,6 +44,7 @@ import {
 export const PLAN_ROUTE = "/api/momentum/plan";
 export const BRAIN_DUMP_ROUTE = "/api/momentum/brain-dump";
 export const BREAK_DOWN_ROUTE = "/api/momentum/break-down";
+export const EVENING_ROUTE = "/api/momentum/evening";
 
 export const ROUTES = {
   [PLAN_ROUTE]: {
@@ -67,5 +78,16 @@ export const ROUTES = {
     validatePayload: validateBreakDownPayload,
     isValidResult: isValidBreakDown,
     sanitizeResult: sanitizeBreakDown,
+  },
+  [EVENING_ROUTE]: {
+    name: "evening",
+    system: EVENING_SYSTEM_PROMPT,
+    buildPrompt: buildEveningPrompt,
+    schema: EVENING_SCHEMA,
+    toolName: EVENING_TOOL_NAME,
+    toolDescription: EVENING_TOOL_DESCRIPTION,
+    validatePayload: validateEveningPayload,
+    isValidResult: isValidEvening,
+    sanitizeResult: sanitizeEvening,
   },
 };

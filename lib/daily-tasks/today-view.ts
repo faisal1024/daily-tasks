@@ -131,14 +131,17 @@ export function ideasSource(plan: MomentumPlan | null, goalTitle: string | null)
   return { personalized: false, label: "Starter ideas" };
 }
 
-/** The small streak/level chip text, e.g. "🔥 21 · Lv 4". */
-export function streakChipText(dayStreak: number, level: number): string {
-  return `🔥 ${Math.max(0, dayStreak)} · Lv ${Math.max(1, level)}`;
+/**
+ * The header chip, e.g. "Day 21": days you've shown up (planned something),
+ * today included. It only grows: missing a day never takes it away.
+ */
+export function dayChipText(daysShowedUp: number): string {
+  return `Day ${Math.max(1, Math.floor(daysShowedUp))}`;
 }
 
-export function streakChipLabel(dayStreak: number, level: number): string {
-  const days = Math.max(0, dayStreak);
-  return `${days}-day streak, level ${Math.max(1, level)}`;
+export function dayChipLabel(daysShowedUp: number): string {
+  const days = Math.max(1, Math.floor(daysShowedUp));
+  return days === 1 ? "Day 1 of showing up" : `Day ${days} of showing up`;
 }
 
 /**

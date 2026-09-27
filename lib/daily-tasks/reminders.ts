@@ -1,5 +1,5 @@
 import { toDateKey } from "./date";
-import type { NotificationConfig, NotificationPermissionState } from "./types";
+import type { NotificationConfig, NotificationPermissionState, TomorrowDraft } from "./types";
 
 export const MANAGED_REMINDER_PREFIX = "daily-tasks:";
 
@@ -24,6 +24,19 @@ export interface ReminderPlanInput {
   completedCount: number;
   settings: NotificationConfig;
   permissionState: NotificationPermissionState;
+  /** Last night's draft: the morning nudge for its day carries the tasks. */
+  draft?: TomorrowDraft | null;
+}
+
+/**
+ * Morning copy with the draft in it ("Your three for Tuesday: A · B · C"), so
+ * the notification itself is the plan. Falls back to the plain nudge.
+ */
+export function morningCopy(dayKey: string, draft: TomorrowDraft | null | undefined): { title: string; body: string } {
+  if (!draft || draft.forDate !== dayKey || draft.tasks.length === 0) return REMINDER_COPY.morning;
+  const [y, m, d] = dayKey.split("-").map(Number);
+  const weekday = new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "long" });
+  return { title: `Your three for ${weekday}`, body: draft.tasks.join(" · ") };
 }
 
 export interface PlannedReminder {
@@ -100,7 +113,7 @@ function range(startHour: number, endHour: number, step: number): number[] {
 }
 
 export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
-  const { now, taskCount, completedCount, settings, permissionState } = input;
+  const { now, taskCount, completedCount, settings, permissionState, draft } = input;
 
   if (!settings.enabled || !canScheduleReminders(permissionState)) {
     return [];
@@ -115,10 +128,9 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
     const startHour = isWeekend(now)
       ? REMINDER_HOURS.weekendMorningStart
       : REMINDER_HOURS.weekdayMorningStart;
-    return collectCandidates(
-      now,
-      "morning",
-      range(startHour, REMINDER_HOURS.morningEnd, 1),
+    const copy = morningCopy(toDateKey(now), draft);
+    return collectCandidates(now, "morning", range(startHour, REMINDER_HOURS.morningEnd, 1)).map(
+      (reminder) => ({ ...reminder, ...copy }),
     );
   }
 
@@ -175,10 +187,10 @@ export function planUpcomingMornings(input: {
   settings: NotificationConfig;
   permissionState: NotificationPermissionState;
   days?: number;
+  draft?: TomorrowDraft | null;
 }): PlannedReminder[] {
-  const { now, settings, permissionState, days = UPCOMING_MORNING_DAYS } = input;
+  const { now, settings, permissionState, days = UPCOMING_MORNING_DAYS, draft } = input;
   if (!settings.enabled || !settings.morning || !canScheduleReminders(permissionState)) return [];
-  const copy = REMINDER_COPY.morning;
   const out: PlannedReminder[] = [];
   for (let offset = 1; offset <= days; offset++) {
     // Calendar arithmetic (not +24h) so DST changes keep the local hour.
@@ -187,6 +199,7 @@ export function planUpcomingMornings(input: {
       ? REMINDER_HOURS.weekendMorningStart
       : REMINDER_HOURS.weekdayMorningStart;
     const at = candidateAt(day, hour);
+    const copy = morningCopy(toDateKey(day), draft);
     out.push({
       identifier: buildReminderIdentifier("morning", at),
       kind: "morning",

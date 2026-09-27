@@ -19,6 +19,11 @@ import { ScreenContainer } from "@/components/screen-container";
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
 import { BrainDumpSheet } from "@/components/daily-tasks/brain-dump-sheet";
 import { CompletionReflection } from "@/components/daily-tasks/completion-reflection";
+import {
+  EveningResult,
+  MorningHero,
+  TomorrowDraftCard,
+} from "@/components/daily-tasks/ritual-cards";
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
@@ -44,7 +49,6 @@ import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
-import { computeDayStreak } from "@/lib/daily-tasks/streaks";
 import {
   brainDumpToast,
   clockTimeOf,
@@ -58,6 +62,14 @@ import {
   todayStatus,
 } from "@/lib/daily-tasks/today-view";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
+import {
+  buildEveningInput,
+  closeDay,
+  draftToShow,
+  isDayClosed,
+  showEveningCheckIn,
+} from "@/lib/daily-tasks/evening";
+import type { ReflectionResult } from "@/lib/daily-tasks/types";
 
 /** A rating ask waits at least this long after the perfect day that earned it. */
 const REVIEW_DELAY_MS = 60 * 60 * 1000;
@@ -97,7 +109,6 @@ export default function HomeScreen() {
     setTodayReflection,
     setTodayReflectionResult,
     requestMomentumPlan,
-    journeyLevel,
     markReviewPrompted,
     markReviewDue,
     parkTasks,
@@ -107,6 +118,10 @@ export default function HomeScreen() {
     toggleTaskStep,
     clearTaskSteps,
     hasPlus,
+    daysShowedUp,
+    setEveningClose,
+    applyTomorrowDraft,
+    dismissTomorrowDraft,
   } = useDailyTasks();
   const { paywallEnabled, paywallSource, purchaseCount, openPaywall } = usePlus();
 
@@ -152,6 +167,10 @@ export default function HomeScreen() {
 
   const [showCelebration, setShowCelebration] = useState(false);
   const [ideasOpen, setIdeasOpen] = useState(false);
+  // Evening close in flight, and its note when it drafted nothing for tomorrow.
+  const [closingDay, setClosingDay] = useState(false);
+  const [eveningNote, setEveningNote] = useState<string | null>(null);
+  const closingRef = useRef(false);
   // Opened from "Saved for later" (full day): show just the saved items.
   const [ideasSavedOnly, setIdeasSavedOnly] = useState(false);
   // However the sheet closes (its button, a lock, rollover, the paywall), the
@@ -193,10 +212,24 @@ export default function HomeScreen() {
   });
   const entry = ideasEntry(total, state.momentumProfile.goalTitle);
   const ideasVisible = showIdeasEntry({ locked: state.todayLocked, remainingSlots });
+  // Last night's draft of today's three (if it's for today and there's room).
+  const draft = draftToShow(state.tomorrowDraft, {
+    today,
+    locked: state.todayLocked,
+    taskTexts: state.tasks.map((task) => task.text),
+  });
+  // An empty day opens on the morning ritual: last night's draft, or the prompt.
+  const morning = total === 0 && !state.todayLocked;
+  const eveningCheckIn = showEveningCheckIn({
+    taskCount: total,
+    locked: state.todayLocked,
+    perfect: progress.isPerfect,
+    hour: new Date().getHours(),
+    enabled: state.momentumSettings.eveningReflection,
+  });
   // The right column (iPad) / lower section (phone) only exists when it has content.
-  const rightHasContent = ideasVisible || progress.isPerfect;
+  const rightHasContent = ideasVisible || progress.isPerfect || eveningCheckIn || Boolean(draft);
   const twoColumn = wide && rightHasContent;
-  const dayStreak = computeDayStreak(state.history, today);
   const firstName = state.momentumProfile.name?.trim().split(/\s+/)[0] ?? "";
   const greeting = firstName
     ? `${greetingText(greetingFor())}, ${firstName}`
@@ -417,6 +450,27 @@ export default function HomeScreen() {
     seenPurchases.current = purchaseCount;
   }, [purchaseCount]);
 
+  // The evening check-in: record how the day felt, then (once a day) let the
+  // coach close it: a note and tomorrow's draft. AI for Plus, on-device otherwise.
+  const handleEveningResult = (result: ReflectionResult) => {
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    setTodayReflectionResult(result);
+    if (closingRef.current || isDayClosed(state.tomorrowDraft, today)) return;
+    closingRef.current = true;
+    setClosingDay(true);
+    const input = buildEveningInput(state, result);
+    void closeDay(input, { useAi: hasPlus && getMomentumAiProxyUrl() != null })
+      .then((close) => {
+        setEveningClose(close);
+        setEveningNote(close.note);
+        track("evening_closed", { source: close.source, count: close.tomorrow.length });
+      })
+      .finally(() => {
+        closingRef.current = false;
+        setClosingDay(false);
+      });
+  };
+
   const confirmLock = () => {
     const { title, message } = lockConfirmation(total);
     Alert.alert(title, message, [
@@ -475,8 +529,7 @@ export default function HomeScreen() {
           <TodayHeader
             greeting={greeting}
             progress={progress}
-            dayStreak={dayStreak}
-            level={journeyLevel}
+            daysShowedUp={daysShowedUp}
           />
 
           <View
@@ -599,7 +652,26 @@ export default function HomeScreen() {
             {rightHasContent && (
               <View style={twoColumn ? { flex: 1, gap: 14 } : { gap: 14 }}>
 
-                {ideasVisible && (
+                {draft && (
+                  <TomorrowDraftCard
+                    draft={draft}
+                    remainingSlots={remainingSlots}
+                    onUse={() => {
+                      haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+                      applyTomorrowDraft(draft.tasks.slice(0, remainingSlots));
+                      track("tomorrow_draft_used", { count: Math.min(draft.tasks.length, remainingSlots), source: draft.source });
+                    }}
+                    onChange={() => setBrainDumpOpen(true)}
+                    onDismiss={dismissTomorrowDraft}
+                  />
+                )}
+                {morning && !draft && (
+                  <MorningHero
+                    onDump={() => setBrainDumpOpen(true)}
+                    onBrowseIdeas={() => setIdeasOpen(true)}
+                  />
+                )}
+                {ideasVisible && !morning && !draft && (
                   <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
                     <Pressable
                       onPress={() => setIdeasOpen(true)}
@@ -642,26 +714,29 @@ export default function HomeScreen() {
                 )}
 
                 {progress.isPerfect && (
+                  <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
+                    <Text className="text-sm font-semibold text-foreground">
+                      {total === MAX_TASKS ? "All three, done." : "Everything you picked is done."}
+                    </Text>
+                    <Text className="text-sm text-muted">
+                      You showed up today. Close the day below and your coach drafts tomorrow.
+                    </Text>
+                  </View>
+                )}
+                {eveningCheckIn && (
                   <>
-                    <View className="rounded-2xl bg-surface border border-border p-4 gap-1">
-                      <Text className="text-sm font-semibold text-foreground">
-                        {total === MAX_TASKS ? "All three, done." : "Everything you picked is done."}
-                      </Text>
-                      <Text className="text-sm text-muted">
-                        You showed up today. Momentum will use this to shape tomorrow.
-                      </Text>
-                    </View>
-                    {state.momentumSettings.eveningReflection && (
-                      <CompletionReflection
-                        value={state.todayReflection}
-                        result={state.todayReflectionResult}
-                        onSelectResult={(result) => {
-                          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-                          setTodayReflectionResult(result);
-                        }}
-                        onSave={setTodayReflection}
-                      />
-                    )}
+                    <CompletionReflection
+                      value={state.todayReflection}
+                      result={state.todayReflectionResult}
+                      allowMissed={!progress.isPerfect}
+                      onSelectResult={handleEveningResult}
+                      onSave={setTodayReflection}
+                    />
+                    <EveningResult
+                      closing={closingDay}
+                      note={isDayClosed(state.tomorrowDraft, today) ? state.tomorrowDraft?.note ?? null : eveningNote}
+                      draft={isDayClosed(state.tomorrowDraft, today) ? state.tomorrowDraft : null}
+                    />
                   </>
                 )}
               </View>

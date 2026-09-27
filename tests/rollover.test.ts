@@ -48,6 +48,8 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     parkedTasks: [],
     plusGrandfathered: false,
     analyticsEnabled: true,
+    coachMemory: null,
+    tomorrowDraft: null,
     ...overrides,
   };
 }
