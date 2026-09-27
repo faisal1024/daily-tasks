@@ -7,6 +7,7 @@ import {
   loadPackages,
   onPlusStatusChange,
   purchase,
+  restore,
 } from "@/lib/daily-tasks/purchases";
 
 const mockSdk = {
@@ -22,9 +23,11 @@ const mockSdk = {
 jest.mock("react-native-purchases", () => ({ __esModule: true, default: mockSdk }));
 
 const mockSetProxyUserId = jest.fn();
+const mockSetProxyUserIdPending = jest.fn();
 jest.mock("@/lib/daily-tasks/ai-client", () => ({
   ...jest.requireActual("@/lib/daily-tasks/ai-client"),
   setProxyUserId: (id: string | null) => mockSetProxyUserId(id),
+  setProxyUserIdPending: (p: Promise<unknown>) => mockSetProxyUserIdPending(p),
 }));
 // Optional on the SDK mock so tests can remove it (older native builds).
 const sdkWithId = mockSdk as typeof mockSdk & { getAppUserID?: jest.Mock };
@@ -176,6 +179,29 @@ describe("purchases", () => {
       expect(configurePurchases()).toBe(true);
       await flush();
       expect(mockSetProxyUserId).not.toHaveBeenCalled();
+    });
+
+    it("re-reads the id after a purchase and after a restore (the id can change)", async () => {
+      sdkWithId.getAppUserID = jest.fn().mockResolvedValue("$RCAnonymousID:first");
+      await configuredWithAnnual();
+      await flush();
+      sdkWithId.getAppUserID.mockResolvedValue("$RCAnonymousID:after-purchase");
+      mockSdk.purchasePackage.mockResolvedValue({ customerInfo: ACTIVE });
+      await purchase("$rc_annual");
+      await flush();
+      expect(mockSetProxyUserId).toHaveBeenLastCalledWith("$RCAnonymousID:after-purchase");
+      sdkWithId.getAppUserID.mockResolvedValue("$RCAnonymousID:restored");
+      mockSdk.restorePurchases.mockResolvedValue(ACTIVE);
+      expect(await restore()).toBe(true);
+      await flush();
+      expect(mockSetProxyUserId).toHaveBeenLastCalledWith("$RCAnonymousID:restored");
+      expect(sdkWithId.getAppUserID).toHaveBeenCalledTimes(3);
+    });
+
+    it("hands the pending lookup to the proxy client so the first request can wait", async () => {
+      sdkWithId.getAppUserID = jest.fn().mockResolvedValue("$RCAnonymousID:abc");
+      configurePurchases();
+      expect(mockSetProxyUserIdPending).toHaveBeenCalledWith(expect.any(Promise));
     });
 
     it("sends no id when the SDK returns a non-string", async () => {

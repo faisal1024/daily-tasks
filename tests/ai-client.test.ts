@@ -9,7 +9,10 @@ import {
   getMomentumProxySecret,
   postToProxy,
   proxyRouteUrl,
+  requestSupporterGrant,
+  setProxyGrandfathered,
   setProxyUserId,
+  setProxyUserIdPending,
 } from "../lib/daily-tasks/ai-client";
 import { MomentumAiError } from "../lib/daily-tasks/ai-status";
 import * as momentumAi from "../lib/daily-tasks/momentum-ai";
@@ -282,5 +285,131 @@ describe("setProxyUserId", () => {
     const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({}));
     setProxyUserId("y".repeat(100));
     expect((await headersOf(fetchImpl))[PROXY_USER_HEADER]).toHaveLength(100);
+  });
+});
+
+describe("proxy user id: pending lookup and grandfathered installs", () => {
+  const ID = "$RCAnonymousID:0123456789abcdef0123456789abcdef";
+  afterEach(async () => {
+    setProxyUserId(null);
+    setProxyGrandfathered(false);
+    // Settle any pending lookup a test left behind.
+    const done = Promise.resolve();
+    setProxyUserIdPending(done);
+    await done;
+    await Promise.resolve();
+  });
+  const send = async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({}));
+    await postToProxy({ url: "https://p.test/x", payload: {}, proxySecret: null, fetchImpl: fetchImpl as unknown as typeof fetch });
+    return fetchImpl.mock.calls[0][1].headers as Record<string, string>;
+  };
+
+  it("waits for a pending id lookup and sends the id it produced", async () => {
+    let resolveId!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      resolveId = () => {
+        setProxyUserId(ID);
+        resolve();
+      };
+    });
+    setProxyUserIdPending(pending);
+    const sent = send();
+    resolveId();
+    expect((await sent)[PROXY_USER_HEADER]).toBe(ID);
+  });
+
+  it("gives up after 1s and sends no id, clearing its wait timer either way", async () => {
+    vi.useFakeTimers();
+    setProxyUserIdPending(new Promise(() => {}));
+    const sent = send();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await sent).not.toHaveProperty(PROXY_USER_HEADER);
+    // Only the (cleared) request timer would remain; the id wait timer is gone.
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Resolved lookup: the 1s timer is cleared immediately, not left running.
+    const done = Promise.resolve();
+    setProxyUserIdPending(done);
+    setProxyUserId(null);
+    const again = send();
+    await vi.advanceTimersByTimeAsync(0);
+    await again;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("doesn't wait when an id is already known", async () => {
+    vi.useFakeTimers();
+    setProxyUserId(ID);
+    setProxyUserIdPending(new Promise(() => {}));
+    const headers = await send();
+    expect(headers[PROXY_USER_HEADER]).toBe(ID);
+  });
+
+  it("grandfathered installs send no id and don't wait for one", async () => {
+    vi.useFakeTimers();
+    setProxyGrandfathered(true);
+    setProxyUserIdPending(new Promise(() => {}));
+    expect(await send()).not.toHaveProperty(PROXY_USER_HEADER);
+    setProxyUserId(ID);
+    expect(await send()).not.toHaveProperty(PROXY_USER_HEADER);
+    setProxyGrandfathered(false);
+    expect((await send())[PROXY_USER_HEADER]).toBe(ID);
+  });
+});
+
+describe("requestSupporterGrant", () => {
+  const ID = "$RCAnonymousID:0123456789abcdef0123456789abcdef";
+  const PLAN = "https://momentum.onrender.com/api/momentum/plan";
+  afterEach(() => {
+    setProxyUserId(null);
+    setProxyGrandfathered(false);
+  });
+  const grant = (fetchImpl: unknown, extra: Record<string, unknown> = {}) =>
+    requestSupporterGrant({ planUrl: PLAN, proxySecret: "s3cret", fetchImpl: fetchImpl as typeof fetch, ...extra });
+
+  it("POSTs to the grandfather route with the secret and the id, even when grandfathered", async () => {
+    setProxyUserId(ID);
+    setProxyGrandfathered(true);
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({ granted: true }));
+    expect(await grant(fetchImpl)).toBe("granted");
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://momentum.onrender.com/api/momentum/grandfather");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({ [PROXY_SECRET_HEADER]: "s3cret", [PROXY_USER_HEADER]: ID });
+  });
+
+  it.each([
+    [403, "closed"],
+    [401, "retry"],
+    [429, "retry"],
+    [503, "retry"],
+  ])("maps HTTP %i to %s", async (status, expected) => {
+    setProxyUserId(ID);
+    expect(await grant(vi.fn(async () => jsonResponse({}, status)))).toBe(expected);
+  });
+
+  it("retries later on a network error", async () => {
+    setProxyUserId(ID);
+    expect(await grant(vi.fn(async () => Promise.reject(new Error("offline"))))).toBe("retry");
+  });
+
+  it("retries later without a proxy URL, an id, or a secret (without calling out)", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({}));
+    expect(await grant(fetchImpl)).toBe("retry"); // no id
+    setProxyUserId(ID);
+    expect(await grant(fetchImpl, { planUrl: null })).toBe("retry");
+    expect(await grant(fetchImpl, { proxySecret: null })).toBe("retry");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("waits for a pending id lookup first", async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse({}));
+    const pending = Promise.resolve().then(() => setProxyUserId(ID));
+    setProxyUserIdPending(pending);
+    expect(await grant(fetchImpl)).toBe("granted");
+    expect((fetchImpl.mock.calls[0][1].headers as Record<string, string>)[PROXY_USER_HEADER]).toBe(ID);
   });
 });

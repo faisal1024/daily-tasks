@@ -26,6 +26,7 @@ const ALL_KINDS: AiFailureKind[] = [
   "network",
   "unavailable",
   "invalid_response",
+  "needs_plus",
 ];
 
 function plan(overrides: Partial<MomentumPlan> = {}): MomentumPlan {
@@ -48,9 +49,9 @@ describe("failure classification", () => {
     expect(kindForStatus(401)).toBe("unauthorized");
     expect(kindForStatus(403)).toBe("unauthorized");
     expect(kindForStatus(429)).toBe("rate_limited");
-    // The proxy's Plus check (402) falls back like any unavailable AI.
-    expect(kindForStatus(402)).toBe("unavailable");
-    expect(kindForStatus(402, "Plus required")).toBe("unavailable");
+    // The proxy's Plus check said no.
+    expect(kindForStatus(402)).toBe("needs_plus");
+    expect(kindForStatus(402, "Free limit reached")).toBe("needs_plus");
     expect(kindForStatus(503, "Service is busy, try again later")).toBe("busy");
     expect(kindForStatus(503)).toBe("unavailable");
     expect(kindForStatus(503, "Bad gateway")).toBe("unavailable");
@@ -85,6 +86,9 @@ describe("aiFailureMessage", () => {
     expect(aiFailureMessage("rate_limited")).toContain("later");
     expect(aiFailureMessage("busy")).toContain("today");
     expect(aiFailureMessage("unauthorized")).toContain("latest version");
+    expect(aiFailureMessage("needs_plus")).toBe(
+      "We couldn't confirm your Plus subscription. Try Restore purchases in Settings.",
+    );
   });
 
   it("never blames the user or promises a one-minute wait for rate limits", () => {
@@ -182,7 +186,7 @@ describe("shouldRetryAiOnForeground", () => {
   });
 
   it("does not retry limits, the spend cap, or auth failures", () => {
-    for (const kind of ["rate_limited", "busy", "unauthorized"] as const) {
+    for (const kind of ["rate_limited", "busy", "unauthorized", "needs_plus"] as const) {
       expect(shouldRetryAiOnForeground({ ...base, failureKind: kind })).toBe(false);
     }
   });
