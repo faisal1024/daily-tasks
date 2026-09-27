@@ -154,6 +154,11 @@ export default function HomeScreen() {
   const [ideasOpen, setIdeasOpen] = useState(false);
   // Opened from "Saved for later" (full day): show just the saved items.
   const [ideasSavedOnly, setIdeasSavedOnly] = useState(false);
+  // However the sheet closes (its button, a lock, rollover, the paywall), the
+  // next open starts in the normal view.
+  useEffect(() => {
+    if (!ideasOpen) setIdeasSavedOnly(false);
+  }, [ideasOpen]);
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   // Short confirmation after a brain dump, so saved items aren't a mystery.
   const [toast, setToast] = useState<string | null>(null);

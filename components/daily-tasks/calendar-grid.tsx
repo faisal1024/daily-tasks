@@ -10,6 +10,8 @@ interface CalendarGridProps {
   history: History;
   selectedDate: string | null;
   onSelectDate: (dateKey: string) => void;
+  /** The app's current day (may differ from the clock just after travel). */
+  today?: string;
 }
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -19,13 +21,14 @@ export function CalendarGrid({
   history,
   selectedDate,
   onSelectDate,
+  today: appToday,
 }: CalendarGridProps) {
   const colors = useColors();
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
   const firstWeekday = new Date(year, monthIndex, 1).getDay();
   const total = daysInMonth(month);
-  const today = todayKey();
+  const today = appToday ?? todayKey();
 
   const cells: { key: string; day: number | null; dateKey: string | null }[] = [];
   for (let i = 0; i < firstWeekday; i++) {

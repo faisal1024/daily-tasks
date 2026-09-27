@@ -219,14 +219,17 @@ function reducer(state: AppState, action: Action): AppState {
     // Step changes also sync today's history record: tomorrow's carry-over is
     // built from it, so it must hold the current steps and their progress.
     case "setTaskSteps": {
+      if (!state.tasks.some((task) => task.id === action.taskId)) return state;
       const next = setTaskSteps(state, action.taskId, action.texts, action.at, action.forText);
       return next === state ? state : syncTodayHistory(next, action.today);
     }
     case "toggleTaskStep": {
+      if (!state.tasks.some((task) => task.id === action.taskId)) return state;
       const next = toggleTaskStep(state, action.taskId, action.stepId);
       return next === state ? state : syncTodayHistory(next, action.today);
     }
     case "clearTaskSteps": {
+      if (!state.tasks.some((task) => task.id === action.taskId)) return state;
       const next = clearTaskSteps(state, action.taskId);
       return next === state ? state : syncTodayHistory(next, action.today);
     }
@@ -1079,7 +1082,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       if (status !== "active") return;
       // A new day is handled by the rollover (which fetches a fresh plan); a
       // retry for yesterday's failure would just be a wasted call.
-      if (todayKey() !== today) return;
+      if (storeDayFor(today, todayKey()) !== today) return;
       if (
         shouldRetryAiOnForeground({
           status: state.momentumPlanStatus,
@@ -1104,12 +1107,24 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     },
     [],
   );
+  // The evening check-in belongs to the day it's about: saved just after
+  // midnight with yesterday still on screen, it lands on yesterday.
   const setTodayReflection = useCallback((text: string) => {
+    if (dayChangePending()) {
+      dispatch({ type: "setTodayReflection", text, today: todayRef.current });
+      ensureDay();
+      return;
+    }
     dispatch({ type: "setTodayReflection", text, today: ensureDay() });
-  }, [ensureDay]);
+  }, [ensureDay, dayChangePending]);
   const setTodayReflectionResult = useCallback((result: ReflectionResult) => {
+    if (dayChangePending()) {
+      dispatch({ type: "setTodayReflectionResult", result, today: todayRef.current, now: new Date() });
+      ensureDay();
+      return;
+    }
     dispatch({ type: "setTodayReflectionResult", result, today: ensureDay(), now: new Date() });
-  }, [ensureDay]);
+  }, [ensureDay, dayChangePending]);
   const resetAll = useCallback(async () => {
     await Promise.all([clearState(), resetAnalyticsIdentity()]);
     dispatch({ type: "reset", state: buildInitialState() });

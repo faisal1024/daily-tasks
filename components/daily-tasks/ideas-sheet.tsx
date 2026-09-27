@@ -104,7 +104,7 @@ export function IdeasSheet({
             className="text-2xl text-foreground"
             style={{ fontFamily: Fonts.rounded }}
           >
-            {goalTitle ? `Ideas for ${goalTitle}` : "Ideas for today"}
+            {savedOnly ? "Saved for later" : goalTitle ? `Ideas for ${goalTitle}` : "Ideas for today"}
           </Text>
           <Pressable
             onPress={onClose}
@@ -137,7 +137,7 @@ export function IdeasSheet({
                 {source.label}
               </Text>
             </View>
-            {canRegenerate && (
+            {canRegenerate && !savedOnly && (
               <Pressable
                 onPress={onRegenerate}
                 disabled={regenerating}
@@ -290,7 +290,7 @@ export function IdeasSheet({
             </View>
           )}
 
-          {full && (
+          {full && !savedOnly && (
             <View className="gap-2">
               {onLock && (
                 <Pressable
