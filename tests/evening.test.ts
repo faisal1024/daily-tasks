@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   closeDay,
+  draftForNotification,
   draftForTomorrow,
   draftToShow,
   isDayClosed,
@@ -55,9 +56,11 @@ describe("evening contract (server)", () => {
     expect(validateEveningPayload({ ...input(), tasks: [...input().tasks, { text: "4th", done: false }] })).toMatch(/tasks/);
     expect(validateEveningPayload({ ...input(), tasks: [{ text: "  ", done: true }] })).toMatch(/task text/);
     expect(validateEveningPayload({ ...input(), tasks: [{ text: "Walk" }] })).toMatch(/done/);
-    expect(validateEveningPayload({ ...input(), note: "x".repeat(501) })).toMatch(/note/);
+    // Long notes and memories are shortened in the prompt, not rejected.
+    expect(validateEveningPayload({ ...input(), note: "x".repeat(2000) })).toBeNull();
+    expect(validateEveningPayload({ ...input(), note: "x".repeat(2001) })).toMatch(/note/);
     expect(validateEveningPayload({ ...input(), goalTitle: "x".repeat(121) })).toMatch(/goalTitle/);
-    expect(validateEveningPayload({ ...input(), memory: "x".repeat(501) })).toMatch(/memory/);
+    expect(validateEveningPayload({ ...input(), memory: "x".repeat(2001) })).toMatch(/memory/);
     expect(validateEveningPayload(null)).toMatch(/Invalid/);
   });
 
@@ -68,6 +71,21 @@ describe("evening contract (server)", () => {
     expect(prompt).toContain("How today felt: good");
     expect(prompt).toContain("What you remember about them so far: Mornings work best.");
     expect(buildEveningPrompt(input({ tasks: [], memory: null }))).toContain("nothing yet");
+  });
+
+  it("accepts a long emoji memory (counted in whole characters, up to 2000) and sends at most 500 of it", () => {
+    // 1500 characters, 3000 UTF-16 units: fine by characters, too long by .length.
+    const memory = "🏃".repeat(1500);
+    expect(memory.length).toBe(3000);
+    expect(validateEveningPayload({ ...input(), memory })).toBeNull();
+    const line = buildEveningPrompt(input({ memory }))
+      .split("\n")
+      .find((l: string) => l.startsWith("What you remember about them so far: "));
+    const sent = line!.slice("What you remember about them so far: ".length);
+    expect(Array.from(sent).length).toBeLessThanOrEqual(500);
+    expect(sent.startsWith("🏃🏃")).toBe(true);
+    // Whole emoji only: no half surrogate pairs.
+    expect(sent).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
   });
 
   it("accepts a result with a note and one usable task; sanitizes with caps, dedupe, max 3 and echoes dropped", () => {
@@ -130,8 +148,15 @@ describe("evening close (client)", () => {
     const d = draftForTomorrow(close, TODAY);
     expect(d).toMatchObject({ forDate: "2026-09-26", tasks: ["Read", "Stretch"], source: "local" });
     expect(draftForTomorrow({ ...close, tomorrow: [] }, TODAY)).toBeNull();
-    expect(isDayClosed(d, TODAY)).toBe(true);
-    expect(isDayClosed(d, "2026-09-26")).toBe(false);
+  });
+
+  it("knows when a day is closed, and for which answer", () => {
+    const record = { date: TODAY, result: "good" as const, note: "A good day." };
+    expect(isDayClosed(record, TODAY)).toBe(true);
+    expect(isDayClosed(record, TODAY, "good")).toBe(true);
+    // A different answer re-closes the day.
+    expect(isDayClosed(record, TODAY, "hard")).toBe(false);
+    expect(isDayClosed(record, "2026-09-26")).toBe(false);
     expect(isDayClosed(null, TODAY)).toBe(false);
   });
 
@@ -145,11 +170,39 @@ describe("evening close (client)", () => {
     expect(draftToShow(draft({ tasks: ["New"] }), { today, locked: false, taskTexts: ["A", "B", "C"] })).toBeNull();
   });
 
-  it("offers the check-in once there are tasks and it's evening, locked or perfect (and it's enabled)", () => {
+  it("leaves out draft tasks finished after the close, or dropped at the rollover, on the source day", () => {
+    const sourceDay = {
+      date: TODAY,
+      total: 3,
+      completed: 1,
+      locked: false,
+      lockSource: null,
+      reflection: null,
+      reflectionResult: null,
+      tasks: [
+        { id: "a", text: "read  TEN pages", completed: true, carriedOver: false, rolloverOutcome: null },
+        { id: "b", text: "Stretch", completed: false, carriedOver: false, rolloverOutcome: "dropped" as const },
+        { id: "c", text: "Call mum", completed: false, carriedOver: false, rolloverOutcome: "carried" as const },
+      ],
+    };
+    const shown = draftToShow(draft({ tasks: ["Read ten pages", "Stretch", "Call mum"] }), {
+      today: "2026-09-26",
+      locked: false,
+      taskTexts: [],
+      sourceDay,
+    });
+    expect(shown?.tasks).toEqual(["Call mum"]);
+    expect(
+      draftToShow(draft({ tasks: ["Read ten pages", "Stretch"] }), { today: "2026-09-26", locked: false, taskTexts: [], sourceDay }),
+    ).toBeNull();
+  });
+
+  it("offers the check-in once there are tasks and it's evening or perfect (not merely locked), when enabled", () => {
     const base = { taskCount: 2, locked: false, perfect: false, hour: 16, enabled: true };
     expect(showEveningCheckIn(base)).toBe(false);
     expect(showEveningCheckIn({ ...base, hour: 17 })).toBe(true);
-    expect(showEveningCheckIn({ ...base, locked: true })).toBe(true);
+    // Auto-lock is around noon: a locked lunchtime isn't the end of the day.
+    expect(showEveningCheckIn({ ...base, hour: 12, locked: true })).toBe(false);
     expect(showEveningCheckIn({ ...base, perfect: true })).toBe(true);
     expect(showEveningCheckIn({ ...base, hour: 20, enabled: false })).toBe(false);
     expect(showEveningCheckIn({ ...base, hour: 20, taskCount: 0 })).toBe(false);
@@ -197,3 +250,24 @@ describe("storage: tomorrowDraft and coachMemory", () => {
     expect(normalizeState(old)).toMatchObject({ tomorrowDraft: null, coachMemory: null });
   });
 });
+
+describe("draftForNotification", () => {
+  const tasks = [
+    { id: "t0", text: "Read  ten pages" },
+    { id: "t1", text: "Stretch" },
+  ];
+  it("drops tomorrow's draft tasks finished today since the close (ignoring case and spacing)", () => {
+    const d = draft({ forDate: "2026-09-26", tasks: ["read ten pages", "Stretch", "Call mum"] });
+    expect(draftForNotification(d, { today: TODAY, tasks, completedIds: ["t0"] })?.tasks).toEqual(["Stretch", "Call mum"]);
+    expect(draftForNotification(d, { today: TODAY, tasks, completedIds: [] })).toBe(d);
+    const allDone = draft({ forDate: "2026-09-26", tasks: ["Read ten pages", "Stretch"] });
+    expect(draftForNotification(allDone, { today: TODAY, tasks, completedIds: ["t0", "t1"] })).toBeNull();
+  });
+
+  it("passes a draft for another day through", () => {
+    const d = draft({ forDate: TODAY, tasks: ["Stretch"] });
+    expect(draftForNotification(d, { today: TODAY, tasks, completedIds: ["t1"] })).toBe(d);
+    expect(draftForNotification(null, { today: TODAY, tasks, completedIds: [] })).toBeNull();
+  });
+});
+

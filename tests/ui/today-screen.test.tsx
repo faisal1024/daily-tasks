@@ -123,6 +123,7 @@ function makeStore(overrides: Partial<AppState> = {}) {
     markReviewPrompted: jest.fn(),
     markReviewDue: jest.fn(),
     unlockToday: jest.fn(),
+    plusConfirmed: true,
     daysShowedUp: 1,
     setEveningClose: jest.fn(),
     applyTomorrowDraft: jest.fn(),
@@ -1075,12 +1076,22 @@ describe("Today on a wide screen", () => {
     expect(screen.getByTestId("today-two-column")).toBeOnTheScreen();
   });
 
-  it("puts the evening check-in in the right column on a locked day that isn't perfect", async () => {
+  it("puts the evening check-in in the right column on a locked day that isn't perfect, in the evening", async () => {
+    jest.useFakeTimers({ now: new Date(2026, 8, 26, 18, 0), doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"] });
     mockWindow = IPAD;
     mockStore = makeStore({ tasks: tasks("Walk"), todayLocked: true, todayLockSource: "manual" });
     await render(<HomeScreen />);
     expect(screen.getByTestId("today-two-column")).toBeOnTheScreen();
     expect(screen.getByText("How did today feel?")).toBeOnTheScreen();
+  });
+
+  it("stays one column on a locked day at lunchtime (no check-in yet)", async () => {
+    jest.useFakeTimers({ now: new Date(2026, 8, 26, 12, 0), doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"] });
+    mockWindow = IPAD;
+    mockStore = makeStore({ tasks: tasks("Walk"), todayLocked: true, todayLockSource: "manual" });
+    await render(<HomeScreen />);
+    expect(screen.queryByText("How did today feel?")).toBeNull();
+    expect(screen.queryByTestId("today-two-column")).toBeNull();
   });
 
   it("stays one column on a full, unlocked day before the evening (nothing for the right column)", async () => {
@@ -1181,21 +1192,55 @@ describe("Today: morning draft and evening close", () => {
     await render(<HomeScreen />);
     expect(screen.getByTestId("tomorrow-draft")).toHaveTextContent(/Lighter today\./);
     await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
-    expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch"]);
+    expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch"], ["Stretch", "Call mum", "Hydrate"]);
   });
 
-  it("closes the day once from the check-in (even on a second quick tap) and shows the coach's note", async () => {
-    let finish!: (close: typeof TOMORROW_CLOSE) => void;
-    (closeDay as jest.Mock).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+  it("offers only draft tasks that weren't carried over, finished or dropped yesterday", async () => {
+    const YESTERDAY = "2026-09-25";
+    const rec = (id: string, text: string, completed: boolean, outcome: "carried" | "dropped" | null) => ({
+      id,
+      text,
+      completed,
+      carriedOver: false,
+      rolloverOutcome: outcome,
+    });
     mockStore = makeStore({
-      tasks: tasks("Walk", "Read", "Stretch"),
-      todayCompletions: ["t0", "t1"],
-      todayLocked: true,
-      todayLockSource: "manual",
+      // A was carried into today.
+      tasks: [{ id: "c0", text: "A", createdAt: "", carriedOver: true }],
+      tomorrowDraft: { forDate: TODAY, tasks: ["A", "B", "C", "D"], note: "", because: "", source: "local" },
+      history: {
+        [YESTERDAY]: {
+          date: YESTERDAY,
+          total: 4,
+          completed: 1,
+          locked: false,
+          lockSource: null,
+          reflection: null,
+          reflectionResult: null,
+          tasks: [rec("y0", "A", false, "carried"), rec("y1", "C", false, "dropped"), rec("y2", "d ", true, null)],
+        },
+      },
     });
     await render(<HomeScreen />);
-    await fireEvent.press(screen.getByText("Good"));
-    await fireEvent.press(screen.getByText("Hard"));
+    expect(screen.getByTestId("tomorrow-draft")).toHaveTextContent(/Ready for today/);
+    await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
+    expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["B"], ["B"]);
+  });
+
+  const EVENING: Parameters<typeof jest.useFakeTimers>[0] = {
+    now: new Date(2026, 8, 26, 20, 0),
+    doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"],
+  };
+  const eveningDay = { tasks: tasks("Walk", "Read", "Stretch"), todayCompletions: ["t0", "t1"] };
+
+  it("closes the day once from the check-in (even on a second quick tap), for the day it was tapped on", async () => {
+    jest.useFakeTimers(EVENING);
+    let finish!: (close: typeof TOMORROW_CLOSE) => void;
+    (closeDay as jest.Mock).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    mockStore = makeStore(eveningDay);
+    const { rerender } = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Today felt good" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Today felt hard" }));
     expect(closeDay).toHaveBeenCalledTimes(1);
     const [input, options] = (closeDay as jest.Mock).mock.calls[0];
     expect(input).toMatchObject({
@@ -1206,24 +1251,56 @@ describe("Today: morning draft and evening close", () => {
         { text: "Stretch", done: false },
       ],
     });
-    // No proxy in this build: the on-device close.
+    // Plus is confirmed but there's no proxy in this build: the on-device close.
     expect(options).toEqual({ useAi: false });
     expect(screen.getByTestId("evening-closing")).toBeOnTheScreen();
 
+    // Midnight passes before the reply lands: it still belongs to the tapped day.
+    const { setEveningClose } = mockStore;
+    mockStore = { ...makeStore(eveningDay), today: "2026-09-27", setEveningClose };
+    await rerender(<HomeScreen />);
     await act(async () => finish(TOMORROW_CLOSE));
-    expect(mockStore.setEveningClose).toHaveBeenCalledWith(TOMORROW_CLOSE);
-    expect(screen.getByTestId("evening-result")).toHaveTextContent(/A good day\. You showed up\./);
+    expect(setEveningClose).toHaveBeenCalledWith(TOMORROW_CLOSE, TODAY, "good");
   });
 
-  it("offers \"Didn't get to it\" only when something is still open", async () => {
-    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayCompletions: ["t0"], todayLocked: true, todayLockSource: "manual" });
+  it("keeps a day closed even when nothing was drafted; the same answer doesn't re-close, a different one does", async () => {
+    jest.useFakeTimers(EVENING);
+    const nothing = { ...TOMORROW_CLOSE, tomorrow: [] };
+    (closeDay as jest.Mock).mockResolvedValue(nothing);
+    mockStore = makeStore(eveningDay);
     const { rerender } = await render(<HomeScreen />);
-    expect(screen.getByText("Didn't get to it")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Today felt good" }));
+    await act(async () => {});
+    expect(closeDay).toHaveBeenCalledTimes(1);
 
-    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayCompletions: ["t0", "t1"], todayLocked: true, todayLockSource: "manual" });
+    // The store now records the close (no draft for tomorrow).
+    mockStore = makeStore({
+      ...eveningDay,
+      todayReflectionResult: "good",
+      eveningClose: { date: TODAY, result: "good", note: nothing.note },
+    });
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("evening-result")).toHaveTextContent(/A good day\. You showed up\./);
+    await fireEvent.press(screen.getByRole("button", { name: "Today felt good" }));
+    await act(async () => {});
+    expect(closeDay).toHaveBeenCalledTimes(1);
+
+    await fireEvent.press(screen.getByRole("button", { name: "Today felt hard" }));
+    await act(async () => {});
+    expect(closeDay).toHaveBeenCalledTimes(2);
+    expect((closeDay as jest.Mock).mock.calls[1][0]).toMatchObject({ result: "hard" });
+  });
+
+  it("offers \"Didn't get to it today\" only when something is still open", async () => {
+    jest.useFakeTimers(EVENING);
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayCompletions: ["t0"] });
+    const { rerender } = await render(<HomeScreen />);
+    expect(screen.getByRole("button", { name: "I didn't get to it today" })).toHaveTextContent("Didn't get to it today");
+
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayCompletions: ["t0", "t1"] });
     await rerender(<HomeScreen />);
     expect(screen.getByText("How did today feel?")).toBeOnTheScreen();
-    expect(screen.queryByText("Didn't get to it")).toBeNull();
+    expect(screen.queryByRole("button", { name: "I didn't get to it today" })).toBeNull();
   });
 });
 

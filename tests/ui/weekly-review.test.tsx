@@ -156,6 +156,14 @@ describe("Progress: milestones are ticked by hand", () => {
     await act(async () => buttons.find((b) => b.text === "Yes, I got there")?.onPress?.());
     expect(screen.queryByTestId("milestone-reach-run_1_mile")).toBeNull();
     expect(screen.getByText("Milestone reached!")).toBeOnTheScreen();
+
+    // "Done" can be undone after a confirmation.
+    alert.mockClear();
+    await fireEvent.press(screen.getByTestId("milestone-done-run_1_mile"));
+    const [undoTitle, , undoButtons] = alert.mock.calls[0] as unknown as [string, string, { text: string; onPress?: () => void }[]];
+    expect(undoTitle).toBe("Mark as not reached?");
+    await act(async () => undoButtons.find((b) => b.text === "Not reached yet")?.onPress?.());
+    expect(screen.getByTestId("milestone-reach-run_1_mile")).toBeOnTheScreen();
     alert.mockRestore();
   });
 });
