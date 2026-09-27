@@ -25,7 +25,7 @@ export function DayDetailCard({ dateLabel, record }: DayDetailCardProps) {
           No focus history
         </Text>
         <Text className="text-sm" style={{ color: colors.muted }}>
-          This day has no saved focus commitments yet.
+          No tasks were saved for this day.
         </Text>
       </View>
     );

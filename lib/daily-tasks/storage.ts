@@ -645,6 +645,16 @@ export async function clearState(): Promise<void> {
   } catch (err) {
     console.warn("[daily-tasks] failed to clear state", err);
   }
+  // Separately, so a failure listing keys can't leave the backup behind.
+  // Quarantined copies hold full task text too: a reset must remove them.
+  try {
+    const quarantined = (await AsyncStorage.getAllKeys()).filter((key) =>
+      key.startsWith(QUARANTINE_PREFIX),
+    );
+    if (quarantined.length > 0) await AsyncStorage.multiRemove(quarantined);
+  } catch (err) {
+    console.warn("[daily-tasks] failed to clear quarantined state", err);
+  }
 }
 
 /** Test-only: reset the module's write guard. */
