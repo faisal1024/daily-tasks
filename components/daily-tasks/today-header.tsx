@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Dimensions, Text, View, type LayoutChangeEvent } from "react-native";
+import { Text, View, useWindowDimensions, type LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GradientBackground } from "@/components/daily-tasks/gradient-card";
@@ -23,7 +23,8 @@ interface TodayHeaderProps {
  */
 export function TodayHeader({ greeting, progress, dayStreak, level }: TodayHeaderProps) {
   const insets = useSafeAreaInsets();
-  const screenW = Dimensions.get("window").width;
+  // Live width: correct after iPad rotation, Split View and Stage Manager resizes.
+  const screenW = useWindowDimensions().width;
   const [height, setHeight] = useState(0);
   const onLayout = (e: LayoutChangeEvent) => setHeight(e.nativeEvent.layout.height);
 

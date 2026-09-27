@@ -189,6 +189,9 @@ export interface AppState {
   journey: Journey;
   // When we last asked for an App Store rating (ISO), or null if never.
   lastReviewPromptAt: string | null;
+  // A perfect day earned a rating ask (ISO time). It's shown on a later app
+  // open, never on top of the celebration. Cleared once requested.
+  reviewDueAt: string | null;
   parkedTasks: ParkedTask[];
   // Used the app before the paywall shipped: keeps every Plus feature free.
   plusGrandfathered: boolean;

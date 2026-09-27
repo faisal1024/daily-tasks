@@ -82,6 +82,8 @@ const actions = {
   setTodayReflectionResult: jest.fn(),
   requestMomentumPlan: jest.fn(async () => {}),
   markReviewPrompted: jest.fn(),
+  markReviewDue: jest.fn(),
+  unlockToday: jest.fn(),
   parkTasks: jest.fn(),
   removeParkedTask: jest.fn(),
   addParkedTask: jest.fn(),
@@ -133,7 +135,7 @@ async function reachPerfectDay() {
 }
 
 describe("celebration with the real overlay", () => {
-  it("auto-dismisses on schedule and then asks for a rating", async () => {
+  it("auto-dismisses on schedule, marking a rating due instead of asking on top of it", async () => {
     await reachPerfectDay();
     expect(screen.getByText("All Done!")).toBeOnTheScreen();
     await act(async () => {
@@ -143,7 +145,8 @@ describe("celebration with the real overlay", () => {
     await act(async () => {
       jest.advanceTimersByTime(600);
     });
-    expect(requestAppReview).toHaveBeenCalledTimes(1);
+    expect(actions.markReviewDue).toHaveBeenCalledTimes(1);
+    expect(requestAppReview).not.toHaveBeenCalled();
   });
 
   it("re-renders while it's showing don't restart its auto-dismiss timer", async () => {
@@ -165,17 +168,17 @@ describe("celebration with the real overlay", () => {
     await act(async () => {
       jest.advanceTimersByTime(600);
     });
-    expect(requestAppReview).toHaveBeenCalledTimes(1);
-    expect(actions.markReviewPrompted).toHaveBeenCalledTimes(1);
+    expect(actions.markReviewDue).toHaveBeenCalledTimes(1);
+    expect(requestAppReview).not.toHaveBeenCalled();
   });
 
-  it("tapping dismisses it immediately, and the auto-dismiss doesn't ask a second time", async () => {
+  it("tapping dismisses it immediately, and nothing is asked on top of it", async () => {
     await reachPerfectDay();
     await fireEvent.press(screen.getByLabelText("Dismiss celebration"));
     expect(screen.queryByText("All Done!")).toBeNull();
     await act(async () => {
       jest.advanceTimersByTime(OVERLAY_MS * 2);
     });
-    expect(requestAppReview).toHaveBeenCalledTimes(1);
+    expect(requestAppReview).not.toHaveBeenCalled();
   });
 });

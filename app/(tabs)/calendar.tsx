@@ -13,8 +13,8 @@ import { monthlyStats } from "@/lib/daily-tasks/streaks";
 
 export default function CalendarScreen() {
   const colors = useColors();
-  const { state } = useDailyTasks();
-  const [selectedDate, setSelectedDate] = useState(() => todayKey());
+  const { state, today } = useDailyTasks();
+  const [selectedDate, setSelectedDate] = useState(() => today);
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -55,7 +55,7 @@ export default function CalendarScreen() {
             className="text-foreground"
             style={{ fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34 }}
           >
-            Your streak map 📅
+            Your streak map
           </Text>
         </View>
 
@@ -89,6 +89,7 @@ export default function CalendarScreen() {
 
         <View className="bg-surface rounded-2xl p-4 border border-border">
           <CalendarGrid
+            today={today}
             month={month}
             history={state.history}
             selectedDate={selectedDate}

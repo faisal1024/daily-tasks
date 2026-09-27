@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { Appearance, View, useColorScheme as useSystemColorScheme } from "react-native";
+import { View, useColorScheme as useSystemColorScheme } from "react-native";
 import { colorScheme as nativewindColorScheme, vars } from "nativewind";
 
 import { SchemeColors, type ColorScheme } from "@/constants/theme";
@@ -15,9 +15,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useSystemColorScheme() ?? "light";
   const [colorScheme, setColorSchemeState] = useState<ColorScheme>(systemScheme);
 
+  // Follow the system appearance live (switching Light/Dark in Control Centre
+  // or on a schedule updates the app without a relaunch).
+  useEffect(() => {
+    setColorSchemeState(systemScheme);
+  }, [systemScheme]);
+
   const applyScheme = useCallback((scheme: ColorScheme) => {
+    // Only NativeWind is told; forcing Appearance would pin the app to the
+    // scheme it launched with and stop system changes from arriving.
     nativewindColorScheme.set(scheme);
-    Appearance.setColorScheme?.(scheme);
     if (typeof document !== "undefined") {
       const root = document.documentElement;
       root.dataset.theme = scheme;

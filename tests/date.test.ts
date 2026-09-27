@@ -5,6 +5,7 @@ import {
   fromDateKey,
   greetingFor,
   greetingText,
+  storeDayFor,
   previousDay,
   toDateKey,
 } from "../lib/daily-tasks/date";
@@ -30,12 +31,30 @@ describe("date helpers", () => {
     expect(greetingFor(new Date(2026, 0, 1, 7))).toBe("morning");
     expect(greetingFor(new Date(2026, 0, 1, 13))).toBe("afternoon");
     expect(greetingFor(new Date(2026, 0, 1, 18))).toBe("evening");
-    expect(greetingFor(new Date(2026, 0, 1, 22))).toBe("night");
+    // 9 pm to midnight is still evening; after midnight it's "night".
+    expect(greetingFor(new Date(2026, 0, 1, 21))).toBe("evening");
+    expect(greetingFor(new Date(2026, 0, 1, 23))).toBe("evening");
+    expect(greetingFor(new Date(2026, 0, 1, 0))).toBe("night");
     expect(greetingFor(new Date(2026, 0, 1, 3))).toBe("night");
+    expect(greetingFor(new Date(2026, 0, 1, 5))).toBe("morning");
   });
 
   it("greetingText maps to readable strings", () => {
     expect(greetingText("morning")).toMatch(/morning/i);
-    expect(greetingText("night")).toMatch(/night/i);
+    expect(greetingText("evening")).toBe("Good evening");
+    // After midnight a plain hello ("Good night" reads as a goodbye).
+    expect(greetingText("night")).toBe("Hello");
+  });
+});
+
+describe("storeDayFor", () => {
+  it.each([
+    ["the clock is ahead: follow it", "2026-09-25", "2026-09-26", "2026-09-26"],
+    ["same day", "2026-09-25", "2026-09-25", "2026-09-25"],
+    ["one day back (travel west): hold the tasks' day", "2026-09-26", "2026-09-25", "2026-09-26"],
+    ["one day back across a month", "2026-10-01", "2026-09-30", "2026-10-01"],
+    ["two days back (a wrong date fixed): follow the clock", "2026-09-26", "2026-09-24", "2026-09-24"],
+  ])("%s", (_why, tasksDay, clockDay, expected) => {
+    expect(storeDayFor(tasksDay, clockDay)).toBe(expected);
   });
 });

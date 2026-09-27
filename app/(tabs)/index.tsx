@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Alert,
   AppState as RNAppState,
   KeyboardAvoidingView,
@@ -58,6 +59,13 @@ import {
 } from "@/lib/daily-tasks/today-view";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
 
+/** A rating ask waits at least this long after the perfect day that earned it. */
+const REVIEW_DELAY_MS = 60 * 60 * 1000;
+/** ...and is dropped after a week (too far from the moment that earned it). */
+const REVIEW_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+/** Wait this long after the app becomes active before asking. */
+const REVIEW_SETTLE_MS = 2000;
+
 type Unlock =
   | { kind: "break_down"; taskId: string; text: string }
   | { kind: "brain_dump" }
@@ -83,6 +91,7 @@ export default function HomeScreen() {
     deleteTask,
     toggleTask,
     lockToday,
+    unlockToday,
     resolveRollover,
     completeMomentumOnboarding,
     setTodayReflection,
@@ -90,6 +99,7 @@ export default function HomeScreen() {
     requestMomentumPlan,
     journeyLevel,
     markReviewPrompted,
+    markReviewDue,
     parkTasks,
     removeParkedTask,
     addParkedTask,
@@ -142,6 +152,13 @@ export default function HomeScreen() {
 
   const [showCelebration, setShowCelebration] = useState(false);
   const [ideasOpen, setIdeasOpen] = useState(false);
+  // Opened from "Saved for later" (full day): show just the saved items.
+  const [ideasSavedOnly, setIdeasSavedOnly] = useState(false);
+  // However the sheet closes (its button, a lock, rollover, the paywall), the
+  // next open starts in the normal view.
+  useEffect(() => {
+    if (!ideasOpen) setIdeasSavedOnly(false);
+  }, [ideasOpen]);
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   // Short confirmation after a brain dump, so saved items aren't a mystery.
   const [toast, setToast] = useState<string | null>(null);
@@ -221,9 +238,7 @@ export default function HomeScreen() {
   // checked off, never just because the app opened on a finished day.
   const previousCompleted = useRef<number | null>(null);
   const celebratedDay = useRef<string | null>(null);
-  const reviewPending = useRef(false);
   const reviewInFlight = useRef(false);
-  const reviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!ready) return;
     const transition = isPerfectDayTransition({
@@ -233,12 +248,6 @@ export default function HomeScreen() {
     });
     previousCompleted.current = completedCount;
 
-    // Unchecking cancels a rating request that hasn't shown yet.
-    if (completedCount < MAX_TASKS) {
-      reviewPending.current = false;
-      if (reviewTimer.current) clearTimeout(reviewTimer.current);
-      reviewTimer.current = null;
-    }
     // Once per day: un-checking and re-checking the third task doesn't replay it.
     if (!transition || celebratedDay.current === today) return;
     celebratedDay.current = today;
@@ -246,44 +255,74 @@ export default function HomeScreen() {
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
     setShowCelebration(true);
     track("perfect_day", { count: total });
-    reviewPending.current = !reviewInFlight.current && shouldRequestReview({
-      history: state.history,
-      lastReviewPromptAt: state.lastReviewPromptAt,
-      now: new Date(),
-      justCompletedPerfectDay: true,
-    });
-  }, [ready, completedCount, total, today, state.history, state.lastReviewPromptAt]);
+    // Earned a rating ask: remember it for a later app open instead of
+    // stacking it on the celebration and the evening check-in.
+    if (
+      shouldRequestReview({
+        history: state.history,
+        lastReviewPromptAt: state.lastReviewPromptAt,
+        now: new Date(),
+        justCompletedPerfectDay: true,
+      })
+    ) {
+      markReviewDue();
+    }
+  }, [ready, completedCount, total, today, state.history, state.lastReviewPromptAt, markReviewDue]);
 
-  // The rating sheet waits until the celebration is dismissed, and the cooldown
-  // is only spent if the prompt was actually requested while the app is active.
   // Stable identity: the overlay restarts its auto-dismiss timer whenever
-  // onDismiss changes, which would delay (or repeat) the rating flow.
+  // onDismiss changes.
   const dismissCelebration = useCallback(() => {
     setShowCelebration(false);
-    if (!reviewPending.current) return;
-    reviewPending.current = false;
-    reviewTimer.current = setTimeout(async () => {
-      reviewTimer.current = null;
-      // iOS ignores the request when the app isn't in the foreground, and we
-      // mustn't spend the cooldown then. ("unknown" can occur briefly at launch.)
-      const appState = RNAppState.currentState;
-      if (appState === "background" || appState === "inactive") return;
-      // Guard against a second perfect-day transition while this is in flight
-      // (lastReviewPromptAt isn't updated until it resolves).
+  }, []);
+
+  // Ask for the rating on a LATER app open (at least an hour after the perfect
+  // day), when nothing else is happening. The cooldown is only spent if the
+  // prompt was actually requested while the app was active.
+  const reviewDueAtRef = useRef(state.reviewDueAt);
+  reviewDueAtRef.current = state.reviewDueAt;
+  // Something else is on screen (rollover, onboarding, a sheet, the paywall,
+  // a celebration): the rating ask waits for a quiet moment.
+  const busyRef = useRef(false);
+  busyRef.current =
+    Boolean(state.pendingRollover) ||
+    !state.hasSeenOnboarding ||
+    paywallSource !== null ||
+    ideasOpen ||
+    brainDumpOpen ||
+    showCelebration;
+  useEffect(() => {
+    if (!ready) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const ask = async () => {
+      const due = reviewDueAtRef.current;
+      if (!due || reviewInFlight.current || busyRef.current) return;
+      const age = Date.now() - Date.parse(due);
+      if (age < REVIEW_DELAY_MS || age > REVIEW_EXPIRY_MS) return;
+      if (RNAppState.currentState !== "active") return;
       reviewInFlight.current = true;
       try {
         if (await requestAppReview()) markReviewPrompted();
       } finally {
         reviewInFlight.current = false;
       }
-    }, 600);
-  }, [markReviewPrompted]);
-  useEffect(
-    () => () => {
-      if (reviewTimer.current) clearTimeout(reviewTimer.current);
-    },
-    [],
-  );
+    };
+    // Give the app a moment after opening before asking.
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void ask();
+      }, REVIEW_SETTLE_MS);
+    };
+    schedule();
+    const sub = RNAppState.addEventListener("change", (status) => {
+      if (status === "active") schedule();
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      sub.remove();
+    };
+  }, [ready, markReviewPrompted]);
 
   // The sheet has nothing to add once the day is locked, and it must not block
   // the rollover or onboarding modals (iOS shows one modal at a time).
@@ -523,7 +562,38 @@ export default function HomeScreen() {
                 })}
               </View>
 
-              <StatusLine status={status} onLock={confirmLock} />
+              <StatusLine
+                status={status}
+                onLock={confirmLock}
+                onUnlock={() => {
+                  haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+                  unlockToday();
+                  // The Unlock button disappears: tell VoiceOver what happened.
+                  AccessibilityInfo.announceForAccessibility("Today unlocked. You can edit your tasks.");
+                }}
+              />
+              {/* A full day hides the ideas entry, but saved brain-dump items
+                  must stay reachable (to view, remove, or swap in later). */}
+              {!state.todayLocked && remainingSlots === 0 && state.parkedTasks.length > 0 && (
+                <Pressable
+                  onPress={() => {
+                    setIdeasSavedOnly(true);
+                    setIdeasOpen(true);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Saved for later, ${state.parkedTasks.length} ${
+                    state.parkedTasks.length === 1 ? "item" : "items"
+                  }`}
+                  hitSlop={8}
+                  className="self-start flex-row items-center gap-1.5"
+                  testID="saved-ideas-link"
+                >
+                  <Ionicons name="bookmark-outline" size={15} color={colors.primary} />
+                  <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                    Saved for later ({state.parkedTasks.length})
+                  </Text>
+                </Pressable>
+              )}
             </View>
 
             {rightHasContent && (
@@ -602,7 +672,11 @@ export default function HomeScreen() {
 
       <IdeasSheet
         visible={ideasOpen}
-        onClose={() => setIdeasOpen(false)}
+        savedOnly={ideasSavedOnly}
+        onClose={() => {
+          setIdeasOpen(false);
+          setIdeasSavedOnly(false);
+        }}
         goalTitle={state.momentumProfile.goalTitle}
         source={source}
         ideas={ideas}

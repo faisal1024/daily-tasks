@@ -7,10 +7,12 @@ import type { TodayStatus } from "@/lib/daily-tasks/today-view";
 interface StatusLineProps {
   status: TodayStatus;
   onLock: () => void;
+  /** Unlock right here (it used to live only in Settings). */
+  onUnlock?: () => void;
 }
 
-/** One line under the tasks: where the day stands, plus "Lock in" when useful. */
-export function StatusLine({ status, onLock }: StatusLineProps) {
+/** One line under the tasks: where the day stands, plus Lock in / Unlock. */
+export function StatusLine({ status, onLock, onUnlock }: StatusLineProps) {
   const colors = useColors();
   const locked = status.kind === "set" || status.kind === "auto";
 
@@ -36,6 +38,21 @@ export function StatusLine({ status, onLock }: StatusLineProps) {
               Lock in
             </Text>
           </View>
+        </Pressable>
+      )}
+      {locked && onUnlock && (
+        <Pressable
+          onPress={onUnlock}
+          accessibilityRole="button"
+          accessibilityLabel="Unlock today"
+          accessibilityHint="Lets you add or change today's tasks again."
+          hitSlop={10}
+          className="px-2 py-1"
+          testID="status-unlock"
+        >
+          <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+            Unlock
+          </Text>
         </Pressable>
       )}
     </View>

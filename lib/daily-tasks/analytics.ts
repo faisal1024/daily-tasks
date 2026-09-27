@@ -25,7 +25,8 @@ export type AnalyticsEvent =
   | "purchase_started"
   | "purchase_completed"
   | "purchase_failed"
-  | "restore_completed";
+  | "restore_completed"
+  | "app_error";
 
 type PropValue = string | number | boolean;
 export type AnalyticsProps = Partial<Record<AllowedProp, PropValue>>;

@@ -490,6 +490,7 @@ export function normalizeState(value: unknown): AppState | null {
     journey: normalizeJourney(value.journey),
     lastReviewPromptAt:
       typeof value.lastReviewPromptAt === "string" ? value.lastReviewPromptAt : null,
+    reviewDueAt: typeof value.reviewDueAt === "string" ? value.reviewDueAt : null,
     parkedTasks: normalizeParkedTasks(value.parkedTasks),
     // Saved state without this flag was written by a build from before the
     // paywall, so its owner is an early user: grandfather them.
@@ -543,24 +544,92 @@ export function buildInitialState(now: Date = new Date()): AppState {
     pendingMilestoneCelebration: null,
     journey: DEFAULT_JOURNEY,
     lastReviewPromptAt: null,
+    reviewDueAt: null,
     parkedTasks: [],
     plusGrandfathered: false,
     analyticsEnabled: true,
   };
 }
 
-export async function loadState(): Promise<AppState | null> {
+// A known-good copy of the saved state, refreshed after a session that ran
+// fine (not merely one that parsed: state that parses but crashes the app
+// must not replace the good copy). Used when the main copy can't be read or
+// parsed.
+const BACKUP_KEY = `${STORAGE_KEY}:backup`;
+// Unparseable data is moved aside (never overwritten) so it can be recovered.
+const QUARANTINE_PREFIX = `${STORAGE_KEY}:corrupt:`;
+
+// Set when storage couldn't even be read. Saving would replace data we never
+// saw, so this session doesn't write (the data may be readable next launch).
+let writesBlocked = false;
+
+function parseState(raw: string): AppState | null {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
     return normalizeState(JSON.parse(raw));
-  } catch (err) {
-    console.warn("[daily-tasks] failed to load state", err);
+  } catch {
     return null;
   }
 }
 
+async function loadBackup(): Promise<AppState | null> {
+  try {
+    const raw = await AsyncStorage.getItem(BACKUP_KEY);
+    return raw ? parseState(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load saved state without ever losing it:
+ * - unreadable storage → use the backup and don't write this session;
+ * - unparseable data → quarantine it under its own key, then use the backup;
+ * - good data → use it and refresh the backup.
+ * Returns null only for a genuinely new install (or nothing recoverable).
+ */
+export async function loadState(): Promise<AppState | null> {
+  let raw: string | null;
+  try {
+    raw = await AsyncStorage.getItem(STORAGE_KEY);
+  } catch (err) {
+    console.warn("[daily-tasks] failed to read state; using backup, not saving", err);
+    writesBlocked = true;
+    return loadBackup();
+  }
+  if (!raw) return loadBackup();
+  const state = parseState(raw);
+  if (state) return state;
+  console.warn("[daily-tasks] saved state is corrupt; quarantined, restoring backup");
+  try {
+    // Keep at most the newest earlier copy: repeated corruption mustn't fill storage.
+    const keys = (await AsyncStorage.getAllKeys())
+      .filter((key) => key.startsWith(QUARANTINE_PREFIX))
+      .sort();
+    if (keys.length > 1) await AsyncStorage.multiRemove(keys.slice(0, -1));
+    await AsyncStorage.setItem(`${QUARANTINE_PREFIX}${Date.now()}`, raw);
+  } catch {
+    // if even this fails, don't overwrite the original this session
+    writesBlocked = true;
+  }
+  return loadBackup();
+}
+
+/**
+ * Copy the saved state to the backup. Called once a session has run fine
+ * (after a while in the app, or when it goes to the background).
+ */
+export async function refreshBackup(): Promise<void> {
+  if (writesBlocked) return;
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    if (raw && parseState(raw)) await AsyncStorage.setItem(BACKUP_KEY, raw);
+  } catch {
+    // a stale backup is still a backup
+  }
+}
+
 export async function saveState(state: AppState): Promise<void> {
+  if (writesBlocked) return;
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (err) {
@@ -569,9 +638,16 @@ export async function saveState(state: AppState): Promise<void> {
 }
 
 export async function clearState(): Promise<void> {
+  // "Reset all data" is deliberate: drop the backup too, and allow writes again.
+  writesBlocked = false;
   try {
-    await AsyncStorage.removeItem(STORAGE_KEY);
+    await AsyncStorage.multiRemove([STORAGE_KEY, BACKUP_KEY]);
   } catch (err) {
     console.warn("[daily-tasks] failed to clear state", err);
   }
+}
+
+/** Test-only: reset the module's write guard. */
+export function __resetStorageForTests(): void {
+  writesBlocked = false;
 }

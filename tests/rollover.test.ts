@@ -44,6 +44,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     pendingMilestoneCelebration: null,
     journey: DEFAULT_JOURNEY,
     lastReviewPromptAt: null,
+    reviewDueAt: null,
     parkedTasks: [],
     plusGrandfathered: false,
     analyticsEnabled: true,

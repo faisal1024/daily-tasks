@@ -89,7 +89,7 @@ export function todayStatus(params: {
       const when = autoLockTime ? ` at ${autoLockTime}` : "";
       return {
         kind: "auto",
-        text: `Locked automatically${when}.${tail} Change this in Settings.`,
+        text: `Locked automatically${when}.${tail}`,
         canLock: false,
       };
     }
@@ -183,16 +183,14 @@ export function lockConfirmation(taskCount: number): { title: string; message: s
     // All three chosen: nothing is lost by locking, so keep it light.
     return {
       title: "Lock in today?",
-      message: "You can still check tasks off. Editing pauses until tomorrow (unlock in Settings).",
+      message: "You can still check tasks off. Editing pauses until tomorrow, or until you tap Unlock.",
     };
   }
   const slots = open === 1 ? " Your empty slot stays empty." : " Your empty slots stay empty.";
   return {
     title: "Lock in today?",
     message:
-      "You can still check tasks off, but you won't be able to add, edit or remove them today." +
-      slots +
-      " (You can unlock in Settings.)",
+      "You can still check tasks off. Adding and editing pause until you tap Unlock." + slots,
   };
 }
 

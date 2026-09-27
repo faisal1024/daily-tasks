@@ -24,6 +24,8 @@ export interface IdeaItem {
 
 interface IdeasSheetProps {
   visible: boolean;
+  /** Opened from "Saved for later": show only the saved items, first. */
+  savedOnly?: boolean;
   onClose: () => void;
   goalTitle: string | null;
   source: IdeasSource;
@@ -49,6 +51,7 @@ const keyOf = (text: string) => text.trim().toLowerCase();
 
 export function IdeasSheet({
   visible,
+  savedOnly = false,
   onClose,
   goalTitle,
   source,
@@ -101,7 +104,7 @@ export function IdeasSheet({
             className="text-2xl text-foreground"
             style={{ fontFamily: Fonts.rounded }}
           >
-            {goalTitle ? `Ideas for ${goalTitle}` : "Ideas for today"}
+            {savedOnly ? "Saved for later" : goalTitle ? `Ideas for ${goalTitle}` : "Ideas for today"}
           </Text>
           <Pressable
             onPress={onClose}
@@ -134,7 +137,7 @@ export function IdeasSheet({
                 {source.label}
               </Text>
             </View>
-            {canRegenerate && (
+            {canRegenerate && !savedOnly && (
               <Pressable
                 onPress={onRegenerate}
                 disabled={regenerating}
@@ -174,9 +177,11 @@ export function IdeasSheet({
           )}
 
           <Text className="text-base" style={{ color: colors.muted }}>
-            {full
-              ? "Today's three are picked. Nice."
-              : suggestionsHint(Math.min(available.length, remainingSlots))}
+            {savedOnly
+              ? "Your day is full. Free a slot to swap one of these in."
+              : full
+                ? "Today's three are picked. Nice."
+                : suggestionsHint(Math.min(available.length, remainingSlots))}
           </Text>
           {adaptationReason && !full && (
             <Text className="text-xs" style={{ color: colors.muted }}>
@@ -184,6 +189,7 @@ export function IdeasSheet({
             </Text>
           )}
 
+          {!savedOnly && (
           <View className="gap-2">
             {ideas.map((idea) => {
               const added = addedTexts.has(keyOf(idea.text));
@@ -222,6 +228,7 @@ export function IdeasSheet({
               );
             })}
           </View>
+          )}
 
           {available.length > 1 && !full && (
             <Pressable
@@ -237,8 +244,8 @@ export function IdeasSheet({
             >
               <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: "#fff" }}>
                 {available.length > remainingSlots
-                  ? `Add the first ${remainingSlots} ✨`
-                  : "Add all ✨"}
+                  ? `Add the first ${remainingSlots}`
+                  : "Add all"}
               </Text>
             </Pressable>
           )}
@@ -283,7 +290,7 @@ export function IdeasSheet({
             </View>
           )}
 
-          {full && (
+          {full && !savedOnly && (
             <View className="gap-2">
               {onLock && (
                 <Pressable

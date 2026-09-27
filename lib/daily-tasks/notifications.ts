@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 
-import { MANAGED_REMINDER_PREFIX, planReminders } from "./reminders";
+import { MANAGED_REMINDER_PREFIX, planReminders, planUpcomingMornings } from "./reminders";
 import type { NotificationConfig, NotificationPermissionState } from "./types";
 
 let handlerConfigured = false;
@@ -66,7 +66,18 @@ async function cancelAllManaged() {
   );
 }
 
-export async function syncNotifications({
+// Syncs run one at a time: two overlapping cancel-then-schedule passes would
+// interleave and leave duplicate (or missing) reminders.
+let syncQueue: Promise<void> = Promise.resolve();
+
+export function syncNotifications(input: SyncNotificationsInput): Promise<void> {
+  const run = syncQueue.then(() => runSync(input));
+  // Keep the chain alive even if one sync fails.
+  syncQueue = run.catch(() => {});
+  return run;
+}
+
+async function runSync({
   now = new Date(),
   settings,
   permissionState,
@@ -77,13 +88,16 @@ export async function syncNotifications({
   configureHandler();
   await cancelAllManaged();
 
-  const planned = planReminders({
-    now,
-    taskCount,
-    completedCount,
-    settings,
-    permissionState,
-  });
+  const planned = [
+    ...planReminders({
+      now,
+      taskCount,
+      completedCount,
+      settings,
+      permissionState,
+    }),
+    ...planUpcomingMornings({ now, settings, permissionState }),
+  ];
 
   for (const reminder of planned) {
     try {

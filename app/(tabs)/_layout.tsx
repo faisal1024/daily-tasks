@@ -33,9 +33,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Tasks",
+          title: "Today",
           tabBarIcon: ({ color }) => (
-            <Ionicons name="checkmark-done" size={26} color={color} />
+            <Ionicons name="sunny" size={25} color={color} />
           ),
         }}
       />
@@ -51,7 +51,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="journey"
         options={{
-          title: "Journey",
+          title: "Progress",
           tabBarIcon: ({ color }) => (
             <Ionicons name="leaf" size={24} color={color} />
           ),

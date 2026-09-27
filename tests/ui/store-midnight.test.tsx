@@ -1,0 +1,206 @@
+// The real store around midnight (Phase 8): an action after the clock passes
+// midnight runs the day change first (no D tasks leaking into D+1), a clock
+// that moves back doesn't "roll over" into an earlier day, and the rating
+// flag set by a perfect day.
+import type { ReactNode } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { act, renderHook, waitFor } from "@testing-library/react-native";
+
+import { applyRollover } from "@/lib/daily-tasks/rollover";
+import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
+import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
+import type { AppState, Task } from "@/lib/daily-tasks/types";
+
+jest.mock("expo-notifications", () => ({
+  getPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
+  requestPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
+  getAllScheduledNotificationsAsync: jest.fn(async () => []),
+  cancelScheduledNotificationAsync: jest.fn(async () => {}),
+  scheduleNotificationAsync: jest.fn(async () => "id"),
+  setNotificationHandler: jest.fn(),
+  SchedulableTriggerInputTypes: { DAILY: "daily", DATE: "date", TIME_INTERVAL: "timeInterval" },
+}));
+
+const D = "2026-09-25";
+const NEXT = "2026-09-26";
+
+const WALK: Task = { id: "t0", text: "Walk", createdAt: "2026-09-25T08:00:00.000Z", carriedOver: false };
+
+/** Fake only the clock; real timers keep RNTL's async waits working. */
+function fakeClockAt(now: Date) {
+  jest.useFakeTimers({
+    now,
+    doNotFake: [
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
+      "setImmediate",
+      "clearImmediate",
+      "queueMicrotask",
+      "nextTick",
+    ],
+  });
+}
+
+const wrapper = ({ children }: { children: ReactNode }) => (
+  <DailyTasksProvider>{children}</DailyTasksProvider>
+);
+
+async function renderOnDay(saved: Partial<AppState>, savedFor: Date) {
+  await AsyncStorage.setItem(
+    "daily-tasks/state/v1",
+    JSON.stringify({ ...buildInitialState(savedFor), hasSeenOnboarding: true, ...saved }),
+  );
+  const hook = await renderHook(() => useDailyTasks(), { wrapper });
+  await waitFor(() => expect(hook.result.current.ready).toBe(true));
+  return hook;
+}
+
+beforeEach(async () => {
+  __resetStorageForTests();
+  await AsyncStorage.clear();
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+describe("store: actions just after midnight", () => {
+  it("adding a task at 00:00:10 (before the minute tick) runs the day change first", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 25, 8));
+    expect(result.current.today).toBe(D);
+
+    jest.setSystemTime(new Date(2026, 8, 26, 0, 0, 10));
+    await act(async () => result.current.addTask("Read"));
+
+    const state = result.current.state;
+    expect(result.current.today).toBe(NEXT);
+    expect(state.lastOpenedDate).toBe(NEXT);
+    // Yesterday keeps its own list; the new task is today's only.
+    expect(state.history[D].tasks.map((t) => t.text)).toEqual(["Walk"]);
+    expect(state.tasks.map((t) => t.text)).toEqual(["Read"]);
+    expect(state.history[NEXT].tasks.map((t) => t.text)).toEqual(["Read"]);
+    // Walk waits in the rollover once, not duplicated.
+    expect(state.pendingRollover?.tasks.map((t) => t.text)).toEqual(["Walk"]);
+  });
+
+  it("a tick just after midnight counts for the day on screen, then the day changes", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 25, 8));
+
+    jest.setSystemTime(new Date(2026, 8, 26, 0, 0, 10));
+    await act(async () => result.current.toggleTask("t0"));
+
+    const state = result.current.state;
+    expect(result.current.today).toBe(NEXT);
+    expect(state.lastOpenedDate).toBe(NEXT);
+    expect(state.history[D]).toMatchObject({ total: 1, completed: 1 });
+    // Done on D, so nothing to carry over; nothing lands on the new day.
+    expect(state.pendingRollover).toBeNull();
+    expect(state.todayCompletions).toEqual([]);
+    expect(state.journey.awardDate).toBe(D);
+    expect(state.journey.awardedTaskIds).toEqual(["t0"]);
+  });
+
+  it.each([
+    ["result", (store: ReturnType<typeof useDailyTasks>) => store.setTodayReflectionResult("good")],
+    ["note", (store: ReturnType<typeof useDailyTasks>) => store.setTodayReflection("Felt good")],
+  ] as const)("an evening check-in %s saved at 00:00:10 lands on the day on screen", async (kind, save) => {
+    fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
+    const { result } = await renderOnDay({ tasks: [WALK], todayCompletions: ["t0"] }, new Date(2026, 8, 25, 8));
+
+    jest.setSystemTime(new Date(2026, 8, 26, 0, 0, 10));
+    await act(async () => save(result.current));
+
+    const state = result.current.state;
+    expect(state.lastOpenedDate).toBe(NEXT);
+    if (kind === "result") {
+      expect(state.history[D].reflectionResult).toBe("good");
+      expect(state.history[NEXT].reflectionResult).toBeNull();
+      expect(state.todayReflectionResult).toBeNull();
+    } else {
+      expect(state.history[D].reflection).toBe("Felt good");
+      expect(state.history[NEXT].reflection).toBeNull();
+      expect(state.todayReflection).toBeNull();
+    }
+  });
+
+  it("ignores step changes for a task that isn't on today's list", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 10, 0));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 25, 8));
+    const before = result.current.state;
+    await act(async () => result.current.setTaskSteps("not-a-task", ["One", "Two"]));
+    await act(async () => result.current.toggleTaskStep("not-a-task", "s1"));
+    await act(async () => result.current.clearTaskSteps("not-a-task"));
+    expect(result.current.state).toBe(before);
+  });
+
+  it("ignores a toggle, edit or delete for a task that isn't on today's list (no phantom completion or XP)", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 10, 0));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 25, 8));
+    const before = result.current.state;
+    await act(async () => result.current.toggleTask("not-a-task"));
+    await act(async () => result.current.editTask("not-a-task", "Renamed"));
+    await act(async () => result.current.deleteTask("not-a-task"));
+    const after = result.current.state;
+    expect(after.todayCompletions).toEqual([]);
+    expect(after.journey).toEqual(before.journey);
+    expect(after.tasks).toEqual(before.tasks);
+    expect(after.history[D]).toEqual(before.history[D]);
+  });
+
+  it("a clock that moved back doesn't roll over into the earlier day", async () => {
+    // Saved on the 26th; the clock now reads the 25th (travel west / manual change).
+    fakeClockAt(new Date(2026, 8, 25, 10, 0));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 26, 9));
+    expect(result.current.state.lastOpenedDate).toBe(NEXT);
+    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Walk"]);
+    expect(result.current.state.pendingRollover).toBeNull();
+
+    expect(result.current.state.history[D]).toBeUndefined();
+
+    const state = buildInitialState(new Date(2026, 8, 26, 9));
+    expect(applyRollover(state, D)).toBe(state);
+  });
+});
+
+describe("store: clock behind the saved day", () => {
+  it("one day behind (flying west over midnight): stays on the saved day and writes to it", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 10, 0));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 26, 9));
+    expect(result.current.today).toBe(NEXT);
+    await act(async () => result.current.toggleTask("t0"));
+    await act(async () => result.current.addTask("Read"));
+    const state = result.current.state;
+    expect(state.history[NEXT]).toMatchObject({ total: 2, completed: 1 });
+    expect(state.history[NEXT].tasks.map((t) => t.text)).toEqual(["Walk", "Read"]);
+    expect(state.history[D]).toBeUndefined();
+    expect(state.journey.awardDate).toBe(NEXT);
+  });
+
+  it("three days behind (a date fixed after being wrong): follows the clock", async () => {
+    fakeClockAt(new Date(2026, 8, 23, 10, 0));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 26, 9));
+    expect(result.current.today).toBe("2026-09-23");
+    expect(result.current.state.lastOpenedDate).toBe("2026-09-23");
+    expect(result.current.state.tasks).toEqual([]);
+  });
+});
+
+describe("store: rating due", () => {
+  it("marks a rating due once and clears it when the prompt is shown", async () => {
+    const { result } = await renderOnDay({}, new Date());
+    expect(result.current.state.reviewDueAt).toBeNull();
+    await act(async () => result.current.markReviewDue());
+    const due = result.current.state.reviewDueAt;
+    expect(due).not.toBeNull();
+    // A second perfect day doesn't push the ask further out.
+    await act(async () => result.current.markReviewDue());
+    expect(result.current.state.reviewDueAt).toBe(due);
+    await act(async () => result.current.markReviewPrompted());
+    expect(result.current.state.reviewDueAt).toBeNull();
+    expect(result.current.state.lastReviewPromptAt).not.toBeNull();
+  });
+});

@@ -115,9 +115,9 @@ describe("todayStatus", () => {
         completedCount: 2,
         autoLockTime: "12:00 PM",
       }).text,
-    ).toBe("Locked automatically at 12:00 PM. All done. Change this in Settings.");
+    ).toBe("Locked automatically at 12:00 PM. All done.");
     expect(todayStatus({ ...base, locked: true, lockSource: "auto", completedCount: 0 }).text).toBe(
-      "Locked automatically. 2 to go. Change this in Settings.",
+      "Locked automatically. 2 to go.",
     );
     expect(todayStatus({ ...base, locked: true, lockSource: "manual", taskCount: 0 }).text).toBe(
       "Today is set.",
@@ -356,16 +356,17 @@ describe("lockConfirmation", () => {
   it("explains what locking does and how to undo it", () => {
     const { title, message } = lockConfirmation(2);
     expect(title).toBe("Lock in today?");
-    expect(message).toMatch(/still check tasks off/);
-    expect(message).toMatch(/add, edit or remove/);
-    expect(message).toMatch(/Settings/);
+    expect(message).toBe(
+      "You can still check tasks off. Adding and editing pause until you tap Unlock. Your empty slot stays empty.",
+    );
+    expect(message).not.toMatch(/Settings/);
   });
 
   it("keeps it light when all three are chosen (nothing is lost by locking)", () => {
     const { title, message } = lockConfirmation(3);
     expect(title).toBe("Lock in today?");
     expect(message).toBe(
-      "You can still check tasks off. Editing pauses until tomorrow (unlock in Settings).",
+      "You can still check tasks off. Editing pauses until tomorrow, or until you tap Unlock.",
     );
     expect(message).not.toMatch(/empty slot/);
     expect(message).not.toMatch(/won't be able/);
