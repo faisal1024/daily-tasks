@@ -88,12 +88,15 @@ export async function requestBrainDump({
   text,
   openSlots,
   goalTitle,
+  agenda = [],
   planUrl = getMomentumAiProxyUrl(),
   fetchImpl,
 }: {
   text: string;
   openSlots: number;
   goalTitle: string | null;
+  /** Today's events and reminders, pre-formatted (see agenda.ts). */
+  agenda?: string[];
   planUrl?: string | null;
   fetchImpl?: typeof fetch;
 }): Promise<BrainDumpResult> {
@@ -103,7 +106,12 @@ export async function requestBrainDump({
   if (!url) return localBrainDump(trimmed, openSlots);
   const data = await postToProxy({
     url,
-    payload: { text: trimmed, openSlots: clampSlots(openSlots), goalTitle },
+    payload: {
+      text: trimmed,
+      openSlots: clampSlots(openSlots),
+      goalTitle,
+      ...(agenda.length > 0 ? { agenda } : {}),
+    },
     fetchImpl,
   });
   return parseBrainDumpResponse(data, openSlots);
@@ -162,7 +170,7 @@ export interface SortedBrainDump {
  * friendly notice) if the request fails, so the user never loses what they typed.
  */
 export async function sortBrainDump(
-  params: { text: string; openSlots: number; goalTitle: string | null },
+  params: { text: string; openSlots: number; goalTitle: string | null; agenda?: string[] },
   request: typeof requestBrainDump = requestBrainDump,
 ): Promise<SortedBrainDump> {
   try {

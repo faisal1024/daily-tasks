@@ -26,7 +26,7 @@ import {
 } from "@/components/daily-tasks/ritual-cards";
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
-import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
+import { FirstRun } from "@/components/daily-tasks/first-run";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { TaskCard } from "@/components/daily-tasks/task-card";
@@ -39,6 +39,7 @@ import {
   classifyAiFailure,
 } from "@/lib/daily-tasks/ai-status";
 import { proxyRouteUrl } from "@/lib/daily-tasks/ai-client";
+import { readTodayAgenda } from "@/lib/daily-tasks/agenda";
 import { localBrainDump, requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
@@ -105,7 +106,8 @@ export default function HomeScreen() {
     lockToday,
     unlockToday,
     resolveRollover,
-    completeMomentumOnboarding,
+    markOnboardingSeen,
+    requestNotificationPermission,
     setTodayReflection,
     setTodayReflectionResult,
     requestMomentumPlan,
@@ -125,6 +127,13 @@ export default function HomeScreen() {
     dismissTomorrowDraft,
   } = useDailyTasks();
   const { paywallEnabled, paywallSource, purchaseCount, openPaywall } = usePlus();
+
+  // First run stays up until its last step, even once the list is set
+  // (hasSeenOnboarding flips as soon as tasks are added).
+  const [firstRunActive, setFirstRunActive] = useState(false);
+  useEffect(() => {
+    if (ready && !state.hasSeenOnboarding && !state.pendingRollover) setFirstRunActive(true);
+  }, [ready, state.hasSeenOnboarding, state.pendingRollover]);
 
   // What to pick back up once the paywall closes (bought or not).
   const pendingUnlock = useRef<Unlock | null>(null);
@@ -321,6 +330,7 @@ export default function HomeScreen() {
   busyRef.current =
     Boolean(state.pendingRollover) ||
     !state.hasSeenOnboarding ||
+    firstRunActive ||
     paywallSource !== null ||
     ideasOpen ||
     brainDumpOpen ||
@@ -362,11 +372,11 @@ export default function HomeScreen() {
   // The sheet has nothing to add once the day is locked, and it must not block
   // the rollover or onboarding modals (iOS shows one modal at a time).
   useEffect(() => {
-    if (state.todayLocked || state.pendingRollover || !state.hasSeenOnboarding) {
+    if (state.todayLocked || state.pendingRollover || !state.hasSeenOnboarding || firstRunActive) {
       setIdeasOpen(false);
       setBrainDumpOpen(false);
     }
-  }, [state.todayLocked, state.pendingRollover, state.hasSeenOnboarding]);
+  }, [state.todayLocked, state.pendingRollover, state.hasSeenOnboarding, firstRunActive]);
 
   const handleBreakDown = (taskId: string, text: string) => {
     if (breakingRef.current) return;
@@ -811,7 +821,10 @@ export default function HomeScreen() {
           };
           // Free plan: the simple on-device split (no AI call).
           const sorted = hasPlus
-            ? await sortBrainDump(params)
+            ? await sortBrainDump({
+                ...params,
+                ...(state.agendaEnabled ? { agenda: await readTodayAgenda() } : {}),
+              })
             : { result: localBrainDump(params.text, params.openSlots), notice: null };
           track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
           return sorted;
@@ -845,13 +858,29 @@ export default function HomeScreen() {
 
       <CelebrationOverlay visible={showCelebration} onDismiss={dismissCelebration} />
 
-      <OnboardingModal
-        visible={ready && !state.hasSeenOnboarding && !state.pendingRollover}
-        initialProfile={state.momentumProfile}
-        onComplete={(profile) => {
-          completeMomentumOnboarding(profile);
-          track("onboarding_completed", { source: profile.goalSource ?? "none" });
-          // Offer the trial once, at the end of first-run onboarding (closable).
+      <FirstRun
+        visible={firstRunActive}
+        onStep={(step) => track("onboarding_step", { step })}
+        onSort={async (text) => {
+          // The first dump is sorted by the AI for everyone (it's the moment
+          // that shows what the app does); it falls back to the local split.
+          const sorted = await sortBrainDump({ text, openSlots: 3, goalTitle: null });
+          track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
+          return sorted;
+        }}
+        onSet={(picks, parked) => {
+          if (picks.length > 0) addTasks(picks.slice(0, remainingSlots));
+          parkTasks([...picks.slice(remainingSlots), ...parked]);
+          // The list exists now: a relaunch mid-way shouldn't start over.
+          markOnboardingSeen();
+        }}
+        onAskNudge={async () => (await requestNotificationPermission()) === "granted"}
+        showWidgetStep={Platform.OS === "ios"}
+        onFinish={() => {
+          markOnboardingSeen();
+          setFirstRunActive(false);
+          track("onboarding_completed", { source: state.tasks.length > 0 ? "dump" : "own" });
+          // Offer the trial once, at the end of first run (closable).
           if (paywallEnabled && !hasPlus) showPaywall("onboarding", { afterSheet: true });
         }}
       />

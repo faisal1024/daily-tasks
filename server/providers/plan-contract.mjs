@@ -4,6 +4,7 @@
 // Provider adapters (openai.mjs, anthropic.mjs, ...) consume SYSTEM_PROMPT,
 // buildPrompt(), and RESPONSE_SCHEMA and return an object matching the schema.
 
+import { agendaPromptLines, isValidAgenda } from "./agenda.mjs";
 export const SYSTEM_PROMPT =
   "You generate calm, concrete daily momentum plans. Never create a backlog. " +
   "Never use shame, guilt, urgency, streak pressure, medical advice, financial " +
@@ -89,6 +90,7 @@ export function buildPrompt(payload) {
         ? payload.coachMemory.trim().slice(0, 500)
         : "nothing yet"
     }`,
+    ...agendaPromptLines(payload.agenda),
     "Return three milestones and exactly three todaySuggestions.",
     "Tasks must be short verb phrases, 64 characters or fewer, specific enough to do today, and sized to the user's time.",
     "If recent completion is weak, make tasks easier. If recent completion is strong, make tasks a gentle step up.",
@@ -115,6 +117,7 @@ export function validatePayload(payload) {
   if (!recentPerformance || typeof recentPerformance.completed !== "number") {
     return "Missing recent performance";
   }
+  if (!isValidAgenda(payload.agenda)) return "Invalid agenda";
   return null;
 }
 

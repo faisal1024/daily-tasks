@@ -222,6 +222,8 @@ export interface AppState {
   // The last evening close: which day, the answer it was for, and the note.
   // (Kept even when nothing was drafted, so a closed day stays closed.)
   eveningClose: EveningCloseRecord | null;
+  // Read today's Calendar events and Reminders into AI requests (off by default).
+  agendaEnabled: boolean;
 }
 
 export const GOAL_OPTIONS: string[] = [

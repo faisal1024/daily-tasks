@@ -506,6 +506,7 @@ export function normalizeState(value: unknown): AppState | null {
         : null,
     tomorrowDraft: normalizeTomorrowDraft(value.tomorrowDraft),
     eveningClose: normalizeEveningClose(value.eveningClose),
+    agendaEnabled: value.agendaEnabled === true,
   };
 }
 
@@ -598,6 +599,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     coachMemory: null,
     tomorrowDraft: null,
     eveningClose: null,
+    agendaEnabled: false,
   };
 }
 

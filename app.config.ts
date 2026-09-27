@@ -66,6 +66,15 @@ const config: ExpoConfig = {
     "@bacons/apple-targets",
     "expo-notifications",
     [
+      "expo-calendar",
+      {
+        calendarPermission:
+          "Your calendar is used to plan today's three around your events, only when you turn it on.",
+        remindersPermission:
+          "Your reminders are used to plan today's three around what's due, only when you turn it on.",
+      },
+    ],
+    [
       "expo-font",
       {
         fonts: [
