@@ -104,7 +104,69 @@ describe("PlusProvider: opening the paywall", () => {
   });
 });
 
+describe("PlusProvider: a paywall iOS never presented", () => {
+  it("is replaced by the next request after 2.5 s when onShow never came (layout alone doesn't count)", async () => {
+    jest.useFakeTimers();
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await act(async () => {
+      result.current.openPaywall("onboarding");
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(2501);
+    });
+    let opened = false;
+    await act(async () => {
+      opened = result.current.openPaywall("break_down");
+    });
+    expect(opened).toBe(true);
+    await act(async () => {
+      jest.advanceTimersByTime(60);
+    });
+    expect(result.current.paywallSource).toBe("break_down");
+  });
+
+  it("lets a paywall opened in the 60 ms reopen gap stand", async () => {
+    jest.useFakeTimers();
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await act(async () => {
+      result.current.openPaywall("onboarding");
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(2600);
+    });
+    await act(async () => {
+      result.current.openPaywall("break_down");
+    });
+    expect(result.current.paywallSource).toBeNull();
+    // Another gate opens during the gap: it wins, the delayed reopen yields.
+    let opened = false;
+    await act(async () => {
+      opened = result.current.openPaywall("settings");
+    });
+    expect(opened).toBe(true);
+    expect(result.current.paywallSource).toBe("settings");
+    await act(async () => {
+      jest.advanceTimersByTime(60);
+    });
+    expect(result.current.paywallSource).toBe("settings");
+  });
+});
+
 describe("PlusProvider: purchases", () => {
+  it("closes the paywall itself when a purchase completes", async () => {
+    (purchasePackage as jest.Mock).mockResolvedValue({ outcome: "purchased", active: true });
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await act(async () => {
+      result.current.openPaywall("break_down");
+    });
+    await act(async () => result.current.markPaywallShown());
+    await act(async () => {
+      await result.current.purchase(ANNUAL);
+    });
+    expect(result.current.paywallSource).toBeNull();
+    expect(track).toHaveBeenCalledWith("paywall_closed", { source: "break_down" });
+  });
+
   it("never starts a second purchase while one is running, and counts a completed one", async () => {
     let finish!: (value: { outcome: "purchased"; active: boolean }) => void;
     (purchasePackage as jest.Mock).mockImplementation(

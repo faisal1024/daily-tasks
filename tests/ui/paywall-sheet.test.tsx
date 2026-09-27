@@ -104,18 +104,13 @@ describe("PaywallSheet", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
-  it("keeps buy disabled while an earlier purchase is still running, and reports it's on screen", async () => {
-    const onShown = jest.fn();
+  it("keeps buy disabled while an earlier purchase is still running", async () => {
     const props = setup();
-    await render(<PaywallSheet source="settings" purchasing onShown={onShown} {...props} />);
+    await render(<PaywallSheet source="settings" purchasing {...props} />);
     await act(async () => {});
     expect(screen.getByTestId("paywall-buy")).toBeDisabled();
     await fireEvent.press(screen.getByTestId("paywall-buy"));
     expect(props.onPurchase).not.toHaveBeenCalled();
-    await fireEvent(screen.getByTestId("paywall-sheet"), "layout", {
-      nativeEvent: { layout: { x: 0, y: 0, width: 400, height: 800 } },
-    });
-    expect(onShown).toHaveBeenCalled();
   });
 
   it("can be closed while a purchase is still in flight", async () => {
