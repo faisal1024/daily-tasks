@@ -13,18 +13,13 @@ import { renderWithProviders as render } from "./render";
 const task = (text: string) => ({ id: text, text, createdAt: "", carriedOver: false });
 
 describe("TodayHeader", () => {
-  it("shows greeting, one streak/level chip, headline and progress", async () => {
+  it("shows greeting, one Day N chip, headline and progress", async () => {
     await render(
-      <TodayHeader
-        greeting="Good morning, Alex"
-        progress={todayProgress(2, 3)}
-        dayStreak={21}
-        level={4}
-      />,
+      <TodayHeader greeting="Good morning, Alex" progress={todayProgress(2, 3)} daysShowedUp={21} />,
     );
     expect(screen.getByText("Good morning, Alex")).toBeOnTheScreen();
-    expect(screen.getByText("🔥 21 · Lv 4")).toBeOnTheScreen();
-    expect(screen.getByLabelText("21-day streak, level 4")).toBeOnTheScreen();
+    expect(screen.getByText("Day 21")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Day 21 of showing up")).toBeOnTheScreen();
     expect(screen.getByText("Almost there!")).toBeOnTheScreen();
     expect(screen.getByText("2 of 3 done", { includeHiddenElements: true })).toBeOnTheScreen();
     // VoiceOver hears the label, not a percentage measured against three slots.
@@ -35,7 +30,7 @@ describe("TodayHeader", () => {
 describe("TodayHeader progress label", () => {
   it("speaks the open-slot label, not a percentage, while slots are open", async () => {
     await render(
-      <TodayHeader greeting="Hi" progress={todayProgress(0, 1)} dayStreak={0} level={1} />,
+      <TodayHeader greeting="Hi" progress={todayProgress(0, 1)} daysShowedUp={1} />,
     );
     // Spoken with a comma: VoiceOver would read the middle dot aloud.
     expect(screen.getByRole("progressbar")).toHaveAccessibilityValue({

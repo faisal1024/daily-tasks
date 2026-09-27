@@ -15,6 +15,7 @@ import {
   createProxyServer,
   readConfig,
 } from "../server/app.mjs";
+import { EVENING_ROUTE } from "../server/routes.mjs";
 import {
   BRAIN_DUMP_SCHEMA,
   BRAIN_DUMP_SYSTEM_PROMPT,
@@ -138,11 +139,15 @@ afterEach(async () => {
 });
 
 describe("route table", () => {
-  it("exposes exactly the plan, brain-dump and break-down routes", () => {
+  it("exposes exactly the plan, brain-dump, break-down and evening routes", () => {
     expect(PLAN_ROUTE).toBe("/api/momentum/plan");
     expect(BRAIN_DUMP_ROUTE).toBe("/api/momentum/brain-dump");
     expect(BREAK_DOWN_ROUTE).toBe("/api/momentum/break-down");
-    expect(Object.keys(ROUTES).sort()).toEqual([BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, PLAN_ROUTE].sort());
+    expect(EVENING_ROUTE).toBe("/api/momentum/evening");
+    expect(Object.keys(ROUTES).sort()).toEqual(
+      [BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, EVENING_ROUTE, PLAN_ROUTE].sort(),
+    );
+    expect(ROUTES[EVENING_ROUTE].name).toBe("evening");
   });
 
   it("pairs each route with its own tool name, schema, prompt and validators", () => {

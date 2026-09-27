@@ -3,6 +3,7 @@ import { act, fireEvent, screen } from "@testing-library/react-native";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import { closeDay } from "@/lib/daily-tasks/evening";
 import { MomentumAiError } from "@/lib/daily-tasks/ai-status";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
@@ -67,6 +68,10 @@ jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
   __esModule: true,
   default: () => mockWindow,
 }));
+jest.mock("@/lib/daily-tasks/evening", () => ({
+  ...jest.requireActual("@/lib/daily-tasks/evening"),
+  closeDay: jest.fn(),
+}));
 jest.mock("@/components/daily-tasks/onboarding-modal", () => ({ OnboardingModal: () => null }));
 jest.mock("@/components/daily-tasks/rollover-modal", () => ({ RolloverModal: () => null }));
 
@@ -118,6 +123,10 @@ function makeStore(overrides: Partial<AppState> = {}) {
     markReviewPrompted: jest.fn(),
     markReviewDue: jest.fn(),
     unlockToday: jest.fn(),
+    daysShowedUp: 1,
+    setEveningClose: jest.fn(),
+    applyTomorrowDraft: jest.fn(),
+    dismissTomorrowDraft: jest.fn(),
     parkTasks: jest.fn(),
     removeParkedTask: jest.fn(),
     addParkedTask: jest.fn(),
@@ -181,12 +190,15 @@ describe("Today screen layout", () => {
     alert.mockRestore();
   });
 
-  it("makes ideas the obvious next step on an empty day", async () => {
+  it("opens an empty day on the morning hero, with ideas one tap away", async () => {
     mockStore = makeStore({
       momentumProfile: { ...buildInitialState().momentumProfile, goalTitle: "Run a 5K" },
     });
     await render(<HomeScreen />);
-    expect(screen.getByText("See ideas for Run a 5K")).toBeOnTheScreen();
+    expect(screen.getByTestId("morning-hero")).toBeOnTheScreen();
+    expect(screen.queryByTestId("need-ideas")).toBeNull();
+    await fireEvent.press(screen.getByRole("button", { name: "Or pick from ideas" }));
+    expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
   });
 
   it("hides Need ideas and Lock in once the day is locked", async () => {
@@ -284,21 +296,12 @@ describe("Today screen layout", () => {
     alert.mockRestore();
   });
 
-  it("styles the empty-day ideas entry as the primary action, and steps it back once tasks exist", async () => {
-    mockStore = makeStore({
-      momentumProfile: { ...buildInitialState().momentumProfile, goalTitle: "Run a 5K" },
-    });
-    const { rerender } = await render(<HomeScreen />);
-    const prominent = screen.getByRole("button", {
-      name: "See ideas for Run a 5K. Opens suggestions",
-    });
-    expect(prominent).toHaveStyle({ backgroundColor: themeColors.primary.light });
-
+  it("keeps the ideas entry quiet once tasks exist", async () => {
     mockStore = makeStore({
       tasks: tasks("Walk"),
       momentumProfile: { ...buildInitialState().momentumProfile, goalTitle: "Run a 5K" },
     });
-    await rerender(<HomeScreen />);
+    await render(<HomeScreen />);
     const quiet = screen.getByRole("button", { name: "Need ideas?. Opens suggestions" });
     expect(quiet).not.toHaveStyle({ backgroundColor: themeColors.primary.light });
   });
@@ -612,11 +615,21 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+/** Open the brain dump: the morning hero on an empty day, the entry otherwise. */
+async function openBrainDump() {
+  const entry = screen.queryByTestId("brain-dump-entry");
+  await fireEvent.press(entry ?? screen.getByRole("button", { name: /What's on your mind today\?/ }));
+}
+
 describe("Brain dump entry", () => {
-  it("sits next to the ideas entry, worded for an empty day", async () => {
+  it("is the morning hero on an empty day, and a small entry next to ideas once tasks exist", async () => {
     mockStore = makeStore();
     const { rerender } = await render(<HomeScreen />);
-    expect(screen.getByTestId("brain-dump-entry")).toHaveTextContent(/Brain dump everything/);
+    expect(screen.getByTestId("morning-hero")).toBeOnTheScreen();
+    expect(screen.queryByTestId("brain-dump-entry")).toBeNull();
+    await openBrainDump();
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Close brain dump" }));
     mockStore = makeStore({ tasks: tasks("Walk") });
     await rerender(<HomeScreen />);
     expect(screen.getByTestId("brain-dump-entry")).toHaveTextContent(/Brain dump/);
@@ -635,7 +648,7 @@ describe("Brain dump entry", () => {
 
 describe("Brain dump flow", () => {
   async function openAndWrite(text: string) {
-    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    await openBrainDump();
     expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), text);
     await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
@@ -743,7 +756,7 @@ describe("Brain dump flow", () => {
   ])("closes when %s", async (_why, overrides) => {
     mockStore = makeStore({ tasks: tasks("Walk") });
     const { rerender } = await render(<HomeScreen />);
-    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    await openBrainDump();
     expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
     mockStore = makeStore({ tasks: tasks("Walk"), ...overrides });
     await rerender(<HomeScreen />);
@@ -753,7 +766,7 @@ describe("Brain dump flow", () => {
   it("closes from its close button without adding anything", async () => {
     mockStore = makeStore();
     await render(<HomeScreen />);
-    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    await openBrainDump();
     await fireEvent.press(screen.getByRole("button", { name: "Close brain dump" }));
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
     expect(mockStore.addTasks).not.toHaveBeenCalled();
@@ -981,7 +994,7 @@ describe("Plus gates (free plan)", () => {
     mockProxyUrl = "https://proxy.test/api/momentum/plan";
     mockStore = { ...makeStore(), hasPlus: false };
     const { rerender } = await render(<HomeScreen />);
-    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    await openBrainDump();
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a\nb\nc\nd");
     expect(screen.getByTestId("brain-dump-upgrade")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
@@ -993,7 +1006,7 @@ describe("Plus gates (free plan)", () => {
     // Back on the write step the offer is still there for next time; from a
     // fresh sheet, Get Plus closes it and opens the paywall.
     await fireEvent.press(screen.getByRole("button", { name: "Add 3 to today" }));
-    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    await openBrainDump();
     await fireEvent.press(screen.getByRole("button", { name: "Get AI sorting with Plus" }));
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
     // Waits for the sheet to animate away before the paywall.
@@ -1029,7 +1042,7 @@ describe("Plus gates (free plan)", () => {
   it("Plus users' brain dump still goes through the AI sorter with no upgrade offer", async () => {
     mockStore = makeStore();
     await render(<HomeScreen />);
-    await fireEvent.press(screen.getByTestId("brain-dump-entry"));
+    await openBrainDump();
     expect(screen.queryByTestId("brain-dump-upgrade")).toBeNull();
     await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "a");
     await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
@@ -1062,9 +1075,18 @@ describe("Today on a wide screen", () => {
     expect(screen.getByTestId("today-two-column")).toBeOnTheScreen();
   });
 
-  it("stays one column on a locked day that isn't perfect (nothing for the right column)", async () => {
+  it("puts the evening check-in in the right column on a locked day that isn't perfect", async () => {
     mockWindow = IPAD;
     mockStore = makeStore({ tasks: tasks("Walk"), todayLocked: true, todayLockSource: "manual" });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("today-two-column")).toBeOnTheScreen();
+    expect(screen.getByText("How did today feel?")).toBeOnTheScreen();
+  });
+
+  it("stays one column on a full, unlocked day before the evening (nothing for the right column)", async () => {
+    jest.useFakeTimers({ now: new Date(2026, 8, 26, 10, 0), doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"] });
+    mockWindow = IPAD;
+    mockStore = makeStore({ tasks: tasks("Walk", "Read", "Stretch") });
     await render(<HomeScreen />);
     expect(screen.queryByTestId("today-two-column")).toBeNull();
   });
@@ -1139,3 +1161,69 @@ describe("Today: unlock and saved ideas", () => {
     expect(screen.queryByTestId("saved-ideas-link")).toBeNull();
   });
 });
+
+// --- Phase 9a: the daily ritual -------------------------------------------------
+
+describe("Today: morning draft and evening close", () => {
+  const TOMORROW_CLOSE = {
+    note: "A good day. You showed up.",
+    because: "Picking up where today left off.",
+    tomorrow: ["Stretch"],
+    memory: null,
+    source: "local" as const,
+  };
+
+  it("uses last night's draft, only as many tasks as there's room for", async () => {
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read"),
+      tomorrowDraft: { forDate: TODAY, tasks: ["Stretch", "Call mum", "Hydrate"], note: "", because: "Lighter today.", source: "local" },
+    });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("tomorrow-draft")).toHaveTextContent(/Lighter today\./);
+    await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
+    expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch"]);
+  });
+
+  it("closes the day once from the check-in (even on a second quick tap) and shows the coach's note", async () => {
+    let finish!: (close: typeof TOMORROW_CLOSE) => void;
+    (closeDay as jest.Mock).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read", "Stretch"),
+      todayCompletions: ["t0", "t1"],
+      todayLocked: true,
+      todayLockSource: "manual",
+    });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByText("Good"));
+    await fireEvent.press(screen.getByText("Hard"));
+    expect(closeDay).toHaveBeenCalledTimes(1);
+    const [input, options] = (closeDay as jest.Mock).mock.calls[0];
+    expect(input).toMatchObject({
+      result: "good",
+      tasks: [
+        { text: "Walk", done: true },
+        { text: "Read", done: true },
+        { text: "Stretch", done: false },
+      ],
+    });
+    // No proxy in this build: the on-device close.
+    expect(options).toEqual({ useAi: false });
+    expect(screen.getByTestId("evening-closing")).toBeOnTheScreen();
+
+    await act(async () => finish(TOMORROW_CLOSE));
+    expect(mockStore.setEveningClose).toHaveBeenCalledWith(TOMORROW_CLOSE);
+    expect(screen.getByTestId("evening-result")).toHaveTextContent(/A good day\. You showed up\./);
+  });
+
+  it("offers \"Didn't get to it\" only when something is still open", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayCompletions: ["t0"], todayLocked: true, todayLockSource: "manual" });
+    const { rerender } = await render(<HomeScreen />);
+    expect(screen.getByText("Didn't get to it")).toBeOnTheScreen();
+
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayCompletions: ["t0", "t1"], todayLocked: true, todayLockSource: "manual" });
+    await rerender(<HomeScreen />);
+    expect(screen.getByText("How did today feel?")).toBeOnTheScreen();
+    expect(screen.queryByText("Didn't get to it")).toBeNull();
+  });
+});
+
