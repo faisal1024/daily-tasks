@@ -3,26 +3,27 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { BodyFont, Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
-import { comparisonText, type WeeklyReview } from "@/lib/daily-tasks/weekly-review";
+import { comparisonText, hasInsights, type WeeklyReview } from "@/lib/daily-tasks/weekly-review";
 
 interface WeeklyReviewCardProps {
   review: WeeklyReview;
-  /** Plus shows the patterns; otherwise a quiet unlock row. */
+  /** Confirmed Plus: show the patterns. */
   plus: boolean;
+  /** Offer the unlock row (free users once Plus status is known). */
+  canUnlock: boolean;
   onUnlock: () => void;
 }
 
 const BAR_MAX = 44;
 
-export function WeeklyReviewCard({ review, plus, onUnlock }: WeeklyReviewCardProps) {
+export function WeeklyReviewCard({ review, plus, canUnlock, onUnlock }: WeeklyReviewCardProps) {
   const colors = useColors();
   const comparison = comparisonText(review);
+  const tasks = review.completed === 1 ? "1 task done" : `${review.completed} tasks done`;
   const summary =
-    review.planned > 0
-      ? `${review.completed} of ${review.planned} tasks done · ${review.perfectDays} perfect ${
-          review.perfectDays === 1 ? "day" : "days"
-        }`
-      : "Nothing planned yet this week.";
+    review.completed > 0 || review.perfectDays > 0
+      ? `${tasks} · ${review.perfectDays} perfect ${review.perfectDays === 1 ? "day" : "days"}`
+      : "Nothing done yet. That's okay.";
 
   return (
     <View className="rounded-2xl bg-surface border border-border p-4 gap-4" testID="weekly-review">
@@ -38,11 +39,12 @@ export function WeeklyReviewCard({ review, plus, onUnlock }: WeeklyReviewCardPro
       <View
         className="flex-row items-end justify-between"
         accessible
-        accessibilityLabel={review.days
-          .map((day) =>
-            day.total > 0 ? `${day.weekday}: ${day.completed} of ${day.total}` : `${day.weekday}: no tasks`,
-          )
-          .join(". ")}
+        accessibilityLabel={`Last 7 days. ${review.days
+          .map((day) => {
+            const name = day.isToday ? "Today" : day.weekday;
+            return day.total > 0 ? `${name}: ${day.completed} of ${day.total}` : `${name}: no tasks`;
+          })
+          .join(". ")}`}
       >
         {review.days.map((day) => {
           const fill = day.total > 0 ? day.completed / day.total : 0;
@@ -60,8 +62,14 @@ export function WeeklyReviewCard({ review, plus, onUnlock }: WeeklyReviewCardPro
                   }}
                 />
               </View>
-              <Text className="text-xs" style={{ color: colors.muted }}>
-                {day.letter}
+              <Text
+                className="text-xs"
+                style={{
+                  color: day.isToday ? colors.foreground : colors.muted,
+                  fontFamily: day.isToday ? BodyFont.bold : undefined,
+                }}
+              >
+                {day.isToday ? "Today" : day.letter}
               </Text>
             </View>
           );
@@ -78,30 +86,33 @@ export function WeeklyReviewCard({ review, plus, onUnlock }: WeeklyReviewCardPro
             <Insight
               key={task.text}
               icon="refresh-outline"
-              text={`"${task.text}" moved to the next day ${task.times} times. Try breaking it into tiny steps.`}
+              text={`"${task.text}" moved to the next day ${task.times} times. Maybe break it into tiny steps, or let it go for now.`}
             />
           ))}
-          {!comparison && !review.bestWeekday && review.stuck.length === 0 && (
+          {!hasInsights(review) && (
             <Insight icon="leaf-outline" text="A few more days of tasks and your patterns will show up here." />
           )}
         </View>
       ) : (
-        <Pressable
-          onPress={onUnlock}
-          accessibilityRole="button"
-          accessibilityLabel="See your patterns with Plus"
-          className="flex-row items-center gap-2 rounded-xl p-3"
-          style={{ backgroundColor: `${colors.primary}12` }}
-          testID="weekly-review-unlock"
-        >
-          <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
-          <Text className="flex-1 text-sm" style={{ color: colors.foreground, fontFamily: BodyFont.semibold }}>
-            See your patterns: best days and tasks that keep sliding
-          </Text>
-          <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-            Plus
-          </Text>
-        </Pressable>
+        canUnlock &&
+        hasInsights(review) && (
+          <Pressable
+            onPress={onUnlock}
+            accessibilityRole="button"
+            accessibilityHint="Shows Plus plans"
+            className="flex-row items-center gap-2 rounded-xl p-3"
+            style={{ backgroundColor: `${colors.primary}12` }}
+            testID="weekly-review-unlock"
+          >
+            <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
+            <Text className="flex-1 text-sm" style={{ color: colors.foreground, fontFamily: BodyFont.semibold }}>
+              Your patterns are ready: best days and tasks that keep moving
+            </Text>
+            <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+              Plus
+            </Text>
+          </Pressable>
+        )
       )}
     </View>
   );

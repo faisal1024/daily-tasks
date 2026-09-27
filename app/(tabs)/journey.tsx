@@ -30,6 +30,7 @@ export default function JourneyScreen() {
     acknowledgeMilestoneCelebration,
     today,
     hasPlus,
+    plusConfirmed,
   } = useDailyTasks();
   const { openPaywall } = usePlus();
   const weeklyReview = useMemo(() => buildWeeklyReview(state.history, today), [state.history, today]);
@@ -49,7 +50,15 @@ export default function JourneyScreen() {
   return (
     <ScreenContainer>
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 16 }}
+        // Readable width on iPad.
+        contentContainerStyle={{
+          padding: 20,
+          paddingBottom: 32,
+          gap: 16,
+          width: "100%",
+          maxWidth: 720,
+          alignSelf: "center",
+        }}
         showsVerticalScrollIndicator={false}
       >
         <Text
@@ -133,10 +142,13 @@ export default function JourneyScreen() {
         </View>
 
         <View className="gap-3">
-          <SectionLabel emoji="🗓️" label="Your week" />
+          <SectionLabel emoji="🗓️" label="Your last 7 days" />
           <WeeklyReviewCard
             review={weeklyReview}
-            plus={hasPlus}
+            // Patterns only once Plus is confirmed, and no upsell while it's
+            // still being checked (hasPlus is true while pending).
+            plus={plusConfirmed}
+            canUnlock={!hasPlus}
             onUnlock={() => {
               track("plus_gate_hit", { feature: "weekly_review" });
               openPaywall("weekly_review");

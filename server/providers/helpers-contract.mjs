@@ -16,6 +16,9 @@ export const MAX_PARKED = 20; // keep in sync with lib/daily-tasks/ai-helpers.ts
 export const MIN_STEPS = 3;
 export const MAX_STEPS = 5;
 export const MAX_STEP_TEXT = 60;
+// Items this long aren't a verbose task, they're the model echoing the input:
+// reject so the client falls back (the on-device split) instead of shortening.
+export const MAX_ECHO_TEXT = 200;
 
 function nonEmptyString(value, max) {
   return typeof value === "string" && value.trim().length > 0 && value.length <= max;
@@ -122,14 +125,14 @@ export function sanitizeBrainDump(result) {
 }
 
 export function isValidBrainDump(result) {
-  // Length isn't checked here: sanitizeBrainDump shortens long items rather
-  // than failing the whole request.
+  // Over-long items are shortened by sanitizeBrainDump rather than failing the
+  // request; only an echo of the input (> MAX_ECHO_TEXT) makes an item unusable.
   return Boolean(
     result &&
       typeof result === "object" &&
       Array.isArray(result.picks) &&
       Array.isArray(result.parked) &&
-      result.picks.some((item) => isShortTask(item, Number.MAX_SAFE_INTEGER)),
+      result.picks.some((item) => isShortTask(item, MAX_ECHO_TEXT)),
   );
 }
 
@@ -190,9 +193,9 @@ export function sanitizeBreakDown(result) {
 
 export function isValidBreakDown(result) {
   if (!result || typeof result !== "object" || !Array.isArray(result.steps)) return false;
-  // Long steps count (sanitizeBreakDown shortens them); a model that writes
-  // 70-character steps shouldn't turn into a failed request.
-  const usable = result.steps.filter((step) => isShortTask(step, Number.MAX_SAFE_INTEGER));
+  // Long steps count (sanitizeBreakDown shortens them): a model that writes
+  // 70-character steps shouldn't turn into a failed request. Echoes don't.
+  const usable = result.steps.filter((step) => isShortTask(step, MAX_ECHO_TEXT));
   // Accept 2+ usable steps: a slightly short list is still useful.
   return usable.length >= 2;
 }

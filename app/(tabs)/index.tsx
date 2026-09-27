@@ -175,6 +175,10 @@ export default function HomeScreen() {
       formatClockTime(state.autoLock.hour, state.autoLock.minute),
   });
   const entry = ideasEntry(total, state.momentumProfile.goalTitle);
+  const ideasVisible = showIdeasEntry({ locked: state.todayLocked, remainingSlots });
+  // The right column (iPad) / lower section (phone) only exists when it has content.
+  const rightHasContent = ideasVisible || progress.isPerfect;
+  const twoColumn = wide && rightHasContent;
   const dayStreak = computeDayStreak(state.history, today);
   const firstName = state.momentumProfile.name?.trim().split(/\s+/)[0] ?? "";
   const greeting = firstName
@@ -438,7 +442,7 @@ export default function HomeScreen() {
 
           <View
             style={
-              wide
+              twoColumn
                 ? {
                     flexDirection: "row",
                     alignItems: "flex-start",
@@ -449,11 +453,22 @@ export default function HomeScreen() {
                     maxWidth: 1100,
                     alignSelf: "center",
                   }
-                : { paddingHorizontal: 20, paddingTop: 20, gap: 14 }
+                : wide
+                  ? // Nothing for a right column: one centred column instead of
+                    // tasks squeezed next to empty space.
+                    {
+                      paddingHorizontal: 32,
+                      paddingTop: 24,
+                      gap: 14,
+                      width: "100%",
+                      maxWidth: 640,
+                      alignSelf: "center",
+                    }
+                  : { paddingHorizontal: 20, paddingTop: 20, gap: 14 }
             }
-            testID={wide ? "today-two-column" : undefined}
+            testID={twoColumn ? "today-two-column" : undefined}
           >
-            <View style={wide ? { flex: 1.25, gap: 14 } : { gap: 14 }}>
+            <View style={twoColumn ? { flex: 1.25, gap: 14 } : { gap: 14 }}>
               {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
               {toast && (
                 <View
@@ -511,9 +526,10 @@ export default function HomeScreen() {
               <StatusLine status={status} onLock={confirmLock} />
             </View>
 
-            <View style={wide ? { flex: 1, gap: 14 } : { gap: 14 }}>
+            {rightHasContent && (
+            <View style={twoColumn ? { flex: 1, gap: 14 } : { gap: 14 }}>
 
-              {showIdeasEntry({ locked: state.todayLocked, remainingSlots }) && (
+              {ideasVisible && (
                 <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
                   <Pressable
                     onPress={() => setIdeasOpen(true)}
@@ -579,6 +595,7 @@ export default function HomeScreen() {
                 </>
               )}
             </View>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
