@@ -1,6 +1,6 @@
 # Privacy Policy — Daily Tasks
 
-**Effective date: 28 September 2026 (last updated for the evening check-in and coach memory)**
+**Effective date: 29 September 2026 (last updated for Calendar and Reminders)**
 
 <!-- Keep in sync with the published copy (gist a43d6373453761af70d495d640e38ffa,
      privacy-policy.html), which App Store Connect links to. The app links here. -->
@@ -25,9 +25,11 @@ This data is not synced to any server or account. The Home Screen and Lock Scree
 Four optional features use an AI model. When you use them, the app sends a request to our own server, which asks an AI model (currently provided by Anthropic) to respond. Each request contains only what that feature needs:
 
 - **Goal-based suggestions:** your goal and onboarding answers, a summary of recent completion counts, the titles of up to 12 of your recent tasks and whether each was completed, and your most recent optional reflection.
-- **Brain dump:** the text you type or dictate into the brain dump (up to 2,000 characters), how many open slots you have today, and your goal.
+- **Brain dump:** the text you type or dictate into the brain dump (up to 2,000 characters), how many open slots you have today, and your goal. When you first open the app, what you type on the first screen is sorted this way (for everyone, not just Plus), and the screen says so.
 - **Break it down:** the title of the task you ask to break down, and your goal.
 - **Evening check-in:** how your day felt (the option you tap), the titles of today's tasks and whether each was done, your optional note, your goal, and your coach memory (below).
+
+**Calendar and Reminders (optional, iPhone only).** If you turn on "Plan around my calendar" in Settings and allow access, the app reads the titles and times of today's calendar events and of reminders due by the end of today (including overdue ones), up to 12 items. They are sent with goal-based suggestion and brain dump requests so your three fit around your day. They are never stored on our server, and the app never changes your calendar or reminders. You can turn this off in Settings, or remove access in iOS Settings, at any time.
 
 **Coach memory.** After an evening check-in, the AI writes a short summary of patterns worth remembering (for example which kinds of tasks you tend to finish). It is stored on your device, is sent with goal-based suggestion and evening check-in requests so the coach can build on it, and is never stored on our server. "Reset all data" in Settings deletes it.
 

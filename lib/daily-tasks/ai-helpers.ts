@@ -62,10 +62,17 @@ function clampSlots(openSlots: number): number {
  * the AI request fails, so the feature always does something useful.
  */
 export function localBrainDump(text: string, openSlots: number): BrainDumpResult {
-  const parts = text
+  let parts = text
     .split(/\r?\n|;|•/)
     .map((part) => part.trim())
     .filter(Boolean);
+  // One line written as a list ("report, dentist, groceries"): split on commas.
+  if (parts.length === 1 && parts[0].includes(",")) {
+    parts = parts[0]
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
   const seen = new Set<string>();
   const picks = uniqueTexts(parts, clampSlots(openSlots), seen);
   const parked = uniqueTexts(parts, MAX_PARKED, seen);
@@ -88,12 +95,15 @@ export async function requestBrainDump({
   text,
   openSlots,
   goalTitle,
+  agenda = [],
   planUrl = getMomentumAiProxyUrl(),
   fetchImpl,
 }: {
   text: string;
   openSlots: number;
   goalTitle: string | null;
+  /** Today's events and reminders, pre-formatted (see agenda.ts). */
+  agenda?: string[];
   planUrl?: string | null;
   fetchImpl?: typeof fetch;
 }): Promise<BrainDumpResult> {
@@ -103,7 +113,12 @@ export async function requestBrainDump({
   if (!url) return localBrainDump(trimmed, openSlots);
   const data = await postToProxy({
     url,
-    payload: { text: trimmed, openSlots: clampSlots(openSlots), goalTitle },
+    payload: {
+      text: trimmed,
+      openSlots: clampSlots(openSlots),
+      goalTitle,
+      ...(agenda.length > 0 ? { agenda } : {}),
+    },
     fetchImpl,
   });
   return parseBrainDumpResponse(data, openSlots);
@@ -162,7 +177,7 @@ export interface SortedBrainDump {
  * friendly notice) if the request fails, so the user never loses what they typed.
  */
 export async function sortBrainDump(
-  params: { text: string; openSlots: number; goalTitle: string | null },
+  params: { text: string; openSlots: number; goalTitle: string | null; agenda?: string[] },
   request: typeof requestBrainDump = requestBrainDump,
 ): Promise<SortedBrainDump> {
   try {

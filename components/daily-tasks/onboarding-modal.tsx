@@ -30,6 +30,8 @@ interface OnboardingModalProps {
   initialProfile?: MomentumProfile;
   onComplete: (profile: MomentumProfile) => void;
   onRequestClose?: () => void;
+  /** "goal" skips the welcome/name step (setting a goal later, in context). */
+  startAt?: "welcome" | "goal";
 }
 
 type Step = "welcome" | "goal" | "context" | "preferences" | "ready";
@@ -71,9 +73,10 @@ export function OnboardingModal({
   initialProfile = DEFAULT_MOMENTUM_PROFILE,
   onComplete,
   onRequestClose,
+  startAt = "welcome",
 }: OnboardingModalProps) {
   const colors = useColors();
-  const [step, setStep] = useState<Step>("welcome");
+  const [step, setStep] = useState<Step>(startAt);
   const [name, setName] = useState(initialProfile.name ?? "");
   const [goalTitle, setGoalTitle] = useState(initialProfile.goalTitle ?? "");
   const [goalSource, setGoalSource] = useState<GoalSource | null>(
@@ -93,7 +96,7 @@ export function OnboardingModal({
 
   useEffect(() => {
     if (!visible) return;
-    setStep("welcome");
+    setStep(startAt);
     setName(initialProfile.name ?? "");
     setGoalTitle(initialProfile.goalTitle ?? "");
     setGoalSource(initialProfile.goalSource);
@@ -103,7 +106,7 @@ export function OnboardingModal({
     setMotivation(initialProfile.motivation ?? "");
     setPreferredTime(initialProfile.preferredTime);
     setCadence(initialProfile.cadence);
-  }, [initialProfile, visible]);
+  }, [initialProfile, visible, startAt]);
 
   const trimmedGoal = goalTitle.trim();
   const canContinueGoal = trimmedGoal.length > 0 && goalSource !== null;
@@ -252,10 +255,10 @@ export function OnboardingModal({
                 </View>
               </ScrollView>
               <FooterButtons
-                backLabel="Back"
+                backLabel={startAt === "goal" ? "Cancel" : "Back"}
                 nextLabel="Next"
                 nextDisabled={!canContinueGoal}
-                onBack={() => setStep("welcome")}
+                onBack={() => (startAt === "goal" ? onRequestClose?.() : setStep("welcome"))}
                 onNext={() => setStep("context")}
               />
             </>

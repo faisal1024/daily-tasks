@@ -5,6 +5,7 @@
 // a payload validator, and a response validator. The route table in
 // server/routes.mjs wires them to URLs.
 
+import { agendaPromptLines, isValidAgenda } from "./agenda.mjs";
 const SAFETY =
   "Never use shame, guilt, urgency, medical advice, financial advice, or unsafe " +
   "instructions. Keep wording short, concrete and kind.";
@@ -82,6 +83,7 @@ export function validateBrainDumpPayload(payload) {
     return "openSlots must be 1-3";
   }
   if (!optionalGoal(payload.goalTitle)) return "Invalid goalTitle";
+  if (!isValidAgenda(payload.agenda)) return "Invalid agenda";
   return null;
 }
 
@@ -89,6 +91,7 @@ export function buildBrainDumpPrompt(payload) {
   return [
     payload.goalTitle ? `The person's bigger goal: ${payload.goalTitle}` : "No specific goal set.",
     `Pick at most ${payload.openSlots} item(s) for today.`,
+    ...agendaPromptLines(payload.agenda),
     "Brain dump (their words):",
     '"""',
     payload.text.trim(),

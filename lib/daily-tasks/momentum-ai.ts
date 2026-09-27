@@ -57,6 +57,8 @@ export interface AiPlanRequestPayload {
   recentTasks: RecentTask[];
   /** The coach's rolling summary from past evening closes, if any. */
   coachMemory?: string | null;
+  /** Today's events and reminders, pre-formatted (see agenda.ts). */
+  agenda?: string[];
 }
 
 /**
@@ -118,12 +120,14 @@ export function buildAiPlanRequestPayload({
   history,
   settings,
   coachMemory = null,
+  agenda = [],
   now = new Date(),
 }: {
   profile: MomentumProfile;
   history: History;
   settings: MomentumSettings;
   coachMemory?: string | null;
+  agenda?: string[];
   now?: Date;
 }): AiPlanRequestPayload | null {
   if (
@@ -151,6 +155,7 @@ export function buildAiPlanRequestPayload({
     recentReflectionResult: latestReflectionResult(history, now),
     recentTasks: summarizeRecentTasks(history, now),
     ...(coachMemory ? { coachMemory } : {}),
+    ...(agenda.length > 0 ? { agenda } : {}),
   };
 }
 
@@ -159,6 +164,7 @@ export async function requestMomentumAiPlan({
   history,
   settings,
   coachMemory = null,
+  agenda = [],
   proxyUrl = getMomentumAiProxyUrl(),
   proxySecret = getMomentumProxySecret(),
   now = new Date(),
@@ -169,6 +175,7 @@ export async function requestMomentumAiPlan({
   history: History;
   settings: MomentumSettings;
   coachMemory?: string | null;
+  agenda?: string[];
   proxyUrl?: string | null;
   proxySecret?: string | null;
   now?: Date;
@@ -179,7 +186,7 @@ export async function requestMomentumAiPlan({
     throw new Error("Momentum AI proxy URL is not configured.");
   }
 
-  const payload = buildAiPlanRequestPayload({ profile, history, settings, coachMemory, now });
+  const payload = buildAiPlanRequestPayload({ profile, history, settings, coachMemory, agenda, now });
   if (!payload) {
     throw new Error("Momentum profile is incomplete.");
   }

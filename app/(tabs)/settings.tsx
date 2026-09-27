@@ -21,6 +21,7 @@ import { TimeStepper } from "@/components/daily-tasks/time-stepper";
 import { useColors } from "@/hooks/use-colors";
 import { Fonts } from "@/constants/theme";
 import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
+import { requestAgendaAccess } from "@/lib/daily-tasks/agenda";
 import { aiFailureMessage } from "@/lib/daily-tasks/ai-status";
 import { getPostHogKey, track } from "@/lib/daily-tasks/analytics";
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -77,6 +78,7 @@ export default function SettingsScreen() {
     updateMomentumProfile,
     requestMomentumPlan,
     setMomentumSetting,
+    setAgendaEnabled,
     resetAll,
     hasPlus,
     setAnalyticsEnabled,
@@ -126,6 +128,34 @@ export default function SettingsScreen() {
     }
 
     setNotificationsEnabled(true);
+  };
+
+  const handleAgendaEnabled = async (value: boolean) => {
+    // Only Plus requests use it: don't ask for access a free user can't use.
+    if (value && !hasPlus) {
+      track("plus_gate_hit", { feature: "calendar" });
+      plus.openPaywall("calendar");
+      return;
+    }
+    if (!value) {
+      setAgendaEnabled(false);
+      track("agenda_toggled", { active: false });
+      return;
+    }
+    const access = await requestAgendaAccess();
+    if (access !== "granted") {
+      Alert.alert(
+        "Calendar access is off",
+        "To plan around your day, allow Calendars or Reminders for this app in System Settings.",
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "Open Settings", onPress: () => void Linking.openSettings().catch(() => {}) },
+        ],
+      );
+      return;
+    }
+    setAgendaEnabled(true);
+    track("agenda_toggled", { active: true });
   };
 
   const handleReminderEnabled = async (
@@ -368,6 +398,26 @@ export default function SettingsScreen() {
                 trackColor={{ true: colors.primary }}
               />
             </View>
+            {Platform.OS === "ios" ? (
+              <View className="flex-row items-center justify-between gap-4">
+                <View className="flex-1">
+                  <Text className="text-base font-semibold text-foreground">
+                    Plan around my calendar
+                  </Text>
+                  <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                    Reads today&apos;s events and reminders so your three fit around them. Only
+                    their titles and times are sent to our AI service when it makes
+                    suggestions, and nothing is stored.{hasPlus ? "" : " Plus."}
+                  </Text>
+                </View>
+                <Switch
+                  value={hasPlus && state.agendaEnabled}
+                  onValueChange={(value) => void handleAgendaEnabled(value)}
+                  trackColor={{ true: colors.primary }}
+                  accessibilityLabel="Plan around my calendar"
+                />
+              </View>
+            ) : null}
             <View className="gap-2">
               <Text className="text-sm font-semibold text-foreground">
                 Tone of suggestions

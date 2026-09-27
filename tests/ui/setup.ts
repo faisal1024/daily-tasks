@@ -17,3 +17,27 @@ jest.mock("@react-native-async-storage/async-storage", () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- hoisted jest.mock factory
   require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
+
+// Calendar/Reminders (EventKit): no access by default in tests.
+jest.mock("expo-calendar", () => {
+  const denied = { granted: false, canAskAgain: true, status: "undetermined", expires: "never" };
+  return {
+    EntityTypes: { EVENT: "event", REMINDER: "reminder" },
+    EventStatus: { CANCELED: "canceled" },
+    CalendarType: { LOCAL: "local", CALDAV: "caldav", SUBSCRIBED: "subscribed", BIRTHDAYS: "birthdays" },
+    ReminderStatus: { INCOMPLETE: "incomplete", COMPLETED: "completed" },
+    getCalendarPermissionsAsync: jest.fn(async () => denied),
+    getRemindersPermissionsAsync: jest.fn(async () => denied),
+    requestCalendarPermissionsAsync: jest.fn(async () => denied),
+    requestRemindersPermissionsAsync: jest.fn(async () => denied),
+    getCalendarsAsync: jest.fn(async () => []),
+    getEventsAsync: jest.fn(async () => []),
+    // Like the library: a status filter needs a start date.
+    getRemindersAsync: jest.fn(async (_ids: string[], status: unknown, startDate: unknown) => {
+      if (status && !startDate) {
+        throw new Error("getRemindersAsync must be called with a startDate (date) to search for reminders");
+      }
+      return [];
+    }),
+  };
+});

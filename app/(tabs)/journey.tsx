@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { GradientCard } from "@/components/daily-tasks/gradient-card";
+import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { WeeklyReviewCard } from "@/components/daily-tasks/weekly-review-card";
 import { ScreenContainer } from "@/components/screen-container";
@@ -23,6 +24,7 @@ export default function JourneyScreen() {
     daysShowedUp,
     completeMilestone,
     uncompleteMilestone,
+    completeMomentumOnboarding,
     momentumMilestones,
     pendingMilestoneCelebration,
     acknowledgeMilestoneCelebration,
@@ -36,6 +38,7 @@ export default function JourneyScreen() {
   const journey = state.journey;
   const stage = stageForDays(daysShowedUp);
   const goalTitle = state.momentumProfile.goalTitle;
+  const [goalModalOpen, setGoalModalOpen] = useState(false);
   const milestonesDone = momentumMilestones.filter((m) => m.done).length;
   const nextMilestoneIndex = momentumMilestones.findIndex((m) => !m.done);
 
@@ -77,6 +80,27 @@ export default function JourneyScreen() {
         >
           Your progress
         </Text>
+
+        {/* No goal yet (first run doesn't ask): offer one here, in context. */}
+        {!goalTitle ? (
+          <View className="rounded-2xl bg-surface border border-border p-4 gap-3" testID="set-goal-card">
+            <Text className="text-lg font-bold text-foreground">What are you working toward?</Text>
+            <Text className="text-sm" style={{ color: colors.muted }}>
+              Add a goal and your coach suggests tasks and milestones toward it.
+            </Text>
+            <Pressable
+              onPress={() => setGoalModalOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Set a goal"
+              className="self-start rounded-full px-4 py-2"
+              style={{ backgroundColor: colors.primary }}
+            >
+              <Text className="text-sm font-bold" style={{ color: "#fff" }}>
+                Set a goal
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* Growth hero — gradient card (scheme-aware, self-measuring) */}
         <GradientCard
@@ -153,7 +177,7 @@ export default function JourneyScreen() {
           />
         </View>
 
-        {/* Milestones toward the goal — advance automatically as you finish your days */}
+        {/* Milestones toward the goal: ticked off by hand */}
         {momentumMilestones.length > 0 && (
           <View className="gap-3">
             <View className="flex-row items-center justify-between">
@@ -246,6 +270,17 @@ export default function JourneyScreen() {
         emoji="🏆"
         title="Milestone reached!"
         subtitle={`You reached: ${pendingMilestoneCelebration ?? ""}`}
+      />
+      <OnboardingModal
+        visible={goalModalOpen}
+        startAt="goal"
+        initialProfile={state.momentumProfile}
+        onRequestClose={() => setGoalModalOpen(false)}
+        onComplete={(profile) => {
+          completeMomentumOnboarding(profile);
+          setGoalModalOpen(false);
+          track("goal_set", { source: "progress" });
+        }}
       />
     </ScreenContainer>
   );

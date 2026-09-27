@@ -85,6 +85,7 @@ import {
 import { computeDayStreak } from "./streaks";
 import type { EveningClose } from "./evening";
 import { draftForNotification, draftForTomorrow } from "./evening";
+import { readTodayAgenda } from "./agenda";
 import {
   invalidateWidgetSnapshot,
   markWidgetTogglesProcessed,
@@ -161,6 +162,7 @@ type Action =
   | { type: "setEveningClose"; close: EveningClose; day: string; result: ReflectionResult }
   | { type: "applyTomorrowDraft"; tasks: string[]; shown: string[]; today: string; at: string }
   | { type: "dismissTomorrowDraft" }
+  | { type: "setAgendaEnabled"; enabled: boolean }
   | { type: "completeMilestone"; id: string }
   | { type: "uncompleteMilestone"; id: string }
   | { type: "setAnalyticsEnabled"; enabled: boolean }
@@ -235,6 +237,8 @@ function reducer(state: AppState, action: Action): AppState {
       const withLeftovers = leftovers.length > 0 ? parkTasks(next, leftovers, action.at) : next;
       return { ...withLeftovers, tomorrowDraft: null };
     }
+    case "setAgendaEnabled":
+      return state.agendaEnabled === action.enabled ? state : { ...state, agendaEnabled: action.enabled };
     case "dismissTomorrowDraft":
       return state.tomorrowDraft ? { ...state, tomorrowDraft: null } : state;
     case "completeMilestone": {
@@ -734,6 +738,7 @@ interface StoreContextValue {
   /** `shown` is what the card offered; the unused rest is saved for later. */
   applyTomorrowDraft: (tasks: string[], shown: string[]) => void;
   dismissTomorrowDraft: () => void;
+  setAgendaEnabled: (enabled: boolean) => void;
   completeMilestone: (id: string) => void;
   uncompleteMilestone: (id: string) => void;
   /** Days with a plan (today included): the "Day N" chip. */
@@ -1098,11 +1103,14 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "requestMomentumPlanStarted" });
     const now = new Date();
     try {
+      // Read fresh each time (events change); never blocks the plan on failure.
+      const agenda = state.agendaEnabled ? await readTodayAgenda(now) : [];
       const plan = await requestMomentumAiPlan({
         profile: state.momentumProfile,
         history: state.history,
         settings: state.momentumSettings,
         coachMemory: state.coachMemory,
+        agenda,
         now,
       });
       if (!isLatestRequest(requestId, latestAiRequest.current)) return;
@@ -1117,7 +1125,14 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         now,
       });
     }
-  }, [hasPlus, state.history, state.momentumProfile, state.momentumSettings, state.coachMemory]);
+  }, [
+    hasPlus,
+    state.history,
+    state.momentumProfile,
+    state.momentumSettings,
+    state.coachMemory,
+    state.agendaEnabled,
+  ]);
 
   // Auto-generate the AI plan once per (day + goal) when a proxy URL is
   // configured. No URL → this is a no-op and the app stays on the local
@@ -1232,6 +1247,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       at: new Date().toISOString(),
     });
   }, [ensureDay]);
+  const setAgendaEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "setAgendaEnabled", enabled });
+  }, []);
   const dismissTomorrowDraft = useCallback(() => {
     dispatch({ type: "dismissTomorrowDraft" });
   }, []);
@@ -1330,6 +1348,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setEveningClose,
       applyTomorrowDraft,
       dismissTomorrowDraft,
+      setAgendaEnabled,
       completeMilestone,
       uncompleteMilestone,
       daysShowedUp,
@@ -1386,6 +1405,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setEveningClose,
       applyTomorrowDraft,
       dismissTomorrowDraft,
+      setAgendaEnabled,
       completeMilestone,
       uncompleteMilestone,
       daysShowedUp,
