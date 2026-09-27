@@ -97,7 +97,7 @@ export default function HomeScreen() {
     clearTaskSteps,
     hasPlus,
   } = useDailyTasks();
-  const { paywallEnabled, paywallSource, entitlementActive, openPaywall } = usePlus();
+  const { paywallEnabled, paywallSource, purchaseCount, openPaywall } = usePlus();
 
   // What to pick back up once the paywall closes (bought or not).
   const pendingUnlock = useRef<Unlock | null>(null);
@@ -109,15 +109,20 @@ export default function HomeScreen() {
     options: { feature?: PlusFeature; afterSheet?: boolean; resume?: Unlock } = {},
   ) => {
     if (options.feature) track("plus_gate_hit", { feature: options.feature });
-    pendingUnlock.current = options.resume ?? null;
+    const unlock = options.resume ?? null;
     if (paywallTimer.current) clearTimeout(paywallTimer.current);
+    const open = () => {
+      pendingUnlock.current = unlock;
+      // Didn't open (e.g. a paywall is already up elsewhere): nothing to resume.
+      if (!openPaywall(source)) pendingUnlock.current = null;
+    };
     if (!options.afterSheet) {
-      openPaywall(source);
+      open();
       return;
     }
     paywallTimer.current = setTimeout(() => {
       paywallTimer.current = null;
-      openPaywall(source);
+      open();
     }, 650);
   };
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -341,17 +346,28 @@ export default function HomeScreen() {
     pendingUnlock.current = null;
     if (!unlock) return;
     // Let the paywall animate away before presenting another sheet.
+    if (resumeTimer.current) clearTimeout(resumeTimer.current);
     resumeTimer.current = setTimeout(() => {
       resumeTimer.current = null;
+      // A paywall came back up meanwhile: keep the unlock for when it closes.
+      if (paywallOpenRef.current) {
+        pendingUnlock.current = unlock;
+        paywallWasOpen.current = true;
+        return;
+      }
       resume.current(unlock);
     }, 650);
   }, [paywallSource]);
+  const paywallOpenRef = useRef(false);
+  paywallOpenRef.current = paywallSource !== null;
 
-  const hadPlusEntitlement = useRef(entitlementActive);
+  // Thank-you note after an actual purchase (not when a subscriber's status
+  // simply loads at launch, and not on restore, which has its own message).
+  const seenPurchases = useRef(purchaseCount);
   useEffect(() => {
-    if (entitlementActive && !hadPlusEntitlement.current) showToast("You're on Plus. Thank you!");
-    hadPlusEntitlement.current = entitlementActive;
-  }, [entitlementActive]);
+    if (purchaseCount > seenPurchases.current) showToast("You're on Plus. Thank you!");
+    seenPurchases.current = purchaseCount;
+  }, [purchaseCount]);
 
   const confirmLock = () => {
     const { title, message } = lockConfirmation(total);

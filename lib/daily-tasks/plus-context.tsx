@@ -28,10 +28,18 @@ export interface PlusContextValue {
   paywallEnabled: boolean;
   /** RevenueCat says the Plus entitlement is active. */
   entitlementActive: boolean;
-  /** RevenueCat has answered at least once this launch. */
+  /**
+   * RevenueCat has answered this launch, or stopped being waited for (after
+   * CHECK_TIMEOUT_MS the user is treated by what we know, i.e. as free).
+   */
   entitlementKnown: boolean;
   paywallSource: PaywallSource | null;
-  openPaywall: (source: PaywallSource) => void;
+  /** A purchase is in flight (it may outlive the sheet that started it). */
+  purchasing: boolean;
+  /** Bumped after each completed purchase (drives the thank-you note). */
+  purchaseCount: number;
+  /** Returns false when it didn't open (no paywall, or one is already up). */
+  openPaywall: (source: PaywallSource) => boolean;
   closePaywall: () => void;
   /** The paywall sheet reports that iOS actually presented it. */
   markPaywallShown: () => void;
@@ -46,7 +54,9 @@ const noPaywall: PlusContextValue = {
   entitlementActive: false,
   entitlementKnown: true,
   paywallSource: null,
-  openPaywall: () => {},
+  purchasing: false,
+  purchaseCount: 0,
+  openPaywall: () => false,
   closePaywall: () => {},
   markPaywallShown: () => {},
   loadPackages: async () => [],
@@ -56,13 +66,32 @@ const noPaywall: PlusContextValue = {
 
 const PlusContext = createContext<PlusContextValue>(noPaywall);
 
+/** How long gates wait for RevenueCat's first answer before treating the user as free. */
+export const CHECK_TIMEOUT_MS = 6000;
+/** A paywall request iOS hasn't presented after this long is considered failed. */
+const PRESENT_TIMEOUT_MS = 2500;
+
 export function PlusProvider({ children }: { children: React.ReactNode }) {
   const [paywallBuild] = useState(() => isPaywallConfigured());
   const [paywallEnabled] = useState(() => paywallBuild && configurePurchases());
   const [entitlementActive, setEntitlementActive] = useState(false);
-  const [entitlementKnown, setEntitlementKnown] = useState(!paywallEnabled);
+  const [entitlementAnswered, setEntitlementAnswered] = useState(!paywallEnabled);
+  const [checkTimedOut, setCheckTimedOut] = useState(false);
+  const entitlementKnown = entitlementAnswered || checkTimedOut;
   const [paywallSource, setPaywallSource] = useState<PaywallSource | null>(null);
   const sourceRef = useRef<PaywallSource | null>(null);
+  const [purchasing, setPurchasing] = useState(false);
+  const purchasingRef = useRef(false);
+  const [purchaseCount, setPurchaseCount] = useState(0);
+
+  // Don't wait for RevenueCat forever: if it can't be reached (blocked domain,
+  // outage) stop treating the user as "maybe Plus" after a few seconds. A late
+  // answer still updates everything.
+  useEffect(() => {
+    if (!paywallEnabled) return;
+    const timer = setTimeout(() => setCheckTimedOut(true), CHECK_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [paywallEnabled]);
 
   useEffect(() => {
     if (!paywallEnabled) return;
@@ -74,13 +103,13 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
         // the paywall by mistake) and try again on the next foreground.
         if (active === null) return;
         setEntitlementActive(active);
-        setEntitlementKnown(true);
+        setEntitlementAnswered(true);
       });
     void refresh();
     const unsubscribe = onPlusChange((active) => {
       if (cancelled) return;
       setEntitlementActive(active);
-      setEntitlementKnown(true);
+      setEntitlementAnswered(true);
     });
     // Expiry or a refund made elsewhere shows up the next time the app opens.
     const sub = RNAppState.addEventListener("change", (status) => {
@@ -101,54 +130,78 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, []);
 
-  // If iOS refuses to present the sheet (another modal is still up), onShow
-  // never fires: forget the request so later gates can open it again.
+  // iOS can refuse to present the sheet (another modal still up). We never
+  // close a paywall on a timer (that could hide one the user is reading);
+  // instead the NEXT open replaces a request that wasn't shown in time.
   const shownRef = useRef(false);
-  const watchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearWatchdog = () => {
-    if (watchdog.current) clearTimeout(watchdog.current);
-    watchdog.current = null;
-  };
-  useEffect(() => clearWatchdog, []);
+  const openedAt = useRef(0);
+  const reopenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (reopenTimer.current) clearTimeout(reopenTimer.current);
+    },
+    [],
+  );
 
   const openPaywall = useCallback(
-    (source: PaywallSource) => {
-      if (!paywallEnabled || sourceRef.current) return;
-      sourceRef.current = source;
-      shownRef.current = false;
-      setPaywallSource(source);
-      clearWatchdog();
-      watchdog.current = setTimeout(() => {
-        watchdog.current = null;
-        if (shownRef.current || sourceRef.current !== source) return;
+    (source: PaywallSource): boolean => {
+      if (!paywallEnabled) return false;
+      if (sourceRef.current) {
+        const stale = !shownRef.current && Date.now() - openedAt.current > PRESENT_TIMEOUT_MS;
+        if (!stale) return false;
+        // Hide the failed request first so the Modal sees visible go false → true.
         sourceRef.current = null;
         setPaywallSource(null);
-      }, 2500);
+        if (reopenTimer.current) clearTimeout(reopenTimer.current);
+        reopenTimer.current = setTimeout(() => {
+          reopenTimer.current = null;
+          sourceRef.current = source;
+          shownRef.current = false;
+          openedAt.current = Date.now();
+          setPaywallSource(source);
+        }, 60);
+        return true;
+      }
+      sourceRef.current = source;
+      shownRef.current = false;
+      openedAt.current = Date.now();
+      setPaywallSource(source);
+      return true;
     },
     [paywallEnabled],
   );
 
+  // Called from the sheet's onShow and its first layout (either proves it's up).
   const markPaywallShown = useCallback(() => {
     if (!sourceRef.current || shownRef.current) return;
     shownRef.current = true;
-    clearWatchdog();
     track("paywall_viewed", { source: sourceRef.current });
   }, []);
 
   const closePaywall = useCallback(() => {
     if (!sourceRef.current) return;
     if (shownRef.current) track("paywall_closed", { source: sourceRef.current });
-    clearWatchdog();
     sourceRef.current = null;
     shownRef.current = false;
     setPaywallSource(null);
   }, []);
 
-  const purchase = useCallback(async (pkg: PlusPackage) => {
+  const purchase = useCallback(async (pkg: PlusPackage): Promise<PurchaseOutcome> => {
+    // RevenueCat rejects a second purchase while one is running.
+    if (purchasingRef.current) return "pending";
+    purchasingRef.current = true;
+    setPurchasing(true);
     const source = sourceRef.current ?? "settings";
     track("purchase_started", { plan: pkg.kind, source });
-    const result = await purchasePackage(pkg.id);
-    if (result.active) setEntitlementActive(true);
+    const result = await purchasePackage(pkg.id).finally(() => {
+      purchasingRef.current = false;
+      setPurchasing(false);
+    });
+    if (result.active) {
+      setEntitlementActive(true);
+      setEntitlementAnswered(true);
+    }
+    if (result.outcome === "purchased") setPurchaseCount((count) => count + 1);
     track(result.outcome === "purchased" ? "purchase_completed" : "purchase_failed", {
       plan: pkg.kind,
       source,
@@ -160,7 +213,10 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
 
   const restore = useCallback(async () => {
     const active = await restorePurchases();
-    if (active) setEntitlementActive(true);
+    if (active) {
+      setEntitlementActive(true);
+      setEntitlementAnswered(true);
+    }
     track("restore_completed", { active: active === true, outcome: active === null ? "failed" : "ok" });
     return active;
   }, []);
@@ -172,6 +228,8 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       entitlementActive,
       entitlementKnown,
       paywallSource,
+      purchasing,
+      purchaseCount,
       openPaywall,
       closePaywall,
       markPaywallShown,
@@ -179,7 +237,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       purchase,
       restore,
     }),
-    [paywallBuild, paywallEnabled, entitlementActive, entitlementKnown, paywallSource, openPaywall, closePaywall, markPaywallShown, purchase, restore],
+    [paywallBuild, paywallEnabled, entitlementActive, entitlementKnown, paywallSource, purchasing, purchaseCount, openPaywall, closePaywall, markPaywallShown, purchase, restore],
   );
 
   return <PlusContext.Provider value={value}>{children}</PlusContext.Provider>;

@@ -38,6 +38,8 @@ interface PaywallSheetProps {
   onClose: () => void;
   /** Called once iOS has actually presented the sheet. */
   onShown?: () => void;
+  /** A purchase started earlier is still running (buy stays disabled). */
+  purchasing?: boolean;
   loadPackages: () => Promise<PlusPackage[]>;
   onPurchase: (pkg: PlusPackage) => Promise<PurchaseOutcome>;
   onRestore: () => Promise<boolean | null>;
@@ -47,6 +49,7 @@ export function PaywallSheet({
   source,
   onClose,
   onShown,
+  purchasing = false,
   loadPackages,
   onPurchase,
   onRestore,
@@ -111,10 +114,14 @@ export function PaywallSheet({
   }, [load]);
 
   const buy = async () => {
-    if (!selected || busy) return;
+    if (!selected || busy || purchasing) return;
+    const mine = session.current;
     setBusy("purchase");
     setMessage(null);
     const outcome = await onPurchase(selected);
+    // The sheet was closed (and maybe reopened) meanwhile: this result belongs
+    // to that earlier open, so it mustn't close or message the current one.
+    if (mine !== session.current) return;
     setBusy(null);
     if (outcome === "purchased") onClose();
     else if (outcome === "pending") {
@@ -126,9 +133,11 @@ export function PaywallSheet({
 
   const restore = async () => {
     if (busy) return;
+    const mine = session.current;
     setBusy("restore");
     setMessage(null);
     const active = await onRestore();
+    if (mine !== session.current) return;
     setBusy(null);
     if (active) onClose();
     else if (active === false) setMessage("No Plus purchase was found for this Apple ID.");
@@ -149,7 +158,12 @@ export function PaywallSheet({
       animationType="slide"
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
     >
-      <View style={{ flex: 1, backgroundColor: colors.background }} testID="paywall-sheet">
+      <View
+        style={{ flex: 1, backgroundColor: colors.background }}
+        testID="paywall-sheet"
+        // A second "it's on screen" signal in case onShow is late or missing.
+        onLayout={onShown}
+      >
         <View
           className="flex-row justify-end px-5"
           style={{ paddingTop: Platform.OS === "ios" ? 16 : insets.top + 12 }}
@@ -295,15 +309,21 @@ export function PaywallSheet({
 
           <Pressable
             onPress={() => void buy()}
-            disabled={!selected || busy !== null}
+            disabled={!selected || busy !== null || purchasing}
             accessibilityRole="button"
             accessibilityLabel={purchaseButtonLabel(selected)}
-            accessibilityState={{ disabled: !selected || busy !== null, busy: busy === "purchase" }}
+            accessibilityState={{
+              disabled: !selected || busy !== null || purchasing,
+              busy: busy === "purchase" || purchasing,
+            }}
             className="rounded-2xl py-4 items-center"
-            style={{ backgroundColor: colors.primary, opacity: selected && !busy ? 1 : 0.5 }}
+            style={{
+              backgroundColor: colors.primary,
+              opacity: selected && !busy && !purchasing ? 1 : 0.5,
+            }}
             testID="paywall-buy"
           >
-            {busy === "purchase" ? (
+            {busy === "purchase" || purchasing ? (
               <ActivityIndicator color={onPrimary} />
             ) : (
               <Text className="text-lg" style={{ fontFamily: Fonts.rounded, color: onPrimary }}>
@@ -361,6 +381,7 @@ export function PaywallHost() {
       source={plus.paywallSource}
       onClose={plus.closePaywall}
       onShown={plus.markPaywallShown}
+      purchasing={plus.purchasing}
       loadPackages={plus.loadPackages}
       onPurchase={plus.purchase}
       onRestore={plus.restore}
