@@ -330,7 +330,7 @@ export default function SettingsScreen() {
         <Section
           icon="options-outline"
           title="AI adaptation"
-          subtitle="How your coach tunes tomorrow based on today's follow-through. AI features send the text you give them to our AI service to create suggestions; it isn't stored or used for anything else."
+          subtitle="How your coach tunes tomorrow based on today's follow-through. AI features send what they need (like your goal, recent task titles or a brain dump) to our AI service to create suggestions. Our server doesn't keep it, and it's never used for ads. Details are in the privacy policy."
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-4">
             <View className="flex-row items-center justify-between gap-4">
