@@ -20,6 +20,24 @@ export interface Task {
   steps?: TaskStep[];
 }
 
+/** Tomorrow's three, drafted at the evening close (shown the next morning). */
+export interface TomorrowDraft {
+  /** The day the draft is for (yyyy-MM-dd). */
+  forDate: string;
+  tasks: string[];
+  /** The coach's note from the evening before. */
+  note: string;
+  /** Plain reason for the draft, e.g. "Because today was hard, tomorrow is lighter." */
+  because: string;
+  source: "ai" | "local";
+}
+
+export interface EveningCloseRecord {
+  date: string;
+  result: ReflectionResult;
+  note: string;
+}
+
 /** Brain-dump leftovers kept for another day (shown in the Ideas sheet). */
 export interface ParkedTask {
   id: string;
@@ -197,6 +215,13 @@ export interface AppState {
   plusGrandfathered: boolean;
   // Anonymous usage stats (Settings toggle). Only sent when the build has a key.
   analyticsEnabled: boolean;
+  // Rolling summary the coach keeps from evening closes (AI), or null.
+  coachMemory: string | null;
+  // Tomorrow's three from the last evening close, or null.
+  tomorrowDraft: TomorrowDraft | null;
+  // The last evening close: which day, the answer it was for, and the note.
+  // (Kept even when nothing was drafted, so a closed day stays closed.)
+  eveningClose: EveningCloseRecord | null;
 }
 
 export const GOAL_OPTIONS: string[] = [

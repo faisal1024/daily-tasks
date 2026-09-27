@@ -4,24 +4,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GradientBackground } from "@/components/daily-tasks/gradient-card";
 import { Fonts } from "@/constants/theme";
-import {
-  streakChipLabel,
-  streakChipText,
-  type TodayProgress,
-} from "@/lib/daily-tasks/today-view";
+import { dayChipLabel, dayChipText, type TodayProgress } from "@/lib/daily-tasks/today-view";
 
 interface TodayHeaderProps {
   greeting: string;
   progress: TodayProgress;
-  dayStreak: number;
-  level: number;
+  /** Days with a plan, today included ("Day N"). */
+  daysShowedUp: number;
 }
 
 /**
  * Compact header for the Today screen. The three tasks are the hero now, so
- * this only carries the greeting, one streak/level chip, and today's progress.
+ * this only carries the greeting, one "Day N" chip, and today's progress.
  */
-export function TodayHeader({ greeting, progress, dayStreak, level }: TodayHeaderProps) {
+export function TodayHeader({ greeting, progress, daysShowedUp }: TodayHeaderProps) {
   const insets = useSafeAreaInsets();
   // Live width: correct after iPad rotation, Split View and Stage Manager resizes.
   const screenW = useWindowDimensions().width;
@@ -53,7 +49,7 @@ export function TodayHeader({ greeting, progress, dayStreak, level }: TodayHeade
           </Text>
           <View
             accessible
-            accessibilityLabel={streakChipLabel(dayStreak, level)}
+            accessibilityLabel={dayChipLabel(daysShowedUp)}
             style={{
               backgroundColor: "rgba(255,255,255,0.20)",
               borderWidth: 1,
@@ -67,7 +63,7 @@ export function TodayHeader({ greeting, progress, dayStreak, level }: TodayHeade
               style={{ color: "#fff", fontWeight: "800", fontSize: 14 }}
               maxFontSizeMultiplier={1.4}
             >
-              {streakChipText(dayStreak, level)}
+              {dayChipText(daysShowedUp)}
             </Text>
           </View>
         </View>

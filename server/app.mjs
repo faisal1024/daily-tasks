@@ -10,7 +10,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 import { ROUTES } from "./routes.mjs";
 
-export { BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, PLAN_ROUTE, ROUTES } from "./routes.mjs";
+export { BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, EVENING_ROUTE, PLAN_ROUTE, ROUTES } from "./routes.mjs";
 export const HEALTH_ROUTE = "/health";
 export const SECRET_HEADER = "x-momentum-secret";
 export const DEBUG_IP_ROUTE = "/debug/client-ip";

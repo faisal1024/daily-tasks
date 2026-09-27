@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
@@ -9,7 +9,7 @@ import { WeeklyReviewCard } from "@/components/daily-tasks/weekly-review-card";
 import { ScreenContainer } from "@/components/screen-container";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
-import { stageForLevel } from "@/lib/daily-tasks/journey";
+import { stageForDays } from "@/lib/daily-tasks/journey";
 import { pickCelebration } from "@/lib/daily-tasks/milestones";
 import { track } from "@/lib/daily-tasks/analytics";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -20,10 +20,9 @@ export default function JourneyScreen() {
   const colors = useColors();
   const {
     state,
-    journeyLevel,
-    journeyProgress,
-    pendingLevelUp,
-    acknowledgeLevelUp,
+    daysShowedUp,
+    completeMilestone,
+    uncompleteMilestone,
     momentumMilestones,
     pendingMilestoneCelebration,
     acknowledgeMilestoneCelebration,
@@ -35,16 +34,28 @@ export default function JourneyScreen() {
   const weeklyReview = useMemo(() => buildWeeklyReview(state.history, today), [state.history, today]);
 
   const journey = state.journey;
-  const stage = stageForLevel(journeyLevel);
-  const ratio = Math.min(Math.max(journeyProgress.ratio, 0), 1);
-  const xpToNext = journeyProgress.xpRemaining;
+  const stage = stageForDays(daysShowedUp);
   const goalTitle = state.momentumProfile.goalTitle;
   const milestonesDone = momentumMilestones.filter((m) => m.done).length;
   const nextMilestoneIndex = momentumMilestones.findIndex((m) => !m.done);
 
-  const celebration = pickCelebration({ pendingMilestoneCelebration, pendingLevelUp });
+  // Levels are no longer shown, so only milestones celebrate here.
+  const celebration = pickCelebration({ pendingMilestoneCelebration, pendingLevelUp: null });
   const showMilestoneCelebration = celebration === "milestone";
-  const showLevelCelebration = celebration === "level";
+
+  const markNotReached = (id: string, title: string) => {
+    Alert.alert("Mark as not reached?", `"${title}"`, [
+      { text: "Keep it", style: "cancel" },
+      { text: "Not reached yet", onPress: () => uncompleteMilestone(id) },
+    ]);
+  };
+
+  const markReached = (id: string, title: string) => {
+    Alert.alert("Reached this milestone?", `"${title}"`, [
+      { text: "Not yet", style: "cancel" },
+      { text: "Yes, I got there", onPress: () => completeMilestone(id) },
+    ]);
+  };
 
   return (
     <ScreenContainer>
@@ -88,26 +99,13 @@ export default function JourneyScreen() {
               marginTop: 4,
             }}
           >
-            Level {journeyLevel} · {stage.label}
+            Day {daysShowedUp} · {stage.label}
           </Text>
-          <View className="w-full mt-4 gap-2">
-            <View
-              className="w-full rounded-full overflow-hidden"
-              style={{ height: 13, backgroundColor: "rgba(255,255,255,0.25)" }}
-            >
-              <View
-                style={{
-                  width: `${ratio * 100}%`,
-                  height: "100%",
-                  backgroundColor: "#FFD37A",
-                  borderRadius: 999,
-                }}
-              />
-            </View>
-            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 14, textAlign: "center" }}>
-              {xpToNext} XP to Level {journeyLevel + 1} · {journey.xp} XP total
-            </Text>
-          </View>
+          <Text style={{ color: "rgba(255,255,255,0.9)", fontWeight: "700", fontSize: 15, marginTop: 6, textAlign: "center" }}>
+            {stage.nextAt
+              ? `Days you've shown up. ${stage.nextAt - daysShowedUp} more to grow.`
+              : "Days you've shown up. Fully grown."}
+          </Text>
         </GradientCard>
 
         {/* Streak stats — colorful tinted cards */}
@@ -168,7 +166,7 @@ export default function JourneyScreen() {
               </Text>
             </View>
             <Text className="text-sm" style={{ color: colors.muted }}>
-              These advance on their own each day you finish all your tasks.
+              Tick one off when you get there.
             </Text>
             {momentumMilestones.map((milestone, index) => {
               const isNext = !milestone.done && index === nextMilestoneIndex;
@@ -207,14 +205,33 @@ export default function JourneyScreen() {
                     ) : null}
                   </View>
                   {milestone.done ? (
-                    <Text className="text-sm font-bold" style={{ color: colors.success }}>
-                      Done
-                    </Text>
-                  ) : isNext ? (
-                    <Text className="text-sm font-bold" style={{ color: colors.primary }}>
-                      In progress
-                    </Text>
-                  ) : null}
+                    <Pressable
+                      onPress={() => markNotReached(milestone.id, milestone.title)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`"${milestone.title}" reached`}
+                      accessibilityHint="Double-tap to mark it as not reached"
+                      hitSlop={8}
+                      testID={`milestone-done-${milestone.id}`}
+                    >
+                      <Text className="text-sm font-bold" style={{ color: colors.success }}>
+                        Done
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      onPress={() => markReached(milestone.id, milestone.title)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Mark "${milestone.title}" as reached`}
+                      hitSlop={8}
+                      className="rounded-full px-3 py-1.5"
+                      style={{ backgroundColor: isNext ? `${colors.primary}18` : colors.background }}
+                      testID={`milestone-reach-${milestone.id}`}
+                    >
+                      <Text className="text-sm font-bold" style={{ color: colors.primary }}>
+                        Reached
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               );
             })}
@@ -224,17 +241,11 @@ export default function JourneyScreen() {
       </ScrollView>
 
       <CelebrationOverlay
-        visible={showMilestoneCelebration || showLevelCelebration}
-        onDismiss={
-          showMilestoneCelebration ? acknowledgeMilestoneCelebration : acknowledgeLevelUp
-        }
-        emoji={showMilestoneCelebration ? "🏆" : stage.glyph}
-        title={showMilestoneCelebration ? "Milestone reached!" : `Level ${pendingLevelUp ?? journeyLevel}!`}
-        subtitle={
-          showMilestoneCelebration
-            ? `You reached: ${pendingMilestoneCelebration}`
-            : "Your journey is growing. Keep showing up."
-        }
+        visible={showMilestoneCelebration}
+        onDismiss={acknowledgeMilestoneCelebration}
+        emoji="🏆"
+        title="Milestone reached!"
+        subtitle={`You reached: ${pendingMilestoneCelebration ?? ""}`}
       />
     </ScreenContainer>
   );

@@ -24,8 +24,8 @@ import {
   lockConfirmation,
   isPerfectDayTransition,
   showIdeasEntry,
-  streakChipLabel,
-  streakChipText,
+  dayChipLabel,
+  dayChipText,
   todayProgress,
   todayStatus,
 } from "../lib/daily-tasks/today-view";
@@ -150,11 +150,14 @@ describe("ideasSource", () => {
   });
 });
 
-describe("streak chip", () => {
-  it("formats text and a spoken label, clamping odd values", () => {
-    expect(streakChipText(21, 4)).toBe("🔥 21 · Lv 4");
-    expect(streakChipText(-2, 0)).toBe("🔥 0 · Lv 1");
-    expect(streakChipLabel(21, 4)).toBe("21-day streak, level 4");
+describe("day chip", () => {
+  it("says Day N (never below 1) with a spoken label", () => {
+    expect(dayChipText(21)).toBe("Day 21");
+    expect(dayChipText(0)).toBe("Day 1");
+    expect(dayChipText(-3)).toBe("Day 1");
+    expect(dayChipText(4.7)).toBe("Day 4");
+    expect(dayChipLabel(21)).toBe("Day 21 of showing up");
+    expect(dayChipLabel(0)).toBe("Day 1 of showing up");
   });
 });
 

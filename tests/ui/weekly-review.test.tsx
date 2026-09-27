@@ -1,6 +1,7 @@
 // Weekly review card (Phase 6) and its Plus gate on the Journey screen.
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { fireEvent, screen, waitFor } from "@testing-library/react-native";
+import { Alert } from "react-native";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react-native";
 
 import JourneyScreen from "@/app/(tabs)/journey";
 import { WeeklyReviewCard } from "@/components/daily-tasks/weekly-review-card";
@@ -116,3 +117,54 @@ describe("Journey: weekly review gate", () => {
     expect(mockOpenPaywall).toHaveBeenCalledWith("weekly_review");
   });
 });
+
+describe("Progress: milestones are ticked by hand", () => {
+  it("Reached asks first, then marks the milestone done", async () => {
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    await AsyncStorage.setItem(
+      "daily-tasks/state/v1",
+      JSON.stringify({
+        ...buildInitialState(),
+        hasSeenOnboarding: true,
+        momentumPlan: {
+          id: "plan",
+          goalTitle: "Run a 5K",
+          generatedAt: new Date().toISOString(),
+          provider: "template",
+          milestones: [{ id: "run_1_mile", title: "Run 1 mile", description: "", completedAt: null }],
+          taskPool: [],
+          todaySuggestions: [],
+          promptSummary: "",
+          version: 1,
+        },
+      }),
+    );
+    await render(
+      <DailyTasksProvider>
+        <JourneyScreen />
+      </DailyTasksProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("milestone-reach-run_1_mile")).toBeOnTheScreen());
+    await fireEvent.press(screen.getByTestId("milestone-reach-run_1_mile"));
+    const [title, , buttons] = alert.mock.calls[0] as unknown as [string, string, { text: string; onPress?: () => void }[]];
+    expect(title).toBe("Reached this milestone?");
+
+    // "Not yet" changes nothing.
+    await act(async () => buttons.find((b) => b.text === "Not yet")?.onPress?.());
+    expect(screen.getByTestId("milestone-reach-run_1_mile")).toBeOnTheScreen();
+
+    await act(async () => buttons.find((b) => b.text === "Yes, I got there")?.onPress?.());
+    expect(screen.queryByTestId("milestone-reach-run_1_mile")).toBeNull();
+    expect(screen.getByText("Milestone reached!")).toBeOnTheScreen();
+
+    // "Done" can be undone after a confirmation.
+    alert.mockClear();
+    await fireEvent.press(screen.getByTestId("milestone-done-run_1_mile"));
+    const [undoTitle, , undoButtons] = alert.mock.calls[0] as unknown as [string, string, { text: string; onPress?: () => void }[]];
+    expect(undoTitle).toBe("Mark as not reached?");
+    await act(async () => undoButtons.find((b) => b.text === "Not reached yet")?.onPress?.());
+    expect(screen.getByTestId("milestone-reach-run_1_mile")).toBeOnTheScreen();
+    alert.mockRestore();
+  });
+});
+

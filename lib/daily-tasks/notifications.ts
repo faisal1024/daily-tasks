@@ -2,7 +2,7 @@ import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 
 import { MANAGED_REMINDER_PREFIX, planReminders, planUpcomingMornings } from "./reminders";
-import type { NotificationConfig, NotificationPermissionState } from "./types";
+import type { NotificationConfig, NotificationPermissionState, TomorrowDraft } from "./types";
 
 let handlerConfigured = false;
 
@@ -12,6 +12,7 @@ interface SyncNotificationsInput {
   permissionState: NotificationPermissionState;
   taskCount: number;
   completedCount: number;
+  draft?: TomorrowDraft | null;
 }
 
 function configureHandler() {
@@ -83,6 +84,7 @@ async function runSync({
   permissionState,
   taskCount,
   completedCount,
+  draft = null,
 }: SyncNotificationsInput): Promise<void> {
   if (Platform.OS === "web") return;
   configureHandler();
@@ -95,8 +97,9 @@ async function runSync({
       completedCount,
       settings,
       permissionState,
+      draft,
     }),
-    ...planUpcomingMornings({ now, settings, permissionState }),
+    ...planUpcomingMornings({ now, settings, permissionState, draft }),
   ];
 
   for (const reminder of planned) {

@@ -55,6 +55,8 @@ export interface AiPlanRequestPayload {
   recentReflection: string | null;
   recentReflectionResult: string | null;
   recentTasks: RecentTask[];
+  /** The coach's rolling summary from past evening closes, if any. */
+  coachMemory?: string | null;
 }
 
 /**
@@ -115,11 +117,13 @@ export function buildAiPlanRequestPayload({
   profile,
   history,
   settings,
+  coachMemory = null,
   now = new Date(),
 }: {
   profile: MomentumProfile;
   history: History;
   settings: MomentumSettings;
+  coachMemory?: string | null;
   now?: Date;
 }): AiPlanRequestPayload | null {
   if (
@@ -146,6 +150,7 @@ export function buildAiPlanRequestPayload({
     recentReflection: latestReflection(history, now),
     recentReflectionResult: latestReflectionResult(history, now),
     recentTasks: summarizeRecentTasks(history, now),
+    ...(coachMemory ? { coachMemory } : {}),
   };
 }
 
@@ -153,6 +158,7 @@ export async function requestMomentumAiPlan({
   profile,
   history,
   settings,
+  coachMemory = null,
   proxyUrl = getMomentumAiProxyUrl(),
   proxySecret = getMomentumProxySecret(),
   now = new Date(),
@@ -162,6 +168,7 @@ export async function requestMomentumAiPlan({
   profile: MomentumProfile;
   history: History;
   settings: MomentumSettings;
+  coachMemory?: string | null;
   proxyUrl?: string | null;
   proxySecret?: string | null;
   now?: Date;
@@ -172,7 +179,7 @@ export async function requestMomentumAiPlan({
     throw new Error("Momentum AI proxy URL is not configured.");
   }
 
-  const payload = buildAiPlanRequestPayload({ profile, history, settings, now });
+  const payload = buildAiPlanRequestPayload({ profile, history, settings, coachMemory, now });
   if (!payload) {
     throw new Error("Momentum profile is incomplete.");
   }

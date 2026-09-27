@@ -4,7 +4,9 @@ import { MAX_TASKS } from "./types";
 
 type Predicate = (record: DayRecord | undefined) => boolean;
 
-const hasAnyCompletion: Predicate = (r) => !!r && r.completed > 0;
+// Showing up = planning the day. Finishing nothing still counts: the streak is
+// about coming back, not about being perfect.
+const showedUp: Predicate = (r) => !!r && r.total > 0;
 const isPerfect: Predicate = (r) =>
   !!r && r.total === MAX_TASKS && r.completed === MAX_TASKS;
 
@@ -19,7 +21,7 @@ function streak(history: History, today: string, pred: Predicate): number {
 }
 
 export function computeDayStreak(history: History, today: string): number {
-  return streak(history, today, hasAnyCompletion);
+  return streak(history, today, showedUp);
 }
 
 export function computePerfectStreak(history: History, today: string): number {

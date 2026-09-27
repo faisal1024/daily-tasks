@@ -39,13 +39,16 @@ describe("computeDayStreak", () => {
     expect(computeDayStreak(history, "2026-04-18")).toBe(4);
   });
 
-  it("does not break the streak when today has no completions yet", () => {
+  it("counts today once it's planned, even with nothing done yet (showing up = planning)", () => {
     const history = buildHistory({
       "2026-04-16": [1, 3],
       "2026-04-17": [2, 3],
       "2026-04-18": [0, 3],
     });
-    expect(computeDayStreak(history, "2026-04-18")).toBe(2);
+    expect(computeDayStreak(history, "2026-04-18")).toBe(3);
+    // Not planned yet today: the streak up to yesterday still stands.
+    const unplanned = buildHistory({ "2026-04-16": [1, 3], "2026-04-17": [2, 3], "2026-04-18": [0, 0] });
+    expect(computeDayStreak(unplanned, "2026-04-18")).toBe(2);
   });
 
   it("breaks on a missing day", () => {
@@ -58,15 +61,16 @@ describe("computeDayStreak", () => {
     expect(computeDayStreak(history, "2026-04-18")).toBe(2);
   });
 
-  it("breaks on a zero-completion day", () => {
+  it("keeps going through a planned day with nothing done, and breaks on an unplanned one", () => {
     const history = buildHistory({
-      "2026-04-14": [1, 3],
+      "2026-04-13": [1, 3],
+      "2026-04-14": [0, 0],
       "2026-04-15": [0, 3],
       "2026-04-16": [1, 3],
       "2026-04-17": [1, 3],
       "2026-04-18": [1, 3],
     });
-    expect(computeDayStreak(history, "2026-04-18")).toBe(3);
+    expect(computeDayStreak(history, "2026-04-18")).toBe(4);
   });
 });
 

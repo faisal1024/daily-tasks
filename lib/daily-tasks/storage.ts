@@ -18,6 +18,8 @@ import type {
   PendingRollover,
   ReflectionResult,
   Task,
+  TomorrowDraft,
+  EveningCloseRecord,
   ParkedTask,
   TaskStep,
 } from "./types";
@@ -498,6 +500,51 @@ export function normalizeState(value: unknown): AppState | null {
       typeof value.plusGrandfathered === "boolean" ? value.plusGrandfathered : true,
     analyticsEnabled:
       typeof value.analyticsEnabled === "boolean" ? value.analyticsEnabled : true,
+    coachMemory:
+      typeof value.coachMemory === "string" && value.coachMemory.trim()
+        ? capChars(value.coachMemory, 500)
+        : null,
+    tomorrowDraft: normalizeTomorrowDraft(value.tomorrowDraft),
+    eveningClose: normalizeEveningClose(value.eveningClose),
+  };
+}
+
+/** Cap by whole characters (code points), never splitting an emoji. */
+function capChars(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length > max ? chars.slice(0, max).join("") : text;
+}
+
+function normalizeEveningClose(value: unknown): EveningCloseRecord | null {
+  if (!isRecord(value) || typeof value.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.date)) {
+    return null;
+  }
+  const result = normalizeReflectionResult(value.result);
+  if (!result) return null;
+  return {
+    date: value.date,
+    result,
+    note: typeof value.note === "string" ? capChars(value.note, 160) : "",
+  };
+}
+
+function normalizeTomorrowDraft(value: unknown): TomorrowDraft | null {
+  if (!isRecord(value) || typeof value.forDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.forDate)) {
+    return null;
+  }
+  const tasks = Array.isArray(value.tasks)
+    ? value.tasks
+        .filter((text): text is string => typeof text === "string" && text.trim().length > 0)
+        .map((text) => capChars(text, 64))
+        .slice(0, 3)
+    : [];
+  if (tasks.length === 0) return null;
+  return {
+    forDate: value.forDate,
+    tasks,
+    note: typeof value.note === "string" ? capChars(value.note, 160) : "",
+    because: typeof value.because === "string" ? capChars(value.because, 100) : "",
+    source: value.source === "ai" ? "ai" : "local",
   };
 }
 
@@ -548,6 +595,9 @@ export function buildInitialState(now: Date = new Date()): AppState {
     parkedTasks: [],
     plusGrandfathered: false,
     analyticsEnabled: true,
+    coachMemory: null,
+    tomorrowDraft: null,
+    eveningClose: null,
   };
 }
 
