@@ -13,7 +13,6 @@ import { useColors } from "@/hooks/use-colors";
 import { stageForDays } from "@/lib/daily-tasks/journey";
 import { pickCelebration } from "@/lib/daily-tasks/milestones";
 import { track } from "@/lib/daily-tasks/analytics";
-import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { buildWeeklyReview } from "@/lib/daily-tasks/weekly-review";
 
@@ -29,10 +28,7 @@ export default function JourneyScreen() {
     pendingMilestoneCelebration,
     acknowledgeMilestoneCelebration,
     today,
-    hasPlus,
-    plusConfirmed,
   } = useDailyTasks();
-  const { openPaywall } = usePlus();
   const weeklyReview = useMemo(() => buildWeeklyReview(state.history, today), [state.history, today]);
 
   const journey = state.journey;
@@ -165,17 +161,9 @@ export default function JourneyScreen() {
 
         <View className="gap-3">
           <SectionLabel icon="calendar-outline" label="Your last 7 days" />
-          <WeeklyReviewCard
-            review={weeklyReview}
-            // Patterns only once Plus is confirmed, and no upsell while it's
-            // still being checked (hasPlus is true while pending).
-            plus={plusConfirmed}
-            canUnlock={!hasPlus}
-            onUnlock={() => {
-              track("plus_gate_hit", { feature: "weekly_review" });
-              openPaywall("weekly_review");
-            }}
-          />
+          {/* Free for everyone: seeing your own patterns builds the habit
+              (the review's value is retention, not a paywall). */}
+          <WeeklyReviewCard review={weeklyReview} plus canUnlock={false} onUnlock={() => {}} />
         </View>
 
         {/* Milestones toward the goal: ticked off by hand */}

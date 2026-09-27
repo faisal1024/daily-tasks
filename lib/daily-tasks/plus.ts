@@ -21,7 +21,8 @@ export type PaywallSource =
   | "break_down"
   | "new_ideas"
   | "weekly_review"
-  | "calendar";
+  | "calendar"
+  | "win_back";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -83,6 +84,14 @@ const ORDER: Record<PlanKind, number> = { annual: 0, monthly: 1, lifetime: 2, ot
 /** Annual first (the plan we recommend), then monthly, then lifetime. */
 export function sortPackages(packages: PlusPackage[]): PlusPackage[] {
   return [...packages].sort((a, b) => ORDER[a.kind] - ORDER[b.kind]);
+}
+
+/**
+ * What a paywall shows: lifetime only when opened from Settings (someone
+ * looking for it), so the trial plans lead everywhere else.
+ */
+export function visiblePackages(packages: PlusPackage[], source: PaywallSource | null): PlusPackage[] {
+  return source === "settings" ? packages : packages.filter((pkg) => pkg.kind !== "lifetime");
 }
 
 /** The plan selected when the paywall opens: annual if offered. */
@@ -181,6 +190,8 @@ export function paywallHeadline(source: PaywallSource): string {
       return "Get fresh ideas for your goal";
     case "calendar":
       return "Plan your three around your day";
+    case "win_back":
+      return "Come back to Plus";
     default:
       return "A little extra help, when you want it";
   }

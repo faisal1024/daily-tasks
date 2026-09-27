@@ -60,6 +60,25 @@ export function isPlusActive(info: SdkCustomerInfo | null | undefined): boolean 
   return Boolean(info?.entitlements?.active?.[PLUS_ENTITLEMENT]);
 }
 
+/** When a free trial of Plus ends (ISO), or null when not on a trial. */
+export function trialEndsAt(info: SdkCustomerInfo | null | undefined): string | null {
+  const entitlement = info?.entitlements?.active?.[PLUS_ENTITLEMENT];
+  if (!entitlement || entitlement.periodType !== "TRIAL") return null;
+  return entitlement.expirationDate ?? null;
+}
+
+/** Plus status with the trial end, or null when RevenueCat can't be reached. */
+export async function fetchPlusStatus(): Promise<{ active: boolean; trialEndsAt: string | null } | null> {
+  const sdk = loadSdk();
+  if (!configured || !sdk) return null;
+  try {
+    const info = await sdk.default.getCustomerInfo();
+    return { active: isPlusActive(info), trialEndsAt: trialEndsAt(info) };
+  } catch {
+    return null;
+  }
+}
+
 /** Current entitlement (served from RevenueCat's on-device cache when offline). */
 export async function fetchPlusActive(): Promise<boolean | null> {
   const sdk = loadSdk();

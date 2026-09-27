@@ -7,12 +7,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState as RNAppState } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { flush, track } from "./analytics";
 import type { PaywallSource, PlusPackage } from "./plus";
 import {
   configurePurchases,
-  fetchPlusActive,
+  fetchPlusStatus,
   isPaywallConfigured,
   loadPackages,
   onPlusChange,
@@ -20,6 +21,11 @@ import {
   restore as restorePurchases,
   type PurchaseOutcome,
 } from "./purchases";
+import { syncTrialReminder } from "./trial-reminder";
+
+// Win-back: remember that this install had Plus, so a lapse can be noticed once.
+const WAS_ACTIVE_KEY = "daily-tasks/plus-was-active";
+const WIN_BACK_KEY = "daily-tasks/plus-win-back-offered";
 
 export interface PlusContextValue {
   /** This build ships with a RevenueCat key (a "paywall build"). */
@@ -46,6 +52,10 @@ export interface PlusContextValue {
   loadPackages: () => Promise<PlusPackage[]>;
   purchase: (pkg: PlusPackage) => Promise<PurchaseOutcome>;
   restore: () => Promise<boolean | null>;
+  /** Plus lapsed on this install and the one-time "come back" offer is due. */
+  winBackDue: boolean;
+  /** The win-back offer was shown: don't show it again for this lapse. */
+  markWinBackOffered: () => void;
 }
 
 const noPaywall: PlusContextValue = {
@@ -62,6 +72,8 @@ const noPaywall: PlusContextValue = {
   loadPackages: async () => [],
   purchase: async () => "failed",
   restore: async () => null,
+  winBackDue: false,
+  markWinBackOffered: () => {},
 };
 
 const PlusContext = createContext<PlusContextValue>(noPaywall);
@@ -83,6 +95,28 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const [purchasing, setPurchasing] = useState(false);
   const purchasingRef = useRef(false);
   const [purchaseCount, setPurchaseCount] = useState(0);
+  const [winBackDue, setWinBackDue] = useState(false);
+
+  // Remember Plus on this install; notice a lapse (once per lapse).
+  const noteEntitlement = useCallback(async (active: boolean) => {
+    try {
+      if (active) {
+        await AsyncStorage.multiSet([[WAS_ACTIVE_KEY, "1"]]);
+        await AsyncStorage.removeItem(WIN_BACK_KEY);
+        setWinBackDue(false);
+        return;
+      }
+      const [[, wasActive], [, offered]] = await AsyncStorage.multiGet([WAS_ACTIVE_KEY, WIN_BACK_KEY]);
+      if (wasActive === "1" && !offered) setWinBackDue(true);
+    } catch {
+      // Storage unavailable: no win-back this time.
+    }
+  }, []);
+  const markWinBackOffered = useCallback(() => {
+    setWinBackDue(false);
+    void AsyncStorage.multiSet([[WIN_BACK_KEY, new Date().toISOString()]]).catch(() => {});
+    void AsyncStorage.removeItem(WAS_ACTIVE_KEY).catch(() => {});
+  }, []);
 
   // Don't wait for RevenueCat forever: if it can't be reached (blocked domain,
   // outage) stop treating the user as "maybe Plus" after a few seconds. A late
@@ -97,19 +131,23 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     if (!paywallEnabled) return;
     let cancelled = false;
     const refresh = () =>
-      fetchPlusActive().then((active) => {
+      fetchPlusStatus().then((status) => {
         if (cancelled) return;
         // null = couldn't check: stay "unknown" (so a subscriber is never shown
         // the paywall by mistake) and try again on the next foreground.
-        if (active === null) return;
-        setEntitlementActive(active);
+        if (status === null) return;
+        setEntitlementActive(status.active);
         setEntitlementAnswered(true);
+        void noteEntitlement(status.active);
+        // A heads-up two days before a free trial ends (cleared otherwise).
+        void syncTrialReminder(status.trialEndsAt);
       });
     void refresh();
     const unsubscribe = onPlusChange((active) => {
       if (cancelled) return;
       setEntitlementActive(active);
       setEntitlementAnswered(true);
+      void noteEntitlement(active);
     });
     // Expiry or a refund made elsewhere shows up the next time the app opens.
     const sub = RNAppState.addEventListener("change", (status) => {
@@ -120,7 +158,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       unsubscribe();
       sub.remove();
     };
-  }, [paywallEnabled]);
+  }, [paywallEnabled, noteEntitlement]);
 
   // Send queued analytics when the app goes to the background.
   useEffect(() => {
@@ -206,6 +244,11 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     if (result.active) {
       setEntitlementActive(true);
       setEntitlementAnswered(true);
+      void noteEntitlement(true);
+      // A trial just started: schedule its reminder now, not next launch.
+      void fetchPlusStatus().then((status) => {
+        if (status) void syncTrialReminder(status.trialEndsAt);
+      });
     }
     if (result.outcome === "purchased") {
       setPurchaseCount((count) => count + 1);
@@ -219,17 +262,18 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       trial: pkg.trialDays != null,
     });
     return result.outcome;
-  }, []);
+  }, [noteEntitlement]);
 
   const restore = useCallback(async () => {
     const active = await restorePurchases();
     if (active) {
       setEntitlementActive(true);
       setEntitlementAnswered(true);
+      void noteEntitlement(true);
     }
     track("restore_completed", { active: active === true, outcome: active === null ? "failed" : "ok" });
     return active;
-  }, []);
+  }, [noteEntitlement]);
 
   const value = useMemo<PlusContextValue>(
     () => ({
@@ -246,8 +290,25 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       loadPackages,
       purchase,
       restore,
+      winBackDue,
+      markWinBackOffered,
     }),
-    [paywallBuild, paywallEnabled, entitlementActive, entitlementKnown, paywallSource, purchasing, purchaseCount, openPaywall, closePaywall, markPaywallShown, purchase, restore],
+    [
+      paywallBuild,
+      paywallEnabled,
+      entitlementActive,
+      entitlementKnown,
+      paywallSource,
+      purchasing,
+      purchaseCount,
+      openPaywall,
+      closePaywall,
+      markPaywallShown,
+      purchase,
+      restore,
+      winBackDue,
+      markWinBackOffered,
+    ],
   );
 
   return <PlusContext.Provider value={value}>{children}</PlusContext.Provider>;

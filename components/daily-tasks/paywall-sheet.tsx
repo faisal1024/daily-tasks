@@ -26,6 +26,7 @@ import {
   purchaseButtonLabel,
   purchaseTerms,
   sortPackages,
+  visiblePackages,
   type PaywallSource,
   type PlusPackage,
 } from "@/lib/daily-tasks/plus";
@@ -78,7 +79,8 @@ export function PaywallSheet({
     setPackages([]);
     setSelectedId(null);
     try {
-      const loaded = sortPackages(await loadPackages());
+      // Lifetime only when opened from Settings: the trial plans lead elsewhere.
+      const loaded = sortPackages(visiblePackages(await loadPackages(), source));
       if (mine !== session.current) return;
       if (loaded.length === 0) {
         setLoad("error");

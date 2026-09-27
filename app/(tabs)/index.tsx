@@ -43,6 +43,7 @@ import {
 import { proxyRouteUrl } from "@/lib/daily-tasks/ai-client";
 import { readTodayAgenda } from "@/lib/daily-tasks/agenda";
 import { claimFirstAiSort } from "@/lib/daily-tasks/storage";
+import { claimFreeAiDump, freeAiDumpNotice, refundFreeAiDump } from "@/lib/daily-tasks/free-uses";
 import { localBrainDump, requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
@@ -132,7 +133,7 @@ export default function HomeScreen() {
     applyTomorrowDraft,
     dismissTomorrowDraft,
   } = useDailyTasks();
-  const { paywallEnabled, paywallSource, purchaseCount, openPaywall } = usePlus();
+  const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue, markWinBackOffered } = usePlus();
 
   // First run stays up until its last step; onboarding is marked seen only
   // then, so a relaunch mid-way resumes (at the nudge once tasks are set).
@@ -354,6 +355,16 @@ export default function HomeScreen() {
     ideasOpen ||
     brainDumpOpen ||
     showCelebration;
+  // Plus lapsed on this install: offer it back once, at a quiet moment.
+  useEffect(() => {
+    if (!ready || !winBackDue || !paywallEnabled || hasPlus) return;
+    const timer = setTimeout(() => {
+      if (busyRef.current) return;
+      if (openPaywall("win_back")) markWinBackOffered();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [ready, winBackDue, paywallEnabled, hasPlus, openPaywall, markWinBackOffered]);
+
   useEffect(() => {
     if (!ready) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -870,13 +881,25 @@ export default function HomeScreen() {
             openSlots: Math.max(1, remainingSlots),
             goalTitle: state.momentumProfile.goalTitle,
           };
-          // Free plan: the simple on-device split (no AI call).
-          const sorted = hasPlus
-            ? await sortBrainDump({
-                ...params,
-                ...(state.agendaEnabled ? { agenda: await readTodayAgenda() } : {}),
-              })
-            : { result: localBrainDump(params.text, params.openSlots), notice: null };
+          if (hasPlus) {
+            const sorted = await sortBrainDump({
+              ...params,
+              ...(state.agendaEnabled ? { agenda: await readTodayAgenda() } : {}),
+            });
+            track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
+            return sorted;
+          }
+          // Free plan: a few AI sorts to try it, then the simple on-device split.
+          const left = await claimFreeAiDump();
+          if (left === null) {
+            track("plus_gate_hit", { feature: "brain_dump" });
+            return { result: localBrainDump(params.text, params.openSlots), notice: null };
+          }
+          const tried = await sortBrainDump(params);
+          // The AI couldn't be reached: that one doesn't count.
+          if (tried.result.source !== "ai") void refundFreeAiDump();
+          const sorted =
+            tried.result.source === "ai" ? { ...tried, notice: freeAiDumpNotice(left) } : tried;
           track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
           return sorted;
         }}
