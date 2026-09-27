@@ -202,7 +202,7 @@ describe("IdeasSheet", () => {
     await render(<IdeasSheet {...p} remainingSlots={2} />);
     await fireEvent.press(screen.getByRole("button", { name: "Add Walk 20 minutes" }));
     expect(p.onAdd).toHaveBeenCalledWith("Walk 20 minutes");
-    expect(screen.getByText("Add the first 2 ✨")).toBeOnTheScreen();
+    expect(screen.getByText("Add the first 2")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Add 2 of these ideas" }));
     expect(p.onAddAll).toHaveBeenCalledWith(["Walk 20 minutes", "Stretch calves"]);
   });
@@ -271,12 +271,12 @@ describe("IdeasSheet", () => {
     // One free slot.
     await rerender(<IdeasSheet {...props()} remainingSlots={1} />);
     expect(screen.getByText("Add it if it fits.")).toBeOnTheScreen();
-    expect(screen.getByText("Add the first 1 ✨")).toBeOnTheScreen();
+    expect(screen.getByText("Add the first 1")).toBeOnTheScreen();
   });
 
   it("says 'Add all' when every remaining idea fits", async () => {
     await render(<IdeasSheet {...props()} remainingSlots={3} />);
-    expect(screen.getByText("Add all ✨")).toBeOnTheScreen();
+    expect(screen.getByText("Add all")).toBeOnTheScreen();
     expect(screen.queryByText(/Add the first/)).toBeNull();
   });
 

@@ -116,6 +116,8 @@ function makeStore(overrides: Partial<AppState> = {}) {
     requestMomentumPlan: jest.fn(async () => {}),
     journeyLevel: 4,
     markReviewPrompted: jest.fn(),
+    markReviewDue: jest.fn(),
+    unlockToday: jest.fn(),
     parkTasks: jest.fn(),
     removeParkedTask: jest.fn(),
     addParkedTask: jest.fn(),
@@ -229,7 +231,7 @@ describe("Today screen layout", () => {
     });
     await render(<HomeScreen />);
     expect(
-      screen.getByText("Locked automatically at 2:07 PM. 2 to go. Change this in Settings."),
+      screen.getByText("Locked automatically at 2:07 PM. 2 to go."),
     ).toBeOnTheScreen();
   });
 
@@ -243,7 +245,7 @@ describe("Today screen layout", () => {
     });
     await render(<HomeScreen />);
     expect(
-      screen.getByText("Locked automatically at 1:30 PM. 1 to go. Change this in Settings."),
+      screen.getByText("Locked automatically at 1:30 PM. 1 to go."),
     ).toBeOnTheScreen();
   });
 
@@ -255,7 +257,7 @@ describe("Today screen layout", () => {
     ).toBeOnTheScreen();
   });
 
-  it("explains an automatic lock with its time and where to change it", async () => {
+  it("explains an automatic lock with its time", async () => {
     mockStore = makeStore({
       tasks: tasks("Walk", "Stretch"),
       todayLocked: true,
@@ -264,7 +266,7 @@ describe("Today screen layout", () => {
     });
     await render(<HomeScreen />);
     expect(
-      screen.getByText("Locked automatically at 1:30 PM. 2 to go. Change this in Settings."),
+      screen.getByText("Locked automatically at 1:30 PM. 2 to go."),
     ).toBeOnTheScreen();
   });
 
@@ -277,7 +279,7 @@ describe("Today screen layout", () => {
     expect(message).not.toMatch(/empty slot/);
     // Lighter copy when all three are chosen: nothing is lost by locking.
     expect(message).toBe(
-      "You can still check tasks off. Editing pauses until tomorrow (unlock in Settings).",
+      "You can still check tasks off. Editing pauses until tomorrow, or until you tap Unlock.",
     );
     alert.mockRestore();
   });
@@ -371,7 +373,7 @@ describe("Need ideas sheet hint", () => {
     await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("need-ideas"));
     expect(screen.getByText("Add it if it fits.")).toBeOnTheScreen();
-    expect(screen.getByText("Add the first 1 ✨")).toBeOnTheScreen();
+    expect(screen.getByText("Add the first 1")).toBeOnTheScreen();
   });
 });
 
@@ -438,161 +440,119 @@ describe("perfect-day moment", () => {
     "2026-09-22": perfectDay("2026-09-22"),
   };
 
-  it("does not celebrate or ask for a rating when the app opens on a finished day", async () => {
+  it("does not celebrate or mark a rating due when the app opens on a finished day", async () => {
     mockStore = makeStore({ tasks: threeTasks, todayCompletions: ["t0", "t1", "t2"], history });
     await render(<HomeScreen />);
     expect(screen.queryByText("celebration-visible")).toBeNull();
-    expect(mockStore.markReviewPrompted).not.toHaveBeenCalled();
+    expect(mockStore.markReviewDue).not.toHaveBeenCalled();
   });
 
   async function reachPerfectDay(overrides: Partial<AppState> = {}) {
-    mockStore = makeStore({
-      tasks: threeTasks,
-      todayCompletions: ["t0", "t1"],
-      history,
-      ...overrides,
-    });
+    mockStore = makeStore({ tasks: threeTasks, todayCompletions: ["t0", "t1"], history, ...overrides });
     const view = await render(<HomeScreen />);
-    mockStore = makeStore({
-      tasks: threeTasks,
-      todayCompletions: ["t0", "t1", "t2"],
-      history,
-      ...overrides,
-    });
+    mockStore = makeStore({ tasks: threeTasks, todayCompletions: ["t0", "t1", "t2"], history, ...overrides });
     await view.rerender(<HomeScreen />);
     return view;
   }
 
-  it("celebrates when the third task is checked, and asks for a rating only after the celebration", async () => {
+  it("celebrates the third task and marks a rating due, without asking on top of the celebration", async () => {
     jest.useFakeTimers();
     await reachPerfectDay();
     expect(screen.getByText("celebration-visible")).toBeOnTheScreen();
-
+    expect(mockStore.markReviewDue).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
     expect(requestAppReview).not.toHaveBeenCalled();
+  });
 
-    await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-    await act(async () => {
-      jest.advanceTimersByTime(600);
+  it("celebrates but doesn't mark a rating due within the cooldown", async () => {
+    const recent = new Date(Date.now() - 5 * 86_400_000).toISOString();
+    await reachPerfectDay({ lastReviewPromptAt: recent });
+    expect(screen.getByText("celebration-visible")).toBeOnTheScreen();
+    expect(mockStore.markReviewDue).not.toHaveBeenCalled();
+  });
+});
+
+describe("rating on a later app open", () => {
+  const HOUR = 60 * 60 * 1000;
+  const appState = RNAppState as unknown as { currentState: unknown };
+  let original: unknown;
+  let originalListen: ((...args: unknown[]) => unknown) | undefined;
+  let foreground: ((status: string) => void)[] = [];
+
+  beforeEach(() => {
+    original = appState.currentState;
+    originalListen = (RNAppState.addEventListener as jest.Mock).getMockImplementation();
+    appState.currentState = "active";
+    foreground = [];
+    (RNAppState.addEventListener as jest.Mock).mockImplementation(
+      (_type: string, listener: (status: string) => void) => {
+        foreground.push(listener);
+        return { remove: () => {} };
+      },
+    );
+  });
+  afterEach(() => {
+    appState.currentState = original;
+    (RNAppState.addEventListener as jest.Mock).mockImplementation(originalListen);
+  });
+
+  const openWithDue = async (dueAgoMs: number) => {
+    mockStore = makeStore({
+      tasks: tasks("Walk"),
+      reviewDueAt: new Date(Date.now() - dueAgoMs).toISOString(),
     });
+    return render(<HomeScreen />);
+  };
+
+  it("asks once the app is opened an hour or more after the perfect day, and records it", async () => {
+    await openWithDue(2 * HOUR);
+    await act(async () => {});
     expect(requestAppReview).toHaveBeenCalledTimes(1);
     expect(mockStore.markReviewPrompted).toHaveBeenCalledTimes(1);
   });
 
-  it("doesn't spend the cooldown if the rating prompt wasn't available", async () => {
-    jest.useFakeTimers();
+  it("waits while it's been under an hour, then asks on a later foreground", async () => {
+    jest.useFakeTimers({ now: new Date(2026, 8, 26, 20, 0), doNotFake: ["setTimeout", "setInterval", "setImmediate", "queueMicrotask", "nextTick"] });
+    await openWithDue(30 * 60 * 1000);
+    await act(async () => {});
+    expect(requestAppReview).not.toHaveBeenCalled();
+
+    jest.setSystemTime(new Date(2026, 8, 26, 20, 31));
+    await act(async () => foreground.forEach((listener) => listener("active")));
+    expect(requestAppReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't ask (or spend the cooldown) unless the app is active, or when the prompt wasn't shown", async () => {
+    appState.currentState = "background";
+    await openWithDue(2 * HOUR);
+    await act(async () => {});
+    expect(requestAppReview).not.toHaveBeenCalled();
+
+    appState.currentState = "active";
     (requestAppReview as jest.Mock).mockResolvedValueOnce(false);
-    await reachPerfectDay();
-    await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-    await act(async () => {
-      jest.advanceTimersByTime(600);
-    });
+    await act(async () => foreground.forEach((listener) => listener("active")));
     expect(requestAppReview).toHaveBeenCalledTimes(1);
     expect(mockStore.markReviewPrompted).not.toHaveBeenCalled();
   });
 
-  // jest-expo's AppState mock has no real currentState; set it per test.
-  async function dismissWithAppState(value: unknown) {
-    const appState = RNAppState as unknown as { currentState: unknown };
-    const original = appState.currentState;
-    appState.currentState = value;
-    try {
-      await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-      await act(async () => {
-        jest.advanceTimersByTime(600);
-      });
-    } finally {
-      appState.currentState = original;
-    }
-  }
-
-  it.each(["background", "inactive"])(
-    "doesn't ask (or spend the cooldown) while the app is %s",
-    async (value) => {
-      jest.useFakeTimers();
-      await reachPerfectDay();
-      await dismissWithAppState(value);
-      expect(requestAppReview).not.toHaveBeenCalled();
-      expect(mockStore.markReviewPrompted).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each(["active", "unknown", undefined])(
-    "still asks when the app state is %s (unknown can happen briefly at launch)",
-    async (value) => {
-      jest.useFakeTimers();
-      await reachPerfectDay();
-      await dismissWithAppState(value);
-      expect(requestAppReview).toHaveBeenCalledTimes(1);
-      expect(mockStore.markReviewPrompted).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it("waits the full 600ms after dismissal before asking", async () => {
-    jest.useFakeTimers();
-    await reachPerfectDay();
-    await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-    await act(async () => {
-      jest.advanceTimersByTime(599);
-    });
-    expect(requestAppReview).not.toHaveBeenCalled();
-    await act(async () => {
-      jest.advanceTimersByTime(1);
-    });
+  it("asks only once while a request is still in flight", async () => {
+    const review = deferred<boolean>();
+    (requestAppReview as jest.Mock).mockImplementationOnce(() => review.promise);
+    await openWithDue(2 * HOUR);
+    await act(async () => {});
+    await act(async () => foreground.forEach((listener) => listener("active")));
     expect(requestAppReview).toHaveBeenCalledTimes(1);
+    await act(async () => review.resolve(true));
+    expect(mockStore.markReviewPrompted).toHaveBeenCalledTimes(1);
   });
 
-  it("cancels a pending rating if the task is unchecked before the celebration ends", async () => {
-    jest.useFakeTimers();
-    const { rerender } = await reachPerfectDay();
-    mockStore = makeStore({ tasks: threeTasks, todayCompletions: ["t0", "t1"], history });
-    await rerender(<HomeScreen />);
-    // The overlay is still up and may be dismissed afterwards; no rating follows.
-    await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-    await act(async () => {
-      jest.advanceTimersByTime(1000);
-    });
-    expect(requestAppReview).not.toHaveBeenCalled();
-    expect(mockStore.markReviewPrompted).not.toHaveBeenCalled();
-  });
-
-  it("cancels a scheduled rating if the task is unchecked in the 600ms after dismissal", async () => {
-    jest.useFakeTimers();
-    const { rerender } = await reachPerfectDay();
-    await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-    await act(async () => {
-      jest.advanceTimersByTime(300);
-    });
-    mockStore = makeStore({ tasks: threeTasks, todayCompletions: ["t0", "t1"], history });
-    await rerender(<HomeScreen />);
-    await act(async () => {
-      jest.advanceTimersByTime(1000);
-    });
-    expect(requestAppReview).not.toHaveBeenCalled();
-  });
-
-  it("cancels the rating timer when the screen unmounts", async () => {
-    jest.useFakeTimers();
-    const { unmount } = await reachPerfectDay();
-    await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-    await unmount();
-    await act(async () => {
-      jest.advanceTimersByTime(1000);
-    });
-    expect(requestAppReview).not.toHaveBeenCalled();
-  });
-
-  it("celebrates but doesn't ask again within the cooldown", async () => {
-    jest.useFakeTimers();
-    const recent = new Date(Date.now() - 5 * 86_400_000).toISOString();
-    await reachPerfectDay({ lastReviewPromptAt: recent });
-    expect(screen.getByText("celebration-visible")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-    await act(async () => {
-      jest.advanceTimersByTime(1000);
-    });
+  it("does nothing when no rating is due", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    await act(async () => foreground.forEach((listener) => listener("active")));
     expect(requestAppReview).not.toHaveBeenCalled();
   });
 });
@@ -899,7 +859,7 @@ describe("Break it down", () => {
   });
 });
 
-describe("perfect-day moment: once per day and one rating at a time", () => {
+describe("perfect-day moment: once per day", () => {
   const threeTasks = tasks("Walk", "Stretch", "Hydrate");
   const history = {
     "2026-09-20": perfectDay("2026-09-20"),
@@ -911,28 +871,21 @@ describe("perfect-day moment: once per day and one rating at a time", () => {
     today,
   });
 
-  it("doesn't replay the celebration (or ask again) when the third task is un-checked and re-checked", async () => {
-    jest.useFakeTimers();
+  it("doesn't replay the celebration (or mark a rating again) when the third task is un-checked and re-checked", async () => {
     mockStore = withToday(TODAY, { todayCompletions: ["t0", "t1"] });
     const { rerender } = await render(<HomeScreen />);
     mockStore = withToday(TODAY, { todayCompletions: ["t0", "t1", "t2"] });
     await rerender(<HomeScreen />);
+    const { markReviewDue } = mockStore;
     expect(screen.getByText("celebration-visible")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-    await act(async () => {
-      jest.advanceTimersByTime(600);
-    });
-    expect(requestAppReview).toHaveBeenCalledTimes(1);
 
-    mockStore = withToday(TODAY, { todayCompletions: ["t0", "t1"] });
+    mockStore = { ...withToday(TODAY, { todayCompletions: ["t0", "t1"] }), markReviewDue };
     await rerender(<HomeScreen />);
-    mockStore = withToday(TODAY, { todayCompletions: ["t0", "t1", "t2"] });
+    mockStore = { ...withToday(TODAY, { todayCompletions: ["t0", "t1", "t2"] }), markReviewDue };
     await rerender(<HomeScreen />);
     expect(screen.queryByText("celebration-visible")).toBeNull();
-    await act(async () => {
-      jest.advanceTimersByTime(5000);
-    });
-    expect(requestAppReview).toHaveBeenCalledTimes(1);
+    expect(markReviewDue).toHaveBeenCalledTimes(1);
   });
 
   it("celebrates again on a new day", async () => {
@@ -948,41 +901,6 @@ describe("perfect-day moment: once per day and one rating at a time", () => {
     mockStore = withToday("2026-09-27", { todayCompletions: ["t0", "t1", "t2"] });
     await rerender(<HomeScreen />);
     expect(screen.getByText("celebration-visible")).toBeOnTheScreen();
-  });
-
-  it("doesn't queue a second rating while the first request is still in flight", async () => {
-    jest.useFakeTimers();
-    const review = deferred<boolean>();
-    (requestAppReview as jest.Mock).mockImplementationOnce(() => review.promise);
-
-    mockStore = withToday(TODAY, { todayCompletions: ["t0", "t1"] });
-    const { rerender } = await render(<HomeScreen />);
-    mockStore = withToday(TODAY, { todayCompletions: ["t0", "t1", "t2"] });
-    await rerender(<HomeScreen />);
-    // The store's callbacks are stable in the app; this mock store's instance is
-    // the one the in-flight request closed over.
-    const { markReviewPrompted } = mockStore;
-    await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-    await act(async () => {
-      jest.advanceTimersByTime(600);
-    });
-    expect(requestAppReview).toHaveBeenCalledTimes(1);
-
-    // A new perfect day arrives while the rating sheet is still up (e.g. past
-    // midnight); lastReviewPromptAt hasn't been updated yet.
-    mockStore = withToday("2026-09-27", { todayCompletions: ["t0", "t1"] });
-    await rerender(<HomeScreen />);
-    mockStore = withToday("2026-09-27", { todayCompletions: ["t0", "t1", "t2"] });
-    await rerender(<HomeScreen />);
-    expect(screen.getByText("celebration-visible")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "dismiss celebration" }));
-    await act(async () => {
-      jest.advanceTimersByTime(1000);
-    });
-    expect(requestAppReview).toHaveBeenCalledTimes(1);
-
-    await act(async () => review.resolve(true));
-    expect(markReviewPrompted).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1113,5 +1031,47 @@ describe("Today on a wide screen", () => {
     await render(<HomeScreen />);
     expect(screen.getByTestId("need-ideas")).toBeOnTheScreen();
     expect(screen.queryByTestId("today-two-column")).toBeNull();
+  });
+});
+
+// --- Phase 8: inline Unlock, saved-for-later link ------------------------------
+
+describe("Today: unlock and saved ideas", () => {
+  const parked = [
+    { id: "p1", text: "Buy shoes", parkedAt: "2026-09-26T08:00:00.000Z" },
+    { id: "p2", text: "Call mum", parkedAt: "2026-09-26T08:00:00.000Z" },
+  ];
+
+  it("offers Unlock on the status line once the day is locked, and it unlocks", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk"), todayLocked: true, todayLockSource: "manual" });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Unlock today" }));
+    expect(mockStore.unlockToday).toHaveBeenCalledTimes(1);
+  });
+
+  it("has no Unlock while the day is open", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    expect(screen.queryByRole("button", { name: "Unlock today" })).toBeNull();
+  });
+
+  it("keeps saved items reachable when the day is full, and opens the ideas sheet", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read", "Stretch"), parkedTasks: parked });
+    await render(<HomeScreen />);
+    expect(screen.queryByTestId("need-ideas")).toBeNull();
+    const link = screen.getByTestId("saved-ideas-link");
+    expect(link).toHaveTextContent(/Saved for later \(2\)/);
+    await fireEvent.press(link);
+    expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
+  });
+
+  it.each([
+    ["a free slot (the ideas entry shows instead)", { tasks: tasks("Walk", "Read"), parkedTasks: parked }],
+    ["a locked day", { tasks: tasks("Walk", "Read", "Stretch"), parkedTasks: parked, todayLocked: true, todayLockSource: "manual" as const }],
+    ["nothing saved", { tasks: tasks("Walk", "Read", "Stretch"), parkedTasks: [] }],
+  ])("has no saved-for-later link with %s", async (_why, overrides) => {
+    mockStore = makeStore(overrides);
+    await render(<HomeScreen />);
+    expect(screen.queryByTestId("saved-ideas-link")).toBeNull();
   });
 });

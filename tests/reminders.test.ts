@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildReminderIdentifier, planReminders } from "../lib/daily-tasks/reminders";
+import {
+  buildReminderIdentifier,
+  planReminders,
+  planUpcomingMornings,
+  UPCOMING_MORNING_DAYS,
+} from "../lib/daily-tasks/reminders";
 import { DEFAULT_NOTIFICATIONS } from "../lib/daily-tasks/types";
 
 describe("planReminders", () => {
@@ -125,5 +130,37 @@ describe("planReminders", () => {
     expect(buildReminderIdentifier("progress", new Date(2026, 3, 20, 10, 0))).toBe(
       "daily-tasks:2026-04-20:progress:1000",
     );
+  });
+});
+
+describe("planUpcomingMornings (Phase 8)", () => {
+  it("plans one morning nudge on each of the next 6 days: 8:00 on weekdays, 10:00 at weekends", () => {
+    // Friday 25 Sep 2026, evening.
+    const upcoming = planUpcomingMornings({
+      now: new Date(2026, 8, 25, 21, 0),
+      settings: DEFAULT_NOTIFICATIONS,
+      permissionState: "granted",
+    });
+    expect(UPCOMING_MORNING_DAYS).toBe(6);
+    expect(upcoming.map((r) => [r.at.getDate(), r.at.getHours(), r.at.getMinutes()])).toEqual([
+      [26, 10, 0], // Sat
+      [27, 10, 0], // Sun
+      [28, 8, 0],
+      [29, 8, 0],
+      [30, 8, 0],
+      [1, 8, 0],
+    ]);
+    expect(upcoming.every((r) => r.kind === "morning")).toBe(true);
+    expect(upcoming[0].identifier).toBe(buildReminderIdentifier("morning", upcoming[0].at));
+    expect(new Set(upcoming.map((r) => r.identifier)).size).toBe(6);
+  });
+
+  it("plans none when reminders, the morning nudge, or permission are off", () => {
+    const now = new Date(2026, 8, 25, 21, 0);
+    const base = { now, settings: DEFAULT_NOTIFICATIONS, permissionState: "granted" as const };
+    expect(planUpcomingMornings({ ...base, settings: { ...DEFAULT_NOTIFICATIONS, enabled: false } })).toEqual([]);
+    expect(planUpcomingMornings({ ...base, settings: { ...DEFAULT_NOTIFICATIONS, morning: false } })).toEqual([]);
+    expect(planUpcomingMornings({ ...base, permissionState: "denied" })).toEqual([]);
+    expect(planUpcomingMornings({ ...base, permissionState: "undetermined" })).toEqual([]);
   });
 });

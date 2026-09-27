@@ -30,12 +30,18 @@ describe("date helpers", () => {
     expect(greetingFor(new Date(2026, 0, 1, 7))).toBe("morning");
     expect(greetingFor(new Date(2026, 0, 1, 13))).toBe("afternoon");
     expect(greetingFor(new Date(2026, 0, 1, 18))).toBe("evening");
-    expect(greetingFor(new Date(2026, 0, 1, 22))).toBe("night");
+    // 9 pm to midnight is still evening; after midnight it's "night".
+    expect(greetingFor(new Date(2026, 0, 1, 21))).toBe("evening");
+    expect(greetingFor(new Date(2026, 0, 1, 23))).toBe("evening");
+    expect(greetingFor(new Date(2026, 0, 1, 0))).toBe("night");
     expect(greetingFor(new Date(2026, 0, 1, 3))).toBe("night");
+    expect(greetingFor(new Date(2026, 0, 1, 5))).toBe("morning");
   });
 
   it("greetingText maps to readable strings", () => {
     expect(greetingText("morning")).toMatch(/morning/i);
-    expect(greetingText("night")).toMatch(/night/i);
+    expect(greetingText("evening")).toBe("Good evening");
+    // After midnight a plain hello ("Good night" reads as a goodbye).
+    expect(greetingText("night")).toBe("Hello");
   });
 });
