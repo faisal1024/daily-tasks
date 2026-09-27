@@ -7,6 +7,7 @@ import {
   buildInitialState,
   clearState,
   loadState,
+  refreshBackup,
   saveState,
 } from "@/lib/daily-tasks/storage";
 
@@ -34,11 +35,30 @@ afterEach(() => {
 });
 
 describe("loadState safety", () => {
-  it("refreshes the backup from a good load", async () => {
+  it("doesn't touch the backup on load; refreshBackup copies only a parseable main state", async () => {
     const raw = savedJson("Alex");
     await AsyncStorage.setItem(KEY, raw);
     expect((await loadState())?.momentumProfile.name).toBe("Alex");
+    // A state that parses but crashes the app must not replace the good copy.
+    expect(await AsyncStorage.getItem(BACKUP)).toBeNull();
+
+    await refreshBackup();
     expect(await AsyncStorage.getItem(BACKUP)).toBe(raw);
+
+    await AsyncStorage.setItem(KEY, "{broken json");
+    await refreshBackup();
+    expect(await AsyncStorage.getItem(BACKUP)).toBe(raw);
+  });
+
+  it("keeps at most one earlier quarantined copy", async () => {
+    await AsyncStorage.setItem(`${KEY}:corrupt:1790000000000`, "oldest");
+    await AsyncStorage.setItem(`${KEY}:corrupt:1790000001000`, "older");
+    await AsyncStorage.setItem(KEY, "{newest broken");
+    await loadState();
+    const quarantined = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(`${KEY}:corrupt:`)).sort();
+    expect(quarantined).toHaveLength(2);
+    expect(quarantined[0]).toBe(`${KEY}:corrupt:1790000001000`);
+    expect(await AsyncStorage.getItem(quarantined[1])).toBe("{newest broken");
   });
 
   it("quarantines corrupt data under its own key (original kept) and restores the backup", async () => {
@@ -67,7 +87,9 @@ describe("loadState safety", () => {
 
     expect((await loadState())?.momentumProfile.name).toBe("Backup");
     await saveState(buildInitialState());
-    // The data we never saw is still there.
+    await refreshBackup();
+    // The data we never saw is still there, and the backup wasn't replaced.
+    expect(JSON.parse((await AsyncStorage.getItem(BACKUP)) as string).momentumProfile.name).toBe("Backup");
     expect(JSON.parse((await AsyncStorage.getItem(KEY)) as string).momentumProfile.name).toBe("Unreadable");
   });
 

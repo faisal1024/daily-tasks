@@ -356,9 +356,9 @@ describe("lockConfirmation", () => {
   it("explains what locking does and how to undo it", () => {
     const { title, message } = lockConfirmation(2);
     expect(title).toBe("Lock in today?");
-    expect(message).toMatch(/still check tasks off/);
-    expect(message).toMatch(/add, edit or remove/);
-    expect(message).toMatch(/Tap Unlock/);
+    expect(message).toBe(
+      "You can still check tasks off. Adding and editing pause until you tap Unlock. Your empty slot stays empty.",
+    );
     expect(message).not.toMatch(/Settings/);
   });
 

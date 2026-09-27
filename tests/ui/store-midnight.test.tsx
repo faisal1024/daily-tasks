@@ -86,7 +86,7 @@ describe("store: actions just after midnight", () => {
     expect(state.pendingRollover?.tasks.map((t) => t.text)).toEqual(["Walk"]);
   });
 
-  it("ticking yesterday's task after midnight doesn't change yesterday's record", async () => {
+  it("a tick just after midnight counts for the day on screen, then the day changes", async () => {
     fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
     const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 25, 8));
 
@@ -94,16 +94,29 @@ describe("store: actions just after midnight", () => {
     await act(async () => result.current.toggleTask("t0"));
 
     const state = result.current.state;
+    expect(result.current.today).toBe(NEXT);
     expect(state.lastOpenedDate).toBe(NEXT);
-    expect(state.history[D].completed).toBe(0);
-    expect(state.history[D].tasks).toHaveLength(1);
-    expect(state.pendingRollover?.tasks.map((t) => t.id)).toEqual(["t0"]);
+    expect(state.history[D]).toMatchObject({ total: 1, completed: 1 });
+    // Done on D, so nothing to carry over; nothing lands on the new day.
+    expect(state.pendingRollover).toBeNull();
+    expect(state.todayCompletions).toEqual([]);
+    expect(state.journey.awardDate).toBe(D);
+    expect(state.journey.awardedTaskIds).toEqual(["t0"]);
   });
 
-  // BUG (reported, not fixed): the tap in the test above still dispatches
-  // toggleTask("t0") on the NEW day, where t0 isn't a task: todayCompletions
-  // gets a phantom "t0" and the journey awards task XP for it on the new day.
-  it.todo("a tap on a task that rolled over at midnight doesn't add a phantom completion or XP to the new day");
+  it("ignores a toggle, edit or delete for a task that isn't on today's list (no phantom completion or XP)", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 10, 0));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 25, 8));
+    const before = result.current.state;
+    await act(async () => result.current.toggleTask("not-a-task"));
+    await act(async () => result.current.editTask("not-a-task", "Renamed"));
+    await act(async () => result.current.deleteTask("not-a-task"));
+    const after = result.current.state;
+    expect(after.todayCompletions).toEqual([]);
+    expect(after.journey).toEqual(before.journey);
+    expect(after.tasks).toEqual(before.tasks);
+    expect(after.history[D]).toEqual(before.history[D]);
+  });
 
   it("a clock that moved back doesn't roll over into the earlier day", async () => {
     // Saved on the 26th; the clock now reads the 25th (travel west / manual change).
@@ -120,13 +133,27 @@ describe("store: actions just after midnight", () => {
   });
 });
 
-// BUG (reported, not fixed): in the scenario above the store's `today` is set
-// from the raw clock at launch (the 25th) while the state stays on the 26th, so
-// every action stamps the 25th: adding "Read" writes the 26th's list into
-// history["2026-09-25"] (overwriting that day's real record), and an auto-lock
-// that evening marks the 25th locked with the 26th's tasks.
-describe("store: clock moved back (known bug)", () => {
-  it.todo("actions after a clock moved back still go to the state's day (lastOpenedDate), not the earlier clock day");
+describe("store: clock behind the saved day", () => {
+  it("one day behind (flying west over midnight): stays on the saved day and writes to it", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 10, 0));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 26, 9));
+    expect(result.current.today).toBe(NEXT);
+    await act(async () => result.current.toggleTask("t0"));
+    await act(async () => result.current.addTask("Read"));
+    const state = result.current.state;
+    expect(state.history[NEXT]).toMatchObject({ total: 2, completed: 1 });
+    expect(state.history[NEXT].tasks.map((t) => t.text)).toEqual(["Walk", "Read"]);
+    expect(state.history[D]).toBeUndefined();
+    expect(state.journey.awardDate).toBe(NEXT);
+  });
+
+  it("three days behind (a date fixed after being wrong): follows the clock", async () => {
+    fakeClockAt(new Date(2026, 8, 23, 10, 0));
+    const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 26, 9));
+    expect(result.current.today).toBe("2026-09-23");
+    expect(result.current.state.lastOpenedDate).toBe("2026-09-23");
+    expect(result.current.state.tasks).toEqual([]);
+  });
 });
 
 describe("store: rating due", () => {

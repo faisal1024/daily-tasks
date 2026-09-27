@@ -477,15 +477,17 @@ describe("perfect-day moment", () => {
 
 describe("rating on a later app open", () => {
   const HOUR = 60 * 60 * 1000;
+  const SETTLE = 2000;
   const appState = RNAppState as unknown as { currentState: unknown };
   let original: unknown;
   let originalListen: ((...args: unknown[]) => unknown) | undefined;
   let foreground: ((status: string) => void)[] = [];
 
   beforeEach(() => {
+    jest.useFakeTimers({ now: new Date(2026, 8, 26, 20, 0) });
     original = appState.currentState;
-    originalListen = (RNAppState.addEventListener as jest.Mock).getMockImplementation();
     appState.currentState = "active";
+    originalListen = (RNAppState.addEventListener as jest.Mock).getMockImplementation();
     foreground = [];
     (RNAppState.addEventListener as jest.Mock).mockImplementation(
       (_type: string, listener: (status: string) => void) => {
@@ -499,41 +501,82 @@ describe("rating on a later app open", () => {
     (RNAppState.addEventListener as jest.Mock).mockImplementation(originalListen);
   });
 
-  const openWithDue = async (dueAgoMs: number) => {
+  const settle = () =>
+    act(async () => {
+      jest.advanceTimersByTime(SETTLE);
+    });
+  const toForeground = async () => {
+    await act(async () => foreground.forEach((listener) => listener("active")));
+    await settle();
+  };
+  const openWithDue = async (dueAgoMs: number, overrides: Partial<AppState> = {}) => {
     mockStore = makeStore({
       tasks: tasks("Walk"),
       reviewDueAt: new Date(Date.now() - dueAgoMs).toISOString(),
+      ...overrides,
     });
     return render(<HomeScreen />);
   };
 
-  it("asks once the app is opened an hour or more after the perfect day, and records it", async () => {
+  it("asks a moment after opening, an hour or more after the perfect day, and records it", async () => {
     await openWithDue(2 * HOUR);
-    await act(async () => {});
+    await act(async () => {
+      jest.advanceTimersByTime(SETTLE - 1);
+    });
+    expect(requestAppReview).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
     expect(requestAppReview).toHaveBeenCalledTimes(1);
     expect(mockStore.markReviewPrompted).toHaveBeenCalledTimes(1);
   });
 
   it("waits while it's been under an hour, then asks on a later foreground", async () => {
-    jest.useFakeTimers({ now: new Date(2026, 8, 26, 20, 0), doNotFake: ["setTimeout", "setInterval", "setImmediate", "queueMicrotask", "nextTick"] });
     await openWithDue(30 * 60 * 1000);
-    await act(async () => {});
+    await settle();
     expect(requestAppReview).not.toHaveBeenCalled();
 
     jest.setSystemTime(new Date(2026, 8, 26, 20, 31));
-    await act(async () => foreground.forEach((listener) => listener("active")));
+    await toForeground();
+    expect(requestAppReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops an ask that's more than a week old", async () => {
+    await openWithDue(8 * 24 * HOUR);
+    await settle();
+    expect(requestAppReview).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the rollover modal is up", { pendingRollover: { sourceDate: "2026-09-25", tasks: [] } }],
+    ["onboarding hasn't been done", { hasSeenOnboarding: false }],
+  ])("waits while %s", async (_why, overrides) => {
+    await openWithDue(2 * HOUR, overrides as Partial<AppState>);
+    await settle();
+    expect(requestAppReview).not.toHaveBeenCalled();
+  });
+
+  it("waits while a sheet is open, and asks on a later foreground once it's closed", async () => {
+    await openWithDue(2 * HOUR);
+    // The user opens the ideas sheet within the first two seconds.
+    await fireEvent.press(screen.getByTestId("need-ideas"));
+    await settle();
+    expect(requestAppReview).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByRole("button", { name: "Close ideas" }));
+    await toForeground();
     expect(requestAppReview).toHaveBeenCalledTimes(1);
   });
 
   it("doesn't ask (or spend the cooldown) unless the app is active, or when the prompt wasn't shown", async () => {
     appState.currentState = "background";
     await openWithDue(2 * HOUR);
-    await act(async () => {});
+    await settle();
     expect(requestAppReview).not.toHaveBeenCalled();
 
     appState.currentState = "active";
     (requestAppReview as jest.Mock).mockResolvedValueOnce(false);
-    await act(async () => foreground.forEach((listener) => listener("active")));
+    await toForeground();
     expect(requestAppReview).toHaveBeenCalledTimes(1);
     expect(mockStore.markReviewPrompted).not.toHaveBeenCalled();
   });
@@ -542,8 +585,8 @@ describe("rating on a later app open", () => {
     const review = deferred<boolean>();
     (requestAppReview as jest.Mock).mockImplementationOnce(() => review.promise);
     await openWithDue(2 * HOUR);
-    await act(async () => {});
-    await act(async () => foreground.forEach((listener) => listener("active")));
+    await settle();
+    await toForeground();
     expect(requestAppReview).toHaveBeenCalledTimes(1);
     await act(async () => review.resolve(true));
     expect(mockStore.markReviewPrompted).toHaveBeenCalledTimes(1);
@@ -552,7 +595,7 @@ describe("rating on a later app open", () => {
   it("does nothing when no rating is due", async () => {
     mockStore = makeStore({ tasks: tasks("Walk") });
     await render(<HomeScreen />);
-    await act(async () => foreground.forEach((listener) => listener("active")));
+    await toForeground();
     expect(requestAppReview).not.toHaveBeenCalled();
   });
 });

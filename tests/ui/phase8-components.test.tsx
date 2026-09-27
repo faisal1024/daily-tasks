@@ -6,6 +6,8 @@ import * as Notifications from "expo-notifications";
 import { fireEvent, screen } from "@testing-library/react-native";
 
 import { CompletionReflection } from "@/components/daily-tasks/completion-reflection";
+import { IdeasSheet } from "@/components/daily-tasks/ideas-sheet";
+import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { track } from "@/lib/daily-tasks/analytics";
 import { syncNotifications } from "@/lib/daily-tasks/notifications";
@@ -108,5 +110,43 @@ describe("syncNotifications", () => {
     // All of the first sync's scheduling happened before the second began.
     expect(events.slice(1, secondStart).every((e) => e === "schedule")).toBe(true);
     expect(events.slice(1, secondStart)).toHaveLength(6);
+  });
+});
+
+describe("SectionLabel", () => {
+  it("is one accessible header named by its label (the icon is decorative)", async () => {
+    await render(<SectionLabel icon="calendar-outline" label="Your last 7 days" />);
+    const header = screen.getByRole("header", { name: "Your last 7 days" });
+    expect(header.props.accessible).toBe(true);
+    expect(screen.getAllByRole("header")).toHaveLength(1);
+  });
+});
+
+describe("IdeasSheet saved-only view", () => {
+  it("shows the saved items and hides the ideas when opened from Saved for later", async () => {
+    const props = {
+      visible: true,
+      onClose: jest.fn(),
+      goalTitle: "Run a 5K",
+      source: { personalized: false, label: "Starter ideas" },
+      ideas: [{ id: "a", text: "Walk 20 minutes", estimatedMinutes: 20 }],
+      addedTexts: new Set<string>(),
+      remainingSlots: 0,
+      adaptationReason: null,
+      canRegenerate: false,
+      regenerating: false,
+      failureMessage: null,
+      onAdd: jest.fn(),
+      onAddAll: jest.fn(),
+      onRegenerate: jest.fn(),
+      parked: [{ id: "p1", text: "Buy shoes" }],
+    };
+    const { rerender } = await render(<IdeasSheet {...props} savedOnly />);
+    expect(screen.getByText("Your day is full. Free a slot to swap one of these in.")).toBeOnTheScreen();
+    expect(screen.getByTestId("parked-ideas")).toHaveTextContent(/Buy shoes/);
+    expect(screen.queryByText("Walk 20 minutes")).toBeNull();
+
+    await rerender(<IdeasSheet {...props} />);
+    expect(screen.getByText("Walk 20 minutes")).toBeOnTheScreen();
   });
 });
