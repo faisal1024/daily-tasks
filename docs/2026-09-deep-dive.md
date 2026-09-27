@@ -28,7 +28,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⏸ blocked on the ow
 | 9 — The ritual | ✅ Done (PRs #47, #48) | 9a: morning hero + draft, evening close, coach memory, Day N, milestones; 9b: onboarding + Calendar/Reminders |
 | 10 — Today revamp + IA | ✅ Done (PRs #49, #50) | decisions made (§6) |
 | 11 — Money & cost controls | ✅ Built (PRs #51, #52); goes live after owner setup | code can start; going live needs App Store Connect setup (Paid Apps agreement, tax form, In-App Purchase key) and a Cloudflare account |
-| 12 — Name, listing, launch | 🔄 in review (store submission needs owner setup) | name chosen: **Three Today** (§6) |
+| 12 — Name, listing, launch | ✅ Built (PR #53); submission after owner setup | **Three Today** 1.1.0: listing + `store.config.json`, 5 captioned screenshots, privacy policy renamed, step-by-step `docs/launch-plan.md` |
 
 ### Owner to-dos outside the code
 - ⏸ App Store Connect: renew the Paid Apps Agreement, W-9 tax form (after bank processing), generate the In-App Purchase key (.p8) for RevenueCat
@@ -36,6 +36,8 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started · ⏸ blocked on the ow
 - ⬜ Test 1.0.11 on your phone via TestFlight (widget layout on device, next-morning widget ticks)
 - ✅ Answer the decisions in §6 (27 Sept 2026)
 - ⬜ Create a free Cloudflare account (for Phase 11's proxy move)
+- ⬜ Follow `docs/launch-plan.md` §1: check the name "Three Today: 3 Tasks a Day" is free in App Store Connect, create the 3 Plus products, set up RevenueCat, Sandbox tester
+- ⬜ A widget screenshot from your phone (optional 6th App Store screenshot)
 
 ## 1. Diagnosis (where all four audits agree)
 
