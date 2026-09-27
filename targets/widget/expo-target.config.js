@@ -5,7 +5,7 @@
 module.exports = (config) => ({
   type: "widget",
   name: "DailyTasksWidget",
-  displayName: "Daily Tasks",
+  displayName: "Three Today",
   bundleIdentifier: ".widget",
   deploymentTarget: "17.0",
   colors: {

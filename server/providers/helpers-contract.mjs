@@ -121,6 +121,35 @@ function textItems(list, max, limit) {
     }));
 }
 
+// Words too common to show an item came from the dump.
+const STOPWORDS = new Set(
+  "the a an and or for to of in on at with my your our do get go make take buy call this that some more out new all now up off".split(
+    " ",
+  ),
+);
+// Scripts written without spaces between words: word matching can't judge them.
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u;
+
+function words(text) {
+  return (String(text).normalize("NFC").toLowerCase().match(/[\p{L}\p{M}\p{N}]{3,}/gu) ?? []).filter((w) => !STOPWORDS.has(w));
+}
+
+/**
+ * Whether an item plausibly comes from the person's own words: it shares a
+ * meaningful word with the dump, or one word starts the other ("run" /
+ * "running", "groc" / "groceries"). Items with no meaningful words, and dumps
+ * in scripts without spaces, always pass (there's nothing reliable to check).
+ */
+export function fromDump(itemText, dumpText) {
+  if (UNSPACED_SCRIPT.test(String(dumpText))) return true;
+  const dump = words(dumpText);
+  const item = words(itemText);
+  if (dump.length === 0 || item.length === 0) return true;
+  return item.some((w) =>
+    dump.some((d) => d === w || (Math.min(d.length, w.length) >= 3 && (d.startsWith(w) || w.startsWith(d)))),
+  );
+}
+
 /** Rebuild the brain-dump response from validated fields only. */
 export function sanitizeBrainDump(result) {
   return {
@@ -129,16 +158,22 @@ export function sanitizeBrainDump(result) {
   };
 }
 
-export function isValidBrainDump(result) {
-  // Over-long items are shortened by sanitizeBrainDump rather than failing the
-  // request; only an echo of the input (> MAX_ECHO_TEXT) makes an item unusable.
-  return Boolean(
-    result &&
-      typeof result === "object" &&
-      Array.isArray(result.picks) &&
-      Array.isArray(result.parked) &&
-      result.picks.some((item) => isShortTask(item, MAX_ECHO_TEXT)),
-  );
+/**
+ * Valid when there's a usable pick and the answer is about what they wrote.
+ * The guard only rejects the clear failure: when NONE of the (kept) picks
+ * shares anything with the dump (e.g. the model invented "Check in with
+ * yourself" from a garbled dump). Single rewritten items are left alone, so
+ * nothing the person typed goes missing; the app then uses its simple split.
+ */
+export function isValidBrainDump(result, payload) {
+  if (!result || typeof result !== "object" || !Array.isArray(result.picks) || !Array.isArray(result.parked)) {
+    return false;
+  }
+  // Judge the same picks the response will contain.
+  const picks = sanitizeBrainDump(result).picks;
+  if (picks.length === 0) return false;
+  if (typeof payload?.text !== "string") return true; // nothing to compare against
+  return picks.some((item) => fromDump(item.text, payload.text));
 }
 
 // --- Break it down → 3-5 tiny steps -----------------------------------------

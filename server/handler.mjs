@@ -236,12 +236,12 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
         toolName: route.toolName,
         toolDescription: route.toolDescription,
       });
-      if (!route.isValidResult(result)) {
+      if (!route.isValidResult(result, payload)) {
         logger.error(`[momentum-ai] ${provider.id} returned an invalid ${route.name}; keys=${summarizeForLog(result)}`);
         return { status: 502, body: { error: `AI response did not include a valid ${route.name}` } };
       }
       // Return only validated fields, never raw model output.
-      return { status: 200, body: route.sanitizeResult ? route.sanitizeResult(result) : result };
+      return { status: 200, body: route.sanitizeResult ? route.sanitizeResult(result, payload) : result };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error(`[momentum-ai] ${provider.id} proxy error: ${message}`);

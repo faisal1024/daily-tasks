@@ -35,6 +35,7 @@ import {
   MIN_STEPS,
   buildBrainDumpPrompt,
   buildBreakDownPrompt,
+  fromDump,
   isValidBrainDump,
   isValidBreakDown,
   sanitizeBrainDump,
@@ -320,7 +321,7 @@ describe("helper routes over HTTP", () => {
         ? {
             picks: [
               { text: "  Finish report  ", reason: "due", secret: "leak" },
-              { text: "x".repeat(MAX_TASK_TEXT + 1) },
+              { text: `Report ${"x".repeat(MAX_TASK_TEXT)}` },
               { text: 5 },
             ],
             parked: [{ text: "Buy shoes", reason: "drop me" }, "bare string"],
@@ -341,7 +342,7 @@ describe("helper routes over HTTP", () => {
       // Over-long items are shortened (never dropped); non-text items are.
       picks: [
         { text: "Finish report", reason: "due" },
-        { text: `${"x".repeat(MAX_TASK_TEXT - 1)}…` },
+        { text: `${`Report ${"x".repeat(MAX_TASK_TEXT)}`.slice(0, MAX_TASK_TEXT - 1)}…` },
       ],
       parked: [{ text: "Buy shoes" }],
     });
@@ -353,6 +354,107 @@ describe("helper routes over HTTP", () => {
         { text: `${"s".repeat(MAX_STEP_TEXT - 2)}🎉…` },
       ],
     });
+  });
+
+  it("keeps a brain-dump answer whole once any pick comes from the dump (rewrites are fine)", async () => {
+    const provider = fakeProvider(async () => ({
+      picks: [
+        { text: "Finish the report", reason: "due" },
+        { text: "Check in with yourself", reason: "invented" },
+        { text: "Call Mum" },
+      ],
+      parked: [{ text: "Meditate for ten minutes" }, { text: "Buy running shoes" }],
+    }));
+    const { post } = await start({ provider });
+    const res = await post(BRAIN_DUMP_ROUTE);
+    expect(res.status).toBe(200);
+    // Only a fully invented answer is rejected; per-item filtering dropped real
+    // rewrites ("do my taxes" → "File tax return") and non-Latin text.
+    expect(await res.json()).toEqual({
+      picks: [
+        { text: "Finish the report", reason: "due" },
+        { text: "Check in with yourself", reason: "invented" },
+        { text: "Call Mum" },
+      ],
+      parked: [{ text: "Meditate for ten minutes" }, { text: "Buy running shoes" }],
+    });
+  });
+
+  it("returns 502 when every brain-dump pick is invented, so the app falls back", async () => {
+    const provider = fakeProvider(async () => ({
+      picks: [{ text: "Check in with yourself" }, { text: "Drink water" }],
+      // A real parked item doesn't rescue a response with no real picks.
+      parked: [{ text: "Buy shoes" }],
+    }));
+    const { post, logger } = await start({ provider });
+    const res = await post(BRAIN_DUMP_ROUTE);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "AI response did not include a valid brain-dump" });
+    expect(logger.error).toHaveBeenCalled();
+  });
+
+  it("passes the request payload to the brain-dump guard: unspaced-script dumps keep rewritten picks", async () => {
+    const provider = fakeProvider(async (args) =>
+      args.toolName === BRAIN_DUMP_TOOL_NAME
+        ? {
+            picks: [{ text: "お母さんに電話する" }],
+            parked: [{ text: "レポートを仕上げる" }],
+          }
+        : BREAK_RESULT,
+    );
+    const { post } = await start({ provider });
+    const res = await post(BRAIN_DUMP_ROUTE, {
+      text: "母に電話\nレポート終わらせる",
+      openSlots: 1,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      picks: [{ text: "お母さんに電話する" }],
+      parked: [{ text: "レポートを仕上げる" }],
+    });
+  });
+
+  it("brain-dump 502s when the model translates a Latin dump into another script (nothing shared)", async () => {
+    const provider = fakeProvider(async () => ({
+      picks: [{ text: "Позвонить маме" }],
+      parked: [],
+    }));
+    const { post } = await start({ provider });
+    expect(
+      (
+        await post(BRAIN_DUMP_ROUTE, {
+          text: "phone mother tonight",
+          openSlots: 1,
+        })
+      ).status,
+    ).toBe(502);
+  });
+
+  it("the brain-dump word guard doesn't leak into other routes (payload is ignored there)", async () => {
+    // Steps and plan items share no words with their payloads; still 200.
+    const provider = fakeProvider(async (args) =>
+      args.toolName === BREAK_DOWN_TOOL_NAME
+        ? {
+            steps: [
+              { text: "Stand up" },
+              { text: "Fill sink" },
+              { text: "Rinse plates" },
+            ],
+          }
+        : args.toolName === BRAIN_DUMP_TOOL_NAME
+          ? DUMP_RESULT
+          : PLAN_RESULT,
+    );
+    const { post } = await start({ provider });
+    expect(
+      (
+        await post(BREAK_DOWN_ROUTE, {
+          task: "Clean the kitchen",
+          goalTitle: null,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await post(PLAN_ROUTE)).status).toBe(200);
   });
 
   it("returns a generic 502 when the provider throws on a helper route", async () => {
@@ -475,6 +577,150 @@ describe("brain-dump contract", () => {
     expect(isValidBrainDump("{}")).toBe(false);
   });
 
+  it("fromDump: an item must share a meaningful word or a word prefix with the dump", () => {
+    // Exact word, case-insensitive.
+    expect(fromDump("Call MUM", "call mum tonight")).toBe(true);
+    expect(fromDump("REPORT draft", "finish the Report")).toBe(true);
+    // Four-letter stem: groceries / groc, emails / email.
+    expect(fromDump("Buy groceries", "groc run after work")).toBe(true);
+    expect(fromDump("Answer emails", "email Sam back")).toBe(true);
+    // Stopwords and short words alone don't count as a match.
+    expect(fromDump("Take the dog", "take the bins")).toBe(false);
+    // An item with no meaningful words can't be judged: keep it.
+    expect(fromDump("Do it", "do it today")).toBe(true);
+    // Rewrites that keep a stem.
+    expect(fromDump("File tax return", "do my taxes")).toBe(true);
+    expect(fromDump("Go for a run", "running")).toBe(true);
+    // Unspaced scripts (Chinese, Japanese, Thai…) can't be split into words: keep.
+    expect(fromDump("买牛奶", "买牛奶 打电话给妈妈")).toBe(true);
+    expect(fromDump("Check in with yourself", "call mum\nfinish report")).toBe(false);
+    // Non-Latin text is matched by letters, not ASCII only.
+    expect(fromDump("Позвонить маме", "позвонить маме вечером")).toBe(true);
+    expect(fromDump("Купить молоко", "позвонить маме")).toBe(false);
+    expect(fromDump("Ιατρός ραντεβού", "κλείσε ραντεβού")).toBe(true);
+    // Nothing meaningful to compare against: keep the item.
+    expect(fromDump("Anything at all", "")).toBe(true);
+    expect(fromDump("Anything at all", "the a to")).toBe(true);
+  });
+
+  it("keeps every item when one pick is from the dump; rejects only fully invented answers", () => {
+    const payload = { text: "finish report\nbuy groceries\ncall mum", openSlots: 3, goalTitle: null };
+    const result = {
+      picks: [{ text: "Finish the report" }, { text: "Journal for 5 minutes" }],
+      parked: [{ text: "Groceries" }, { text: "Stretch" }, { text: "Call Mum" }],
+    };
+    expect(isValidBrainDump(result, payload)).toBe(true);
+    // Sanitizing never drops items for not matching (it only trims and caps).
+    expect(sanitizeBrainDump(result)).toEqual(result);
+    // All picks invented: invalid, even though a parked item is real.
+    expect(isValidBrainDump({ picks: [{ text: "Stretch" }], parked: [{ text: "Call mum" }] }, payload)).toBe(false);
+  });
+
+  it("fromDump: unspaced scripts (Japanese, Korean, Thai, Chinese) always pass", () => {
+    expect(fromDump("お母さんに電話する", "母に電話")).toBe(true);
+    expect(fromDump("牛乳を買う", "スーパーで牛乳")).toBe(true);
+    expect(fromDump("엄마한테 전화하기", "엄마에게 전화")).toBe(true);
+    expect(fromDump("โทรหาแม่", "ซื้อนม")).toBe(true);
+    // Judged by the dump's script, so even an unrelated English item passes...
+    expect(fromDump("Check in with yourself", "ซื้อนม")).toBe(true);
+    // ...including a mostly-Latin dump with one unspaced word in it.
+    expect(fromDump("Check in with yourself", "call mum, buy 牛乳")).toBe(true);
+    // A Latin dump doesn't get the pass just because the item is unspaced:
+    // a translated/invented item shares nothing with the dump.
+    expect(fromDump("牛乳を買う", "buy milk")).toBe(false);
+  });
+
+  it("fromDump: words under 3 letters and stopwords never count, prefixes need 3+ letters", () => {
+    // Two-letter words are ignored: "tv" alone leaves nothing to judge (keep)...
+    expect(fromDump("Fix TV", "tv")).toBe(true);
+    expect(fromDump("Repair TV", "tv")).toBe(true);
+    // ...but they can't rescue an item when the dump has other meaningful words.
+    expect(fromDump("Repair TV", "fix tv")).toBe(false);
+    // Stopword-only overlap ("call") doesn't count; the other word decides.
+    expect(fromDump("Call dad", "call mum")).toBe(false);
+    // Three-letter prefix either way round.
+    expect(fromDump("Book gym class", "gymnastics")).toBe(true);
+    expect(fromDump("Gymnastics", "gym bag")).toBe(true);
+    // Prefix must be at the start of the word, not inside it.
+    expect(fromDump("Pay rent", "parent evening")).toBe(false);
+    // Numbers count as words when they're 3+ characters.
+    expect(fromDump("Pay 250 bill", "250 to landlord")).toBe(true);
+    // Punctuation and newlines separate words.
+    expect(fromDump("Email Sam", "sam's-email/rent")).toBe(true);
+  });
+
+  it("isValidBrainDump judges only the sanitized picks the response will contain", () => {
+    const payload = { text: "finish report", openSlots: 3, goalTitle: null };
+    // The only matching pick is an echo (dropped by the sanitizer): invalid.
+    const echo = "finish report ".repeat(20);
+    expect(
+      isValidBrainDump(
+        { picks: [{ text: echo }, { text: "Stretch" }], parked: [] },
+        payload,
+      ),
+    ).toBe(false);
+    // The only matching pick is the 4th (past the 3-pick cap): invalid.
+    const fourth = {
+      picks: [
+        { text: "Meditate" },
+        { text: "Stretch" },
+        { text: "Journal" },
+        { text: "Finish report" },
+      ],
+      parked: [],
+    };
+    expect(isValidBrainDump(fourth, payload)).toBe(false);
+    // A matching pick among non-string junk still counts.
+    expect(
+      isValidBrainDump(
+        { picks: [{ text: 5 }, null, { text: "Report" }], parked: [] },
+        payload,
+      ),
+    ).toBe(true);
+    // A pick whose only words are short/stopwords can't be judged, so it passes.
+    expect(
+      isValidBrainDump({ picks: [{ text: "Do it" }], parked: [] }, payload),
+    ).toBe(true);
+    // A dump of only short words/stopwords keeps any answer.
+    expect(
+      isValidBrainDump(
+        { picks: [{ text: "Stretch" }], parked: [] },
+        { text: "do it", openSlots: 1 },
+      ),
+    ).toBe(true);
+    // No payload at all: shape checks only.
+    expect(
+      isValidBrainDump({ picks: [{ text: "Stretch" }], parked: [] }, undefined),
+    ).toBe(true);
+  });
+
+  it("sanitizeBrainDump caps picks at 3 and parked at MAX_PARKED without filtering by word match", () => {
+    const many = Array.from({ length: MAX_PARKED + 5 }, (_, i) => ({
+      text: `Invented ${i}`,
+    }));
+    const out = sanitizeBrainDump({ picks: many, parked: many });
+    expect(out.picks).toHaveLength(3);
+    expect(out.parked).toHaveLength(MAX_PARKED);
+    expect(out.parked[MAX_PARKED - 1]).toEqual({
+      text: `Invented ${MAX_PARKED - 1}`,
+    });
+  });
+
+  // Unreachable through the handler (it validates text first), but safe.
+  it(
+    "a payload without text is treated like no payload (nothing to compare)",
+    () => {
+      const result = { picks: [{ text: "Call mum" }], parked: [] };
+      expect(isValidBrainDump(result, { openSlots: 1 })).toBe(true);
+      expect(isValidBrainDump(result, { text: null, openSlots: 1 })).toBe(true);
+    },
+  );
+
+  // A decomposed (NFD) dump, e.g. pasted from macOS file names, still matches.
+  it("fromDump matches precomposed and decomposed accents", () => {
+    expect(fromDump("Visit café", "cafe\u0301")).toBe(true);
+  });
+
   it("drops echo items (over MAX_ECHO_TEXT) instead of shortening them into tasks", () => {
     const echo = "call mum and ".repeat(20);
     expect(echo.length).toBeGreaterThan(MAX_ECHO_TEXT);
@@ -494,10 +740,7 @@ describe("brain-dump contract", () => {
     expect(BRAIN_DUMP_SCHEMA.required).toEqual(["picks", "parked"]);
   });
 
-  // BUG (9a54d19): the app now keeps up to 20 parked items per dump
-  // (ai-helpers MAX_PARKED) so nothing typed is silently dropped, but the
-  // server schema and sanitizer still cap parked at 10, so an AI-sorted dump
-  // loses everything past 10. Remove `.fails` when the caps agree.
+  // The app keeps up to 20 parked items per dump; the server must not cut them.
   it("server parked cap matches the app's (20)", () => {
     expect(MAX_PARKED).toBe(APP_MAX_PARKED);
   });

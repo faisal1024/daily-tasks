@@ -33,6 +33,20 @@ export function setProxyGrandfathered(value: boolean): void {
 }
 const ID_WAIT_MS = 1_000;
 
+/** Wait for `pending`, but never longer than `ms` (the timer is always cleared). */
+async function waitAtMost(pending: Promise<unknown>, ms: number): Promise<void> {
+  let release = () => {};
+  const timeout = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const timer = setTimeout(() => release(), ms);
+  try {
+    await Promise.race([pending, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Long enough to ride out a Render free-tier cold start (~30–60s) plus a model
  * response; short enough that a dead network doesn't hang the UI forever.
@@ -91,14 +105,7 @@ export async function postToProxy({
   if (proxySecret) headers[PROXY_SECRET_HEADER] = proxySecret;
   // A request at launch may beat the id lookup: wait briefly for it.
   if (!proxyUserId && !grandfathered && proxyUserIdPending) {
-    let waitTimer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      proxyUserIdPending,
-      new Promise((resolve) => {
-        waitTimer = setTimeout(resolve, ID_WAIT_MS);
-      }),
-    ]);
-    clearTimeout(waitTimer);
+    await waitAtMost(proxyUserIdPending, ID_WAIT_MS);
   }
   if (proxyUserId && !grandfathered) headers[PROXY_USER_HEADER] = proxyUserId;
 
@@ -164,14 +171,7 @@ export async function requestSupporterGrant({
 } = {}): Promise<"granted" | "closed" | "retry"> {
   const url = proxyRouteUrl(planUrl, "grandfather");
   if (proxyUserIdPending && !proxyUserId) {
-    let waitTimer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      proxyUserIdPending.catch(() => {}),
-      new Promise((resolve) => {
-        waitTimer = setTimeout(resolve, 5_000);
-      }),
-    ]);
-    clearTimeout(waitTimer);
+    await waitAtMost(proxyUserIdPending.catch(() => {}), 5_000);
   }
   if (!url || !proxyUserId || !proxySecret) return "retry";
   const controller = new AbortController();

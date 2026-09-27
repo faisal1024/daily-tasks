@@ -44,9 +44,9 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 ## Setup checklist (before a paywall build)
 
 1. **App Store Connect:** sign the Paid Apps agreement (banking + tax). Create a
-   subscription group "Momentum Plus" with `plus_annual` ($29.99/yr, 7-day free-trial
-   introductory offer) and `plus_monthly` ($4.99/mo); plus a non-consumable
-   `plus_lifetime` (~$59.99). Enrol in the Small Business Program.
+   subscription group "Three Today Plus" with `plus_annual` ($34.99/yr, 7-day free-trial
+   introductory offer) and `plus_monthly` ($4.99/mo, 7-day free trial); plus a non-consumable
+   `plus_lifetime` ($79.99, shown only from Settings). Enrol in the Small Business Program.
 2. **RevenueCat:** create the project + iOS app (App Store Connect API key / in-app
    purchase key), entitlement **`plus`** attached to all three products, and a
    current offering with the `$rc_annual`, `$rc_monthly` and `$rc_lifetime` packages.

@@ -180,7 +180,7 @@ export default function SettingsScreen() {
     } catch {
       Alert.alert(
         "Open System Settings",
-        "Notifications can be updated from your device settings for Daily Tasks.",
+        "Notifications can be updated from your device settings for Three Today.",
       );
     }
   };
@@ -668,7 +668,7 @@ export default function SettingsScreen() {
           className="text-xs text-center mt-2"
           style={{ color: colors.muted }}
         >
-          Daily Tasks · v{getCurrentVersion()}
+          Three Today · v{getCurrentVersion()}
         </Text>
       </ScrollView>
       </KeyboardAvoidingView>
