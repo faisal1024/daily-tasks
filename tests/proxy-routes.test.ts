@@ -36,6 +36,7 @@ import {
   buildBreakDownPrompt,
   isValidBrainDump,
   isValidBreakDown,
+  sanitizeBrainDump,
   sanitizeBreakDown,
   validateBrainDumpPayload,
   validateBreakDownPayload,
@@ -463,12 +464,17 @@ describe("brain-dump contract", () => {
     expect(isValidBrainDump("{}")).toBe(false);
   });
 
-  // BUG (reported, not fixed): an echo (> MAX_ECHO_TEXT) only makes the
-  // result invalid when it's the sole pick. Next to one usable pick,
-  // isValidBrainDump passes and sanitizeBrainDump shortens the echo into a
-  // 64-character "task" instead of dropping it (same for parked items and for
-  // break-down steps next to two usable ones).
-  it.todo("drops echo items (over MAX_ECHO_TEXT) instead of shortening them into tasks");
+  it("drops echo items (over MAX_ECHO_TEXT) instead of shortening them into tasks", () => {
+    const echo = "call mum and ".repeat(20);
+    expect(echo.length).toBeGreaterThan(MAX_ECHO_TEXT);
+    const dump = { picks: [{ text: "Call mum" }, { text: echo }], parked: [{ text: echo }, { text: "Buy shoes" }] };
+    expect(isValidBrainDump(dump)).toBe(true);
+    expect(sanitizeBrainDump(dump)).toEqual({ picks: [{ text: "Call mum" }], parked: [{ text: "Buy shoes" }] });
+
+    const steps = { steps: [{ text: "Open the doc" }, { text: echo }, { text: "Write one line" }] };
+    expect(isValidBreakDown(steps)).toBe(true);
+    expect(sanitizeBreakDown(steps).steps).toEqual([{ text: "Open the doc" }, { text: "Write one line" }]);
+  });
 
   it("schema caps picks at 3 and parked at MAX_PARKED", () => {
     expect(BRAIN_DUMP_SCHEMA.properties.picks.maxItems).toBe(3);

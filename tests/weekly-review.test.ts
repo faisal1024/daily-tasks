@@ -82,9 +82,33 @@ describe("buildWeeklyReview: headline and counts", () => {
       ]),
       TODAY,
     );
-    expect(review.previousCompleted).toBe(3);
+    expect(review.comparison).toEqual({ now: 6, before: 3 });
     expect(review.headline).toBe("Up from last week. That's real momentum.");
     expect(comparisonText(review)).toBe("You finished 6 tasks, up from 3 last week.");
+  });
+});
+
+describe("week-on-week comparison", () => {
+  const steady = (days: number[], done = 3) =>
+    days.map((ago): [number, number, number] => [ago, 3, done]);
+
+  it("calls a steady fortnight the same when today hasn't been started yet", () => {
+    const review = buildWeeklyReview(history([[0, 3, 0], ...steady(range(1, 14))]), TODAY);
+    // Two finished windows ending yesterday: 21 vs 21, not "lighter" because of today.
+    expect(review.comparison).toEqual({ now: 21, before: 21 });
+    expect(comparisonText(review)).toBe("About the same as last week. Steady is good.");
+  });
+
+  it("includes today in the windows once it's finished", () => {
+    // Day 14 is a miss: only a window that ends yesterday would reach it.
+    const review = buildWeeklyReview(history([...steady(range(0, 13)), [14, 3, 0]]), TODAY);
+    expect(review.comparison).toEqual({ now: 21, before: 21 });
+  });
+
+  it("says nothing (never '0 tasks') when this week has nothing finished", () => {
+    const review = buildWeeklyReview(history([[8, 3, 1], [9, 3, 1], [10, 3, 1]]), TODAY);
+    expect(review.comparison).toEqual({ now: 0, before: 3 });
+    expect(comparisonText(review)).toBeNull();
   });
 });
 
