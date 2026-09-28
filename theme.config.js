@@ -14,7 +14,11 @@ const themeColors = {
   border: { light: '#E8E4F6', dark: '#332F45' },
   success: { light: '#16C784', dark: '#37D9A0' },
   warning: { light: '#F5A524', dark: '#FBBF24' },
-  error: { light: '#F4525F', dark: '#FB7185' },
+  // Light error darkened from #F4525F so white text/icons on it (and the error
+  // as text on the light surface) meet WCAG AA (4.5:1).
+  error: { light: '#D12B3B', dark: '#FB7185' },
+  // Text and icons on an error fill (dark text on the lighter dark-mode error).
+  onError: { light: '#FFFFFF', dark: '#161420' },
 };
 
 module.exports = { themeColors };

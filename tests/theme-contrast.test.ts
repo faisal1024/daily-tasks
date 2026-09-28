@@ -30,6 +30,10 @@ describe("theme contrast", () => {
     expect(contrast(themeColors.onPrimary[scheme], themeColors.primary[scheme])).toBeGreaterThanOrEqual(4.5);
   });
 
+  it.each(["light", "dark"] as const)("onError meets WCAG AA (4.5:1) on the %s error", (scheme) => {
+    expect(contrast(themeColors.onError[scheme], themeColors.error[scheme])).toBeGreaterThanOrEqual(4.5);
+  });
+
   it("computes contrast the WCAG way (sanity check)", () => {
     expect(contrast("#000000", "#FFFFFF")).toBeCloseTo(21, 5);
     // The old light muted color failed AA on the light background.
