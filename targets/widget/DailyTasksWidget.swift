@@ -60,8 +60,9 @@ extension Snapshot {
   var total: Int { tasks.count }
   var allDone: Bool { !tasks.isEmpty && completed == total }
   var progressSpoken: String { "\(completed) of \(total) done" }
-  /// "All three." for the usual three, "All done." otherwise.
-  var allDoneTitle: String { total == 3 ? "All three." : "All done." }
+  /// "All three" for the usual three, "All done" otherwise.
+  var allDoneLabel: String { total == 3 ? "All three" : "All done" }
+  var allDoneTitle: String { "\(allDoneLabel)." }
   var dayText: String? { day.map { "Day \(max(1, $0))" } }
 }
 
@@ -85,12 +86,13 @@ enum DayPhase {
     }
   }
 
-  /// Top-leading to bottom-trailing. Chosen so white text stays readable
-  /// (>= 4:1 for the main text) across the whole gradient.
+  /// Top-leading to bottom-trailing. Against every stop, white (primary text)
+  /// is at least 6:1, white 85% (secondary) at least 4.8:1 and white 70%
+  /// (faded: done tasks) at least 3.8:1. Dark mode darkens further.
   var colors: [Color] {
     switch self {
-    case .morning: return [Color(hex: 0xD0553A), Color(hex: 0x9E3A82)]
-    case .daytime: return [Color(hex: 0x6A61F0), Color(hex: 0x4338C9)]
+    case .morning: return [Color(hex: 0xA8412E), Color(hex: 0x9E3A82)]
+    case .daytime: return [Color(hex: 0x5249D6), Color(hex: 0x4338C9)]
     case .evening: return [Color(hex: 0x2E2878), Color(hex: 0x17143A)]
     }
   }
@@ -112,8 +114,8 @@ struct Palette {
   let fullColor: Bool
 
   var primary: Color { fullColor ? .white : .primary }
-  var secondary: Color { fullColor ? .white.opacity(0.8) : .secondary }
-  var faded: Color { fullColor ? .white.opacity(0.6) : .secondary }
+  var secondary: Color { fullColor ? .white.opacity(0.85) : .secondary }
+  var faded: Color { fullColor ? .white.opacity(0.7) : .secondary }
   var track: Color { fullColor ? .white.opacity(0.25) : .primary.opacity(0.2) }
   var fill: Color { fullColor ? .white : .primary }
 }
@@ -171,12 +173,15 @@ private struct AccentIf: ViewModifier {
   }
 }
 
-/// The ring with the done count and "of 3" in the middle.
+/// The ring with the done count and "of 3" in the middle. Empty (no tasks
+/// yet): an empty track around a sun, hidden from VoiceOver since the text
+/// next to it says it all. All done with `sunWhenDone`: the sun + check.
 struct RingCount: View {
   let snapshot: Snapshot?
   var size: CGFloat
   var lineWidth: CGFloat
   var numeralSize: CGFloat
+  var sunWhenDone = false
   @Environment(\.palette) private var palette
 
   var body: some View {
@@ -184,21 +189,31 @@ struct RingCount: View {
     let completed = snapshot?.completed ?? 0
     ZStack {
       SegmentedRing(total: total, completed: completed, lineWidth: lineWidth)
-      VStack(spacing: -2) {
-        Text("\(completed)")
-          .font(.system(size: numeralSize, weight: .bold, design: .rounded))
-          .monospacedDigit()
+      if snapshot == nil {
+        Image(systemName: "sun.max.fill")
+          .font(.system(size: numeralSize * 0.8))
           .foregroundStyle(palette.primary)
           .widgetAccentable()
-        // "of 3" (fewer tasks: "of 2").
-        Text("of \(total)")
-          .font(.system(size: max(9, numeralSize * 0.3), weight: .semibold, design: .rounded))
-          .foregroundStyle(palette.secondary)
+      } else if sunWhenDone, snapshot?.allDone == true {
+        SunCheck(size: numeralSize * 0.9)
+      } else {
+        VStack(spacing: -2) {
+          Text("\(completed)")
+            .font(.system(size: numeralSize, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(palette.primary)
+            .widgetAccentable()
+          // "of 3" (fewer tasks: "of 2").
+          Text("of \(total)")
+            .font(.system(size: max(11, numeralSize * 0.3), weight: .semibold, design: .rounded))
+            .foregroundStyle(palette.primary.opacity(0.9))
+        }
       }
     }
     .frame(width: size, height: size)
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel(snapshot?.progressSpoken ?? "Nothing picked yet")
+    .accessibilityLabel(snapshot?.progressSpoken ?? "")
+    .accessibilityHidden(snapshot == nil)
   }
 }
 
@@ -299,11 +314,11 @@ struct SmallView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .top) {
-        RingCount(snapshot: snapshot, size: 62, lineWidth: 6, numeralSize: 26)
+        RingCount(snapshot: snapshot, size: 54, lineWidth: 6, numeralSize: 24, sunWhenDone: true)
         Spacer(minLength: 4)
         PhaseGlyph(phase: phase)
       }
-      Spacer(minLength: 6)
+      Spacer(minLength: 4)
       if let snapshot {
         if let next = snapshot.nextOpen {
           Text("Next")
@@ -311,7 +326,7 @@ struct SmallView: View {
             .foregroundStyle(palette.secondary)
           TaskRow(task: next, date: snapshot.date, interactive: snapshot.plus, isNext: true, lineLimit: 2)
         } else {
-          AllDoneBlock(snapshot: snapshot, glyphSize: 20)
+          AllDoneBlock(snapshot: snapshot)
         }
       } else {
         EmptyBlock(titleSize: 15)
@@ -330,33 +345,33 @@ struct MediumView: View {
     HStack(spacing: 16) {
       RingCount(snapshot: snapshot, size: 96, lineWidth: 9, numeralSize: 40)
       VStack(alignment: .leading, spacing: 4) {
-        HStack {
-          Text(header)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(palette.secondary)
-            .textCase(.uppercase)
-            .lineLimit(1)
+        HStack(spacing: 6) {
+          if let snapshot, snapshot.allDone {
+            allDoneHeader(snapshot)
+          } else {
+            Text(header)
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(palette.secondary)
+              .textCase(.uppercase)
+              .lineLimit(1)
+          }
           Spacer(minLength: 0)
           PhaseGlyph(phase: phase)
         }
         if let snapshot {
-          if snapshot.allDone {
-            Spacer(minLength: 0)
-            AllDoneBlock(snapshot: snapshot, glyphSize: 26)
-            Spacer(minLength: 0)
-          } else {
-            let nextId = snapshot.nextOpen?.id
-            ForEach(snapshot.tasks) { task in
-              TaskRow(task: task, date: snapshot.date, interactive: snapshot.plus, isNext: task.id == nextId)
-            }
-            Spacer(minLength: 0)
-            if !snapshot.plus {
-              Text("With Plus, tick off right here.")
-                .font(.caption2)
-                .foregroundStyle(palette.faded)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            }
+          // All done keeps the (done) rows so a mistaken tick can be undone
+          // right here (Plus); the header says it's all done.
+          let nextId = snapshot.nextOpen?.id
+          ForEach(snapshot.tasks) { task in
+            TaskRow(task: task, date: snapshot.date, interactive: snapshot.plus, isNext: task.id == nextId)
+          }
+          Spacer(minLength: 0)
+          if !snapshot.plus {
+            Text("With Plus, tick off right here.")
+              .font(.caption2)
+              .foregroundStyle(palette.secondary)
+              .lineLimit(1)
+              .minimumScaleFactor(0.8)
           }
         } else {
           Spacer(minLength: 0)
@@ -368,34 +383,52 @@ struct MediumView: View {
     }
   }
 
-  /// The all-done block already says "Day N", so the header doesn't repeat it.
   private var header: String {
-    if let snapshot, !snapshot.allDone, let day = snapshot.dayText { return "Today · \(day)" }
+    if let day = snapshot?.dayText { return "Today · \(day)" }
     return "Today"
+  }
+
+  /// Sun + check, "All three." and "Day N" in one compact line.
+  private func allDoneHeader(_ snapshot: Snapshot) -> some View {
+    HStack(spacing: 8) {
+      SunCheck(size: 16)
+      Text(snapshot.allDoneTitle)
+        .font(.system(size: 15, weight: .bold, design: .rounded))
+        .foregroundStyle(palette.primary)
+      if let day = snapshot.dayText {
+        Text(day)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(palette.secondary)
+      }
+    }
+    .lineLimit(1)
+    .minimumScaleFactor(0.85)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel([snapshot.allDoneTitle, snapshot.dayText].compactMap { $0 }.joined(separator: " "))
   }
 }
 
+/// Small widget, all done: the title and "Day N" (the sun + check is in the ring).
 struct AllDoneBlock: View {
   let snapshot: Snapshot
-  var glyphSize: CGFloat
   @Environment(\.palette) private var palette
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      SunCheck(size: glyphSize)
+    VStack(alignment: .leading, spacing: 2) {
       Text(snapshot.allDoneTitle)
         .font(.system(.headline, design: .rounded).weight(.bold))
         .foregroundStyle(palette.primary)
-      Text(snapshot.dayText.map { "\($0) · You showed up." } ?? "You showed up.")
-        .font(.caption.weight(.medium))
-        .foregroundStyle(palette.secondary)
         .lineLimit(1)
-        .minimumScaleFactor(0.8)
+      if let day = snapshot.dayText {
+        Text(day)
+          .font(.caption.weight(.medium))
+          .foregroundStyle(palette.secondary)
+          .lineLimit(1)
+      }
     }
+    .minimumScaleFactor(0.8)
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel(
-      [snapshot.allDoneTitle, snapshot.dayText, "You showed up."].compactMap { $0 }.joined(separator: " ")
-    )
+    .accessibilityLabel([snapshot.allDoneTitle, snapshot.dayText].compactMap { $0 }.joined(separator: " "))
   }
 }
 
@@ -409,7 +442,7 @@ struct EmptyBlock: View {
         .font(.system(size: titleSize, weight: .bold, design: .rounded))
         .foregroundStyle(palette.primary)
         .lineLimit(2)
-      Text("Tap to open")
+      Text("Tap to choose")
         .font(.caption.weight(.medium))
         .foregroundStyle(palette.secondary)
     }
@@ -452,7 +485,7 @@ struct DailyTasksWidgetView: View {
         rectangular
       case .accessoryInline:
         inline
-      case .systemMedium, .systemLarge, .systemExtraLarge:
+      case .systemMedium:
         MediumView(snapshot: snapshot, phase: phase)
       default:
         SmallView(snapshot: snapshot, phase: phase)
@@ -547,6 +580,7 @@ struct DailyTasksWidgetView: View {
         } else {
           Label(snapshot.allDoneTitle, systemImage: "sun.max.fill")
             .font(.headline)
+            .widgetAccentable()
           Text("You showed up.")
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -562,18 +596,16 @@ struct DailyTasksWidgetView: View {
     .frame(maxWidth: .infinity, alignment: .leading)
   }
 
+  /// "☀ 2 of 3 · Day 12" with the SF Symbol sun.
   private var inline: some View {
-    Text(inlineText)
+    Text("\(Image(systemName: "sun.max.fill")) \(inlineText)")
   }
 
-  /// "☀︎ 2 of 3 · Day 12"; the text-style sun (U+2600 U+FE0E) stays monochrome.
   private var inlineText: String {
-    let sun = "\u{2600}\u{FE0E}"
-    guard let snapshot else { return "\(sun) Pick today's three" }
-    let progress = snapshot.allDone ? snapshot.allDoneTitle.replacingOccurrences(of: ".", with: "")
-      : "\(snapshot.completed) of \(snapshot.total)"
-    if let day = snapshot.dayText { return "\(sun) \(progress) · \(day)" }
-    return "\(sun) \(progress) today"
+    guard let snapshot else { return "Pick today's three" }
+    let progress = snapshot.allDone ? snapshot.allDoneLabel : "\(snapshot.completed) of \(snapshot.total)"
+    if let day = snapshot.dayText { return "\(progress) · \(day)" }
+    return "\(progress) today"
   }
 }
 

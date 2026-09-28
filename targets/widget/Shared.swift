@@ -77,7 +77,9 @@ struct WidgetTask: Codable, Hashable, Identifiable {
 struct Snapshot: Codable {
   let date: String
   var tasks: [WidgetTask]
-  let streak: Int
+  /// No longer shown by the widget (1.2 shows "Day N"); optional and kept so
+  /// snapshots from older or newer app versions decode either way.
+  var streak: Int? = nil
   /// Plus users can tick tasks off from the widget.
   let plus: Bool
   /// "Day N" (days shown up, including today). Optional: snapshots written by
