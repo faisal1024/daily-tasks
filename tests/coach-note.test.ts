@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   MOMENTUM_LINES,
+  claimCoachRequest,
   START_LINES,
   cleanCoachLine,
   coachNoteKind,
@@ -89,6 +90,23 @@ describe("needsCoachRequest", () => {
     expect(needsCoachRequest({ ...asked, requests: 2 }, TODAY, ["Walk", "Call mum"])).toBe(false);
     // Yesterday's cache counts as empty (its cap doesn't carry over).
     expect(needsCoachRequest({ ...asked, date: "2026-09-25", requests: 2 }, TODAY, ["Walk"])).toBe(true);
+  });
+});
+
+describe("claimCoachRequest", () => {
+  it("always counts: today's cache adds one, and any other day's (earlier or later) is replaced", () => {
+    const today = cache({ requests: 1, asked: ["walk"] });
+    expect(claimCoachRequest(today, TODAY, ["Read"])).toMatchObject({ requests: 2, asked: ["walk", "read"] });
+    // The clock moved back: the cache is for a later day, but the call is still counted.
+    const later = cache({ date: "2026-09-27", requests: 2, asked: ["walk"], logged: true });
+    expect(claimCoachRequest(later, TODAY, ["Walk"])).toEqual({
+      date: TODAY,
+      notes: {},
+      requests: 1,
+      asked: ["walk"],
+      logged: false,
+    });
+    expect(claimCoachRequest(null, TODAY, ["Walk"])).toMatchObject({ date: TODAY, requests: 1 });
   });
 });
 
