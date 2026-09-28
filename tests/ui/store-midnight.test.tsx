@@ -225,7 +225,7 @@ describe("store: the Coach's note cache over midnight (1.2)", () => {
     expect(result.current.state.coachNotes).toBeNull();
 
     // Today's own claim starts a fresh cache with today's count.
-    await act(async () => result.current.claimCoachRequest(NEXT, ["Walk"]));
+    await act(async () => result.current.claimCoachRequest(["Walk"]));
     expect(result.current.state.coachNotes).toEqual({ date: NEXT, notes: {}, requests: 1, asked: ["walk"], logged: false });
   });
 });

@@ -2081,7 +2081,7 @@ describe("Coach's note (1.2)", () => {
     expect(request.mock.calls[0][0]).toEqual({
       input: { tasks: ["Walk the dog", "Read", "Call mum"], goalTitle: "Run a 5K", tone: "calm" },
     });
-    expect(mockStore.claimCoachRequest).toHaveBeenCalledWith(TODAY, ["Walk the dog", "Read", "Call mum"]);
+    expect(mockStore.claimCoachRequest).toHaveBeenCalledWith(["Walk the dog", "Read", "Call mum"]);
     // Re-renders while the call is in flight never start a second one, even
     // with a fresh tasks array (the effect re-runs; the in-flight guard holds).
     const first = mockStore;
@@ -2243,12 +2243,12 @@ describe("Coach's note (1.2)", () => {
   });
 
   it("coach_note_loaded for an AI user: not before the three are set, and ai once the call settles with the line", async () => {
-    at(14);
+    at(9);
     mockProxyUrl = PROXY;
     let resolve: (notes: typeof AI) => void = () => {};
     request.mockImplementation(() => new Promise((r) => (resolve = r)));
-    // Midday shows the note with two tasks, but the AI call waits for the three.
-    mockStore = makeStore({ tasks: tasks("Walk the dog", "Read") });
+    // A morning with two tasks one ticked shows the note, but the AI call waits for the three.
+    mockStore = makeStore({ tasks: tasks("Walk the dog", "Read"), todayCompletions: ["t1"] });
     const view = await render(<HomeScreen />);
     expect(screen.getByTestId("coach-note")).toBeOnTheScreen();
     expect(request).not.toHaveBeenCalled();
@@ -2272,6 +2272,18 @@ describe("Coach's note (1.2)", () => {
     expect(screen.getByTestId("coach-note-start")).toHaveTextContent("Find the lead by the door.");
     expect(mockTrack.mock.calls.filter((c) => c[0] === "coach_note_loaded")).toHaveLength(1);
     expect(mockTrack).toHaveBeenCalledWith("coach_note_loaded", { source: "ai" });
+  });
+
+  it("coach_note_loaded for an AI user who never sets three: local once it's midday, with no call", async () => {
+    at(14);
+    mockProxyUrl = PROXY;
+    mockStore = makeStore({ tasks: tasks("Walk the dog", "Read") });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("coach-note")).toBeOnTheScreen();
+    expect(request).not.toHaveBeenCalled();
+    expect(mockTrack.mock.calls.filter((c) => c[0] === "coach_note_loaded")).toEqual([
+      ["coach_note_loaded", { source: "local" }],
+    ]);
   });
 
   it("the icon follows the source: a leaf for the built-in line, sparkles for the AI line", async () => {

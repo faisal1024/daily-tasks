@@ -202,25 +202,20 @@ export function coachNoteLogged(cache: CoachNotesCache | null, today: string): b
 
 // C0/C1 control characters (newlines included: the note is one line).
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
-// Same patterns as the proxy (coach-contract.mjs): emails, then links of any
-// kind (a scheme, "www.", or anything shaped like a domain, with its path).
-const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[a-z]{2,}\S*/gi;
-const URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+|\b[^\s@]+\.[a-z]{2,}\b(?:\/\S*)?/gi;
+// Real links only (same pattern as the proxy, coach-contract.mjs): a scheme
+// URL, a "www." host, or an email. Bare "word.word" (README.md, Node.js) is
+// fine: it's how people name files and tools.
+const LINK_PATTERN = /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
 
 /**
- * An untrusted line, cleaned: no control characters, emails or links. Null
- * when nothing's left, or when it's over MAX_COACH_LINE (a rambling line isn't
- * shortened into a half-sentence: the built-in line is used instead).
+ * An untrusted line, cleaned: control characters become spaces. Null when
+ * nothing's left, it's over MAX_COACH_LINE, or it holds a link or email: the
+ * whole line goes (the built-in line is used), never a half-sentence.
  */
 export function cleanCoachLine(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const text = value
-    .replace(CONTROL, " ")
-    .replace(EMAIL_PATTERN, " ")
-    .replace(URL_PATTERN, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!text || Array.from(text).length > MAX_COACH_LINE) return null;
+  const text = value.replace(CONTROL, " ").replace(/\s+/g, " ").trim();
+  if (!text || Array.from(text).length > MAX_COACH_LINE || LINK_PATTERN.test(text)) return null;
   return text;
 }
 

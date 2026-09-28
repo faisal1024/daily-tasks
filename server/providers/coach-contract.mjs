@@ -98,25 +98,21 @@ export function buildCoachPrompt(payload) {
 
 // C0/C1 control characters (newlines included: a note is one line).
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
-// Emails, then links of any kind (a scheme, "www.", or anything shaped like a
-// domain, with its path): the note never sends anyone anywhere. Same patterns
-// as the app (lib/daily-tasks/coach-note.ts).
-const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[a-z]{2,}\S*/gi;
-const URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+|\b[^\s@]+\.[a-z]{2,}\b(?:\/\S*)?/gi;
+// Real links only: a scheme URL, a "www." host, or an email. The note never
+// sends anyone anywhere. Bare "word.word" (README.md, Node.js) is fine. Same
+// pattern as the app (lib/daily-tasks/coach-note.ts).
+const LINK_PATTERN = /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
 
 /**
- * One clean line: no control characters, emails or links, one space. "" when
- * nothing's left or it's over MAX_COACH_LINE (never cut into a half-sentence).
+ * One clean line: control characters become spaces, one space between words.
+ * "" when nothing's left, it's over MAX_COACH_LINE, or it holds a link or
+ * email: the whole line goes (the app uses its built-in line for that task),
+ * never a half-sentence.
  */
 export function cleanCoachLine(value) {
   if (typeof value !== "string") return "";
-  const text = value
-    .replace(CONTROL, " ")
-    .replace(EMAIL_PATTERN, " ")
-    .replace(URL_PATTERN, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!text || Array.from(text).length > MAX_COACH_LINE) return "";
+  const text = value.replace(CONTROL, " ").replace(/\s+/g, " ").trim();
+  if (!text || Array.from(text).length > MAX_COACH_LINE || LINK_PATTERN.test(text)) return "";
   return text;
 }
 

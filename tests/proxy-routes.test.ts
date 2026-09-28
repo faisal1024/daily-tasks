@@ -509,7 +509,8 @@ describe("coach-note route over HTTP (1.2)", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       notes: [
-        { start: "Put on shoes. See", momentum: "It builds the habit." },
+        // The line with a link is dropped whole (the app uses its built-in one).
+        { start: "", momentum: "It builds the habit." },
         { start: "Open the book.", momentum: "Ten pages is plenty." },
       ],
     });

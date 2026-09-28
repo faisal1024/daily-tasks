@@ -20,6 +20,7 @@ import type { CoachNotesCache } from "../lib/daily-tasks/types";
 import { MAX_COACH_LINE } from "../lib/daily-tasks/types";
 import {
   buildCoachPrompt,
+  cleanCoachLine as serverCleanCoachLine,
   isValidCoach,
   sanitizeCoach,
   validateCoachPayload,
@@ -136,10 +137,17 @@ describe("mergeCoachNotes", () => {
 });
 
 describe("cleanCoachLine (app)", () => {
-  it("strips URLs, emails and control characters, drops over-long lines, and is null when nothing's left", () => {
-    expect(cleanCoachLine("Open\nthe\u0007 doc at https://evil.example/x now")).toBe("Open the doc at now");
-    expect(cleanCoachLine("See www.foo.bar/path and evil.com/a too")).toBe("See and too");
-    expect(cleanCoachLine("Write to me@example.com today")).toBe("Write to today");
+  it("drops whole lines with a link or email, keeps file and tool names, turns control characters into spaces", () => {
+    expect(cleanCoachLine("Open\nthe\u0007 doc now")).toBe("Open the doc now");
+    // A real link or email anywhere: the whole line goes (built-in fallback), never spliced.
+    expect(cleanCoachLine("Open\nthe\u0007 doc at https://evil.example/x now")).toBeNull();
+    expect(cleanCoachLine("See https://x.com for tips.")).toBeNull();
+    expect(cleanCoachLine("Email sam@work.com today.")).toBeNull();
+    expect(cleanCoachLine("Visit www.example.org")).toBeNull();
+    // Bare word.word is how people name files and tools: kept as written.
+    expect(cleanCoachLine("Open README.md and add one heading.")).toBe("Open README.md and add one heading.");
+    expect(cleanCoachLine("Set up Node.js for the demo.")).toBe("Set up Node.js for the demo.");
+    expect(cleanCoachLine("Wait...then begin.")).toBe("Wait...then begin.");
     // Over the cap: dropped (the built-in line is used), never cut mid-sentence.
     expect(cleanCoachLine("x".repeat(MAX_COACH_LINE))).toBe("x".repeat(MAX_COACH_LINE));
     expect(cleanCoachLine("word ".repeat(60))).toBeNull();
@@ -209,6 +217,18 @@ describe("requestCoachNotes", () => {
 });
 
 describe("coach-note proxy contract", () => {
+  it.each([
+    ["Open README.md and add one heading.", "Open README.md and add one heading."],
+    ["Set up Node.js for the demo.", "Set up Node.js for the demo."],
+    ["Wait...then begin.", "Wait...then begin."],
+    ["See https://x.com for tips.", ""],
+    ["Email sam@work.com today.", ""],
+    ["Visit www.example.org", ""],
+  ])("cleanCoachLine (server) %j → %j, the same rule as the app", (line, expected) => {
+    expect(serverCleanCoachLine(line)).toBe(expected);
+    expect(cleanCoachLine(line)).toBe(expected || null);
+  });
+
   it("validates the payload: 1-3 non-empty tasks of at most 120 chars, optional goal and a known tone", () => {
     expect(validateCoachPayload({ tasks: ["Walk"] })).toBeNull();
     expect(validateCoachPayload({ tasks: ["a", "b", "c"], goalTitle: null, tone: "friendly" })).toBeNull();
@@ -235,13 +255,18 @@ describe("coach-note proxy contract", () => {
     };
     expect(sanitizeCoach(result, payload)).toEqual({
       notes: [
-        { start: "Visit now", momentum: "Keep going" },
+        // A line with a link is dropped whole, not spliced.
+        { start: "", momentum: "Keep going" },
         { start: "", momentum: "x" },
       ],
     });
-    expect(isValidCoach(result, payload)).toBe(true);
+    expect(isValidCoach(result, payload)).toBe(false);
+    const clean = { notes: [{ start: "Open README.md.", momentum: "Keep\ngoing" }, ...result.notes.slice(1)] };
+    expect(sanitizeCoach(clean, payload).notes[0]).toEqual({ start: "Open README.md.", momentum: "Keep going" });
+    expect(isValidCoach(clean, payload)).toBe(true);
     // Judged on the entries for the tasks sent: a full third entry doesn't count for one task.
-    expect(isValidCoach(result, { tasks: ["Walk"] })).toBe(true);
+    expect(isValidCoach(clean, { tasks: ["Walk"] })).toBe(true);
+    expect(isValidCoach({ notes: [{ start: "Email sam@work.com today.", momentum: "ok" }] })).toBe(false);
     expect(isValidCoach({ notes: [{ start: "", momentum: "x" }, { start: "a", momentum: "b" }] }, { tasks: ["Walk"] })).toBe(false);
     expect(isValidCoach({ notes: [{ start: "www.a.com", momentum: "ok" }] })).toBe(false);
     expect(isValidCoach({ notes: [] })).toBe(false);

@@ -864,8 +864,8 @@ interface StoreContextValue {
   applyTomorrowDraft: (tasks: string[], shown: string[]) => void;
   dismissTomorrowDraft: () => void;
   setAgendaEnabled: (enabled: boolean) => void;
-  /** Count a Coach's note AI call for `day` (made now) and the task texts it asks about. */
-  claimCoachRequest: (day: string, taskTexts: string[]) => void;
+  /** Count a Coach's note AI call (made now, on the store's day) and the task texts it asks about. */
+  claimCoachRequest: (taskTexts: string[]) => void;
   /** Keep the Coach's note AI lines for `day`, keyed by task text. */
   setCoachNotes: (day: string, notes: Record<string, CoachNoteLines>) => void;
   /** coach_note_loaded went out for `day`. */
@@ -1456,9 +1456,14 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setAgendaEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "setAgendaEnabled", enabled });
   }, []);
-  const claimCoachRequestCb = useCallback((day: string, taskTexts: string[]) => {
-    dispatch({ type: "claimCoachRequest", day, taskTexts });
-  }, []);
+  // Stamped with the store's day (like setCoachNotes), so a claim in the first
+  // moments after midnight counts on the new day.
+  const claimCoachRequestCb = useCallback(
+    (taskTexts: string[]) => {
+      dispatch({ type: "claimCoachRequest", day: ensureDay(), taskTexts });
+    },
+    [ensureDay],
+  );
   const setCoachNotes = useCallback(
     (day: string, notes: Record<string, CoachNoteLines>) => {
       dispatch({ type: "setCoachNotes", day, notes, today: ensureDay() });

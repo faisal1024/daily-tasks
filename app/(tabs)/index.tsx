@@ -360,7 +360,7 @@ export default function HomeScreen() {
     setCoachLoading(true);
     // Counted before the call, so a failure can't be retried into a third one.
     const day = today;
-    claimCoachRequest(day, coachTexts);
+    claimCoachRequest(coachTexts);
     void requestCoachNotes({
       input: {
         tasks: coachTexts,
@@ -381,11 +381,12 @@ export default function HomeScreen() {
   }, [ready, noteShown, coachDue, coachLoading, today, coachTexts]);
   // coach_note_loaded once a day, with the source of what's shown once it
   // settles: never while Plus is still being checked, and for AI users only
-  // once the three are set and their call is done. Free users: on first show.
+  // once the three are set and their call is done (or, if they never set
+  // three, local at midday). Free users: on first show.
   const noteSource = note?.source ?? null;
   useEffect(() => {
     if (!ready || !noteSource || plusPending || coachDue || coachLoading) return;
-    if (coachAiUser && !coachTasksReady) return;
+    if (coachAiUser && !coachTasksReady && phase !== "midday") return;
     if (coachNoteLogged(state.coachNotes, today)) return;
     track("coach_note_loaded", { source: noteSource });
     markCoachNoteLogged(today);
@@ -397,6 +398,7 @@ export default function HomeScreen() {
     coachLoading,
     coachAiUser,
     coachTasksReady,
+    phase,
     state.coachNotes,
     today,
     markCoachNoteLogged,
