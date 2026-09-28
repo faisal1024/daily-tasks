@@ -279,7 +279,8 @@ export default function HomeScreen() {
     enabled: state.momentumSettings.eveningReflection,
   });
   // The right column (iPad) / lower section (phone) only exists when it has content.
-  const rightHasContent = ideasVisible || progress.isPerfect || eveningCheckIn || Boolean(draft);
+  const rightHasContent =
+    Boolean(state.pendingRollover) || ideasVisible || progress.isPerfect || eveningCheckIn || Boolean(draft);
   const twoColumn = wide && rightHasContent;
   const dateLabel = fromDateKey(today).toLocaleDateString(undefined, {
     weekday: "long",
@@ -418,13 +419,14 @@ export default function HomeScreen() {
   }, [ready, markReviewPrompted]);
 
   // The sheet has nothing to add once the day is locked, and it must not block
-  // the rollover or onboarding modals (iOS shows one modal at a time).
+  // the onboarding modals (iOS shows one modal at a time). Yesterday's
+  // unfinished ones are a card now, so they don't close it.
   useEffect(() => {
-    if (state.todayLocked || state.pendingRollover || !state.hasSeenOnboarding || firstRunActive) {
+    if (state.todayLocked || !state.hasSeenOnboarding || firstRunActive) {
       setIdeasOpen(false);
       setBrainDumpOpen(false);
     }
-  }, [state.todayLocked, state.pendingRollover, state.hasSeenOnboarding, firstRunActive]);
+  }, [state.todayLocked, state.hasSeenOnboarding, firstRunActive]);
 
   const handleBreakDown = (taskId: string, text: string) => {
     if (breakingRef.current) return;
@@ -467,7 +469,7 @@ export default function HomeScreen() {
       }
       return;
     }
-    if (state.todayLocked || state.pendingRollover) return;
+    if (state.todayLocked) return;
     if (unlock.kind === "brain_dump") {
       setBrainDumpOpen(true);
       return;
@@ -750,6 +752,19 @@ export default function HomeScreen() {
             {rightHasContent && (
               <View style={twoColumn ? { flex: 1, gap: 14 } : { gap: 14 }}>
 
+                {/* Yesterday's unfinished ones: a card, so the draft and the
+                    rest of Today stay usable (it used to be a blocking modal). */}
+                <RolloverModal
+                  pending={state.pendingRollover}
+                  remainingSlots={remainingSlots}
+                  onApply={(ids) => {
+                    track("rollover_resolved", {
+                      count: ids.length,
+                      outcome: remainingSlots <= 0 ? "no_room" : ids.length === 0 ? "fresh" : "carried",
+                    });
+                    resolveRollover(ids);
+                  }}
+                />
                 {draft && (
                   <TomorrowDraftCard
                     draft={draft}
@@ -1028,18 +1043,6 @@ export default function HomeScreen() {
         }}
       />
 
-      <RolloverModal
-        visible={Boolean(state.pendingRollover)}
-        pending={state.pendingRollover}
-        remainingSlots={remainingSlots}
-        onApply={(ids) => {
-          track("rollover_resolved", {
-            count: ids.length,
-            outcome: remainingSlots <= 0 ? "no_room" : ids.length === 0 ? "fresh" : "carried",
-          });
-          resolveRollover(ids);
-        }}
-      />
     </ScreenContainer>
   );
 }
