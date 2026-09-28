@@ -176,35 +176,39 @@ export function TaskRow({
 
   const renderActions = () => (
     <View className="flex-row" testID={`row-actions-${task.id}`}>
-      {swipeActions.map((action) => (
-        <Pressable
-          key={action}
-          onPress={() => run(action)}
-          accessibilityRole="button"
-          accessibilityLabel={`${TASK_ROW_ACTION_LABELS[action]}: ${task.text}`}
-          style={{
-            width: ACTION_WIDTH,
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 4,
-            backgroundColor: action === "delete" ? colors.error : colors.primary,
-          }}
-        >
-          <Ionicons
-            name={action === "delete" ? "trash-outline" : "bookmark-outline"}
-            size={20}
-            color={action === "delete" ? colors.onError : colors.onPrimary}
-          />
-          <Text
-            style={{ color: action === "delete" ? colors.onError : colors.onPrimary, fontWeight: "700", fontSize: 13 }}
-            maxFontSizeMultiplier={1.3}
-            numberOfLines={1}
-            adjustsFontSizeToFit
+      {swipeActions.map((action) => {
+        const [fill, onFill] =
+          action === "delete" ? [colors.error, colors.onError] : [colors.primary, colors.onPrimary];
+        return (
+          <Pressable
+            key={action}
+            onPress={() => run(action)}
+            accessibilityRole="button"
+            accessibilityLabel={`${TASK_ROW_ACTION_LABELS[action]}: ${task.text}`}
+            style={{
+              width: ACTION_WIDTH,
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              backgroundColor: fill,
+            }}
           >
-            {TASK_ROW_ACTION_LABELS[action]}
-          </Text>
-        </Pressable>
-      ))}
+            <Ionicons
+              name={action === "delete" ? "trash-outline" : "bookmark-outline"}
+              size={20}
+              color={onFill}
+            />
+            <Text
+              style={{ color: onFill, fontWeight: "700", fontSize: 13 }}
+              maxFontSizeMultiplier={1.3}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {TASK_ROW_ACTION_LABELS[action]}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 

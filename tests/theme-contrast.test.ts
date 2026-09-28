@@ -34,6 +34,16 @@ describe("theme contrast", () => {
     expect(contrast(themeColors.onError[scheme], themeColors.error[scheme])).toBeGreaterThanOrEqual(4.5);
   });
 
+  // Settings' "Reset all data" uses the error color as text.
+  it.each(["light", "dark"] as const)(
+    "error as text meets WCAG AA (4.5:1) on the %s background and surface",
+    (scheme) => {
+      const error = themeColors.error[scheme];
+      expect(contrast(error, themeColors.background[scheme])).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(error, themeColors.surface[scheme])).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
   it("computes contrast the WCAG way (sanity check)", () => {
     expect(contrast("#000000", "#FFFFFF")).toBeCloseTo(21, 5);
     // The old light muted color failed AA on the light background.
