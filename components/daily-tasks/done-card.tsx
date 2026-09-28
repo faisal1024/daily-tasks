@@ -62,6 +62,9 @@ export function DoneCard({
             borderRadius: 999,
             // A dark tint keeps the white label at AA; a white tint dropped it to ~3.4:1.
             backgroundColor: "rgba(22,20,32,0.18)",
+            // The dark tint alone barely separates from the card; the edge keeps it a pill.
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.45)",
           }}
           testID="pull-one-more"
         >

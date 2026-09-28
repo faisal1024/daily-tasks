@@ -184,9 +184,12 @@ export function BrainDumpSheet({
                 accessibilityRole="button"
                 accessibilityState={{ disabled: !text.trim() }}
                 className="rounded-2xl py-4 items-center"
-                style={{ backgroundColor: colors.primary, opacity: text.trim() ? 1 : 0.5 }}
+                style={{ backgroundColor: text.trim() ? colors.primary : colors.border }}
               >
-                <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: colors.onPrimary }}>
+                <Text
+                  className="text-lg"
+                  style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: text.trim() ? colors.onPrimary : colors.muted }}
+                >
                   Sort it for me
                 </Text>
               </Pressable>

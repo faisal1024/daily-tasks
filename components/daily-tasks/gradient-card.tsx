@@ -9,10 +9,10 @@ import Svg, {
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 
-// Shared indigo gradient. Darker in dark mode to soften the seam against a dark
-// body (matches the Today hero). Exported so any gradient surface stays in sync.
-export const GRADIENT_LIGHT = ["#5B52E8", "#6258E9", "#6A61EB"] as const;
-export const GRADIENT_DARK = ["#3C36A8", "#453EBE", "#504AD4"] as const;
+import { GRADIENT_DARK, GRADIENT_LIGHT } from "./gradient-stops";
+
+// Re-exported so any gradient surface stays in sync.
+export { GRADIENT_DARK, GRADIENT_LIGHT };
 
 let gradientCounter = 0;
 
