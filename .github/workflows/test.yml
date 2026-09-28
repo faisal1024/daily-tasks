@@ -67,7 +67,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Check the time zone is applied
-        run: node -e "if (new Date(2026, 0, 15).getTimezoneOffset() === 0) { console.error('TZ not applied'); process.exit(1) }"
+        run: node -e "const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz !== process.env.TZ) { console.error('Expected ' + process.env.TZ + ', got ' + tz); process.exit(1) }"
 
       - name: Unit tests (Vitest)
         run: npx vitest run
