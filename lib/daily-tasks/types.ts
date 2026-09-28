@@ -186,6 +186,8 @@ export interface AppState {
   // Date the user manually unlocked; suppresses auto-lock for that day only.
   manualUnlockDate: string | null;
   pendingRollover: PendingRollover | null;
+  /** The user asked for a new path: the next AI plan may replace the milestones. */
+  pathRefreshPending?: boolean;
   history: History;
   notifications: NotificationConfig;
   autoLock: AutoLockConfig;

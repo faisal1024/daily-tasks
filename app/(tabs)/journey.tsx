@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { MonthHistory } from "@/components/daily-tasks/month-history";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
+import { PathEditor } from "@/components/daily-tasks/path-editor";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { WeeklyReviewCard } from "@/components/daily-tasks/weekly-review-card";
 import { ScreenContainer } from "@/components/screen-container";
@@ -23,6 +24,9 @@ export default function JourneyScreen() {
     daysShowedUp,
     completeMilestone,
     uncompleteMilestone,
+    editMilestones,
+    suggestNewPath,
+    hasPlus,
     completeMomentumOnboarding,
     momentumMilestones,
     pendingMilestoneCelebration,
@@ -35,6 +39,7 @@ export default function JourneyScreen() {
   const stage = stageForDays(daysShowedUp);
   const goalTitle = state.momentumProfile.goalTitle;
   const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [pathEditorOpen, setPathEditorOpen] = useState(false);
   const milestonesDone = momentumMilestones.filter((m) => m.done).length;
   const nextMilestoneIndex = momentumMilestones.findIndex((m) => !m.done);
 
@@ -174,9 +179,22 @@ export default function JourneyScreen() {
                 icon="trail-sign-outline"
                 label={goalTitle ? `Path to ${goalTitle}` : "Your milestones"}
               />
-              <Text className="text-base font-extrabold" style={{ color: colors.primary }}>
-                {milestonesDone}/{momentumMilestones.length}
-              </Text>
+              <View className="flex-row items-center gap-3">
+                <Text className="text-base font-extrabold" style={{ color: colors.primary }}>
+                  {milestonesDone}/{momentumMilestones.length}
+                </Text>
+                <Pressable
+                  onPress={() => setPathEditorOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit your path"
+                  hitSlop={10}
+                  testID="path-edit"
+                >
+                  <Text className="text-base font-semibold" style={{ color: colors.primary }}>
+                    Edit
+                  </Text>
+                </Pressable>
+              </View>
             </View>
             <Text className="text-sm" style={{ color: colors.muted }}>
               Tick one off when you get there.
@@ -250,6 +268,21 @@ export default function JourneyScreen() {
           </View>
         )}
 
+
+        <PathEditor
+          visible={pathEditorOpen}
+          milestones={momentumMilestones}
+          plus={hasPlus}
+          onSave={(items) => {
+            editMilestones(items);
+            track("path_edited", { count: items.length });
+          }}
+          onSuggestNew={() => {
+            suggestNewPath();
+            track("path_regenerated", { plus: hasPlus });
+          }}
+          onClose={() => setPathEditorOpen(false)}
+        />
 
         {/* Month by month (this used to be its own Calendar tab). */}
         <View className="gap-3">

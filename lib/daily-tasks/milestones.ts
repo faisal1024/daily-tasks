@@ -2,7 +2,7 @@
 // be unit-tested in plain Node and reused by the store reducer.
 
 import { awardMilestone, type Journey } from "./journey";
-import type { MomentumMilestone } from "./types";
+import type { MomentumMilestone, MomentumPlan } from "./types";
 
 export type MilestoneView = MomentumMilestone & { done: boolean };
 
@@ -89,4 +89,34 @@ export function completeMilestone(params: {
     journey: awardMilestone(journey),
     pendingMilestoneCelebration: milestone.title,
   };
+}
+
+/**
+ * The path toward a goal is the user's, not the day's: when the daily ideas are
+ * refreshed (same goal), keep the milestones already there. It only changes
+ * when the goal changes, the user edits it, or they ask for a new one.
+ */
+export function keepPath(prev: MomentumPlan | null, next: MomentumPlan | null): MomentumPlan | null {
+  if (!prev || !next || next === prev) return next;
+  if (prev.goalTitle !== next.goalTitle || prev.milestones.length === 0) return next;
+  return next.milestones === prev.milestones ? next : { ...next, milestones: prev.milestones };
+}
+
+/** Clean an edited path: trimmed, capped, no blanks; stable ids kept, new ones minted. */
+export function cleanMilestones(
+  items: { id?: string; title: string; description?: string }[],
+  now: number = Date.now(),
+): MomentumMilestone[] {
+  const out: MomentumMilestone[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of items.entries()) {
+    const title = item.title.replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!title) continue;
+    let id = item.id && !seen.has(item.id) ? item.id : `milestone_${now.toString(36)}_${index}`;
+    while (seen.has(id)) id = `${id}_`;
+    seen.add(id);
+    out.push({ id, title, description: (item.description ?? "").replace(/\s+/g, " ").trim().slice(0, 200), completedAt: null });
+    if (out.length >= 6) break;
+  }
+  return out;
 }
