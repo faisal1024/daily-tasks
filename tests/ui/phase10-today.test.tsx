@@ -1,10 +1,11 @@
 // Phase 10a components: TaskRow (one row of Today's card) and the
 // one-decision RolloverModal.
-import { ActionSheetIOS, Alert, Platform } from "react-native";
+import { ActionSheetIOS, Alert, Platform, StyleSheet, useColorScheme } from "react-native";
 import { act, fireEvent, screen, within } from "@testing-library/react-native";
 
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { TaskRow } from "@/components/daily-tasks/task-row";
+import { ThemeColors } from "@/constants/theme";
 import type { PendingRollover, Task } from "@/lib/daily-tasks/types";
 
 import { renderWithProviders as render } from "./render";
@@ -193,6 +194,41 @@ describe("TaskRow", () => {
     expect(onNotToday).toHaveBeenCalledTimes(1);
     await fireEvent.press(actions.getByRole("button", { name: "Delete: Walk" }));
     expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("swipe actions draw their label and icon in onError / onPrimary, not white (dark mode)", async () => {
+    // Dark is where these differ from white: dark text on the lighter fills.
+    // react-native's jest setup mocks useColorScheme as a jest.fn returning "light".
+    jest.mocked(useColorScheme).mockReturnValue("dark");
+    try {
+      await renderRow();
+      const actions = within(screen.getByTestId("row-actions-id-Walk"));
+      const colorsOf = (name: string) => {
+        const button = actions.getByRole("button", { name });
+        const label = within(button).getByText(name.split(":")[0]);
+        // Ionicons renders a host Text in the icon font, coloured via its style.
+        const icon = within(button)
+          .getAllByText(/./, { includeHiddenElements: true })
+          .find((node) => StyleSheet.flatten(node.props.style).fontFamily === "ionicons");
+        return {
+          fill: StyleSheet.flatten(button.props.style).backgroundColor,
+          label: StyleSheet.flatten(label.props.style).color,
+          icon: icon && StyleSheet.flatten(icon.props.style).color,
+        };
+      };
+      expect(colorsOf("Delete: Walk")).toEqual({
+        fill: ThemeColors.error.dark,
+        label: ThemeColors.onError.dark,
+        icon: ThemeColors.onError.dark,
+      });
+      expect(colorsOf("Not today: Walk")).toEqual({
+        fill: ThemeColors.primary.dark,
+        label: ThemeColors.onPrimary.dark,
+        icon: ThemeColors.onPrimary.dark,
+      });
+    } finally {
+      jest.mocked(useColorScheme).mockReturnValue("light");
+    }
   });
 
   it("the hero says Up next and shows Break it down and Not today inline", async () => {

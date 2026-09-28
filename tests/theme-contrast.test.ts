@@ -56,6 +56,20 @@ describe("theme contrast", () => {
     expect(contrast(themeColors.onPrimary[scheme], themeColors.primary[scheme])).toBeGreaterThanOrEqual(4.5);
   });
 
+  it.each(["light", "dark"] as const)("onError meets WCAG AA (4.5:1) on the %s error", (scheme) => {
+    expect(contrast(themeColors.onError[scheme], themeColors.error[scheme])).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // Settings' "Reset all data" uses the error color as text.
+  it.each(["light", "dark"] as const)(
+    "error as text meets WCAG AA (4.5:1) on the %s background and surface",
+    (scheme) => {
+      const error = themeColors.error[scheme];
+      expect(contrast(error, themeColors.background[scheme])).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(error, themeColors.surface[scheme])).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
   describe("done card (text on the indigo gradient)", () => {
     const source = readFileSync(join(__dirname, "../components/daily-tasks/done-card.tsx"), "utf8");
     const textColors = [...source.matchAll(/\bcolor[=:]\s*\{?\s*"([^"]+)"/g)].map((m) => m[1]);
