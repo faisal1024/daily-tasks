@@ -123,6 +123,8 @@ function haptic(fn: () => Promise<void>) {
 }
 
 const FIRST_SORT_TIMEOUT_MS = 12_000;
+/** Lets focus mode's sheet close before "Done: <task>" is read out. */
+const FOCUS_DONE_ANNOUNCE_DELAY_MS = 500;
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -416,6 +418,14 @@ export default function HomeScreen() {
   useEffect(() => {
     setFocusTaskId(null);
   }, [today]);
+  // "Done: <task>" after Done in focus mode (see onDone below).
+  const focusDoneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (focusDoneTimer.current) clearTimeout(focusDoneTimer.current);
+    },
+    [],
+  );
   // Its coach line: the same `start` line the note gives (AI or built-in).
   const focusStartLine = focusTask
     ? coachNote({ cache: state.coachNotes, today, taskText: focusTask.text, kind: "start" }).text
@@ -1226,9 +1236,20 @@ export default function HomeScreen() {
             handleToggle(focusTask.id);
             track("focus_completed", { timer });
             setFocusTaskId(null);
-            // The third one gets the celebration instead.
-            const perfect = total === MAX_TASKS && completedCount + 1 === MAX_TASKS;
-            if (!perfect) AccessibilityInfo.announceForAccessibility(`Done: ${focusTask.text}`);
+            // The celebration covers it when it's about to show (the same
+            // once-a-day check it uses). Said a moment later, so the sheet
+            // closing doesn't cut it off.
+            const celebrates =
+              celebratedDay.current !== today &&
+              isPerfectDayTransition({ previousCompleted: completedCount, completed: completedCount + 1, total });
+            if (!celebrates) {
+              const text = `Done: ${focusTask.text}`;
+              if (focusDoneTimer.current) clearTimeout(focusDoneTimer.current);
+              focusDoneTimer.current = setTimeout(() => {
+                focusDoneTimer.current = null;
+                AccessibilityInfo.announceForAccessibility(text);
+              }, FOCUS_DONE_ANNOUNCE_DELAY_MS);
+            }
           }}
           onClose={() => setFocusTaskId(null)}
         />

@@ -19,6 +19,7 @@ import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
+import { timesUpText } from "@/lib/daily-tasks/focus-timer";
 import {
   cancelFocusTimerNotification,
   scheduleFocusTimerNotification,
@@ -28,9 +29,7 @@ import type { Task } from "@/lib/daily-tasks/types";
 export type FocusTimer = 0 | 10 | 25;
 export const FOCUS_TIMERS: FocusTimer[] = [0, 10, 25];
 
-export function timesUpText(minutes: number): string {
-  return `That's ${minutes} minutes. Keep going, or take a break.`;
-}
+export { timesUpText };
 
 const MINUTE_MS = 60_000;
 /** Lets the button's own "selected" read out before the timer is announced. */
@@ -94,7 +93,7 @@ export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTi
   // permission already given). Replaced on a restart; gone on None or close.
   useEffect(() => {
     if (startedAt === null) return;
-    void scheduleFocusTimerNotification(new Date(startedAt + durationMs));
+    void scheduleFocusTimerNotification(new Date(startedAt + durationMs), durationMs / MINUTE_MS);
     return () => {
       void cancelFocusTimerNotification();
     };

@@ -206,13 +206,13 @@ describe("FocusMode", () => {
     await renderFocus();
     await pick("10 minute timer");
     expect(schedule).toHaveBeenCalledTimes(1);
-    expect(schedule).toHaveBeenLastCalledWith(new Date(START.getTime() + 10 * MIN));
+    expect(schedule).toHaveBeenLastCalledWith(new Date(START.getTime() + 10 * MIN), 10);
     expect(cancel).not.toHaveBeenCalled();
 
     await advance(MIN);
     await pick("25 minute timer");
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(schedule).toHaveBeenLastCalledWith(new Date(START.getTime() + MIN + 25 * MIN));
+    expect(schedule).toHaveBeenLastCalledWith(new Date(START.getTime() + MIN + 25 * MIN), 25);
 
     await pick("No timer");
     expect(cancel).toHaveBeenCalledTimes(2);

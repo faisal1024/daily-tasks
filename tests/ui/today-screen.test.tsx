@@ -1370,6 +1370,19 @@ describe("Win-back paywall on Today", () => {
     expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 
+  it("not when focus mode was opened in the meantime", async () => {
+    jest.useFakeTimers({ now: MORNING });
+    lapsedFree();
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockOpenPaywall).not.toHaveBeenCalledWith("win_back");
+  });
+
   it.each([
     ["it isn't due", () => (mockPaywall = { paywallSource: null, entitlementActive: false, winBackDue: false })],
     ["the user has Plus", () => (mockStore = { ...mockStore, hasPlus: true })],
@@ -2340,6 +2353,7 @@ describe("Focus mode from the coach's note (1.2)", () => {
     asked: THREE.map((t) => coachTaskKey(t.text)),
     logged: true,
   };
+  const pause = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const focusEvents = () => mockTrack.mock.calls.filter((c) => String(c[0]).startsWith("focus_"));
 
   it("Start opens focus mode on the note's task, with the same start line as the note", async () => {
@@ -2375,8 +2389,11 @@ describe("Focus mode from the coach's note (1.2)", () => {
     expect(mockStore.toggleTask).toHaveBeenCalledWith("t0");
     expect(mockTrack).toHaveBeenCalledWith("task_completed", { count: 1 });
     expect(focusEvents()).toEqual([["focus_opened"], ["focus_completed", { timer: 0 }]]);
-    expect(announce).toHaveBeenCalledWith("Done: Walk the dog");
     expect(screen.queryByTestId("focus-mode")).toBeNull();
+    // A moment later, so the sheet closing doesn't cut it off.
+    expect(announce).not.toHaveBeenCalledWith("Done: Walk the dog");
+    await pause(600);
+    expect(announce).toHaveBeenCalledWith("Done: Walk the dog");
     announce.mockRestore();
   });
 
@@ -2389,7 +2406,26 @@ describe("Focus mode from the coach's note (1.2)", () => {
     expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Call mum");
     await fireEvent.press(screen.getByRole("button", { name: "Done" }));
     expect(mockStore.toggleTask).toHaveBeenCalledWith("t2");
+    await pause(600);
     expect(announce).not.toHaveBeenCalledWith("Done: Call mum");
+    announce.mockRestore();
+  });
+
+  it("a third task done again after today's celebration is still announced", async () => {
+    at(9);
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    mockStore = makeStore({ tasks: THREE, ...SET, todayCompletions: ["t0", "t1"] });
+    const view = await render(<HomeScreen />);
+    // All three ticked (celebrated), then the third unticked again.
+    mockStore = makeStore({ tasks: THREE, ...SET, todayCompletions: ["t0", "t1", "t2"] });
+    await view.rerender(<HomeScreen />);
+    mockStore = makeStore({ tasks: THREE, ...SET, todayCompletions: ["t0", "t1"] });
+    await view.rerender(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    await fireEvent.press(screen.getByRole("button", { name: "Done" }));
+    expect(mockStore.toggleTask).toHaveBeenCalledWith("t2");
+    await pause(600);
+    expect(announce).toHaveBeenCalledWith("Done: Call mum");
     announce.mockRestore();
   });
 
