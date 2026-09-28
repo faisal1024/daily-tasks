@@ -149,7 +149,7 @@ export function RolloverModal({ pending, remainingSlots, onApply, quiet = false 
           }}
           testID="rollover-apply"
         >
-          <Text style={{ color: quiet ? colors.primary : "#fff", fontWeight: "700", fontSize: quiet ? 16 : 17 }}>
+          <Text style={{ color: quiet ? colors.primary : colors.onPrimary, fontWeight: "700", fontSize: quiet ? 16 : 17 }}>
             {!hasRoom
               ? "Got it"
               : count === 0

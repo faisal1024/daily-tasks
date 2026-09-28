@@ -43,7 +43,7 @@ export function UpdateBanner({ update, onDismiss }: UpdateBannerProps) {
               >
                 <Text
                   className="text-xs font-semibold"
-                  style={{ color: colors.background }}
+                  style={{ color: colors.onPrimary }}
                 >
                   Update
                 </Text>

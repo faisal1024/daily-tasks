@@ -190,9 +190,13 @@ export function TaskRow({
             backgroundColor: action === "delete" ? colors.error : colors.primary,
           }}
         >
-          <Ionicons name={action === "delete" ? "trash-outline" : "bookmark-outline"} size={20} color="#fff" />
+          <Ionicons
+            name={action === "delete" ? "trash-outline" : "bookmark-outline"}
+            size={20}
+            color={action === "delete" ? "#fff" : colors.onPrimary}
+          />
           <Text
-            style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}
+            style={{ color: action === "delete" ? "#fff" : colors.onPrimary, fontWeight: "700", fontSize: 13 }}
             maxFontSizeMultiplier={1.3}
             numberOfLines={1}
             adjustsFontSizeToFit

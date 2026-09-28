@@ -112,7 +112,7 @@ export default function JourneyScreen() {
               className="self-start rounded-full px-4 py-2"
               style={{ backgroundColor: colors.primary }}
             >
-              <Text className="text-sm font-bold" style={{ color: "#fff" }}>
+              <Text className="text-sm font-bold" style={{ color: colors.onPrimary }}>
                 Set a goal
               </Text>
             </Pressable>

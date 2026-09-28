@@ -14,7 +14,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Fonts } from "@/constants/theme";
-import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
 import { PRIVACY_URL, TERMS_URL } from "@/lib/daily-tasks/links";
@@ -58,9 +57,6 @@ export function PaywallSheet({
 }: PaywallSheetProps) {
   const colors = useColors();
   const sheetAnimation = useSheetAnimation();
-  // White on the light-mode indigo passes contrast; on the lighter dark-mode
-  // indigo it doesn't, so use the dark background colour for text there.
-  const onPrimary = useColorScheme() === "dark" ? colors.background : "#fff";
   const insets = useSafeAreaInsets();
   const visible = source !== null;
   const [load, setLoad] = useState<LoadState>("loading");
@@ -284,7 +280,7 @@ export function PaywallSheet({
                     <View className="items-end gap-1">
                       {label.badge && (
                         <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: colors.primary }}>
-                          <Text className="text-xs font-semibold" style={{ color: onPrimary }}>
+                          <Text className="text-xs font-semibold" style={{ color: colors.onPrimary }}>
                             {label.badge}
                           </Text>
                         </View>
@@ -325,9 +321,9 @@ export function PaywallSheet({
             testID="paywall-buy"
           >
             {busy === "purchase" || purchasing ? (
-              <ActivityIndicator color={onPrimary} />
+              <ActivityIndicator color={colors.onPrimary} />
             ) : (
-              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: onPrimary }}>
+              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: colors.onPrimary }}>
                 {purchaseButtonLabel(selected)}
               </Text>
             )}

@@ -34,11 +34,11 @@ export function DoneCard({
         >
           {title}
         </Text>
-        <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 15, fontWeight: "700", marginTop: 4 }}>
+        <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700", marginTop: 4 }}>
           {wins}
         </Text>
         {eveningCheckIn ? (
-          <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 15, marginTop: 4 }}>
+          <Text style={{ color: "#fff", fontSize: 15, marginTop: 4 }}>
             Close the day below and your coach drafts tomorrow.
           </Text>
         ) : null}
@@ -60,7 +60,8 @@ export function DoneCard({
             paddingVertical: 10,
             paddingHorizontal: 14,
             borderRadius: 999,
-            backgroundColor: "rgba(255,255,255,0.18)",
+            // A dark tint keeps the white label at AA; a white tint dropped it to ~3.4:1.
+            backgroundColor: "rgba(22,20,32,0.18)",
           }}
           testID="pull-one-more"
         >

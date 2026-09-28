@@ -244,7 +244,7 @@ export function IdeasSheet({
               className="rounded-2xl py-4 items-center"
               style={{ backgroundColor: colors.primary }}
             >
-              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: "#fff" }}>
+              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: colors.onPrimary }}>
                 {available.length > remainingSlots
                   ? `Add the first ${remainingSlots}`
                   : "Add all"}
@@ -302,7 +302,7 @@ export function IdeasSheet({
                   className="rounded-2xl py-4 items-center"
                   style={{ backgroundColor: colors.primary }}
                 >
-                  <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: "#fff" }}>
+                  <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: colors.onPrimary }}>
                     Set these three
                   </Text>
                 </Pressable>
@@ -319,7 +319,7 @@ export function IdeasSheet({
               >
                 <Text
                   className="text-lg"
-                  style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: onLock ? colors.primary : "#fff" }}
+                  style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: onLock ? colors.primary : colors.onPrimary }}
                 >
                   Done
                 </Text>

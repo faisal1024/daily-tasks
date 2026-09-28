@@ -23,7 +23,6 @@ import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { requestAgendaAccess } from "@/lib/daily-tasks/agenda";
 import { aiFailureMessage } from "@/lib/daily-tasks/ai-status";
 import { getPostHogKey, track } from "@/lib/daily-tasks/analytics";
-import { useColorScheme } from "@/hooks/use-color-scheme";
 import { MANAGE_SUBSCRIPTIONS_URL, PRIVACY_URL, SUPPORT_URL } from "@/lib/daily-tasks/links";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -78,8 +77,6 @@ export default function SettingsScreen() {
   } = useDailyTasks();
   const plus = usePlus();
   const [restoring, setRestoring] = useState(false);
-  // White fails contrast on the dark-mode indigo; use the dark background there.
-  const onPrimary = useColorScheme() === "dark" ? colors.background : "#fff";
 
   const handleRestore = async () => {
     if (restoring) return;
@@ -264,7 +261,7 @@ export default function SettingsScreen() {
                   className="rounded-2xl py-3 items-center"
                   style={{ backgroundColor: colors.primary }}
                 >
-                  <Text className="text-base font-semibold" style={{ color: onPrimary }}>
+                  <Text className="text-base font-semibold" style={{ color: colors.onPrimary }}>
                     See Plus plans
                   </Text>
                 </Pressable>
