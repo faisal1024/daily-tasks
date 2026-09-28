@@ -88,6 +88,7 @@ import {
 } from "./storage";
 import { computeDayStreak, showedUp } from "./streaks";
 import type { EveningClose } from "./evening";
+import { claimCoachRequest, markCoachNoteLogged, mergeCoachNotes } from "./coach-note";
 import { draftForNotification, draftForTomorrow } from "./evening";
 import { readTodayAgenda } from "./agenda";
 import { readSupporterGrant, writeSupporterGrant } from "./supporter-grant";
@@ -107,6 +108,7 @@ import {
 } from "./widget-snapshot";
 import type {
   AppState,
+  CoachNoteLines,
   MomentumProfile,
   NotificationPermissionState,
   NotificationKey,
@@ -170,6 +172,9 @@ type Action =
   | { type: "applyTomorrowDraft"; tasks: string[]; shown: string[]; today: string; at: string }
   | { type: "dismissTomorrowDraft" }
   | { type: "setAgendaEnabled"; enabled: boolean }
+  | { type: "claimCoachRequest"; day: string; taskTexts: string[] }
+  | { type: "setCoachNotes"; day: string; notes: Record<string, CoachNoteLines> }
+  | { type: "markCoachNoteLogged"; day: string }
   | { type: "completeMilestone"; id: string }
   | { type: "setMilestones"; items: { id?: string; title: string; description?: string }[] }
   | { type: "requestNewPath" }
@@ -295,6 +300,20 @@ function reduce(state: AppState, action: Action): AppState {
     }
     case "setAgendaEnabled":
       return state.agendaEnabled === action.enabled ? state : { ...state, agendaEnabled: action.enabled };
+    // The Coach's note cache (see coach-note.ts): `day` is the day the call
+    // was made for, so a reply that lands after midnight can't touch the new day.
+    case "claimCoachRequest": {
+      const coachNotes = claimCoachRequest(state.coachNotes, action.day, action.taskTexts);
+      return coachNotes === state.coachNotes ? state : { ...state, coachNotes };
+    }
+    case "setCoachNotes": {
+      const coachNotes = mergeCoachNotes(state.coachNotes, action.day, action.notes);
+      return coachNotes === state.coachNotes ? state : { ...state, coachNotes };
+    }
+    case "markCoachNoteLogged": {
+      const coachNotes = markCoachNoteLogged(state.coachNotes, action.day);
+      return coachNotes === state.coachNotes ? state : { ...state, coachNotes };
+    }
     case "setMilestones": {
       if (!state.momentumPlan) return state;
       const before = new Map(state.momentumPlan.milestones.map((m) => [m.id, m]));
@@ -387,10 +406,15 @@ function reduce(state: AppState, action: Action): AppState {
     case "rollover": {
       const rolled = applyRollover(state, action.today);
       // A draft for a day that has already passed is no longer useful.
-      const next =
+      const undrafted =
         rolled !== state && rolled.tomorrowDraft && rolled.tomorrowDraft.forDate < action.today
           ? { ...rolled, tomorrowDraft: null }
           : rolled;
+      // Yesterday's coach lines (and their call count) don't carry over.
+      const next =
+        undrafted !== state && undrafted.coachNotes && undrafted.coachNotes.date < action.today
+          ? { ...undrafted, coachNotes: null }
+          : undrafted;
       // Held on the current day (clock a day behind): nothing changes, and
       // the plan mustn't be rebuilt for the earlier date.
       if (next === state && action.today !== state.lastOpenedDate) return state;
@@ -839,6 +863,12 @@ interface StoreContextValue {
   applyTomorrowDraft: (tasks: string[], shown: string[]) => void;
   dismissTomorrowDraft: () => void;
   setAgendaEnabled: (enabled: boolean) => void;
+  /** Count a Coach's note AI call for `day` (made now) and the task texts it asks about. */
+  claimCoachRequest: (day: string, taskTexts: string[]) => void;
+  /** Keep the Coach's note AI lines for `day`, keyed by task text. */
+  setCoachNotes: (day: string, notes: Record<string, CoachNoteLines>) => void;
+  /** coach_note_loaded went out for `day`. */
+  markCoachNoteLogged: (day: string) => void;
   completeMilestone: (id: string) => void;
   uncompleteMilestone: (id: string) => void;
   /** Save an edited path (rename, reword, add, remove). */
@@ -1423,6 +1453,15 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setAgendaEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "setAgendaEnabled", enabled });
   }, []);
+  const claimCoachRequestCb = useCallback((day: string, taskTexts: string[]) => {
+    dispatch({ type: "claimCoachRequest", day, taskTexts });
+  }, []);
+  const setCoachNotes = useCallback((day: string, notes: Record<string, CoachNoteLines>) => {
+    dispatch({ type: "setCoachNotes", day, notes });
+  }, []);
+  const markCoachNoteLoggedCb = useCallback((day: string) => {
+    dispatch({ type: "markCoachNoteLogged", day });
+  }, []);
   const dismissTomorrowDraft = useCallback(() => {
     dispatch({ type: "dismissTomorrowDraft" });
   }, []);
@@ -1522,6 +1561,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       applyTomorrowDraft,
       dismissTomorrowDraft,
       setAgendaEnabled,
+      claimCoachRequest: claimCoachRequestCb,
+      setCoachNotes,
+      markCoachNoteLogged: markCoachNoteLoggedCb,
       completeMilestone,
       uncompleteMilestone,
       editMilestones,
@@ -1582,6 +1624,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       applyTomorrowDraft,
       dismissTomorrowDraft,
       setAgendaEnabled,
+      claimCoachRequestCb,
+      setCoachNotes,
+      markCoachNoteLoggedCb,
       completeMilestone,
       uncompleteMilestone,
       editMilestones,

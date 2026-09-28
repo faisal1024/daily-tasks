@@ -38,6 +38,31 @@ export interface EveningCloseRecord {
   note: string;
 }
 
+/** The coach's two lines for one task (1.2's Coach's note). */
+export interface CoachNoteLines {
+  /** A tiny first step (morning, until the first tick). */
+  start: string;
+  /** Why it matters, or what's next (after a tick, or midday). */
+  momentum: string;
+}
+
+/** Coach's note AI calls a day: the first, plus one more if the task texts change. */
+export const MAX_COACH_REQUESTS_PER_DAY = 2;
+
+/** Today's AI coach lines (Plus), cached so re-renders never spend a call. */
+export interface CoachNotesCache {
+  /** The day these belong to (yyyy-MM-dd). */
+  date: string;
+  /** Keyed by normalized task text (see coachTaskKey). */
+  notes: Record<string, CoachNoteLines>;
+  /** AI calls made today (at most MAX_COACH_REQUESTS_PER_DAY). */
+  requests: number;
+  /** Task keys already asked about today, so a failure or a partial answer isn't retried. */
+  asked: string[];
+  /** coach_note_loaded was sent today. */
+  logged: boolean;
+}
+
 /** Brain-dump leftovers kept for another day (shown in the Ideas sheet). */
 export interface ParkedTask {
   id: string;
@@ -235,6 +260,9 @@ export interface AppState {
   eveningClose: EveningCloseRecord | null;
   // Read today's Calendar events and Reminders into AI requests (off by default).
   agendaEnabled: boolean;
+  // Today's AI coach lines (Plus), the calls they took, and whether the
+  // note's analytics event went out; null until the first note of a day.
+  coachNotes: CoachNotesCache | null;
 }
 
 export const GOAL_OPTIONS: string[] = [

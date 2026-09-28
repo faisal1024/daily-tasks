@@ -68,7 +68,7 @@ export function getMomentumProxySecret(): string | null {
   return secret ? secret : null;
 }
 
-export type ProxyRoute = "plan" | "brain-dump" | "break-down" | "evening" | "grandfather";
+export type ProxyRoute = "plan" | "brain-dump" | "break-down" | "evening" | "coach-note" | "grandfather";
 
 /**
  * URL for another route on the same proxy. The configured URL points at the

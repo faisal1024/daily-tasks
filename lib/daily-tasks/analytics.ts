@@ -36,7 +36,8 @@ export type AnalyticsEvent =
   | "agenda_toggled"
   | "goal_set"
   | "task_not_today"
-  | "rollover_resolved";
+  | "rollover_resolved"
+  | "coach_note_loaded";
 
 type PropValue = string | number | boolean;
 export type AnalyticsProps = Partial<Record<AllowedProp, PropValue>>;

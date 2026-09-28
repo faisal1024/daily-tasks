@@ -92,6 +92,9 @@ const actions = {
   setTaskSteps: jest.fn(),
   toggleTaskStep: jest.fn(),
   clearTaskSteps: jest.fn(),
+  claimCoachRequest: jest.fn(),
+  setCoachNotes: jest.fn(),
+  markCoachNoteLogged: jest.fn(),
   hasPlus: true,
 };
 

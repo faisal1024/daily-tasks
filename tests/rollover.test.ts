@@ -53,6 +53,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     tomorrowDraft: null,
     eveningClose: null,
     agendaEnabled: false,
+    coachNotes: null,
     ...overrides,
   };
 }

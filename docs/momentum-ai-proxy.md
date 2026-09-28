@@ -118,8 +118,8 @@ The client IP comes from `CF-Connecting-IP` (no `TRUST_PROXY_HOPS` needed).
 The app (paywall builds) sends RevenueCat's anonymous app user id as
 `x-rc-user`. The server asks RevenueCat whether Plus is active and caches the
 answer (Plus: 1 hour; not Plus: 1 minute, and Plus routes always re-check a
-"not Plus" answer so a new subscriber is never refused). Plan, break-down and
-evening are Plus-only (**402** when refused); brain dumps stay open to free
+"not Plus" answer so a new subscriber is never refused). Plan, break-down,
+evening and coach-note are Plus-only (**402** when refused); brain dumps stay open to free
 users up to `FREE_BRAIN_DUMPS_PER_DAY` per user (and 3× that per network).
 If RevenueCat can't answer (down, rate-limited, or our key is wrong) requests
 are allowed for a moment and a warning is logged: paying users are never
@@ -198,10 +198,12 @@ payload validator, prompt, structured-output schema and response validator.
 | `/api/momentum/brain-dump` | `text` (≤2000 chars), `openSlots` (1–3), `goalTitle?`, `agenda?` (≤12 strings ≤120 chars; also accepted by `/plan`) | `picks` (≤ openSlots), `parked` (≤10) |
 | `/api/momentum/break-down` | `task` (≤120 chars), `goalTitle?` | `steps` (3–5 tiny steps) |
 | `/api/momentum/evening` | `result` (easy/good/hard/missed), `tasks` (≤3 `{text, done}`), `note?`, `goalTitle?`, `memory?` (≤500) | `note` (≤160), `because` (≤100), `tomorrow` (1–3 tasks), `memory` (≤500, the coach's rolling summary) |
+| `/api/momentum/coach-note` | `tasks` (1–3 strings ≤120 chars), `goalTitle?`, `tone?` (calm/friendly/direct) | `notes`: one `{start, momentum}` per task, in order (each ≤140 chars, no control characters or links; `""` where a line was unusable) |
 
 The app derives sibling route URLs from `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL`
 (which points at `/plan`). Brain dump falls back to a simple on-device split
-when the proxy is unreachable; break-down has no offline fallback.
+when the proxy is unreachable; break-down has no offline fallback. The coach's
+note falls back to built-in lines on any failure.
 
 ## Architecture
 
