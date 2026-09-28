@@ -103,11 +103,25 @@ export function buildPrompt(payload) {
         : "nothing yet"
     }`,
     ...agendaPromptLines(payload.agenda),
+    ...pathPromptLines(payload.currentPath, payload.newPath === true),
     "Return three milestones and exactly three todaySuggestions.",
     "Tasks must be short verb phrases, 64 characters or fewer, specific enough to do today, and sized to the user's time.",
     "If recent completion is weak, make tasks easier. If recent completion is strong, make tasks a gentle step up.",
     "Build on the user's own recent tasks: lean toward the kinds of tasks they actually completed, and gently reshape or replace ones they repeatedly skipped. Do not just repeat their exact tasks.",
   ].join("\n");
+}
+
+/** The user's path toward the goal (kept on the device; they may have edited it). */
+function pathPromptLines(currentPath, newPath) {
+  const steps = Array.isArray(currentPath) ? currentPath.slice(0, 6) : [];
+  if (steps.length === 0) return [];
+  const list = steps.map((step) => `- ${str(step?.title, 80)}${step?.done ? " (reached)" : ""}`).join("\n");
+  return newPath
+    ? [`They asked for a fresh path. Their current one:\n${list}`, "Suggest three new milestones that differ from these."]
+    : [
+        `Their path toward the goal (they keep it; you can't change it):\n${list}`,
+        "Aim today's suggestions at the first milestone not yet reached. Still return three milestones (the app keeps theirs).",
+      ];
 }
 
 function formatRecentTasks(recentTasks) {
@@ -131,7 +145,24 @@ export function validatePayload(payload) {
     return "Missing recent performance";
   }
   if (!isValidAgenda(payload.agenda)) return "Invalid agenda";
+  if (payload.currentPath !== undefined && !isValidPath(payload.currentPath)) return "Invalid currentPath";
+  if (payload.newPath !== undefined && typeof payload.newPath !== "boolean") return "Invalid newPath";
   return null;
+}
+
+function isValidPath(path) {
+  return (
+    Array.isArray(path) &&
+    path.length <= 6 &&
+    path.every(
+      (step) =>
+        step &&
+        typeof step === "object" &&
+        typeof step.title === "string" &&
+        step.title.length <= 120 &&
+        (step.done === undefined || typeof step.done === "boolean"),
+    )
+  );
 }
 
 const str = (value, max) => (typeof value === "string" ? value.slice(0, max) : "");

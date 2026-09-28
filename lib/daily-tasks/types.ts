@@ -132,6 +132,12 @@ export interface MomentumPlan {
   generatedAt: string;
   provider: GeneratedTaskSource;
   milestones: MomentumMilestone[];
+  /**
+   * Where the path came from: the starter template, the AI, or the user's own
+   * edit. An AI plan may replace an untouched starter path, never an edited one.
+   * Missing on older saves (then derived from `provider`).
+   */
+  pathSource?: "template" | "ai" | "user";
   taskPool: GeneratedTask[];
   todaySuggestions: GeneratedTask[];
   promptSummary: string;
@@ -186,7 +192,10 @@ export interface AppState {
   // Date the user manually unlocked; suppresses auto-lock for that day only.
   manualUnlockDate: string | null;
   pendingRollover: PendingRollover | null;
-  /** The user asked for a new path: the next AI plan may replace the milestones. */
+  /**
+   * The user asked for a new path: the next AI plan may replace the milestones.
+   * In memory only (storage doesn't restore it), so a relaunch drops it.
+   */
   pathRefreshPending?: boolean;
   history: History;
   notifications: NotificationConfig;

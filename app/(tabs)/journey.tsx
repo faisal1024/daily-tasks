@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -40,6 +40,16 @@ export default function JourneyScreen() {
   const goalTitle = state.momentumProfile.goalTitle;
   const [goalModalOpen, setGoalModalOpen] = useState(false);
   const [pathEditorOpen, setPathEditorOpen] = useState(false);
+  // "Suggest a new path": show it's on its way, and say so if it didn't come.
+  const findingPath = state.pathRefreshPending === true;
+  const [pathNote, setPathNote] = useState<string | null>(null);
+  const wasFinding = useRef(false);
+  useEffect(() => {
+    if (wasFinding.current && !findingPath) {
+      setPathNote(state.momentumPlanStatus === "error" ? "Couldn't get a new path. Your steps are unchanged." : null);
+    }
+    wasFinding.current = findingPath;
+  }, [findingPath, state.momentumPlanStatus]);
   const milestonesDone = momentumMilestones.filter((m) => m.done).length;
   const nextMilestoneIndex = momentumMilestones.findIndex((m) => !m.done);
 
@@ -136,18 +146,8 @@ export default function JourneyScreen() {
 
         {/* Streak stats — colorful tinted cards */}
         <View className="flex-row gap-3">
-          <StatCard
-            icon="flame"
-            label="Showed up"
-            value={journey.showedUpStreak}
-            tint={colors.accent}
-          />
-          <StatCard
-            icon="star"
-            label="Best run"
-            value={journey.longestShowedUpStreak}
-            tint={colors.primary}
-          />
+          <StatCard icon="flame" label="Showed up" value={journey.showedUpStreak} tint={colors.accent} />
+          <StatCard icon="star" label="Best run" value={journey.longestShowedUpStreak} tint={colors.primary} />
         </View>
 
         <View
@@ -172,13 +172,10 @@ export default function JourneyScreen() {
         </View>
 
         {/* Milestones toward the goal: ticked off by hand */}
-        {momentumMilestones.length > 0 && (
+        {state.momentumPlan && (
           <View className="gap-3">
             <View className="flex-row items-center justify-between">
-              <SectionLabel
-                icon="trail-sign-outline"
-                label={goalTitle ? `Path to ${goalTitle}` : "Your milestones"}
-              />
+              <SectionLabel icon="trail-sign-outline" label={goalTitle ? `Path to ${goalTitle}` : "Your milestones"} />
               <View className="flex-row items-center gap-3">
                 <Text className="text-base font-extrabold" style={{ color: colors.primary }}>
                   {milestonesDone}/{momentumMilestones.length}
@@ -187,6 +184,7 @@ export default function JourneyScreen() {
                   onPress={() => setPathEditorOpen(true)}
                   accessibilityRole="button"
                   accessibilityLabel="Edit your path"
+                  accessibilityHint="Rename, add or remove steps"
                   hitSlop={10}
                   testID="path-edit"
                 >
@@ -197,8 +195,19 @@ export default function JourneyScreen() {
               </View>
             </View>
             <Text className="text-sm" style={{ color: colors.muted }}>
-              Tick one off when you get there.
+              {momentumMilestones.length > 0
+                ? "Tick one off when you get there. Tap Edit to change the steps."
+                : "No steps yet. Tap Edit to add your first one."}
             </Text>
+            {findingPath ? (
+              <Text className="text-sm" style={{ color: colors.primary }} accessibilityLiveRegion="polite">
+                Finding a new path…
+              </Text>
+            ) : pathNote ? (
+              <Text className="text-sm" style={{ color: colors.muted }} accessibilityLiveRegion="polite">
+                {pathNote}
+              </Text>
+            ) : null}
             {momentumMilestones.map((milestone, index) => {
               const isNext = !milestone.done && index === nextMilestoneIndex;
               return (
@@ -230,9 +239,7 @@ export default function JourneyScreen() {
                     >
                       {milestone.title}
                     </Text>
-                    {milestone.description ? (
-                      <Text className="text-sm text-muted">{milestone.description}</Text>
-                    ) : null}
+                    {milestone.description ? <Text className="text-sm text-muted">{milestone.description}</Text> : null}
                   </View>
                   {milestone.done ? (
                     <Pressable
@@ -268,21 +275,24 @@ export default function JourneyScreen() {
           </View>
         )}
 
-
-        <PathEditor
-          visible={pathEditorOpen}
-          milestones={momentumMilestones}
-          plus={hasPlus}
-          onSave={(items) => {
-            editMilestones(items);
-            track("path_edited", { count: items.length });
-          }}
-          onSuggestNew={() => {
-            suggestNewPath();
-            track("path_regenerated", { plus: hasPlus });
-          }}
-          onClose={() => setPathEditorOpen(false)}
-        />
+        {pathEditorOpen && (
+          <PathEditor
+            visible
+            goalTitle={goalTitle}
+            milestones={momentumMilestones}
+            plus={hasPlus}
+            onSave={(items) => {
+              editMilestones(items);
+              track("path_edited", { count: items.length });
+            }}
+            onSuggestNew={() => {
+              setPathNote(null);
+              suggestNewPath();
+              track("path_regenerated", { plus: hasPlus });
+            }}
+            onClose={() => setPathEditorOpen(false)}
+          />
+        )}
 
         {/* Month by month (this used to be its own Calendar tab). */}
         <View className="gap-3">

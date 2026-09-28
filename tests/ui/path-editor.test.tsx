@@ -91,12 +91,24 @@ describe("PathEditor", () => {
     expect(screen.queryByTestId("path-editor-add")).toBeNull();
   });
 
-  it("Cancel closes without saving", async () => {
+  it("Cancel with no edits closes; with edits it asks before discarding", async () => {
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     const { onSave, onClose } = await renderEditor();
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel editing" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(alert).not.toHaveBeenCalled();
+
     await fireEvent.changeText(screen.getByLabelText("Step 1"), "Changed");
-    await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
-    expect(onClose).toHaveBeenCalled();
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel editing" }));
+    expect(alert).toHaveBeenCalledTimes(1);
+    const [title, , buttons] = alert.mock.calls[0] as [string, string, AlertButton[]];
+    expect(title).toBe("Discard changes?");
+    buttons.find((b) => b.text === "Keep editing")?.onPress?.();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    buttons.find((b) => b.text === "Discard")?.onPress?.();
+    expect(onClose).toHaveBeenCalledTimes(2);
     expect(onSave).not.toHaveBeenCalled();
+    alert.mockRestore();
   });
 
   it("asking for a new path confirms first; Cancel does nothing, Replace path suggests and closes", async () => {
@@ -107,7 +119,7 @@ describe("PathEditor", () => {
     expect(alert).toHaveBeenCalledTimes(1);
     const [title, message, buttons] = alert.mock.calls[0] as [string, string, AlertButton[]];
     expect(title).toBe("Get a new path?");
-    expect(message).toMatch(/replaces the current steps and their ticks/);
+    expect(message).toMatch(/current steps and ticks will be replaced/);
     expect(onSuggestNew).not.toHaveBeenCalled();
 
     buttons.find((b) => b.text === "Cancel")?.onPress?.();
@@ -123,8 +135,8 @@ describe("PathEditor", () => {
   it("without Plus, offers the starter path instead", async () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     await renderEditor({ plus: false });
-    await fireEvent.press(screen.getByText("Start over with the starter path"));
-    expect(alert.mock.calls[0][1]).toMatch(/starter path/);
+    await fireEvent.press(screen.getByText("Reset to starter steps"));
+    expect(alert.mock.calls[0][1]).toMatch(/starter steps/);
   });
 });
 

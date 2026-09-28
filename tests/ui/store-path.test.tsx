@@ -148,7 +148,7 @@ describe("store: the path stays put across plan rebuilds", () => {
   // first; the new goal's AI plan then has the same goal title, so keepPath
   // keeps the generic starter steps and a Plus user never sees an AI path
   // unless they tap "Suggest a new path". Flip to `it` once fixed.
-  it.failing("the new goal's first AI plan brings its own path", async () => {
+  it("the new goal's first AI plan brings its own path (an untouched starter path is upgraded)", async () => {
     const { result } = await renderStore();
     await waitFor(() => expect(mockRequests).toHaveLength(1));
     await act(async () => mockRequests[0].resolve(plan("Run a 5K", aiPath("AI"), "Today idea")));
@@ -156,6 +156,14 @@ describe("store: the path stays put across plan rebuilds", () => {
     await waitFor(() => expect(mockRequests).toHaveLength(2));
     await act(async () => mockRequests[1].resolve(plan("Learn guitar", aiPath("Guitar"), "Chords")));
     expect(titles(result.current.state)).toEqual(["Guitar 1", "Guitar 2", "Guitar 3"]);
+  });
+
+  it("an edited path is never replaced by an AI plan (only an untouched starter path is)", async () => {
+    const { result } = await renderStore();
+    await waitFor(() => expect(mockRequests).toHaveLength(1));
+    await act(async () => result.current.editMilestones([{ title: "My own step" }]));
+    await act(async () => mockRequests[0].resolve(plan("Run a 5K", aiPath("AI"), "Today idea")));
+    expect(titles(result.current.state)).toEqual(["My own step"]);
   });
 });
 
