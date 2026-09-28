@@ -35,7 +35,10 @@ export function RolloverModal({ pending, remainingSlots, onApply, quiet = false 
   // A new set of leftovers: start from the first that fit (none when last
   // night's draft is the main choice). Only then: an edit elsewhere on Today
   // mustn't wipe what the user ticked.
-  const pendingKey = pending ? `${pending.sourceDate}:${pending.tasks.map((task) => task.id).join(",")}` : "";
+  // Also re-seed when the card changes role (the draft was used or dismissed).
+  const pendingKey = pending
+    ? `${pending.sourceDate}:${pending.tasks.map((task) => task.id).join(",")}:${quiet ? "quiet" : "main"}`
+    : "";
   useEffect(() => {
     setSelectedIds(pending && !quiet ? pending.tasks.slice(0, remainingSlots).map((task) => task.id) : []);
     // Keyed on the pending set only (see above); room is handled just below.
@@ -167,7 +170,7 @@ export function RolloverModal({ pending, remainingSlots, onApply, quiet = false 
             testID="rollover-fresh"
           >
             <Text className="text-base font-semibold" style={{ color: colors.primary }}>
-              Start fresh
+              {quiet ? "Leave it" : "Start fresh"}
             </Text>
           </Pressable>
         ) : null}
