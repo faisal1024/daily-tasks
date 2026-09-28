@@ -89,6 +89,10 @@ jest.mock("@/components/daily-tasks/rollover-modal", () => {
       ) : null,
   };
 });
+const mockNavigate = jest.fn();
+jest.mock("expo-router", () => ({
+  router: { navigate: (...args: unknown[]) => mockNavigate(...args) },
+}));
 const mockTrack = jest.fn();
 jest.mock("@/lib/daily-tasks/analytics", () => ({
   ...jest.requireActual("@/lib/daily-tasks/analytics"),
@@ -1805,5 +1809,138 @@ describe("status line on a finished day (Phase 10b)", () => {
     await render(<HomeScreen />);
     expect(screen.queryByText(/^Today is set\./)).toBeNull();
     expect(screen.queryByRole("button", { name: "Change today's tasks" })).toBeNull();
+  });
+});
+
+// --- 1.2: Today by time of day --------------------------------------------------
+
+describe("Today by time of day (1.2)", () => {
+  // Only the clock is faked, so the screen's own timers still run.
+  const at = (hour: number) =>
+    jest.useFakeTimers({
+      now: new Date(2026, 8, 26, hour, 0),
+      doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"],
+    });
+  const milestone = (id: string, title: string, completedAt: string | null = null) => ({
+    id,
+    title,
+    description: "",
+    completedAt,
+  });
+  const plan = (milestones: ReturnType<typeof milestone>[]) => ({
+    id: "p",
+    goalTitle: "Run a 5K",
+    generatedAt: new Date(2026, 8, 20).toISOString(),
+    provider: "template" as const,
+    milestones,
+    taskPool: [],
+    todaySuggestions: [],
+    promptSummary: "",
+    version: 1,
+  });
+  const evening = (on: boolean) => ({
+    momentumSettings: { ...buildInitialState().momentumSettings, eveningReflection: on },
+  });
+
+  it("morning: shows the week row (today counted, speaking its label), and no done card or midday extras", async () => {
+    at(9);
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read"),
+      momentumPlan: plan([milestone("m1", "Run 1 km")]),
+    });
+    await render(<HomeScreen />);
+    expect(
+      screen.getByRole("button", { name: "This week: 1 of 7 days. Day 1. Opens Progress." }),
+    ).toBeOnTheScreen();
+    expect(screen.getAllByTestId("week-row")).toHaveLength(1);
+    expect(screen.queryByTestId("done-card")).toBeNull();
+    expect(screen.queryByTestId("next-path-link")).toBeNull();
+    expect(screen.queryByTestId("tonight-teaser")).toBeNull();
+  });
+
+  it("the week row opens Progress", async () => {
+    at(9);
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("week-row"));
+    expect(mockNavigate).toHaveBeenCalledWith("/journey");
+  });
+
+  it("midday: next open milestone (opens Progress) and the tonight teaser, then the week row", async () => {
+    at(14);
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read"),
+      todayCompletions: ["t0"],
+      momentumPlan: plan([milestone("m1", "Run 1 km"), milestone("m2", "Run 3 km")]),
+      completedMilestoneIds: ["m1"],
+      ...evening(true),
+    });
+    await render(<HomeScreen />);
+    const link = screen.getByTestId("next-path-link");
+    expect(within(link).getByText("Run 3 km")).toBeOnTheScreen();
+    expect(screen.getByTestId("tonight-teaser")).toBeOnTheScreen();
+    expect(screen.getByTestId("week-row")).toBeOnTheScreen();
+    expect(screen.queryByTestId("done-card")).toBeNull();
+    await fireEvent.press(link);
+    expect(mockNavigate).toHaveBeenCalledWith("/journey");
+  });
+
+  it("midday: no path link when every milestone is done, no teaser with the check-in off (even after 17:00)", async () => {
+    at(19);
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read"),
+      momentumPlan: plan([milestone("m1", "Run 1 km", "2026-09-20T08:00:00.000Z")]),
+      ...evening(false),
+    });
+    await render(<HomeScreen />);
+    // Midday's fallback after 17:00, not the evening check-in.
+    expect(screen.queryByText("How did today feel?")).toBeNull();
+    expect(screen.getByTestId("week-row")).toBeOnTheScreen();
+    expect(screen.queryByTestId("next-path-link")).toBeNull();
+    expect(screen.queryByTestId("tonight-teaser")).toBeNull();
+  });
+
+  it("done: the card with its title and small wins; Pull one more opens Ideas on an open day with a slot", async () => {
+    at(10);
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read"),
+      todayCompletions: ["t0", "t1"],
+      history: { "2026-09-24": perfectDay("2026-09-24") },
+      ...evening(false),
+    });
+    await render(<HomeScreen />);
+    const card = within(screen.getByTestId("done-card"));
+    expect(card.getByText("All done. Rest is part of it.")).toBeOnTheScreen();
+    expect(card.getByText("This week: 2 days, 5 tasks done")).toBeOnTheScreen();
+    // Done replaces the morning section, at any hour.
+    expect(screen.queryByTestId("week-row")).toBeNull();
+    expect(screen.queryByTestId("need-ideas")).toBeNull();
+    await fireEvent.press(screen.getByRole("button", { name: "Pull one more from Ideas" }));
+    expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
+  });
+
+  it("done: no Pull one more on a set day or a full day", async () => {
+    at(10);
+    mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Read"), todayCompletions: ["t0", "t1"] });
+    const view = await render(<HomeScreen />);
+    expect(screen.getByTestId("done-card")).toBeOnTheScreen();
+    expect(within(screen.getByTestId("done-card")).getByText("Your first finished day this week.")).toBeOnTheScreen();
+    expect(screen.queryByTestId("pull-one-more")).toBeNull();
+
+    mockStore = makeStore({ tasks: tasks("Walk", "Read", "Stretch"), todayCompletions: ["t0", "t1", "t2"] });
+    await view.rerender(<HomeScreen />);
+    expect(screen.getByText("3 of 3. Rest is part of it.")).toBeOnTheScreen();
+    expect(screen.queryByTestId("pull-one-more")).toBeNull();
+  });
+
+  it("iPad morning: two columns, with the one week row in the right column", async () => {
+    at(9);
+    mockWindow = { width: 1024, height: 1366, scale: 2, fontScale: 1 };
+    // A full day: no ideas entry, so the week row alone fills the right column.
+    mockStore = makeStore({ tasks: tasks("Walk", "Read", "Stretch") });
+    await render(<HomeScreen />);
+    const columns = within(screen.getByTestId("today-two-column"));
+    expect(columns.getAllByTestId("week-row")).toHaveLength(1);
+    expect(within(screen.getByTestId("today-tasks")).queryByTestId("week-row")).toBeNull();
   });
 });
