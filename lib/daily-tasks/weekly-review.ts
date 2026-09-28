@@ -135,10 +135,9 @@ export function weeklyHeadline(input: {
   return `${tasks} done. Every one counts.`;
 }
 
-/** The seven days ending today. */
-export function buildWeeklyReview(history: History, today: string): WeeklyReview {
-  const dates = lastDays(today, 7);
-  const days: ReviewDay[] = dates.map((date) => {
+/** The seven days ending today, oldest first (shared with Today's week row). */
+export function reviewDays(history: History, today: string): ReviewDay[] {
+  return lastDays(today, 7).map((date) => {
     const record = history[date];
     const weekday = WEEKDAYS[fromDateKey(date).getDay()];
     const total = record?.total ?? 0;
@@ -153,6 +152,11 @@ export function buildWeeklyReview(history: History, today: string): WeeklyReview
       perfect: total > 0 && completed === total,
     };
   });
+}
+
+/** The seven days ending today. */
+export function buildWeeklyReview(history: History, today: string): WeeklyReview {
+  const days = reviewDays(history, today);
 
   const completed = days.reduce((sum, day) => sum + day.completed, 0);
   const perfectDays = days.filter((day) => day.perfect).length;

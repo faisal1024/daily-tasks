@@ -2,11 +2,12 @@ import { previousDay } from "./date";
 import type { DayRecord, History } from "./types";
 import { MAX_TASKS } from "./types";
 
-type Predicate = (record: DayRecord | undefined) => boolean;
+type Predicate = (record: Pick<DayRecord, "total" | "completed"> | undefined) => boolean;
 
 // Showing up = planning the day. Finishing nothing still counts: the streak is
-// about coming back, not about being perfect.
-const showedUp: Predicate = (r) => !!r && r.total > 0;
+// about coming back, not about being perfect. The one rule behind "Day N",
+// the streak and Today's week row.
+export const showedUp: Predicate = (r) => !!r && r.total > 0;
 const isPerfect: Predicate = (r) =>
   !!r && r.total === MAX_TASKS && r.completed === MAX_TASKS;
 

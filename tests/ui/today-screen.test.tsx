@@ -1368,21 +1368,24 @@ describe("Today on a wide screen", () => {
     expect(screen.getByText("How did today feel?")).toBeOnTheScreen();
   });
 
-  it("stays one column on a locked day at lunchtime (no check-in yet)", async () => {
+  // 1.2: morning and midday fill the right column (the week row), so it's never empty.
+  it("puts midday on the right on a locked day at lunchtime (no check-in yet)", async () => {
     jest.useFakeTimers({ now: new Date(2026, 8, 26, 12, 0), doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"] });
     mockWindow = IPAD;
     mockStore = makeStore({ tasks: tasks("Walk"), todayLocked: true, todayLockSource: "manual" });
     await render(<HomeScreen />);
     expect(screen.queryByText("How did today feel?")).toBeNull();
-    expect(screen.queryByTestId("today-two-column")).toBeNull();
+    expect(screen.getByTestId("today-two-column")).toBeOnTheScreen();
+    expect(screen.getAllByTestId("week-row")).toHaveLength(1);
   });
 
-  it("stays one column on a full, unlocked day before the evening (nothing for the right column)", async () => {
+  it("puts the morning week row on the right on a full, unlocked day before noon", async () => {
     jest.useFakeTimers({ now: new Date(2026, 8, 26, 10, 0), doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"] });
     mockWindow = IPAD;
     mockStore = makeStore({ tasks: tasks("Walk", "Read", "Stretch") });
     await render(<HomeScreen />);
-    expect(screen.queryByTestId("today-two-column")).toBeNull();
+    expect(screen.getByTestId("today-two-column")).toBeOnTheScreen();
+    expect(screen.getAllByTestId("week-row")).toHaveLength(1);
   });
 
   it("stays one column on a phone", async () => {
@@ -1648,8 +1651,8 @@ describe("Today card (Phase 10a)", () => {
     mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch"), todayCompletions: ["t0", "t1"] });
     await render(<HomeScreen />);
     expect(upNext()).toHaveLength(0);
-    const card = within(screen.getByTestId("perfect-day-card"));
-    expect(card.getByText("Everything you picked is done.")).toBeOnTheScreen();
+    const card = within(screen.getByTestId("done-card"));
+    expect(card.getByText("All done. Rest is part of it.")).toBeOnTheScreen();
     expect(card.getByText(/^You showed up today\./)).toBeOnTheScreen();
     // Phase 10b: only a full three-for-three day drops the line (Change stays reachable).
     expect(screen.getByTestId("status-line")).toBeOnTheScreen();
@@ -1658,17 +1661,17 @@ describe("Today card (Phase 10a)", () => {
   it("a full three-for-three set day has no status line", async () => {
     mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch", "Hydrate"), todayCompletions: ["t0", "t1", "t2"] });
     await render(<HomeScreen />);
-    expect(screen.getByTestId("perfect-day-card")).toBeOnTheScreen();
+    expect(screen.getByTestId("done-card")).toBeOnTheScreen();
     expect(screen.queryByTestId("status-line")).toBeNull();
   });
 
-  it("says 'All three, done.' on the gradient card for a full day", async () => {
+  it("says '3 of 3. Rest is part of it.' on the done card for a full day", async () => {
     mockStore = makeStore({
       tasks: tasks("Walk", "Stretch", "Hydrate"),
       todayCompletions: ["t0", "t1", "t2"],
     });
     await render(<HomeScreen />);
-    expect(within(screen.getByTestId("perfect-day-card")).getByText("All three, done.")).toBeOnTheScreen();
+    expect(within(screen.getByTestId("done-card")).getByText("3 of 3. Rest is part of it.")).toBeOnTheScreen();
   });
 
   it("hides the empty add rows once the list is full", async () => {

@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 
 import { useColors } from "@/hooks/use-colors";
 import { ScreenContainer } from "@/components/screen-container";
@@ -27,14 +28,15 @@ import {
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { FirstRun } from "@/components/daily-tasks/first-run";
-import { GradientCard } from "@/components/daily-tasks/gradient-card";
-import { Fonts } from "@/constants/theme";
+import { DoneCard } from "@/components/daily-tasks/done-card";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { TaskRow } from "@/components/daily-tasks/task-row";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
 import { UpdateBanner } from "@/components/daily-tasks/update-banner";
+import { WeekRow } from "@/components/daily-tasks/week-row";
 import { useAppUpdate } from "@/hooks/use-app-update";
+import { useHour } from "@/hooks/use-hour";
 import {
   aiFailureMessage,
   breakDownFailureMessage,
@@ -61,6 +63,7 @@ import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import { addDays, fromDateKey, greetingFor, greetingText } from "@/lib/daily-tasks/date";
+import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
@@ -77,6 +80,7 @@ import {
   todayProgress,
   todayStatus,
 } from "@/lib/daily-tasks/today-view";
+import { buildWeekSummary, todayPhase } from "@/lib/daily-tasks/today-phase";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
 import {
   buildEveningInput,
@@ -271,13 +275,31 @@ export default function HomeScreen() {
   });
   // An empty day opens on the morning ritual: last night's draft, or the prompt.
   const morning = total === 0 && !state.todayLocked;
+  // Kept fresh while the app is open (top of each hour, and on coming back).
+  const hour = useHour();
   const eveningCheckIn = showEveningCheckIn({
     taskCount: total,
     locked: state.todayLocked,
     perfect: progress.isPerfect,
-    hour: new Date().getHours(),
+    hour,
     enabled: state.momentumSettings.eveningReflection,
   });
+  // What the lower section shows at this time of day (1.2).
+  const phase = todayPhase({
+    taskCount: total,
+    completedCount: progress.completed,
+    hour,
+    eveningEnabled: state.momentumSettings.eveningReflection,
+  });
+  const week = useMemo(
+    () => buildWeekSummary(state.history, today, { total, completed: progress.completed }),
+    [state.history, today, total, progress.completed],
+  );
+  // Midday's "Next on your path": only when there's a goal path with a step left.
+  const nextMilestone = state.momentumPlan
+    ? nextIncompleteMilestone(state.momentumPlan.milestones, state.completedMilestoneIds)
+    : null;
+  const openProgress = () => router.navigate("/journey");
   // Yesterday's unfinished ones: a card, so the draft and the rest of Today
   // stay usable (it used to be a blocking modal). On a phone with no draft it
   // leads, above the three slots; otherwise it follows the draft, quietly.
@@ -297,9 +319,16 @@ export default function HomeScreen() {
       }}
     />
   );
-  // The right column (iPad) / lower section (phone) only exists when it has content.
+  // The right column (iPad) / lower section (phone) only exists when it has
+  // content. Morning and midday always have the week row.
   const rightHasContent =
-    (Boolean(state.pendingRollover) && (wide || Boolean(draft))) || ideasVisible || progress.isPerfect || eveningCheckIn || Boolean(draft);
+    (Boolean(state.pendingRollover) && (wide || Boolean(draft))) ||
+    ideasVisible ||
+    progress.isPerfect ||
+    eveningCheckIn ||
+    Boolean(draft) ||
+    phase === "morning" ||
+    phase === "midday";
   const twoColumn = wide && rightHasContent;
   const dateLabel = fromDateKey(today).toLocaleDateString(undefined, {
     weekday: "long",
@@ -794,7 +823,8 @@ export default function HomeScreen() {
                     onBrowseIdeas={() => setIdeasOpen(true)}
                   />
                 )}
-                {ideasVisible && !morning && !draft && (
+                {/* A finished day swaps these for the done card's quiet "Pull one more". */}
+                {ideasVisible && !morning && !draft && phase !== "done" && (
                   <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
                     <Pressable
                       onPress={() => setIdeasOpen(true)}
@@ -836,20 +866,56 @@ export default function HomeScreen() {
                   </View>
                 )}
 
+                {/* Morning: one small first step, then the week so far. */}
+                {phase === "morning" && (
+                  <>
+                    {/* PR B: the Coach's note (a tiny first step, with Start) goes here. */}
+                    <WeekRow summary={week} daysShowedUp={daysShowedUp} onPress={openProgress} />
+                  </>
+                )}
+                {/* Midday: momentum, where it leads, and what tonight brings. */}
+                {phase === "midday" && (
+                  <>
+                    {/* PR B: the Coach's note (momentum) goes here. */}
+                    {nextMilestone && (
+                      <Pressable
+                        onPress={openProgress}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Next on your path: ${nextMilestone.title}. Opens Progress.`}
+                        className="flex-row items-center gap-2 rounded-3xl border px-4 py-3"
+                        style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+                        testID="next-path-link"
+                      >
+                        <Ionicons name="trail-sign-outline" size={18} color={colors.primary} />
+                        <Text className="flex-1 text-base text-foreground" numberOfLines={2}>
+                          <Text style={{ color: colors.muted }}>Next on your path: </Text>
+                          <Text className="font-semibold">{nextMilestone.title}</Text>
+                        </Text>
+                        <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+                      </Pressable>
+                    )}
+                    {state.momentumSettings.eveningReflection && (
+                      <View className="flex-row items-center gap-2 px-1" testID="tonight-teaser">
+                        <Ionicons name="moon-outline" size={16} color={colors.muted} />
+                        <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
+                          Tonight, one tap closes the day and drafts tomorrow.
+                        </Text>
+                      </View>
+                    )}
+                    <WeekRow summary={week} daysShowedUp={daysShowedUp} onPress={openProgress} />
+                  </>
+                )}
+
                 {/* The one gradient in the app: the finished day. */}
-                {progress.isPerfect && (
-                  <GradientCard className="rounded-3xl" style={{ padding: 20, gap: 6 }}>
-                    <View testID="perfect-day-card" accessible accessibilityRole="summary">
-                      <Text style={{ color: "#fff", fontFamily: Fonts.rounded, fontSize: 24, fontWeight: "800" }}>
-                        {total === MAX_TASKS ? "All three, done." : "Everything you picked is done."}
-                      </Text>
-                      <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 15, marginTop: 4 }}>
-                        {eveningCheckIn
-                          ? "You showed up today. Close the day below and your coach drafts tomorrow."
-                          : "You showed up today."}
-                      </Text>
-                    </View>
-                  </GradientCard>
+                {phase === "done" && (
+                  <DoneCard
+                    total={total}
+                    week={week}
+                    eveningCheckIn={eveningCheckIn}
+                    onPullOneMore={
+                      remainingSlots > 0 && !state.todayLocked ? () => setIdeasOpen(true) : undefined
+                    }
+                  />
                 )}
                 {eveningCheckIn && (
                   <>

@@ -63,8 +63,8 @@ describe("store.config.json", () => {
 });
 
 describe("app.config.ts", () => {
-  it("ships as Three Today 1.1.0", () => {
+  it("ships as Three Today 1.2.0", () => {
     expect(appConfig.name).toBe("Three Today");
-    expect(appConfig.version).toBe("1.1.0");
+    expect(appConfig.version).toBe("1.2.0");
   });
 });
