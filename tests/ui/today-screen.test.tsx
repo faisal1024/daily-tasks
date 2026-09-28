@@ -100,6 +100,10 @@ const mockNavigate = jest.fn();
 jest.mock("expo-router", () => ({
   router: { navigate: (...args: unknown[]) => mockNavigate(...args) },
 }));
+jest.mock("@/lib/daily-tasks/notifications", () => ({
+  scheduleFocusTimerNotification: jest.fn(async () => {}),
+  cancelFocusTimerNotification: jest.fn(async () => {}),
+}));
 const mockTrack = jest.fn();
 jest.mock("@/lib/daily-tasks/analytics", () => ({
   ...jest.requireActual("@/lib/daily-tasks/analytics"),
@@ -660,6 +664,25 @@ describe("rating on a later app open", () => {
     expect(requestAppReview).toHaveBeenCalledTimes(1);
     await act(async () => review.resolve(true));
     expect(mockStore.markReviewPrompted).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits while focus mode is open, and asks on a later foreground once it's closed", async () => {
+    // Morning, one ticked: the coach's note (and its Start) is showing.
+    jest.setSystemTime(new Date(2026, 8, 26, 9, 0));
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read"),
+      todayCompletions: ["t0"],
+      reviewDueAt: new Date(Date.now() - 2 * HOUR).toISOString(),
+    });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    await settle();
+    expect(requestAppReview).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByRole("button", { name: "Not now" }));
+    await toForeground();
+    expect(requestAppReview).toHaveBeenCalledTimes(1);
   });
 
   it("does nothing when no rating is due", async () => {
@@ -1347,6 +1370,19 @@ describe("Win-back paywall on Today", () => {
     expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 
+  it("not when focus mode was opened in the meantime", async () => {
+    jest.useFakeTimers({ now: MORNING });
+    lapsedFree();
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(mockOpenPaywall).not.toHaveBeenCalledWith("win_back");
+  });
+
   it.each([
     ["it isn't due", () => (mockPaywall = { paywallSource: null, entitlementActive: false, winBackDue: false })],
     ["the user has Plus", () => (mockStore = { ...mockStore, hasPlus: true })],
@@ -2000,16 +2036,15 @@ describe("Coach's note (1.2)", () => {
   };
   const request = requestCoachNotes as jest.Mock;
 
-  it("morning, nothing ticked: a built-in start line about the first task, no Start button", async () => {
+  it("morning, nothing ticked: a built-in start line about the first task, with a Start button", async () => {
     at(9);
     mockStore = makeStore({ tasks: THREE });
     await render(<HomeScreen />);
     expect(screen.getByTestId("coach-note")).toBeOnTheScreen();
     expect(screen.getByTestId("coach-note-start")).toHaveTextContent(localCoachLine("start", "Walk the dog", TODAY));
-    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Start: Walk the dog" })).toBeOnTheScreen();
     expect(screen.getByLabelText(`Coach's note: ${localCoachLine("start", "Walk the dog", TODAY)}`)).toBeOnTheScreen();
   });
-
   it("midday: a momentum line about the first unticked task", async () => {
     at(14);
     mockStore = makeStore({ tasks: tasks("Walk the dog", "Read"), todayCompletions: ["t0"] });
@@ -2301,5 +2336,168 @@ describe("Coach's note (1.2)", () => {
     mockStore = makeStore({ tasks: THREE, coachNotes: claimed(THREE.map((t) => t.text), 1, AI) });
     await view.rerender(<HomeScreen />);
     expect(icons()).toEqual(["sparkles"]);
+  });
+});
+
+describe("Focus mode from the coach's note (1.2)", () => {
+  const at = (hour: number) =>
+    jest.useFakeTimers({
+      now: new Date(2026, 8, 26, hour, 0),
+      doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"],
+    });
+  const THREE = tasks("Walk the dog", "Read", "Call mum");
+  const AI_NOTES = {
+    date: TODAY,
+    notes: { [coachTaskKey("Walk the dog")]: { start: "Find the lead by the door.", momentum: "Fresh air helps." } },
+    requests: 1,
+    asked: THREE.map((t) => coachTaskKey(t.text)),
+    logged: true,
+  };
+  const pause = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const focusEvents = () => mockTrack.mock.calls.filter((c) => String(c[0]).startsWith("focus_"));
+
+  it("Start opens focus mode on the note's task, with the same start line as the note", async () => {
+    at(9);
+    mockStore = makeStore({ tasks: THREE, ...SET, coachNotes: AI_NOTES });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("coach-note-start")).toHaveTextContent("Find the lead by the door.");
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Walk the dog");
+    expect(screen.getByTestId("focus-start-line")).toHaveTextContent("Find the lead by the door.");
+    expect(focusEvents()).toEqual([["focus_opened"]]);
+  });
+
+  it("after a tick the note moves on to momentum, but focus mode opens on the next open task with its start line", async () => {
+    at(9);
+    mockStore = makeStore({ tasks: THREE, todayCompletions: ["t0"] });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("coach-note-momentum")).toHaveTextContent(localCoachLine("momentum", "Read", TODAY));
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Read");
+    expect(screen.getByTestId("focus-start-line")).toHaveTextContent(localCoachLine("start", "Read", TODAY));
+  });
+
+  it("Done ticks the task through the normal path, tracks focus_completed after focus_opened, announces it, and closes", async () => {
+    at(9);
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    mockStore = makeStore({ tasks: THREE, ...SET });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    await fireEvent.press(screen.getByRole("button", { name: "Done" }));
+    expect(mockStore.toggleTask).toHaveBeenCalledTimes(1);
+    expect(mockStore.toggleTask).toHaveBeenCalledWith("t0");
+    expect(mockTrack).toHaveBeenCalledWith("task_completed", { count: 1 });
+    expect(focusEvents()).toEqual([["focus_opened"], ["focus_completed", { timer: 0 }]]);
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    // A moment later, so the sheet closing doesn't cut it off.
+    expect(announce).not.toHaveBeenCalledWith("Done: Walk the dog");
+    await pause(600);
+    expect(announce).toHaveBeenCalledWith("Done: Walk the dog");
+    announce.mockRestore();
+  });
+
+  it("Done on the third task leaves the announcement to the celebration", async () => {
+    at(9);
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    mockStore = makeStore({ tasks: THREE, ...SET, todayCompletions: ["t0", "t1"] });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Call mum");
+    await fireEvent.press(screen.getByRole("button", { name: "Done" }));
+    expect(mockStore.toggleTask).toHaveBeenCalledWith("t2");
+    await pause(600);
+    expect(announce).not.toHaveBeenCalledWith("Done: Call mum");
+    announce.mockRestore();
+  });
+
+  it("a third task done again after today's celebration is still announced", async () => {
+    at(9);
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    mockStore = makeStore({ tasks: THREE, ...SET, todayCompletions: ["t0", "t1"] });
+    const view = await render(<HomeScreen />);
+    // All three ticked (celebrated), then the third unticked again.
+    mockStore = makeStore({ tasks: THREE, ...SET, todayCompletions: ["t0", "t1", "t2"] });
+    await view.rerender(<HomeScreen />);
+    mockStore = makeStore({ tasks: THREE, ...SET, todayCompletions: ["t0", "t1"] });
+    await view.rerender(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    await fireEvent.press(screen.getByRole("button", { name: "Done" }));
+    expect(mockStore.toggleTask).toHaveBeenCalledWith("t2");
+    await pause(600);
+    expect(announce).toHaveBeenCalledWith("Done: Call mum");
+    announce.mockRestore();
+  });
+
+  it("focus_opened goes out on open; focus_timer_started each time a timer starts; completed carries the timer", async () => {
+    at(9);
+    mockStore = makeStore({ tasks: THREE, ...SET });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(focusEvents()).toEqual([["focus_opened"]]);
+    await fireEvent.press(screen.getByRole("button", { name: "25 minute timer" }));
+    // The running one again: a no-op, no event.
+    await fireEvent.press(screen.getByRole("button", { name: "25 minute timer" }));
+    await fireEvent.press(screen.getByRole("button", { name: "10 minute timer" }));
+    expect(focusEvents()).toEqual([
+      ["focus_opened"],
+      ["focus_timer_started", { timer: 25 }],
+      ["focus_timer_started", { timer: 10 }],
+    ]);
+    await fireEvent.press(screen.getByRole("button", { name: "Not now" }));
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    expect(mockStore.toggleTask).not.toHaveBeenCalled();
+    expect(focusEvents()).toHaveLength(3);
+
+    // A fresh open starts with no timer.
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(screen.getByRole("button", { name: "No timer" })).toBeSelected();
+    await fireEvent.press(screen.getByRole("button", { name: "10 minute timer" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Done" }));
+    expect(focusEvents().slice(3)).toEqual([
+      ["focus_opened"],
+      ["focus_timer_started", { timer: 10 }],
+      ["focus_completed", { timer: 10 }],
+    ]);
+  });
+
+  it("closes when the day rolls over", async () => {
+    at(9);
+    mockStore = makeStore({ tasks: THREE, ...SET });
+    const view = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    // Same tasks (e.g. carried over), a new day.
+    mockStore = { ...makeStore({ tasks: THREE, ...SET }), today: "2026-09-27" };
+    await view.rerender(<HomeScreen />);
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    expect(mockStore.toggleTask).not.toHaveBeenCalled();
+  });
+
+  it("closes on its own when its task is ticked elsewhere (e.g. the widget) or removed", async () => {
+    at(9);
+    mockStore = makeStore({ tasks: THREE, ...SET });
+    const view = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    mockStore = makeStore({ tasks: THREE, ...SET, todayCompletions: ["t0"] });
+    await view.rerender(<HomeScreen />);
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    expect(focusEvents()).toEqual([["focus_opened"]]);
+    // Unticked again (e.g. from the widget): it stays closed, it doesn't pop back.
+    mockStore = makeStore({ tasks: THREE, ...SET });
+    await view.rerender(<HomeScreen />);
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    mockStore = makeStore({ tasks: THREE, ...SET, todayCompletions: ["t0"] });
+    await view.rerender(<HomeScreen />);
+
+    // Removed: open it on "Read" (now next), then drop it from the list.
+    await fireEvent.press(screen.getByTestId("coach-note-start-button"));
+    expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Read");
+    mockStore = makeStore({ tasks: [THREE[0], THREE[2]], ...SET, todayCompletions: ["t0"] });
+    await view.rerender(<HomeScreen />);
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    // Nothing was ticked by the close itself.
+    expect(mockStore.toggleTask).not.toHaveBeenCalled();
   });
 });
