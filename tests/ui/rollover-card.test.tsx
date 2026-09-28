@@ -3,7 +3,7 @@
 import { fireEvent, screen } from "@testing-library/react-native";
 
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
-import type { PendingRollover, RolloverTask } from "@/lib/daily-tasks/types";
+import type { DayTaskRecord, PendingRollover } from "@/lib/daily-tasks/types";
 
 import { renderWithProviders as render } from "./render";
 
@@ -11,7 +11,7 @@ function pendingOf(...texts: string[]): PendingRollover {
   return {
     sourceDate: "2026-09-25",
     tasks: texts.map(
-      (text, i): RolloverTask => ({
+      (text, i): DayTaskRecord => ({
         id: `y${i}`,
         text,
         completed: false,
