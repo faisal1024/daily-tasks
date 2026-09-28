@@ -278,9 +278,28 @@ export default function HomeScreen() {
     hour: new Date().getHours(),
     enabled: state.momentumSettings.eveningReflection,
   });
+  // Yesterday's unfinished ones: a card, so the draft and the rest of Today
+  // stay usable (it used to be a blocking modal). On a phone with no draft it
+  // leads, above the three slots; otherwise it follows the draft, quietly.
+  const rolloverOnTop = !wide && !draft;
+  const rolloverCard = (
+    <RolloverModal
+      pending={state.pendingRollover}
+      // A set day takes nothing new.
+      remainingSlots={state.todayLocked ? 0 : remainingSlots}
+      quiet={Boolean(draft)}
+      onApply={(ids) => {
+        track("rollover_resolved", {
+          count: ids.length,
+          outcome: remainingSlots <= 0 || state.todayLocked ? "no_room" : ids.length === 0 ? "fresh" : "carried",
+        });
+        resolveRollover(ids);
+      }}
+    />
+  );
   // The right column (iPad) / lower section (phone) only exists when it has content.
   const rightHasContent =
-    Boolean(state.pendingRollover) || ideasVisible || progress.isPerfect || eveningCheckIn || Boolean(draft);
+    (Boolean(state.pendingRollover) && (wide || Boolean(draft))) || ideasVisible || progress.isPerfect || eveningCheckIn || Boolean(draft);
   const twoColumn = wide && rightHasContent;
   const dateLabel = fromDateKey(today).toLocaleDateString(undefined, {
     weekday: "long",
@@ -377,7 +396,6 @@ export default function HomeScreen() {
   // a celebration): the rating ask waits for a quiet moment.
   const busyRef = useRef(false);
   busyRef.current =
-    Boolean(state.pendingRollover) ||
     !state.hasSeenOnboarding ||
     firstRunActive ||
     paywallSource !== null ||
@@ -659,6 +677,9 @@ export default function HomeScreen() {
                 </View>
               )}
 
+              {/* No draft to weigh it against: yesterday's leftovers come first. */}
+              {rolloverOnTop && rolloverCard}
+
               {/* One calm card: three rows, hairlines between them. */}
               <View
                 className="rounded-3xl overflow-hidden border"
@@ -752,19 +773,6 @@ export default function HomeScreen() {
             {rightHasContent && (
               <View style={twoColumn ? { flex: 1, gap: 14 } : { gap: 14 }}>
 
-                {/* Yesterday's unfinished ones: a card, so the draft and the
-                    rest of Today stay usable (it used to be a blocking modal). */}
-                <RolloverModal
-                  pending={state.pendingRollover}
-                  remainingSlots={remainingSlots}
-                  onApply={(ids) => {
-                    track("rollover_resolved", {
-                      count: ids.length,
-                      outcome: remainingSlots <= 0 ? "no_room" : ids.length === 0 ? "fresh" : "carried",
-                    });
-                    resolveRollover(ids);
-                  }}
-                />
                 {draft && (
                   <TomorrowDraftCard
                     draft={draft}
@@ -778,6 +786,8 @@ export default function HomeScreen() {
                     onDismiss={dismissTomorrowDraft}
                   />
                 )}
+                {/* With a draft (or on iPad): after it, as the quieter choice. */}
+                {!rolloverOnTop && rolloverCard}
                 {morning && !draft && (
                   <MorningHero
                     onDump={() => setBrainDumpOpen(true)}

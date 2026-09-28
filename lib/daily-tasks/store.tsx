@@ -47,6 +47,7 @@ import {
 import {
   applyRollover,
   resolvePendingRollover,
+  settlePendingRollover,
   syncTodayHistory,
 } from "./rollover";
 import {
@@ -205,6 +206,16 @@ function resetMilestonesIfGoalChanged(
 }
 
 function reducer(state: AppState, action: Action): AppState {
+  const next = reduce(state, action);
+  // Today changed under yesterday's card (a draft, a brain dump, setting the
+  // day): drop what's now covered or has no room. See settlePendingRollover.
+  return next.pendingRollover &&
+    (next.tasks !== state.tasks || next.todayLocked !== state.todayLocked)
+    ? settlePendingRollover(next)
+    : next;
+}
+
+function reduce(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "markReviewPrompted":
       return { ...state, lastReviewPromptAt: action.at, reviewDueAt: null };

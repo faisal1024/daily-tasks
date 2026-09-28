@@ -114,7 +114,8 @@ describe("Today: rollover card next to last night's draft (real store)", () => {
       tomorrowDraft: draft(["Stretch", "Hydrate"]),
     });
     expect(screen.getByTestId("tomorrow-draft")).toBeOnTheScreen();
-    expect(card().getByTestId("rollover-apply")).toHaveTextContent("Bring 2 into today");
+    // Next to a draft the card is the quiet choice: nothing ticked, "Leave it".
+    expect(card().getByTestId("rollover-apply")).toHaveTextContent("Leave it");
 
     await act(async () => {
       fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
@@ -122,8 +123,9 @@ describe("Today: rollover card next to last night's draft (real store)", () => {
     expect(todayTaskNames()).toEqual(["Stretch", "Hydrate"]);
     expect(screen.queryByTestId("tomorrow-draft")).toBeNull();
 
-    // One slot left: the card trims its pick to fit.
-    expect(card().getByText(/Room for 1 today/)).toBeOnTheScreen();
+    // The draft is used, so the card is the main choice again: one slot left,
+    // the first leftover ticked.
+    expect(card().getByText(/This one wasn't finished|Room for 1 today/)).toBeOnTheScreen();
     expect(card().getByTestId("rollover-apply")).toHaveTextContent("Bring 1 into today");
 
     await act(async () => {
@@ -133,7 +135,7 @@ describe("Today: rollover card next to last night's draft (real store)", () => {
     expect(todayTaskNames()).toEqual(["Stretch", "Hydrate", "Walk"]);
   });
 
-  it("a draft that fills the day leaves the card with no room: Got it clears it", async () => {
+  it("a draft that fills the day settles the card by itself (the rest stay in history)", async () => {
     await openThisMorning({
       tasks: [task("y0", "Walk")],
       tomorrowDraft: draft(["Stretch", "Hydrate", "Call mum"]),
@@ -142,11 +144,6 @@ describe("Today: rollover card next to last night's draft (real store)", () => {
       fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
     });
     expect(todayTaskNames()).toEqual(["Stretch", "Hydrate", "Call mum"]);
-    expect(card().getByText(/already full/)).toBeOnTheScreen();
-    expect(card().getByTestId("rollover-apply")).toHaveTextContent("Got it");
-    await act(async () => {
-      fireEvent.press(card().getByTestId("rollover-apply"));
-    });
     expect(screen.queryByTestId("rollover-card")).toBeNull();
     expect(todayTaskNames()).toEqual(["Stretch", "Hydrate", "Call mum"]);
   });
@@ -156,9 +153,9 @@ describe("Today: rollover card next to last night's draft (real store)", () => {
       tasks: [task("y0", "Walk"), task("y1", "Read")],
       tomorrowDraft: draft(["Walk", "Read", "Stretch"]),
     });
-    // Keep Walk, drop Read.
+    // Keep Walk, drop Read (nothing is pre-ticked next to a draft).
     await act(async () => {
-      fireEvent.press(card().getByRole("checkbox", { name: "Read" }));
+      fireEvent.press(card().getByRole("checkbox", { name: "Walk" }));
     });
     await act(async () => {
       fireEvent.press(card().getByTestId("rollover-apply"));
@@ -171,11 +168,9 @@ describe("Today: rollover card next to last night's draft (real store)", () => {
     expect(todayTaskNames()).toEqual(["Walk", "Stretch"]);
   });
 
-  // BUG (P1): the evening close's draft is built from the day's open tasks,
-  // i.e. the same ones the rollover card lists. Using the draft first (now
-  // possible, since the card no longer blocks) leaves them on the card too,
-  // and bringing them in duplicates them on Today.
-  it.failing("using a draft of the same unfinished tasks doesn't let the card bring in duplicates", async () => {
+  // The evening draft is built from the day's open tasks, i.e. the same ones
+  // the card lists: using the draft settles them as carried, never twice.
+  it("using a draft of the same unfinished tasks doesn't let the card bring in duplicates", async () => {
     await openThisMorning({
       tasks: [task("y0", "Walk"), task("y1", "Read")],
       tomorrowDraft: draft(["Walk", "Read"]),
@@ -193,11 +188,8 @@ describe("Today: rollover card next to last night's draft (real store)", () => {
     expect(todayTaskNames()).toEqual(["Walk", "Read"]);
   });
 
-  // BUG (P2): the card no longer blocks, so the day can be set (locked) while
-  // it's pending; bringing tasks in then adds to a set day, which addTask /
-  // addTasks refuse. Either hide the card's bring-in on a set day or resolve
-  // as "no room".
-  it.failing("setting the day while the card is up doesn't let it add to the set day", async () => {
+  // Setting the day settles the card: nothing from yesterday lands on a set day.
+  it("setting the day while the card is up doesn't let it add to the set day", async () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     await openThisMorning({
       tasks: [task("y0", "Walk"), task("y1", "Read")],

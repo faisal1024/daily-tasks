@@ -155,7 +155,7 @@ describe("Rollover card", () => {
     expect(onApply).toHaveBeenLastCalledWith([]);
   });
 
-  it("when the room shrinks, the user's own picks are replaced by the first ones (documents current behaviour)", async () => {
+  it("when the room shrinks, the user's own picks are kept, trimmed to fit (never reset to the first ones)", async () => {
     const onApply = jest.fn();
     const pending = pendingOf("Walk", "Read", "Call mum");
     const { rerender } = await render(<RolloverModal pending={pending} remainingSlots={2} onApply={onApply} />);
@@ -163,9 +163,10 @@ describe("Rollover card", () => {
     await fireEvent.press(row("Walk"));
     await fireEvent.press(row("Call mum"));
     expect(checked("Call mum")).toBe(true);
-    // ...then the room drops to 1: the pick resets to the first task.
+    // ...then the room drops to 1: still their picks (Read, ticked first), not Walk.
     await rerender(<RolloverModal pending={pending} remainingSlots={1} onApply={onApply} />);
-    expect(checked("Walk")).toBe(true);
+    expect(checked("Walk")).toBe(false);
+    expect(checked("Read")).toBe(true);
     expect(checked("Call mum")).toBe(false);
   });
 

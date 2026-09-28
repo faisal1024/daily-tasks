@@ -590,7 +590,6 @@ describe("rating on a later app open", () => {
   });
 
   it.each([
-    ["the rollover modal is up", { pendingRollover: { sourceDate: "2026-09-25", tasks: [] } }],
     ["onboarding hasn't been done", { hasSeenOnboarding: false }],
   ])("waits while %s", async (_why, overrides) => {
     await openWithDue(2 * HOUR, overrides as Partial<AppState>);

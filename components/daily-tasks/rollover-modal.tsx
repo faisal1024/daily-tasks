@@ -14,6 +14,11 @@ interface RolloverModalProps {
   /** @deprecated unused; kept optional for callers. */
   currentTaskCount?: number;
   onApply: (carriedTaskIds: TaskId[]) => void;
+  /**
+   * Last night's draft is showing: this card is the secondary choice (quiet
+   * style, nothing ticked, so the draft's "Use this" is the one main action).
+   */
+  quiet?: boolean;
 }
 
 /**
@@ -23,13 +28,25 @@ interface RolloverModalProps {
  * A card on Today, not a modal: a modal blocked everything behind it (last
  * night's draft looked tappable but wasn't), and iOS can't stack a sheet on it.
  */
-export function RolloverModal({ pending, remainingSlots, onApply }: RolloverModalProps) {
+export function RolloverModal({ pending, remainingSlots, onApply, quiet = false }: RolloverModalProps) {
   const colors = useColors();
   const [selectedIds, setSelectedIds] = useState<TaskId[]>([]);
 
+  // A new set of leftovers: start from the first that fit (none when last
+  // night's draft is the main choice). Only then: an edit elsewhere on Today
+  // mustn't wipe what the user ticked.
+  const pendingKey = pending ? `${pending.sourceDate}:${pending.tasks.map((task) => task.id).join(",")}` : "";
   useEffect(() => {
-    setSelectedIds(pending ? pending.tasks.slice(0, remainingSlots).map((task) => task.id) : []);
-  }, [pending, remainingSlots]);
+    setSelectedIds(pending && !quiet ? pending.tasks.slice(0, remainingSlots).map((task) => task.id) : []);
+    // Keyed on the pending set only (see above); room is handled just below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingKey]);
+  // Room shrank (a task was added): keep the user's picks, trimmed to fit.
+  useEffect(() => {
+    setSelectedIds((current) =>
+      current.length > remainingSlots ? current.slice(0, Math.max(0, remainingSlots)) : current,
+    );
+  }, [remainingSlots]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   if (!pending) return null;
@@ -48,7 +65,7 @@ export function RolloverModal({ pending, remainingSlots, onApply }: RolloverModa
   return (
     <View
       className="rounded-3xl border p-5 gap-4"
-      style={{ borderColor: colors.primary, backgroundColor: colors.surface }}
+      style={{ borderColor: quiet ? colors.border : colors.primary, backgroundColor: colors.surface }}
       testID="rollover-card"
     >
       <View className="gap-1">
@@ -56,16 +73,20 @@ export function RolloverModal({ pending, remainingSlots, onApply }: RolloverModa
           accessibilityRole="header"
           style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 20, fontWeight: "800" }}
         >
-          From before
+          {quiet ? "Also from yesterday" : "Unfinished from yesterday"}
         </Text>
         <Text className="text-base" style={{ color: colors.muted }}>
           {!hasRoom
             ? "Today's three are already full, so these stay in your history."
-            : pending.tasks.length === 1
-              ? "This one wasn't finished. Bring it into today? If not, it stays in your history."
-              : remainingSlots === 1
-                ? "These weren't finished. Room for 1 today: tick the one that matters most. The rest stay in your history."
-                : `These weren't finished. Room for ${Math.min(remainingSlots, 3)} today: tick what still matters. The rest stay in your history.`}
+            : quiet
+              ? pending.tasks.length === 1
+                ? "Last night's plan may already cover this. Add it too?"
+                : "Still unfinished. Tick any you want to add."
+              : pending.tasks.length === 1
+                ? "This one wasn't finished. Bring it into today?"
+                : remainingSlots === 1
+                  ? "These weren't finished. Room for 1 today: tick the one that matters most. The rest stay in your history."
+                  : `These weren't finished. Room for ${Math.min(remainingSlots, 3)} today: tick what still matters. The rest stay in your history.`}
         </Text>
       </View>
 
@@ -114,14 +135,24 @@ export function RolloverModal({ pending, remainingSlots, onApply }: RolloverModa
         <Pressable
           onPress={() => onApply(hasRoom ? selectedIds : [])}
           accessibilityRole="button"
-          style={{ borderRadius: 999, paddingVertical: 16, alignItems: "center", backgroundColor: colors.primary }}
+          style={{
+            borderRadius: 999,
+            paddingVertical: quiet ? 12 : 16,
+            alignItems: "center",
+            // Quiet next to the draft: one filled button on screen ("Use this").
+            backgroundColor: quiet ? "transparent" : colors.primary,
+            borderWidth: quiet ? 1 : 0,
+            borderColor: colors.border,
+          }}
           testID="rollover-apply"
         >
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 17 }}>
+          <Text style={{ color: quiet ? colors.primary : "#fff", fontWeight: "700", fontSize: quiet ? 16 : 17 }}>
             {!hasRoom
               ? "Got it"
               : count === 0
-                ? "Start fresh"
+                ? quiet
+                  ? "Leave it"
+                  : "Start fresh"
                 : count === 1
                   ? "Bring 1 into today"
                   : `Bring ${count} into today`}

@@ -87,10 +87,62 @@ function completedIdsFromRecord(record: DayRecord): TaskId[] {
   return record.tasks.filter((task) => task.completed).map((task) => task.id);
 }
 
+// Same normalization as the evening draft's, so "Walk " and "walk" match.
+const taskKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
+/** Mark a source day's still-unresolved tasks with an outcome (by id). */
+function settleSource(
+  state: AppState,
+  sourceDate: string,
+  outcome: (task: DayRecord["tasks"][number]) => "carried" | "dropped" | null,
+): AppState {
+  const record = state.history[sourceDate];
+  if (!record) return state;
+  return {
+    ...state,
+    history: {
+      ...state.history,
+      [sourceDate]: {
+        ...record,
+        tasks: record.tasks.map((task) => {
+          if (task.completed || task.rolloverOutcome !== "unresolved") return task;
+          const next = outcome(task);
+          return next ? { ...task, rolloverOutcome: next } : task;
+        }),
+      },
+    },
+  };
+}
+
+/**
+ * Yesterday's unfinished ones are a card on Today (not a blocking modal), so
+ * the day can change underneath it. Keep it honest: anything already on Today
+ * (e.g. from last night's draft) counts as carried and leaves the card, and a
+ * full or set day has no room, so the rest stay in history (dropped).
+ */
+export function settlePendingRollover(state: AppState): AppState {
+  const pending = state.pendingRollover;
+  if (!pending) return state;
+  const onToday = new Set(state.tasks.map((task) => taskKey(task.text)));
+  const noRoom = state.todayLocked || state.tasks.length >= MAX_TASKS;
+  const covered = pending.tasks.filter((task) => onToday.has(taskKey(task.text)));
+  if (covered.length === 0 && !noRoom) return state;
+  const coveredIds = new Set(covered.map((task) => task.id));
+  const settled = settleSource(state, pending.sourceDate, (task) =>
+    coveredIds.has(task.id) ? "carried" : noRoom ? "dropped" : null,
+  );
+  const rest = noRoom ? [] : pending.tasks.filter((task) => !coveredIds.has(task.id));
+  return { ...settled, pendingRollover: rest.length > 0 ? { ...pending, tasks: rest } : null };
+}
+
 export function applyRollover(state: AppState, today: string): AppState {
   // Same day, or a one-day step back (travel west): keep the current day
   // rather than "rolling over" into an earlier one. See storeDayFor.
   if (storeDayFor(state.lastOpenedDate, today) === state.lastOpenedDate) return state;
+  // A card left unanswered for a whole day: those stay in their day's history.
+  if (state.pendingRollover) {
+    state = { ...settleSource(state, state.pendingRollover.sourceDate, () => "dropped"), pendingRollover: null };
+  }
 
   const previousDate = state.lastOpenedDate;
   const existingTodayRecord = state.history[today];
@@ -166,12 +218,16 @@ export function resolvePendingRollover(
     };
   }
 
-  const availableSlots = Math.max(0, MAX_TASKS - state.tasks.length);
+  // A set day takes nothing new (like addTask/addTasks).
+  const availableSlots = state.todayLocked ? 0 : Math.max(0, MAX_TASKS - state.tasks.length);
   const carrySet = new Set(carriedTaskIds);
+  const onToday = new Set(state.tasks.map((task) => taskKey(task.text)));
+  // Already on Today (e.g. from last night's draft): carried, not added twice.
+  const alreadyThere = state.pendingRollover.tasks.filter((task) => onToday.has(taskKey(task.text)));
   const carriedTasks = state.pendingRollover.tasks
-    .filter((task) => carrySet.has(task.id))
+    .filter((task) => carrySet.has(task.id) && !onToday.has(taskKey(task.text)))
     .slice(0, availableSlots);
-  const carriedIds = new Set(carriedTasks.map((task) => task.id));
+  const carriedIds = new Set([...carriedTasks, ...alreadyThere].map((task) => task.id));
 
   const nextTasks = [
     ...state.tasks,
