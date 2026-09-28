@@ -1,5 +1,7 @@
 // Widget data (Phase 5): the snapshot the widget shows, and the queue of ticks
 // made in the widget that the app applies.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -28,6 +30,7 @@ describe("buildWidgetSnapshot", () => {
       today: TODAY,
       streak: 4.7,
       plus: false,
+      day: 12,
     });
     expect(snapshot).toEqual({
       date: TODAY,
@@ -37,10 +40,26 @@ describe("buildWidgetSnapshot", () => {
       ],
       streak: 4,
       plus: false,
+      day: 12,
     });
     expect(
-      buildWidgetSnapshot({ state: { tasks: [], todayCompletions: [] }, today: TODAY, streak: -2, plus: true }),
+      buildWidgetSnapshot({ state: { tasks: [], todayCompletions: [] }, today: TODAY, streak: -2, plus: true, day: 1 }),
     ).toMatchObject({ streak: 0, plus: true });
+  });
+
+  it("floors day and clamps it to at least 1", () => {
+    const build = (day: number) =>
+      buildWidgetSnapshot({ state: { tasks: [], todayCompletions: [] }, today: TODAY, streak: 0, plus: false, day })
+        .day;
+    expect(build(7.9)).toBe(7);
+    expect(build(0)).toBe(1);
+    expect(build(-3)).toBe(1);
+  });
+
+  it("Shared.swift keeps Snapshot.day optional so pre-1.2 snapshots still decode", () => {
+    const swift = readFileSync(resolve(__dirname, "../targets/widget/Shared.swift"), "utf8");
+    const snapshot = swift.match(/struct Snapshot: Codable \{([\s\S]*?)\n\}/)?.[1] ?? "";
+    expect(snapshot).toMatch(/\b(?:var|let)\s+day\s*:\s*Int\?/);
   });
 });
 

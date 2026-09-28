@@ -11,7 +11,7 @@ import type { PlusContextValue } from "@/lib/daily-tasks/plus-context";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import * as storage from "@/lib/daily-tasks/storage";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
-import type { AppState as DailyState, Task } from "@/lib/daily-tasks/types";
+import type { AppState as DailyState, DayRecord, Task } from "@/lib/daily-tasks/types";
 import {
   invalidateWidgetSnapshot,
   markWidgetTogglesProcessed,
@@ -152,6 +152,47 @@ describe("store: widget snapshot", () => {
     expect(result.current.hasPlus).toBe(true);
     // ...but the widget only gets confirmed Plus.
     expect(lastSnapshot().plus).toBe(false);
+  });
+});
+
+function pastDay(date: string, total: number): DayRecord {
+  return { date, total, completed: 0, locked: false, lockSource: null, tasks: [], reflection: null, reflectionResult: null };
+}
+
+describe("store: widget \"Day N\"", () => {
+  it("writes day = daysShowedUp (only past days with tasks count, plus today)", async () => {
+    const { result } = await renderStore({
+      saved: {
+        history: {
+          "2000-01-01": pastDay("2000-01-01", 3),
+          "2000-01-02": pastDay("2000-01-02", 0),
+          "2000-01-03": pastDay("2000-01-03", 2),
+        },
+      },
+    });
+    expect(result.current.daysShowedUp).toBe(3);
+    expect(lastSnapshot().day).toBe(3);
+  });
+
+  it("rewrites the snapshot with the new day after midnight", async () => {
+    const appState = listenToAppState();
+    try {
+      fakeClockAt(new Date(2026, 8, 25, 22, 0));
+      const { result } = await renderStore({ now: new Date(2026, 8, 25, 22, 0) });
+      // Ticking a task records the 25th as a day shown up (counted once it's past).
+      await act(async () => result.current.toggleTask("t0"));
+      const before = result.current.daysShowedUp;
+      expect(lastSnapshot().day).toBe(before);
+
+      jest.setSystemTime(new Date(2026, 8, 26, 8, 0));
+      await act(async () => appState.emit("active"));
+
+      expect(result.current.state.lastOpenedDate).toBe("2026-09-26");
+      expect(result.current.daysShowedUp).toBe(before + 1);
+      expect(lastSnapshot()).toMatchObject({ date: "2026-09-26", day: before + 1 });
+    } finally {
+      appState.restore();
+    }
   });
 });
 
