@@ -67,7 +67,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Check the time zone is applied
-        run: node -e "const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz !== process.env.TZ) { console.error('Expected ' + process.env.TZ + ', got ' + tz); process.exit(1) }"
+        # Compare to UTC, not to $TZ: Node may report an alias (Asia/Calcutta).
+        run: node -e "const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (/^(Etc\/)?UTC$/.test(tz)) { console.error('TZ ' + process.env.TZ + ' not applied, got ' + tz); process.exit(1) }"
 
       - name: Unit tests (Vitest)
         run: npx vitest run
