@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyRollover,
   resolvePendingRollover,
+  settlePendingRollover,
   syncTodayHistory,
 } from "../lib/daily-tasks/rollover";
 import { DEFAULT_JOURNEY } from "../lib/daily-tasks/journey";
@@ -266,5 +267,54 @@ describe("syncTodayHistory", () => {
 
     expect(next.todayReflection).toBeNull();
     expect(next.history["2026-04-17"]?.reflection).toBe("Kept the list small.");
+  });
+});
+
+describe("the rollover card doesn't block Today any more: keep it honest", () => {
+  const outcome = (state: AppState, id: string) =>
+    state.history["2026-04-17"]?.tasks.find((task) => task.id === id)?.rolloverOutcome;
+  const withTasks = (state: AppState, texts: string[]): AppState => ({
+    ...state,
+    tasks: texts.map((text, i) => ({ id: `n${i}`, text, createdAt: "x", carriedOver: false })),
+  });
+
+  it("a task already on Today (e.g. from last night's draft) is carried, not added twice", () => {
+    const rolled = applyRollover(makeState(), "2026-04-18"); // pending B, C
+    const drafted = withTasks(rolled, [" b "]);
+    const resolved = resolvePendingRollover(drafted, ["b", "c"], new Date("2026-04-18T09:00:00Z"));
+    expect(resolved.tasks.map((t) => t.text.trim().toLowerCase())).toEqual(["b", "c"]);
+    expect(outcome(resolved, "b")).toBe("carried");
+    expect(outcome(resolved, "c")).toBe("carried");
+  });
+
+  it("settle: what's now on Today leaves the card as carried; the rest stays pending", () => {
+    const rolled = applyRollover(makeState(), "2026-04-18");
+    const settled = settlePendingRollover(withTasks(rolled, ["B"]));
+    expect(settled.pendingRollover?.tasks.map((t) => t.id)).toEqual(["c"]);
+    expect(outcome(settled, "b")).toBe("carried");
+    expect(outcome(settled, "c")).toBe("unresolved");
+  });
+
+  it("settle: a full day clears the card; the rest are dropped (they stay in history)", () => {
+    const rolled = applyRollover(makeState(), "2026-04-18");
+    const settled = settlePendingRollover(withTasks(rolled, ["X", "Y", "B"]));
+    expect(settled.pendingRollover).toBeNull();
+    expect(outcome(settled, "b")).toBe("carried");
+    expect(outcome(settled, "c")).toBe("dropped");
+  });
+
+  it("a set day takes nothing: the card settles and resolving carries nothing", () => {
+    const rolled = { ...applyRollover(makeState(), "2026-04-18"), todayLocked: true };
+    const resolved = resolvePendingRollover(rolled, ["b", "c"], new Date("2026-04-18T09:00:00Z"));
+    expect(resolved.tasks).toHaveLength(0);
+    expect(settlePendingRollover(rolled).pendingRollover).toBeNull();
+  });
+
+  it("a card left unanswered all day: its tasks are dropped at the next rollover, not left unresolved", () => {
+    const rolled = applyRollover(makeState(), "2026-04-18"); // pending from 04-17
+    const next = applyRollover(rolled, "2026-04-19");
+    expect(outcome(next, "b")).toBe("dropped");
+    expect(outcome(next, "c")).toBe("dropped");
+    expect(next.pendingRollover?.sourceDate ?? null).not.toBe("2026-04-17");
   });
 });

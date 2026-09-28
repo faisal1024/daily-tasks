@@ -278,8 +278,28 @@ export default function HomeScreen() {
     hour: new Date().getHours(),
     enabled: state.momentumSettings.eveningReflection,
   });
+  // Yesterday's unfinished ones: a card, so the draft and the rest of Today
+  // stay usable (it used to be a blocking modal). On a phone with no draft it
+  // leads, above the three slots; otherwise it follows the draft, quietly.
+  const rolloverOnTop = !wide && !draft;
+  const rolloverCard = (
+    <RolloverModal
+      pending={state.pendingRollover}
+      // A set day takes nothing new.
+      remainingSlots={state.todayLocked ? 0 : remainingSlots}
+      quiet={Boolean(draft)}
+      onApply={(ids) => {
+        track("rollover_resolved", {
+          count: ids.length,
+          outcome: remainingSlots <= 0 || state.todayLocked ? "no_room" : ids.length === 0 ? "fresh" : "carried",
+        });
+        resolveRollover(ids);
+      }}
+    />
+  );
   // The right column (iPad) / lower section (phone) only exists when it has content.
-  const rightHasContent = ideasVisible || progress.isPerfect || eveningCheckIn || Boolean(draft);
+  const rightHasContent =
+    (Boolean(state.pendingRollover) && (wide || Boolean(draft))) || ideasVisible || progress.isPerfect || eveningCheckIn || Boolean(draft);
   const twoColumn = wide && rightHasContent;
   const dateLabel = fromDateKey(today).toLocaleDateString(undefined, {
     weekday: "long",
@@ -376,7 +396,6 @@ export default function HomeScreen() {
   // a celebration): the rating ask waits for a quiet moment.
   const busyRef = useRef(false);
   busyRef.current =
-    Boolean(state.pendingRollover) ||
     !state.hasSeenOnboarding ||
     firstRunActive ||
     paywallSource !== null ||
@@ -418,13 +437,14 @@ export default function HomeScreen() {
   }, [ready, markReviewPrompted]);
 
   // The sheet has nothing to add once the day is locked, and it must not block
-  // the rollover or onboarding modals (iOS shows one modal at a time).
+  // the onboarding modals (iOS shows one modal at a time). Yesterday's
+  // unfinished ones are a card now, so they don't close it.
   useEffect(() => {
-    if (state.todayLocked || state.pendingRollover || !state.hasSeenOnboarding || firstRunActive) {
+    if (state.todayLocked || !state.hasSeenOnboarding || firstRunActive) {
       setIdeasOpen(false);
       setBrainDumpOpen(false);
     }
-  }, [state.todayLocked, state.pendingRollover, state.hasSeenOnboarding, firstRunActive]);
+  }, [state.todayLocked, state.hasSeenOnboarding, firstRunActive]);
 
   const handleBreakDown = (taskId: string, text: string) => {
     if (breakingRef.current) return;
@@ -467,7 +487,7 @@ export default function HomeScreen() {
       }
       return;
     }
-    if (state.todayLocked || state.pendingRollover) return;
+    if (state.todayLocked) return;
     if (unlock.kind === "brain_dump") {
       setBrainDumpOpen(true);
       return;
@@ -657,6 +677,9 @@ export default function HomeScreen() {
                 </View>
               )}
 
+              {/* No draft to weigh it against: yesterday's leftovers come first. */}
+              {rolloverOnTop && rolloverCard}
+
               {/* One calm card: three rows, hairlines between them. */}
               <View
                 className="rounded-3xl overflow-hidden border"
@@ -763,6 +786,8 @@ export default function HomeScreen() {
                     onDismiss={dismissTomorrowDraft}
                   />
                 )}
+                {/* With a draft (or on iPad): after it, as the quieter choice. */}
+                {!rolloverOnTop && rolloverCard}
                 {morning && !draft && (
                   <MorningHero
                     onDump={() => setBrainDumpOpen(true)}
@@ -1028,18 +1053,6 @@ export default function HomeScreen() {
         }}
       />
 
-      <RolloverModal
-        visible={Boolean(state.pendingRollover)}
-        pending={state.pendingRollover}
-        remainingSlots={remainingSlots}
-        onApply={(ids) => {
-          track("rollover_resolved", {
-            count: ids.length,
-            outcome: remainingSlots <= 0 ? "no_room" : ids.length === 0 ? "fresh" : "carried",
-          });
-          resolveRollover(ids);
-        }}
-      />
     </ScreenContainer>
   );
 }

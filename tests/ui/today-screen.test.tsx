@@ -75,7 +75,20 @@ jest.mock("@/lib/daily-tasks/evening", () => ({
   closeDay: jest.fn(),
 }));
 jest.mock("@/components/daily-tasks/onboarding-modal", () => ({ OnboardingModal: () => null }));
-jest.mock("@/components/daily-tasks/rollover-modal", () => ({ RolloverModal: () => null }));
+jest.mock("@/components/daily-tasks/rollover-modal", () => {
+  const { Pressable, Text, View } = jest.requireActual("react-native");
+  return {
+    // A light stand-in for the inline card: present when something is pending.
+    RolloverModal: ({ pending, onApply }: { pending: unknown; onApply: (ids: string[]) => void }) =>
+      pending ? (
+        <View testID="rollover-card">
+          <Pressable testID="rollover-apply" onPress={() => onApply([])}>
+            <Text>Start fresh</Text>
+          </Pressable>
+        </View>
+      ) : null,
+  };
+});
 const mockTrack = jest.fn();
 jest.mock("@/lib/daily-tasks/analytics", () => ({
   ...jest.requireActual("@/lib/daily-tasks/analytics"),
@@ -404,7 +417,7 @@ describe("Need ideas sheet closes when it must", () => {
     expect(screen.queryByTestId("ideas-sheet")).toBeNull();
   });
 
-  it("closes so the rollover modal can show (iOS presents one modal at a time)", async () => {
+  it("stays open when yesterday's unfinished ones arrive (a card now, not a blocking modal)", async () => {
     mockStore = makeStore({ tasks: tasks("Walk") });
     const { rerender } = await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("need-ideas"));
@@ -425,7 +438,20 @@ describe("Need ideas sheet closes when it must", () => {
       },
     });
     await rerender(<HomeScreen />);
-    expect(screen.queryByTestId("ideas-sheet")).toBeNull();
+    expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
+  });
+
+  it("shows yesterday's unfinished ones as a usable card on Today", async () => {
+    mockStore = makeStore({
+      pendingRollover: {
+        sourceDate: "2026-09-25",
+        tasks: [{ id: "x", text: "Vacuum the house", completed: false, carriedOver: false, rolloverOutcome: "unresolved" }],
+      },
+    });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("rollover-card")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByTestId("rollover-apply"));
+    expect(mockStore.resolveRollover).toHaveBeenCalled();
   });
 
   it("closes so the onboarding modal can show", async () => {
@@ -564,7 +590,6 @@ describe("rating on a later app open", () => {
   });
 
   it.each([
-    ["the rollover modal is up", { pendingRollover: { sourceDate: "2026-09-25", tasks: [] } }],
     ["onboarding hasn't been done", { hasSeenOnboarding: false }],
   ])("waits while %s", async (_why, overrides) => {
     await openWithDue(2 * HOUR, overrides as Partial<AppState>);
@@ -749,23 +774,6 @@ describe("Brain dump flow", () => {
   it.each([
     ["the day gets locked", { todayLocked: true, todayLockSource: "manual" as const }],
     ["onboarding needs the screen", { hasSeenOnboarding: false }],
-    [
-      "the rollover modal needs the screen",
-      {
-        pendingRollover: {
-          sourceDate: "2026-09-25",
-          tasks: [
-            {
-              id: "x",
-              text: "Old",
-              completed: false,
-              carriedOver: false,
-              rolloverOutcome: "unresolved" as const,
-            },
-          ],
-        },
-      },
-    ],
   ])("closes when %s", async (_why, overrides) => {
     mockStore = makeStore({ tasks: tasks("Walk") });
     const { rerender } = await render(<HomeScreen />);
@@ -774,6 +782,21 @@ describe("Brain dump flow", () => {
     mockStore = makeStore({ tasks: tasks("Walk"), ...overrides });
     await rerender(<HomeScreen />);
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+  });
+
+  it("stays open when yesterday's unfinished ones arrive (they're a card now, not a modal)", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    const { rerender } = await render(<HomeScreen />);
+    await openBrainDump();
+    mockStore = makeStore({
+      tasks: tasks("Walk"),
+      pendingRollover: {
+        sourceDate: "2026-09-25",
+        tasks: [{ id: "x", text: "Old", completed: false, carriedOver: false, rolloverOutcome: "unresolved" }],
+      },
+    });
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
   });
 
   it("closes from its close button without adding anything", async () => {

@@ -333,9 +333,9 @@ async function renderRollover(p: PendingRollover, remainingSlots: number) {
 const applyButton = () => screen.getByTestId("rollover-apply");
 
 describe("RolloverModal", () => {
-  it("titles it 'From before' and says how much room there is", async () => {
+  it("titles it 'Unfinished from yesterday' and says how much room there is", async () => {
     await renderRollover(pending("Walk", "Read"), 3);
-    expect(screen.getByRole("header", { name: "From before" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Unfinished from yesterday" })).toBeOnTheScreen();
     expect(
       screen.getByText("These weren't finished. Room for 3 today: tick what still matters. The rest stay in your history."),
     ).toBeOnTheScreen();
@@ -346,7 +346,7 @@ describe("RolloverModal", () => {
       <RolloverModal visible pending={pending("Walk")} remainingSlots={2} onApply={jest.fn()} />,
     );
     expect(
-      screen.getByText("This one wasn't finished. Bring it into today? If not, it stays in your history."),
+      screen.getByText("This one wasn't finished. Bring it into today?"),
     ).toBeOnTheScreen();
     await rerender(<RolloverModal visible pending={pending("Walk", "Read")} remainingSlots={1} onApply={jest.fn()} />);
     expect(
