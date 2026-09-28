@@ -99,6 +99,46 @@ describe("store: actions just after midnight", () => {
     expect(state.pendingRollover?.tasks.map((t) => t.text)).toEqual(["Walk"]);
   });
 
+  it("adding a task at 00:00:10 on a set (auto-locked) day lands on the new, unlocked day", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
+    const { result } = await renderOnDay(
+      { tasks: [WALK], todayLocked: true, todayLockSource: "auto" },
+      new Date(2026, 8, 25, 8),
+    );
+
+    jest.setSystemTime(new Date(2026, 8, 26, 0, 0, 10));
+    await act(async () => result.current.addTask("Read"));
+
+    const state = result.current.state;
+    expect(state.lastOpenedDate).toBe(NEXT);
+    // Yesterday stays set; the add isn't swallowed by yesterday's lock.
+    expect(state.history[D]).toMatchObject({ locked: true, lockSource: "auto" });
+    expect(state.todayLocked).toBe(false);
+    expect(state.tasks.map((t) => t.text)).toEqual(["Read"]);
+  });
+
+  it("repairs a saved day whose history drifted from its list, so the rollover archives the real list", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
+    // An old build's save: Walk is on the list but the day's record is empty.
+    await AsyncStorage.setItem(
+      "daily-tasks/state/v1",
+      JSON.stringify({
+        ...buildInitialState(new Date(2026, 8, 25, 8)),
+        hasSeenOnboarding: true,
+        autoLock: { ...DEFAULT_AUTO_LOCK, enabled: false },
+        tasks: [WALK],
+      }),
+    );
+    const { result } = await renderHook(() => useDailyTasks(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.state.history[D].tasks.map((t) => t.text)).toEqual(["Walk"]);
+
+    jest.setSystemTime(new Date(2026, 8, 26, 0, 0, 10));
+    await act(async () => result.current.addTask("Read"));
+    expect(result.current.state.lastOpenedDate).toBe(NEXT);
+    expect(result.current.state.history[D].tasks.map((t) => t.text)).toEqual(["Walk"]);
+  });
+
   it("a tick just after midnight counts for the day on screen, then the day changes", async () => {
     fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
     const { result } = await renderOnDay({ tasks: [WALK] }, new Date(2026, 8, 25, 8));

@@ -155,6 +155,7 @@ describe("applyRollover", () => {
     ).toBe("unresolved");
   });
   it("restores a day from history with its tasks created at that day's local midnight, so it still auto-locks", () => {
+    // Passes trivially under TZ=UTC (local midnight is T00:00Z): the CI TZ matrix is what makes it bite.
     // The clock went >1 day back and the app followed it; the date is now fixed
     // forward to a day that already has a record the live list doesn't match.
     const restoredDay = "2026-04-20";

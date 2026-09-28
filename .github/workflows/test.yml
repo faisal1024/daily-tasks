@@ -43,14 +43,14 @@ jobs:
 
   # Day keys, midnight rollover and auto-lock all use the device's local time.
   # CI runs in UTC, so repeat the suites east and west of it (Kiritimati is
-  # UTC+14, where "T00:00Z" is already the afternoon).
+  # UTC+14, where "T00:00Z" is already the afternoon; Pago Pago is UTC-11).
   timezones:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        tz: [Asia/Kolkata, America/New_York, Pacific/Kiritimati]
+        tz: [Asia/Kolkata, America/New_York, Pacific/Kiritimati, Pacific/Pago_Pago]
     env:
       TZ: ${{ matrix.tz }}
     name: tests (${{ matrix.tz }})
@@ -65,6 +65,9 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Check the time zone is applied
+        run: node -e "if (new Date(2026, 0, 15).getTimezoneOffset() === 0) { console.error('TZ not applied'); process.exit(1) }"
 
       - name: Unit tests (Vitest)
         run: npx vitest run
