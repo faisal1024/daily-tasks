@@ -409,7 +409,7 @@ function PrimaryButton({ label, onPress }: { label: string; onPress: () => void 
       accessibilityRole="button"
       accessibilityLabel={label}
     >
-      <Text className="text-base font-semibold" style={{ color: colors.background }}>
+      <Text className="text-base font-semibold" style={{ color: colors.onPrimary }}>
         {label}
       </Text>
     </Pressable>
@@ -452,7 +452,7 @@ function FooterButtons({
       >
         <Text
           className="text-base font-semibold"
-          style={{ color: nextDisabled ? colors.muted : colors.background }}
+          style={{ color: nextDisabled ? colors.muted : colors.onPrimary }}
         >
           {nextLabel}
         </Text>

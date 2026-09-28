@@ -27,19 +27,19 @@ export function MorningHero({
         style={{ backgroundColor: colors.primary }}
       >
         <View className="flex-row items-center gap-2">
-          <Ionicons name="sparkles" size={20} color="#fff" accessibilityElementsHidden />
-          <Text style={{ color: "#fff", fontFamily: Fonts.rounded, fontWeight: "700", fontSize: 22 }}>
+          <Ionicons name="sparkles" size={20} color={colors.onPrimary} accessibilityElementsHidden />
+          <Text style={{ color: colors.onPrimary, fontFamily: Fonts.rounded, fontWeight: "700", fontSize: 22 }}>
             What&apos;s on your mind today?
           </Text>
         </View>
-        <Text style={{ color: "rgba(255,255,255,0.88)", fontSize: 15 }}>
+        <Text style={{ color: `${colors.onPrimary}E0`, fontSize: 15 }}>
           Dump it all, by typing or talking. We&apos;ll pick your three and save the rest.
         </Text>
         <View
           className="self-start rounded-full px-4 py-2 mt-1"
-          style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+          style={{ backgroundColor: colors.onPrimary }}
         >
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
+          <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 15 }}>
             Start my day
           </Text>
         </View>
@@ -122,7 +122,7 @@ export function TomorrowDraftCard({
           style={{ backgroundColor: colors.primary }}
           testID="tomorrow-draft-use"
         >
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>
+          <Text style={{ color: colors.onPrimary, fontWeight: "700", fontSize: 16 }}>
             {tasks.length === 1 ? "Use this" : "Use these"}
           </Text>
         </Pressable>

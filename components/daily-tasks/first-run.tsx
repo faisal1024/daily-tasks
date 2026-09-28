@@ -412,7 +412,7 @@ function Primary({ label, onPress, disabled = false }: { label: string; onPress:
       className="rounded-full py-4 items-center"
       style={{ backgroundColor: disabled ? colors.border : colors.primary }}
     >
-      <Text style={{ color: disabled ? colors.muted : "#fff", fontWeight: "700", fontSize: 17 }}>{label}</Text>
+      <Text style={{ color: disabled ? colors.muted : colors.onPrimary, fontWeight: "700", fontSize: 17 }}>{label}</Text>
     </Pressable>
   );
 }
