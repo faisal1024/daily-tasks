@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { View, Text } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 
@@ -8,6 +9,8 @@ interface ProgressRingProps {
   total: number;
   size?: number;
   strokeWidth?: number;
+  /** Replaces the "n/total focuses" label in the middle (e.g. focus mode's timer). */
+  children?: ReactNode;
 }
 
 export function ProgressRing({
@@ -15,6 +18,7 @@ export function ProgressRing({
   total,
   size = 156,
   strokeWidth = 14,
+  children,
 }: ProgressRingProps) {
   const colors = useColors();
   const safeTotal = Math.max(total, 1);
@@ -54,14 +58,18 @@ export function ProgressRing({
         />
       </Svg>
       <View className="absolute items-center justify-center">
-        <Text
-          className="text-4xl font-extrabold text-foreground"
-          numberOfLines={1}
-          adjustsFontSizeToFit
-        >
-          {completed}/{total || 0}
-        </Text>
-        <Text className="text-sm text-muted mt-1 uppercase tracking-wide">focuses</Text>
+        {children ?? (
+          <>
+            <Text
+              className="text-4xl font-extrabold text-foreground"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {completed}/{total || 0}
+            </Text>
+            <Text className="text-sm text-muted mt-1 uppercase tracking-wide">focuses</Text>
+          </>
+        )}
       </View>
     </View>
   );

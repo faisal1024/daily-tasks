@@ -10,8 +10,7 @@ import type { CoachNote as CoachNoteValue } from "@/lib/daily-tasks/coach-note";
  * border, so it sits quieter than the task card. It's read in place by
  * VoiceOver, never announced (a line swapping in shouldn't interrupt).
  *
- * `onStart` shows a Start button (focus mode on the next task, PR C); Today
- * doesn't pass it yet, so no button shows.
+ * `onStart` shows a Start button (focus mode on the next task).
  */
 export function CoachNote({
   text,
@@ -64,7 +63,7 @@ export function CoachNote({
             backgroundColor: colors.primary,
             opacity: pressed ? 0.8 : 1,
           })}
-          testID="coach-note-start"
+          testID="coach-note-start-button"
         >
           <Text className="text-sm font-semibold" style={{ color: "#fff" }}>
             Start

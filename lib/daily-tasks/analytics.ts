@@ -37,7 +37,9 @@ export type AnalyticsEvent =
   | "goal_set"
   | "task_not_today"
   | "rollover_resolved"
-  | "coach_note_loaded";
+  | "coach_note_loaded"
+  | "focus_opened"
+  | "focus_completed";
 
 type PropValue = string | number | boolean;
 export type AnalyticsProps = Partial<Record<AllowedProp, PropValue>>;
@@ -52,6 +54,7 @@ const ALLOWED_PROPS = [
   "active",
   "plus",
   "step",
+  "timer",
 ] as const;
 type AllowedProp = (typeof ALLOWED_PROPS)[number];
 

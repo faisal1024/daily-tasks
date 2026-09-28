@@ -30,6 +30,7 @@ import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { NextPathLink } from "@/components/daily-tasks/next-path-link";
 import { FirstRun } from "@/components/daily-tasks/first-run";
+import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
@@ -403,6 +404,22 @@ export default function HomeScreen() {
     today,
     markCoachNoteLogged,
   ]);
+  // Focus mode (1.2) on one open task. It closes if that task is ticked or
+  // removed meanwhile (e.g. from the widget), and when the day rolls over.
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  const focusTask = focusTaskId
+    ? (state.tasks.find((task) => task.id === focusTaskId && !isCompleted(task.id)) ?? null)
+    : null;
+  useEffect(() => {
+    if (focusTaskId && !focusTask) setFocusTaskId(null);
+  }, [focusTaskId, focusTask]);
+  useEffect(() => {
+    setFocusTaskId(null);
+  }, [today]);
+  // Its coach line: the same `start` line the note gives (AI or built-in).
+  const focusStartLine = focusTask
+    ? coachNote({ cache: state.coachNotes, today, taskText: focusTask.text, kind: "start" }).text
+    : null;
   // Yesterday's unfinished ones: a card, so the draft and the rest of Today
   // stay usable (it used to be a blocking modal). On a phone with no draft it
   // leads, above the three slots; otherwise it follows the draft, quietly.
@@ -531,6 +548,7 @@ export default function HomeScreen() {
     paywallSource !== null ||
     ideasOpen ||
     brainDumpOpen ||
+    focusTaskId !== null ||
     showCelebration;
   useEffect(() => {
     if (!ready) return;
@@ -924,9 +942,16 @@ export default function HomeScreen() {
                     onBrowseIdeas={() => setIdeasOpen(true)}
                   />
                 )}
-                {/* Morning and midday lead with the Coach's note. No onStart yet:
-                    PR C adds focus mode, and with it the Start button. */}
-                {note && <CoachNote text={note.text} kind={note.kind} source={note.source} />}
+                {/* Morning and midday lead with the Coach's note; Start opens
+                    focus mode on the task it's about. */}
+                {note && coachTask && (
+                  <CoachNote
+                    text={note.text}
+                    kind={note.kind}
+                    source={note.source}
+                    onStart={() => setFocusTaskId(coachTask.id)}
+                  />
+                )}
                 {/* A finished day swaps these for the done card's quiet "Pull one more".
                     Under the coach's note they shrink to one quiet line of links. */}
                 {ideasVisible && !emptyMorning && !draft && phase !== "done" && quietEntries && (
@@ -1185,6 +1210,24 @@ export default function HomeScreen() {
           if (message) showToast(message);
         }}
       />
+
+      {focusTask && (
+        <FocusMode
+          visible
+          task={focusTask}
+          startLine={focusStartLine}
+          onToggleStep={(stepId) => toggleTaskStep(focusTask.id, stepId)}
+          onDone={() => {
+            track("focus_completed");
+            // The normal path, so the haptic, celebration and win-back all happen.
+            handleToggle(focusTask.id);
+            setFocusTaskId(null);
+          }}
+          onClose={() => setFocusTaskId(null)}
+          // One per open, however it closes, with the last timer they started.
+          onEnd={(timer) => track("focus_opened", { timer })}
+        />
+      )}
 
       <CelebrationOverlay visible={showCelebration} onDismiss={dismissCelebration} />
 

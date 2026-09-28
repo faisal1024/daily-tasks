@@ -2000,16 +2000,15 @@ describe("Coach's note (1.2)", () => {
   };
   const request = requestCoachNotes as jest.Mock;
 
-  it("morning, nothing ticked: a built-in start line about the first task, no Start button", async () => {
+  it("morning, nothing ticked: a built-in start line about the first task, with a Start button", async () => {
     at(9);
     mockStore = makeStore({ tasks: THREE });
     await render(<HomeScreen />);
     expect(screen.getByTestId("coach-note")).toBeOnTheScreen();
     expect(screen.getByTestId("coach-note-start")).toHaveTextContent(localCoachLine("start", "Walk the dog", TODAY));
-    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Start" })).toBeOnTheScreen();
     expect(screen.getByLabelText(`Coach's note: ${localCoachLine("start", "Walk the dog", TODAY)}`)).toBeOnTheScreen();
   });
-
   it("midday: a momentum line about the first unticked task", async () => {
     at(14);
     mockStore = makeStore({ tasks: tasks("Walk the dog", "Read"), todayCompletions: ["t0"] });
