@@ -48,6 +48,12 @@ export interface CoachNoteLines {
 
 /** Coach's note AI calls a day: the first, plus one more if the task texts change. */
 export const MAX_COACH_REQUESTS_PER_DAY = 2;
+/** Longest coach line kept (~20 words); longer ones fall back to the built-in line. */
+export const MAX_COACH_LINE = 140;
+/** Cache keys are task texts, capped like the proxy's task limit. */
+export const MAX_COACH_KEY_CHARS = 120;
+/** Task texts kept in a day's cache (two calls of three, with room to spare). */
+export const MAX_COACH_CACHE_ENTRIES = 12;
 
 /** Today's AI coach lines (Plus), cached so re-renders never spend a call. */
 export interface CoachNotesCache {

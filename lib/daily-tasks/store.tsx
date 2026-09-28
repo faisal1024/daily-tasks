@@ -173,8 +173,8 @@ type Action =
   | { type: "dismissTomorrowDraft" }
   | { type: "setAgendaEnabled"; enabled: boolean }
   | { type: "claimCoachRequest"; day: string; taskTexts: string[] }
-  | { type: "setCoachNotes"; day: string; notes: Record<string, CoachNoteLines> }
-  | { type: "markCoachNoteLogged"; day: string }
+  | { type: "setCoachNotes"; day: string; notes: Record<string, CoachNoteLines>; today: string }
+  | { type: "markCoachNoteLogged"; day: string; today: string }
   | { type: "completeMilestone"; id: string }
   | { type: "setMilestones"; items: { id?: string; title: string; description?: string }[] }
   | { type: "requestNewPath" }
@@ -301,17 +301,18 @@ function reduce(state: AppState, action: Action): AppState {
     case "setAgendaEnabled":
       return state.agendaEnabled === action.enabled ? state : { ...state, agendaEnabled: action.enabled };
     // The Coach's note cache (see coach-note.ts): `day` is the day the call
-    // was made for, so a reply that lands after midnight can't touch the new day.
+    // was made for; a reply (or mark) for any day but today is dropped, so one
+    // that lands after midnight can't recreate yesterday's cache.
     case "claimCoachRequest": {
       const coachNotes = claimCoachRequest(state.coachNotes, action.day, action.taskTexts);
       return coachNotes === state.coachNotes ? state : { ...state, coachNotes };
     }
     case "setCoachNotes": {
-      const coachNotes = mergeCoachNotes(state.coachNotes, action.day, action.notes);
+      const coachNotes = mergeCoachNotes(state.coachNotes, action.day, action.notes, action.today);
       return coachNotes === state.coachNotes ? state : { ...state, coachNotes };
     }
     case "markCoachNoteLogged": {
-      const coachNotes = markCoachNoteLogged(state.coachNotes, action.day);
+      const coachNotes = markCoachNoteLogged(state.coachNotes, action.day, action.today);
       return coachNotes === state.coachNotes ? state : { ...state, coachNotes };
     }
     case "setMilestones": {
@@ -887,6 +888,8 @@ interface StoreContextValue {
   hasPlus: boolean;
   /** Plus confirmed (excludes "RevenueCat still answering"). */
   plusConfirmed: boolean;
+  /** RevenueCat hasn't answered yet (Plus status unknown). */
+  plusPending: boolean;
   setAnalyticsEnabled: (enabled: boolean) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
@@ -1456,12 +1459,18 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const claimCoachRequestCb = useCallback((day: string, taskTexts: string[]) => {
     dispatch({ type: "claimCoachRequest", day, taskTexts });
   }, []);
-  const setCoachNotes = useCallback((day: string, notes: Record<string, CoachNoteLines>) => {
-    dispatch({ type: "setCoachNotes", day, notes });
-  }, []);
-  const markCoachNoteLoggedCb = useCallback((day: string) => {
-    dispatch({ type: "markCoachNoteLogged", day });
-  }, []);
+  const setCoachNotes = useCallback(
+    (day: string, notes: Record<string, CoachNoteLines>) => {
+      dispatch({ type: "setCoachNotes", day, notes, today: ensureDay() });
+    },
+    [ensureDay],
+  );
+  const markCoachNoteLoggedCb = useCallback(
+    (day: string) => {
+      dispatch({ type: "markCoachNoteLogged", day, today: ensureDay() });
+    },
+    [ensureDay],
+  );
   const dismissTomorrowDraft = useCallback(() => {
     dispatch({ type: "dismissTomorrowDraft" });
   }, []);
@@ -1577,6 +1586,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       clearTaskSteps: clearTaskStepsCb,
       hasPlus,
       plusConfirmed,
+      plusPending,
       setAnalyticsEnabled: setAnalyticsEnabledCb,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
@@ -1640,6 +1650,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       clearTaskStepsCb,
       hasPlus,
       plusConfirmed,
+      plusPending,
       setAnalyticsEnabledCb,
       refreshNotificationPermission,
       requestPermission,

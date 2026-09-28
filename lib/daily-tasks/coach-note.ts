@@ -1,6 +1,6 @@
 // The Coach's note (1.2): one short line under the three, about the next
-// open task. `start` is a tiny first step (the morning, until the first
-// tick); `momentum` is why it matters or what's next (after a tick, midday).
+// open task. `start` is a tiny first step (until the first tick); `momentum`
+// is what's next once they're moving (after a tick).
 //
 // Free: built-in lines, picked stably per day and task. Plus (confirmed): one
 // AI call once the three are set returns both lines for every task; it's
@@ -14,9 +14,7 @@ import { MomentumAiError } from "./ai-status";
 import { pickStable } from "./coach-messages";
 import type { TodayPhase } from "./today-phase";
 import type { CoachNoteLines, CoachNotesCache, MomentumSettings, Task, TaskId } from "./types";
-import { MAX_COACH_REQUESTS_PER_DAY, MAX_TASKS } from "./types";
-
-export { MAX_COACH_REQUESTS_PER_DAY };
+import { MAX_COACH_KEY_CHARS, MAX_COACH_LINE, MAX_COACH_REQUESTS_PER_DAY, MAX_TASKS } from "./types";
 
 export type CoachNoteKind = keyof CoachNoteLines;
 
@@ -27,49 +25,52 @@ export interface CoachNote {
 }
 
 /** The task as quoted in a built-in line. */
-export const COACH_TASK_QUOTE_CHARS = 40;
-/** Same cap as the proxy (~20 words). */
-export const MAX_COACH_LINE = 140;
+const COACH_TASK_QUOTE_CHARS = 40;
+// Cut at a word when there's one this far in (so "Write the…", not "Write th…").
+const QUOTE_MIN_WORD_CUT = 20;
 // The proxy's limit for a task (and the goal title) in the payload.
-const MAX_TASK_CHARS = 120;
+const MAX_TASK_CHARS = MAX_COACH_KEY_CHARS;
 
 // Calm, second person, 20 words or fewer with the task quoted; no
 // exclamation marks, no guilt, no hype, no emoji. {task} is the quoted task.
 export const START_LINES = [
-  "Open {task} and give it two minutes. That's all it needs for now.",
+  "Give {task} two minutes. That's all it needs for now.",
   "For {task}, get out the one thing you need first.",
-  "Start {task} small: set a five-minute timer and begin.",
+  "Start {task} small: set a short timer and begin.",
   "Give {task} ten quiet minutes before anything else asks for you.",
   "Name the very first step of {task}, then take just that one.",
   "Clear a little space for {task} and begin before you feel ready.",
   "Make {task} smaller. What could you finish in five minutes?",
-  "Begin {task} with the easiest part. The rest gets lighter after.",
+  "Begin {task} with the easiest part. The rest comes easier after that.",
 ] as const;
 
 export const MOMENTUM_LINES = [
   "Next up: {task}. One small push keeps the day moving.",
   "{task} is next. A few focused minutes will move it forward.",
-  "{task} matters because it moves today toward what you chose.",
+  "You picked {task} for a reason. A few minutes on it counts.",
   "Keep it steady: pick up {task} and do the next small part.",
   "{task} doesn't need to be perfect, just a little further along.",
-  "When you're ready, {task} is waiting. Start where it's easiest.",
+  "When you're ready, pick up {task} where it's easiest.",
   "Bring a steady pace to {task}. Ten minutes is plenty.",
-  "{task} is the next piece of today. One step at a time.",
+  "{task} is the next piece of today. Ten minutes is a fine start.",
 ] as const;
 
 /** Cache key: the task text, trimmed, single-spaced and lower-cased. */
 export function coachTaskKey(text: string): string {
-  return Array.from(text.trim().replace(/\s+/g, " ").toLowerCase()).slice(0, MAX_TASK_CHARS).join("");
+  return Array.from(text.trim().replace(/\s+/g, " ").toLowerCase()).slice(0, MAX_COACH_KEY_CHARS).join("");
 }
 
-/** “The task”, cut to about 40 characters (never mid-emoji). */
+/**
+ * “The task”, cut to about 40 characters (never mid-emoji): at the last word
+ * break within 39 when there is one past the first 20, else at 39.
+ */
 export function quoteTask(text: string): string {
   const chars = Array.from(text.trim().replace(/\s+/g, " "));
-  const short =
-    chars.length > COACH_TASK_QUOTE_CHARS
-      ? `${chars.slice(0, COACH_TASK_QUOTE_CHARS - 1).join("").trimEnd()}…`
-      : chars.join("");
-  return `“${short}”`;
+  if (chars.length <= COACH_TASK_QUOTE_CHARS) return `“${chars.join("")}”`;
+  const head = chars.slice(0, COACH_TASK_QUOTE_CHARS - 1);
+  const space = head.lastIndexOf(" ");
+  const cut = space >= QUOTE_MIN_WORD_CUT ? head.slice(0, space) : head;
+  return `“${cut.join("").trimEnd()}…”`;
 }
 
 /** The task the note is about: the first one not yet ticked off. */
@@ -78,14 +79,24 @@ export function nextOpenTask(tasks: Task[], completedIds: TaskId[]): Task | null
   return tasks.find((task) => !done.has(task.id)) ?? null;
 }
 
-/** The phases that show the note (the others have their own lower section). */
-export function showsCoachNote(phase: TodayPhase): boolean {
-  return phase === "morning" || phase === "midday";
+/**
+ * Morning and midday show the note (the other phases have their own lower
+ * section), but not while the three are still being chosen in the morning:
+ * only once they're set, something is ticked, or it's midday.
+ */
+export function showsCoachNote(input: {
+  phase: TodayPhase;
+  taskCount: number;
+  completedCount: number;
+  locked: boolean;
+}): boolean {
+  if (input.phase !== "morning" && input.phase !== "midday") return false;
+  return coachTasksSet(input.taskCount, input.locked) || input.completedCount > 0 || input.phase === "midday";
 }
 
-/** A tiny first step in the morning before the first tick; momentum otherwise. */
-export function coachNoteKind(phase: TodayPhase, completedCount: number): CoachNoteKind {
-  return phase === "morning" && completedCount === 0 ? "start" : "momentum";
+/** A tiny first step until the first tick (at any hour); momentum after. */
+export function coachNoteKind(completedCount: number): CoachNoteKind {
+  return completedCount === 0 ? "start" : "momentum";
 }
 
 /** The built-in line: the same one all day for the same task and kind. */
@@ -96,7 +107,7 @@ export function localCoachLine(kind: CoachNoteKind, taskText: string, dateKey: s
 }
 
 /** Today's AI lines for this task, if the cache has them. */
-export function cachedCoachLines(
+function cachedCoachLines(
   cache: CoachNotesCache | null,
   today: string,
   taskText: string,
@@ -137,46 +148,51 @@ function emptyCache(today: string): CoachNotesCache {
   return { date: today, notes: {}, requests: 0, asked: [], logged: false };
 }
 
-/**
- * The cache to update for `day`: today's as is, a fresh one for a new day,
- * or null when `day` is older than what's cached (a reply that landed after
- * midnight mustn't wipe the new day).
- */
-function cacheFor(cache: CoachNotesCache | null, day: string): CoachNotesCache | null {
-  if (!cache || cache.date < day) return emptyCache(day);
-  return cache.date === day ? cache : null;
+/** Today's cache, or a fresh one when it's from any other day. */
+function cacheFor(cache: CoachNotesCache | null, day: string): CoachNotesCache {
+  return cache && cache.date === day ? cache : emptyCache(day);
 }
 
-/** Count a call (made now, whatever its answer) and remember what it asked about. */
+/**
+ * Count a call (made now for `day`, the screen's day, whatever its answer)
+ * and remember what it asked about. Always counted: a cache from another day
+ * (even a later one, after the clock moved back) is replaced, never skipped.
+ */
 export function claimCoachRequest(
   cache: CoachNotesCache | null,
   day: string,
   taskTexts: string[],
-): CoachNotesCache | null {
+): CoachNotesCache {
   const base = cacheFor(cache, day);
-  if (!base) return cache;
   const asked = new Set(base.asked);
   for (const text of taskTexts) asked.add(coachTaskKey(text));
   return { ...base, requests: base.requests + 1, asked: [...asked] };
 }
 
-/** Keep the AI lines that came back (keyed by task text). */
+/**
+ * Keep the AI lines that came back for `day` (keyed by task text). A reply
+ * for any day but `today` (it landed after midnight) is dropped.
+ */
 export function mergeCoachNotes(
   cache: CoachNotesCache | null,
   day: string,
   notes: Record<string, CoachNoteLines>,
+  today: string,
 ): CoachNotesCache | null {
-  if (Object.keys(notes).length === 0) return cache;
+  if (day !== today || Object.keys(notes).length === 0) return cache;
   const base = cacheFor(cache, day);
-  if (!base) return cache;
   return { ...base, notes: { ...base.notes, ...notes } };
 }
 
-/** coach_note_loaded went out for `day`. */
-export function markCoachNoteLogged(cache: CoachNotesCache | null, day: string): CoachNotesCache | null {
+/** coach_note_loaded went out for `day` (ignored unless `day` is `today`). */
+export function markCoachNoteLogged(
+  cache: CoachNotesCache | null,
+  day: string,
+  today: string,
+): CoachNotesCache | null {
+  if (day !== today) return cache;
   const base = cacheFor(cache, day);
-  if (!base || base.logged) return cache;
-  return { ...base, logged: true };
+  return base.logged ? cache : { ...base, logged: true };
 }
 
 /** Whether coach_note_loaded has gone out today. */
@@ -186,15 +202,26 @@ export function coachNoteLogged(cache: CoachNotesCache | null, today: string): b
 
 // C0/C1 control characters (newlines included: the note is one line).
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
-const URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+|\b[\w.-]+\.(?:com|net|org|io|co|app|ai|dev|ly)(?:\/\S*)?\b/gi;
+// Same patterns as the proxy (coach-contract.mjs): emails, then links of any
+// kind (a scheme, "www.", or anything shaped like a domain, with its path).
+const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[a-z]{2,}\S*/gi;
+const URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+|\b[^\s@]+\.[a-z]{2,}\b(?:\/\S*)?/gi;
 
-/** An untrusted line, cleaned: no control characters or links, capped. Null when nothing's left. */
+/**
+ * An untrusted line, cleaned: no control characters, emails or links. Null
+ * when nothing's left, or when it's over MAX_COACH_LINE (a rambling line isn't
+ * shortened into a half-sentence: the built-in line is used instead).
+ */
 export function cleanCoachLine(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const text = value.replace(CONTROL, " ").replace(URL_PATTERN, " ").replace(/\s+/g, " ").trim();
-  if (!text) return null;
-  const chars = Array.from(text);
-  return chars.length > MAX_COACH_LINE ? `${chars.slice(0, MAX_COACH_LINE - 1).join("").trimEnd()}…` : text;
+  const text = value
+    .replace(CONTROL, " ")
+    .replace(EMAIL_PATTERN, " ")
+    .replace(URL_PATTERN, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text || Array.from(text).length > MAX_COACH_LINE) return null;
+  return text;
 }
 
 /**

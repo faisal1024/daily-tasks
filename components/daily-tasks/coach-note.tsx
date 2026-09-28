@@ -2,12 +2,13 @@ import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useColors } from "@/hooks/use-colors";
-import type { CoachNoteKind } from "@/lib/daily-tasks/coach-note";
+import type { CoachNote as CoachNoteValue } from "@/lib/daily-tasks/coach-note";
 
 /**
  * The Coach's note (1.2): one quiet line about the next open task, a tiny
- * first step in the morning or momentum later. VoiceOver reads it politely
- * when it changes (e.g. the AI line replacing the built-in one).
+ * first step until the first tick, momentum after. A surface fill without a
+ * border, so it sits quieter than the task card. It's read in place by
+ * VoiceOver, never announced (a line swapping in shouldn't interrupt).
  *
  * `onStart` shows a Start button (focus mode on the next task, PR C); Today
  * doesn't pass it yet, so no button shows.
@@ -15,27 +16,29 @@ import type { CoachNoteKind } from "@/lib/daily-tasks/coach-note";
 export function CoachNote({
   text,
   kind,
+  source,
   onStart,
 }: {
   text: string;
-  kind: CoachNoteKind;
+  kind: CoachNoteValue["kind"];
+  source: CoachNoteValue["source"];
   onStart?: () => void;
 }) {
   const colors = useColors();
   return (
     <View
-      className="flex-row items-center gap-3 rounded-3xl border px-4 py-3"
-      style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+      className="flex-row items-center gap-3 rounded-3xl px-4 py-3"
+      style={{ backgroundColor: colors.surface }}
       testID="coach-note"
     >
       <View
         className="flex-1 flex-row items-start gap-2"
         accessible
         accessibilityLabel={`Coach's note: ${text}`}
-        accessibilityLiveRegion="polite"
       >
         <Ionicons
-          name="sparkles"
+          // Sparkles for the AI line; a leaf for the built-in one.
+          name={source === "ai" ? "sparkles" : "leaf-outline"}
           size={16}
           color={colors.primary}
           style={{ marginTop: 2 }}

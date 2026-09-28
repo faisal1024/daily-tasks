@@ -30,6 +30,9 @@ import {
   DEFAULT_MOMENTUM_PROFILE,
   DEFAULT_MOMENTUM_SETTINGS,
   DEFAULT_NOTIFICATIONS,
+  MAX_COACH_CACHE_ENTRIES,
+  MAX_COACH_KEY_CHARS,
+  MAX_COACH_LINE,
   MAX_COACH_REQUESTS_PER_DAY,
   MAX_PARKED_TASKS,
 } from "./types";
@@ -533,11 +536,14 @@ function normalizeCoachNotes(value: unknown): CoachNotesCache | null {
   const notes: Record<string, CoachNoteLines> = {};
   if (isRecord(value.notes)) {
     // A day has at most a few task texts (two requests of three).
-    for (const [key, lines] of Object.entries(value.notes).slice(0, 12)) {
-      if (!key || key.length > 200 || key === "__proto__" || !isRecord(lines)) continue;
-      const start = typeof lines.start === "string" && lines.start.trim() ? capChars(lines.start, 140) : null;
+    for (const [key, lines] of Object.entries(value.notes).slice(0, MAX_COACH_CACHE_ENTRIES)) {
+      if (!validCoachKey(key) || !isRecord(lines)) continue;
+      const start =
+        typeof lines.start === "string" && lines.start.trim() ? capChars(lines.start, MAX_COACH_LINE) : null;
       const momentum =
-        typeof lines.momentum === "string" && lines.momentum.trim() ? capChars(lines.momentum, 140) : null;
+        typeof lines.momentum === "string" && lines.momentum.trim()
+          ? capChars(lines.momentum, MAX_COACH_LINE)
+          : null;
       if (start && momentum) notes[key] = { start, momentum };
     }
   }
@@ -546,9 +552,14 @@ function normalizeCoachNotes(value: unknown): CoachNotesCache | null {
       ? Math.min(Math.max(value.requests, 0), MAX_COACH_REQUESTS_PER_DAY)
       : 0;
   const asked = Array.isArray(value.asked)
-    ? value.asked.filter((key): key is string => typeof key === "string" && key.length > 0 && key.length <= 200).slice(0, 12)
+    ? value.asked.filter((key): key is string => typeof key === "string" && validCoachKey(key)).slice(0, MAX_COACH_CACHE_ENTRIES)
     : [];
   return { date: value.date, notes, requests, asked, logged: value.logged === true };
+}
+
+function validCoachKey(key: string): boolean {
+  const length = Array.from(key).length;
+  return length > 0 && length <= MAX_COACH_KEY_CHARS && key !== "__proto__";
 }
 
 function normalizeEveningClose(value: unknown): EveningCloseRecord | null {

@@ -68,6 +68,7 @@ import {
   coachNote,
   coachNoteKind,
   coachNoteLogged,
+  coachTaskKey,
   coachTasksSet,
   needsCoachRequest,
   nextOpenTask,
@@ -155,6 +156,7 @@ export default function HomeScreen() {
     clearTaskSteps,
     hasPlus,
     plusConfirmed,
+    plusPending,
     daysShowedUp,
     setEveningClose,
     applyTomorrowDraft,
@@ -315,32 +317,45 @@ export default function HomeScreen() {
     ? nextIncompleteMilestone(state.momentumPlan.milestones, state.completedMilestoneIds)
     : null;
   const openProgress = () => router.navigate("/journey");
-  // The Coach's note (morning and midday): one line about the next open task.
-  const coachTask = showsCoachNote(phase) ? nextOpenTask(state.tasks, state.todayCompletions) : null;
+  // The Coach's note (morning and midday, once the three are set, something
+  // is ticked, or it's midday): one line about the next open task.
+  const coachTask = showsCoachNote({
+    phase,
+    taskCount: total,
+    completedCount: progress.completed,
+    locked: state.todayLocked,
+  })
+    ? nextOpenTask(state.tasks, state.todayCompletions)
+    : null;
   const note = coachTask
     ? coachNote({
         cache: state.coachNotes,
         today,
         taskText: coachTask.text,
-        kind: coachNoteKind(phase, progress.completed),
+        kind: coachNoteKind(progress.completed),
       })
     : null;
   // AI lines for confirmed Plus ("still checking" must not spend a call), once
   // the three are set; built-in lines otherwise, and on any failure.
-  const coachAi =
-    plusConfirmed &&
-    proxyRouteUrl(getMomentumAiProxyUrl(), "coach-note") != null &&
-    coachTasksSet(total, state.todayLocked);
+  const coachAiUser = plusConfirmed && proxyRouteUrl(getMomentumAiProxyUrl(), "coach-note") != null;
+  const coachTasksReady = coachTasksSet(total, state.todayLocked);
+  const coachAi = coachAiUser && coachTasksReady;
   const coachTexts = useMemo(() => state.tasks.map((task) => task.text), [state.tasks]);
   const coachDue = coachAi && needsCoachRequest(state.coachNotes, today, coachTexts);
   // A ref, not just state: re-renders mid-request must never start a second call.
   const coachInFlight = useRef(false);
+  // The day and texts last asked about: the same ask is never sent twice in a
+  // session, even if the stored claim didn't stick.
+  const coachLastAsk = useRef<string | null>(null);
   const [coachLoading, setCoachLoading] = useState(false);
   const noteShown = note !== null;
   // Under the note, "Need ideas?" and "Brain dump" shrink to one quiet line.
-  const quietEntries = noteShown && total > 0;
+  const quietEntries = noteShown;
   useEffect(() => {
     if (!ready || !noteShown || !coachDue || coachInFlight.current) return;
+    const ask = `${today}|${coachTexts.map(coachTaskKey).join("\n")}`;
+    if (coachLastAsk.current === ask) return;
+    coachLastAsk.current = ask;
     coachInFlight.current = true;
     setCoachLoading(true);
     // Counted before the call, so a failure can't be retried into a third one.
@@ -360,17 +375,32 @@ export default function HomeScreen() {
         coachInFlight.current = false;
         setCoachLoading(false);
       });
-    // Only when a call becomes due; the goal and tone are read at that moment.
+    // Only when a call becomes due (or the last one settles with another due:
+    // an edit or midnight mid-call); the goal and tone are read at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, noteShown, coachDue, today, coachTexts]);
-  // coach_note_loaded once a day, when the first note settles (after any AI call).
+  }, [ready, noteShown, coachDue, coachLoading, today, coachTexts]);
+  // coach_note_loaded once a day, with the source of what's shown once it
+  // settles: never while Plus is still being checked, and for AI users only
+  // once the three are set and their call is done. Free users: on first show.
   const noteSource = note?.source ?? null;
   useEffect(() => {
-    if (!ready || !noteSource || coachDue || coachLoading) return;
+    if (!ready || !noteSource || plusPending || coachDue || coachLoading) return;
+    if (coachAiUser && !coachTasksReady) return;
     if (coachNoteLogged(state.coachNotes, today)) return;
     track("coach_note_loaded", { source: noteSource });
     markCoachNoteLogged(today);
-  }, [ready, noteSource, coachDue, coachLoading, state.coachNotes, today, markCoachNoteLogged]);
+  }, [
+    ready,
+    noteSource,
+    plusPending,
+    coachDue,
+    coachLoading,
+    coachAiUser,
+    coachTasksReady,
+    state.coachNotes,
+    today,
+    markCoachNoteLogged,
+  ]);
   // Yesterday's unfinished ones: a card, so the draft and the rest of Today
   // stay usable (it used to be a blocking modal). On a phone with no draft it
   // leads, above the three slots; otherwise it follows the draft, quietly.
@@ -894,15 +924,20 @@ export default function HomeScreen() {
                 )}
                 {/* Morning and midday lead with the Coach's note. No onStart yet:
                     PR C adds focus mode, and with it the Start button. */}
-                {note && <CoachNote text={note.text} kind={note.kind} />}
+                {note && <CoachNote text={note.text} kind={note.kind} source={note.source} />}
                 {/* A finished day swaps these for the done card's quiet "Pull one more".
                     Under the coach's note they shrink to one quiet line of links. */}
                 {ideasVisible && !emptyMorning && !draft && phase !== "done" && quietEntries && (
-                  <View className="flex-row items-center gap-2 px-1" testID="quiet-entries">
+                  <View
+                    className="flex-row items-center gap-2 px-1"
+                    style={{ flexWrap: "wrap" }}
+                    testID="quiet-entries"
+                  >
                     <Pressable
                       onPress={() => setIdeasOpen(true)}
                       accessibilityRole="button"
-                      accessibilityLabel={`${entry.label}. Opens suggestions`}
+                      // "Need ideas?" already ends the sentence.
+                      accessibilityLabel={`${entry.label} Opens suggestions`}
                       style={{ minHeight: 44, justifyContent: "center" }}
                       testID="need-ideas"
                     >

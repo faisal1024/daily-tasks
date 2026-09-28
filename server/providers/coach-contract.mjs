@@ -1,23 +1,31 @@
 // Contract for the Coach's note (1.2): for each of today's tasks, one tiny
-// first step ("start") and one line on why it matters or what's next
+// first step ("start") and the next small piece once they're moving
 // ("momentum"). The app shows one line at a time under the three.
 //
 // Provider-independent, like plan-contract.mjs and evening-contract.mjs.
 
 export const MAX_COACH_TASKS = 3;
 export const MAX_COACH_TASK_CHARS = 120;
-// ~20 words; anything longer is shortened, never trusted as-is.
+// ~20 words; a longer line is dropped (the app uses its built-in one).
 export const MAX_COACH_LINE = 140;
 export const COACH_TONES = ["calm", "friendly", "direct"];
 
 export const COACH_SYSTEM_PROMPT =
-  "You are a calm daily coach. For each task you are given, write two lines in " +
-  "the second person, each 20 words or fewer: 'start', one concrete, tiny first " +
-  "step they can take in the next few minutes; and 'momentum', why the task " +
-  "matters or what to do next once they're moving. Plain, specific words. No " +
-  "exclamation marks, no emoji, no hype ('crush it'), no guilt ('you still " +
-  "haven't'), no urgency, no links, no medical or financial advice. Respond " +
-  "with JSON only, one entry per task, in the order given.";
+  "You are a calm daily coach. For each task, write two lines in the second " +
+  "person, each under 18 words and 110 characters. 'start': one concrete, " +
+  "physical first action they could do in the next two minutes (open, write, " +
+  "find, put on, text). 'momentum': the next small piece to do once they're " +
+  "moving; mention their bigger goal only if one is given and it clearly fits. " +
+  "Mention the task by a short name (two to four words from its text) so each " +
+  "line makes sense on its own. Use only what the task says: never invent " +
+  "people, tools, deadlines or reasons. If a task is personal or emotional, be " +
+  "gentle and practical. No exclamation marks, emoji, hype ('crush it'), guilt " +
+  "('you still haven't'), urgency ('now', 'before it's too late'), 'just', " +
+  "'should', links, or medical/financial advice. JSON only, one entry per task, " +
+  "in order.\n\n" +
+  'Example: task "Draft Q3 report" -> start "Open a blank page for the Q3 ' +
+  'report and write one heading.", momentum "With the Q3 report started, fill ' +
+  'in the easiest section next."';
 
 export const COACH_TOOL_NAME = "emit_coach_notes";
 export const COACH_TOOL_DESCRIPTION =
@@ -72,10 +80,16 @@ export function validateCoachPayload(payload) {
   return null;
 }
 
+/** User text for the prompt: control characters (newlines too) become spaces. */
+function promptText(value) {
+  return value.replace(CONTROL, " ").replace(/\s+/g, " ").trim();
+}
+
 export function buildCoachPrompt(payload) {
-  const tasks = payload.tasks.map((task, index) => `${index + 1}. ${task.trim()}`).join("\n");
+  const tasks = payload.tasks.map((task, index) => `${index + 1}. ${promptText(task)}`).join("\n");
+  const goal = typeof payload.goalTitle === "string" ? promptText(payload.goalTitle) : "";
   return [
-    payload.goalTitle ? `Their bigger goal (context only): ${payload.goalTitle}` : "No specific goal set.",
+    goal ? `Their bigger goal (context only): ${goal}` : "No specific goal set.",
     `Voice: ${COACH_TONES.includes(payload.tone) ? payload.tone : "calm"}, but always calm underneath.`,
     `Today's tasks:\n${tasks}`,
     `Return exactly ${payload.tasks.length} entries, one per task, in this order.`,
@@ -84,22 +98,32 @@ export function buildCoachPrompt(payload) {
 
 // C0/C1 control characters (newlines included: a note is one line).
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
-// Links of any kind: the note never sends anyone anywhere.
-const URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+|\b[\w.-]+\.(?:com|net|org|io|co|app|ai|dev|ly)(?:\/\S*)?\b/gi;
+// Emails, then links of any kind (a scheme, "www.", or anything shaped like a
+// domain, with its path): the note never sends anyone anywhere. Same patterns
+// as the app (lib/daily-tasks/coach-note.ts).
+const EMAIL_PATTERN = /[^\s@]+@[^\s@]+\.[a-z]{2,}\S*/gi;
+const URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+|\b[^\s@]+\.[a-z]{2,}\b(?:\/\S*)?/gi;
 
-/** One clean line: no control characters or links, one space, capped. "" when nothing's left. */
+/**
+ * One clean line: no control characters, emails or links, one space. "" when
+ * nothing's left or it's over MAX_COACH_LINE (never cut into a half-sentence).
+ */
 export function cleanCoachLine(value) {
   if (typeof value !== "string") return "";
-  const text = value.replace(CONTROL, " ").replace(URL_PATTERN, " ").replace(/\s+/g, " ").trim();
-  if (!text) return "";
-  const chars = Array.from(text);
-  return chars.length > MAX_COACH_LINE ? `${chars.slice(0, MAX_COACH_LINE - 1).join("").trimEnd()}…` : text;
+  const text = value
+    .replace(CONTROL, " ")
+    .replace(EMAIL_PATTERN, " ")
+    .replace(URL_PATTERN, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text || Array.from(text).length > MAX_COACH_LINE) return "";
+  return text;
 }
 
-/** Usable when at least one entry has both lines after cleaning. */
-export function isValidCoach(result) {
+/** Usable when at least one entry (of those for the tasks sent) has both lines after cleaning. */
+export function isValidCoach(result, payload) {
   if (!result || typeof result !== "object" || !Array.isArray(result.notes)) return false;
-  return sanitizeCoach(result).notes.some((note) => note.start && note.momentum);
+  return sanitizeCoach(result, payload).notes.some((note) => note.start && note.momentum);
 }
 
 /**

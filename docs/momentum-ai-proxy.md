@@ -198,7 +198,7 @@ payload validator, prompt, structured-output schema and response validator.
 | `/api/momentum/brain-dump` | `text` (≤2000 chars), `openSlots` (1–3), `goalTitle?`, `agenda?` (≤12 strings ≤120 chars; also accepted by `/plan`) | `picks` (≤ openSlots), `parked` (≤10) |
 | `/api/momentum/break-down` | `task` (≤120 chars), `goalTitle?` | `steps` (3–5 tiny steps) |
 | `/api/momentum/evening` | `result` (easy/good/hard/missed), `tasks` (≤3 `{text, done}`), `note?`, `goalTitle?`, `memory?` (≤500) | `note` (≤160), `because` (≤100), `tomorrow` (1–3 tasks), `memory` (≤500, the coach's rolling summary) |
-| `/api/momentum/coach-note` | `tasks` (1–3 strings ≤120 chars), `goalTitle?`, `tone?` (calm/friendly/direct) | `notes`: one `{start, momentum}` per task, in order (each ≤140 chars, no control characters or links; `""` where a line was unusable) |
+| `/api/momentum/coach-note` | `tasks` (1–3 strings ≤120 chars), `goalTitle?`, `tone?` (calm/friendly/direct) | `notes`: one `{start, momentum}` per task, in order (no control characters, emails or links; `""` where a line was unusable or over 140 chars) |
 
 The app derives sibling route URLs from `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL`
 (which points at `/plan`). Brain dump falls back to a simple on-device split

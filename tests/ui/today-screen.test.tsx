@@ -2000,7 +2000,7 @@ describe("Coach's note (1.2)", () => {
 
   it("morning, nothing ticked: a built-in start line about the first task, no Start button", async () => {
     at(9);
-    mockStore = makeStore({ tasks: tasks("Walk the dog", "Read") });
+    mockStore = makeStore({ tasks: THREE });
     await render(<HomeScreen />);
     expect(screen.getByTestId("coach-note")).toBeOnTheScreen();
     expect(screen.getByTestId("coach-note-start")).toHaveTextContent(localCoachLine("start", "Walk the dog", TODAY));
@@ -2039,13 +2039,25 @@ describe("Coach's note (1.2)", () => {
     expect(screen.queryByTestId("coach-note")).toBeNull();
   });
 
-  it("under the note, the ideas entries shrink to one quiet line that still opens both sheets", async () => {
+  it("no note while the three are still being chosen in the morning: the full entries stay", async () => {
     at(9);
+    mockStore = makeStore({ tasks: tasks("Walk the dog", "Read") });
+    await render(<HomeScreen />);
+    expect(screen.queryByTestId("coach-note")).toBeNull();
+    expect(screen.queryByTestId("quiet-entries")).toBeNull();
+    expect(screen.getByTestId("need-ideas")).toBeOnTheScreen();
+    expect(screen.getByTestId("brain-dump-entry")).toBeOnTheScreen();
+  });
+
+  it("under the note, the ideas entries shrink to one quiet line that still opens both sheets", async () => {
+    // Midday shows the note even before the three are set.
+    at(14);
     mockStore = makeStore({ tasks: tasks("Walk") });
     await render(<HomeScreen />);
+    expect(screen.getByTestId("coach-note-start")).toBeOnTheScreen();
     const quiet = within(screen.getByTestId("quiet-entries"));
     expect(quiet.getByTestId("need-ideas")).toHaveTextContent("Need ideas?");
-    await fireEvent.press(quiet.getByRole("button", { name: "Need ideas?. Opens suggestions" }));
+    await fireEvent.press(quiet.getByRole("button", { name: "Need ideas? Opens suggestions" }));
     expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
     await fireEvent.press(
       quiet.getByRole("button", { name: "Brain dump. Write everything down and pick today's tasks" }),
