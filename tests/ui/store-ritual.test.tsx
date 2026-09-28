@@ -7,9 +7,10 @@ import { act, renderHook, waitFor } from "@testing-library/react-native";
 
 import { addDays } from "@/lib/daily-tasks/date";
 import type { EveningClose } from "@/lib/daily-tasks/evening";
+import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
-import type { AppState, MomentumPlan, Task } from "@/lib/daily-tasks/types";
+import { DEFAULT_AUTO_LOCK, type AppState, type MomentumPlan, type Task } from "@/lib/daily-tasks/types";
 
 jest.mock("expo-notifications", () => ({
   getPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
@@ -30,7 +31,13 @@ function fakeClockAt(now: Date) {
   });
 }
 
-const task = (id: string, text: string): Task => ({ id, text, createdAt: "2026-09-25T08:00:00.000Z", carriedOver: false });
+// Local 08:00 on the 25th, not a UTC literal: day keys are local.
+const task = (id: string, text: string): Task => ({
+  id,
+  text,
+  createdAt: new Date(2026, 8, 25, 8).toISOString(),
+  carriedOver: false,
+});
 
 const PLAN: MomentumPlan = {
   id: "plan",
@@ -58,11 +65,19 @@ const close = (overrides: Partial<EveningClose> = {}): EveningClose => ({
 
 const wrapper = ({ children }: { children: ReactNode }) => <DailyTasksProvider>{children}</DailyTasksProvider>;
 
+/**
+ * Save a state the app could have written (today's history mirrors the live
+ * list). Auto-lock is off so the 20:00 clock doesn't lock the day depending on
+ * the timezone; tests that need a set day say so with `todayLocked`.
+ */
 async function renderStore(saved: Partial<AppState>, savedFor = new Date(2026, 8, 25, 8)) {
-  await AsyncStorage.setItem(
-    "daily-tasks/state/v1",
-    JSON.stringify({ ...buildInitialState(savedFor), hasSeenOnboarding: true, ...saved }),
-  );
+  const state: AppState = {
+    ...buildInitialState(savedFor),
+    hasSeenOnboarding: true,
+    autoLock: { ...DEFAULT_AUTO_LOCK, enabled: false },
+    ...saved,
+  };
+  await AsyncStorage.setItem("daily-tasks/state/v1", JSON.stringify(syncTodayHistory(state, state.lastOpenedDate)));
   const hook = await renderHook(() => useDailyTasks(), { wrapper });
   await waitFor(() => expect(hook.result.current.ready).toBe(true));
   return hook;

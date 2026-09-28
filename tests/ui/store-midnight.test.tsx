@@ -6,10 +6,10 @@ import type { ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 
-import { applyRollover } from "@/lib/daily-tasks/rollover";
+import { applyRollover, syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
-import type { AppState, Task } from "@/lib/daily-tasks/types";
+import { DEFAULT_AUTO_LOCK, type AppState, type Task } from "@/lib/daily-tasks/types";
 
 jest.mock("expo-notifications", () => ({
   getPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
@@ -24,7 +24,8 @@ jest.mock("expo-notifications", () => ({
 const D = "2026-09-25";
 const NEXT = "2026-09-26";
 
-const WALK: Task = { id: "t0", text: "Walk", createdAt: "2026-09-25T08:00:00.000Z", carriedOver: false };
+// Local time (08:00 on D), not a UTC literal: day keys are local.
+const WALK: Task = { id: "t0", text: "Walk", createdAt: new Date(2026, 8, 25, 8).toISOString(), carriedOver: false };
 
 /** Fake only the clock; real timers keep RNTL's async waits working. */
 function fakeClockAt(now: Date) {
@@ -47,10 +48,22 @@ const wrapper = ({ children }: { children: ReactNode }) => (
   <DailyTasksProvider>{children}</DailyTasksProvider>
 );
 
+/**
+ * Save a state the app could have written: today's history record mirrors the
+ * live list (every task change goes through syncTodayHistory). Auto-lock is
+ * off so these midnight tests don't depend on the lock time (or timezone);
+ * pass `autoLock` to opt in.
+ */
 async function renderOnDay(saved: Partial<AppState>, savedFor: Date) {
+  const state: AppState = {
+    ...buildInitialState(savedFor),
+    hasSeenOnboarding: true,
+    autoLock: { ...DEFAULT_AUTO_LOCK, enabled: false },
+    ...saved,
+  };
   await AsyncStorage.setItem(
     "daily-tasks/state/v1",
-    JSON.stringify({ ...buildInitialState(savedFor), hasSeenOnboarding: true, ...saved }),
+    JSON.stringify(syncTodayHistory(state, state.lastOpenedDate)),
   );
   const hook = await renderHook(() => useDailyTasks(), { wrapper });
   await waitFor(() => expect(hook.result.current.ready).toBe(true));
@@ -84,6 +97,46 @@ describe("store: actions just after midnight", () => {
     expect(state.history[NEXT].tasks.map((t) => t.text)).toEqual(["Read"]);
     // Walk waits in the rollover once, not duplicated.
     expect(state.pendingRollover?.tasks.map((t) => t.text)).toEqual(["Walk"]);
+  });
+
+  it("adding a task at 00:00:10 on a set (auto-locked) day lands on the new, unlocked day", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
+    const { result } = await renderOnDay(
+      { tasks: [WALK], todayLocked: true, todayLockSource: "auto" },
+      new Date(2026, 8, 25, 8),
+    );
+
+    jest.setSystemTime(new Date(2026, 8, 26, 0, 0, 10));
+    await act(async () => result.current.addTask("Read"));
+
+    const state = result.current.state;
+    expect(state.lastOpenedDate).toBe(NEXT);
+    // Yesterday stays set; the add isn't swallowed by yesterday's lock.
+    expect(state.history[D]).toMatchObject({ locked: true, lockSource: "auto" });
+    expect(state.todayLocked).toBe(false);
+    expect(state.tasks.map((t) => t.text)).toEqual(["Read"]);
+  });
+
+  it("repairs a saved day whose history drifted from its list, so the rollover archives the real list", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
+    // An old build's save: Walk is on the list but the day's record is empty.
+    await AsyncStorage.setItem(
+      "daily-tasks/state/v1",
+      JSON.stringify({
+        ...buildInitialState(new Date(2026, 8, 25, 8)),
+        hasSeenOnboarding: true,
+        autoLock: { ...DEFAULT_AUTO_LOCK, enabled: false },
+        tasks: [WALK],
+      }),
+    );
+    const { result } = await renderHook(() => useDailyTasks(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.state.history[D].tasks.map((t) => t.text)).toEqual(["Walk"]);
+
+    jest.setSystemTime(new Date(2026, 8, 26, 0, 0, 10));
+    await act(async () => result.current.addTask("Read"));
+    expect(result.current.state.lastOpenedDate).toBe(NEXT);
+    expect(result.current.state.history[D].tasks.map((t) => t.text)).toEqual(["Walk"]);
   });
 
   it("a tick just after midnight counts for the day on screen, then the day changes", async () => {
