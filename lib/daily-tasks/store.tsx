@@ -1029,16 +1029,20 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
 
   // Keep the home/lock-screen widget in step with today's tasks.
   const widgetStreak = useMemo(() => computeDayStreak(state.history, today), [state.history, today]);
+  const daysShowedUp = useMemo(
+    () => countDaysShowedUp(state.history, today),
+    [state.history, today],
+  );
   useEffect(() => {
     if (!ready) return;
     writeWidgetSnapshot(
       // Confirmed Plus only: "still checking" must not make a free user's
       // widget interactive (it may stay that way until the next launch).
-      buildWidgetSnapshot({ state, today, streak: widgetStreak, plus: plusConfirmed }),
+      buildWidgetSnapshot({ state, today, streak: widgetStreak, plus: plusConfirmed, day: daysShowedUp }),
     );
     // Only these fields feed the snapshot (widgetNonce forces a rewrite).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, state.tasks, state.todayCompletions, today, widgetStreak, plusConfirmed, widgetNonce]);
+  }, [ready, state.tasks, state.todayCompletions, today, widgetStreak, daysShowedUp, plusConfirmed, widgetNonce]);
 
   // One "app_opened" per day this app is used (drives D1/D7/D30 retention).
   const openedTracked = useRef<string | null>(null);
@@ -1431,10 +1435,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const editMilestones = useCallback((items: { id?: string; title: string; description?: string }[]) => {
     dispatch({ type: "setMilestones", items });
   }, []);
-  const daysShowedUp = useMemo(
-    () => countDaysShowedUp(state.history, today),
-    [state.history, today],
-  );
   const parkTasksCb = useCallback((texts: string[]) => {
     dispatch({ type: "parkTasks", texts, at: new Date().toISOString() });
   }, []);

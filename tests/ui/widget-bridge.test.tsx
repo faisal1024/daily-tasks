@@ -32,6 +32,7 @@ const SNAPSHOT: WidgetSnapshot = {
   tasks: [{ id: "a", text: "Walk", done: false }],
   streak: 2,
   plus: true,
+  day: 3,
 };
 
 const originalOS = Platform.OS;
