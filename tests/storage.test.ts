@@ -195,3 +195,34 @@ describe("the path's origin survives a relaunch", () => {
     expect(restored("bogus")?.pathSource).toBeUndefined();
   });
 });
+
+describe("normalizeState: coachNotes (1.2)", () => {
+  const lines = { start: "Open it.", momentum: "Keep going." };
+
+  it("round-trips a well-formed cache, and is null in a fresh state", () => {
+    expect(restore({}).coachNotes).toBeNull();
+    const coachNotes = { date: "2026-09-26", notes: { walk: lines }, requests: 1, asked: ["walk"], logged: true };
+    expect(restore({ coachNotes }).coachNotes).toEqual(coachNotes);
+  });
+
+  it("rejects a malformed cache or bad date, drops bad and __proto__ entries, clamps requests", () => {
+    expect(restore({ coachNotes: "nope" }).coachNotes).toBeNull();
+    expect(restore({ coachNotes: { date: "26/09/2026", notes: {} } }).coachNotes).toBeNull();
+    // Built as JSON so "__proto__" is an own key, as it would be when read from disk.
+    const raw = JSON.parse(
+      JSON.stringify({ ...base(), coachNotes: null }).replace(
+        '"coachNotes":null',
+        `"coachNotes":{"date":"2026-09-26","notes":{"__proto__":{"start":"a","momentum":"b"},` +
+          `"walk":{"start":"Open it.","momentum":"Keep going."},"half":{"start":"only"},"blank":{"start":" ","momentum":"x"},` +
+          `"long":{"start":"${"s".repeat(200)}","momentum":"m"}},"requests":7,"asked":["walk",3,""],"logged":"yes"}`,
+      ),
+    );
+    const cache = normalizeState(raw)?.coachNotes;
+    expect(cache?.notes).toEqual({ walk: lines, long: { start: "s".repeat(140), momentum: "m" } });
+    expect(Object.getPrototypeOf(cache?.notes)).toBe(Object.prototype);
+    expect(cache?.requests).toBe(2);
+    expect(cache?.asked).toEqual(["walk"]);
+    expect(cache?.logged).toBe(false);
+    expect(restore({ coachNotes: { date: "2026-09-26", requests: -3 } }).coachNotes?.requests).toBe(0);
+  });
+});

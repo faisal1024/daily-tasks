@@ -7,6 +7,7 @@ import { requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { closeDay } from "@/lib/daily-tasks/evening";
 import { MomentumAiError } from "@/lib/daily-tasks/ai-status";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
+import { coachTaskKey, localCoachLine, requestCoachNotes } from "@/lib/daily-tasks/coach-note";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import { themeColors } from "@/theme.config";
 import type { AppState, DayRecord, Task } from "@/lib/daily-tasks/types";
@@ -51,6 +52,11 @@ jest.mock("@/lib/daily-tasks/ai-helpers", () => {
   const actual = jest.requireActual("@/lib/daily-tasks/ai-helpers");
   return { ...actual, requestBreakDown: jest.fn(), sortBrainDump: jest.fn() };
 });
+// The Coach's note's one network call; each test decides how it answers.
+jest.mock("@/lib/daily-tasks/coach-note", () => ({
+  ...jest.requireActual("@/lib/daily-tasks/coach-note"),
+  requestCoachNotes: jest.fn(),
+}));
 const mockOpenPaywall = jest.fn(() => true);
 let mockPaywall: {
   paywallSource: string | null;
@@ -185,6 +191,10 @@ beforeEach(() => {
     jest.requireActual("@/lib/daily-tasks/ai-helpers").sortBrainDump,
   );
   (requestBreakDown as jest.Mock).mockImplementation(async () => {
+    throw new MomentumAiError("unavailable", "not stubbed");
+  });
+  // As in the app with no proxy baked in: the coach call fails, quietly.
+  (requestCoachNotes as jest.Mock).mockImplementation(async () => {
     throw new MomentumAiError("unavailable", "not stubbed");
   });
 });
@@ -1970,5 +1980,172 @@ describe("Today by time of day (1.2)", () => {
     const columns = within(screen.getByTestId("today-two-column"));
     expect(columns.getAllByTestId("week-row")).toHaveLength(1);
     expect(within(screen.getByTestId("today-tasks")).queryByTestId("week-row")).toBeNull();
+  });
+});
+
+// --- 1.2: the Coach's note (PR #64) ---------------------------------------------
+
+describe("Coach's note (1.2)", () => {
+  const at = (hour: number) =>
+    jest.useFakeTimers({
+      now: new Date(2026, 8, 26, hour, 0),
+      doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"],
+    });
+  const PROXY = "https://proxy.test/api/momentum/plan";
+  const THREE = tasks("Walk the dog", "Read", "Call mum");
+  const AI = {
+    [coachTaskKey("Walk the dog")]: { start: "Find the lead by the door.", momentum: "Fresh air resets the afternoon." },
+  };
+  const request = requestCoachNotes as jest.Mock;
+
+  it("morning, nothing ticked: a built-in start line about the first task, no Start button", async () => {
+    at(9);
+    mockStore = makeStore({ tasks: tasks("Walk the dog", "Read") });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("coach-note")).toBeOnTheScreen();
+    expect(screen.getByTestId("coach-note-start")).toHaveTextContent(localCoachLine("start", "Walk the dog", TODAY));
+    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    expect(screen.getByLabelText(`Coach's note: ${localCoachLine("start", "Walk the dog", TODAY)}`)).toBeOnTheScreen();
+  });
+
+  it("midday: a momentum line about the first unticked task", async () => {
+    at(14);
+    mockStore = makeStore({ tasks: tasks("Walk the dog", "Read"), todayCompletions: ["t0"] });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("coach-note-momentum")).toHaveTextContent(localCoachLine("momentum", "Read", TODAY));
+    expect(screen.queryByTestId("coach-note-start")).toBeNull();
+  });
+
+  it.each([
+    ["plan (no tasks)", 9, {}, null],
+    ["evening", 18, { tasks: tasks("Walk", "Read") }, "How did today feel?"],
+    [
+      "done",
+      10,
+      {
+        tasks: tasks("Walk", "Read"),
+        todayCompletions: ["t0", "t1"],
+        momentumSettings: { ...buildInitialState().momentumSettings, eveningReflection: false },
+      },
+      "done-card",
+    ],
+  ] as [string, number, Partial<AppState>, string | null][])("%s shows no note", async (_name, hour, overrides, marker) => {
+    at(hour);
+    mockStore = makeStore(overrides);
+    await render(<HomeScreen />);
+    if (marker === "done-card") expect(screen.getByTestId("done-card")).toBeOnTheScreen();
+    else if (marker) expect(screen.getByText(marker)).toBeOnTheScreen();
+    else expect(screen.getByTestId("morning-hero")).toBeOnTheScreen();
+    expect(screen.queryByTestId("coach-note")).toBeNull();
+  });
+
+  it("under the note, the ideas entries shrink to one quiet line that still opens both sheets", async () => {
+    at(9);
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    const quiet = within(screen.getByTestId("quiet-entries"));
+    expect(quiet.getByTestId("need-ideas")).toHaveTextContent("Need ideas?");
+    await fireEvent.press(quiet.getByRole("button", { name: "Need ideas?. Opens suggestions" }));
+    expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
+    await fireEvent.press(
+      quiet.getByRole("button", { name: "Brain dump. Write everything down and pick today's tasks" }),
+    );
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+  });
+
+  it("Plus, three set: exactly one call (claimed first), the AI line once cached, and no call on re-render", async () => {
+    at(9);
+    mockProxyUrl = PROXY;
+    let resolve: (notes: typeof AI) => void = () => {};
+    request.mockImplementation(() => new Promise((r) => (resolve = r)));
+    mockStore = makeStore({
+      tasks: THREE,
+      momentumProfile: { ...buildInitialState().momentumProfile, goalTitle: "Run a 5K" },
+    });
+    const view = await render(<HomeScreen />);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][0]).toEqual({
+      input: { tasks: ["Walk the dog", "Read", "Call mum"], goalTitle: "Run a 5K", tone: "calm" },
+    });
+    expect(mockStore.claimCoachRequest).toHaveBeenCalledWith(TODAY, ["Walk the dog", "Read", "Call mum"]);
+    // Re-renders while the call is in flight never start a second one, even
+    // with a fresh tasks array (the effect re-runs; the in-flight guard holds).
+    const first = mockStore;
+    await view.rerender(<HomeScreen />);
+    mockStore = { ...makeStore({ tasks: tasks("Walk the dog", "Read", "Call mum") }), claimCoachRequest: first.claimCoachRequest };
+    await view.rerender(<HomeScreen />);
+    expect(request).toHaveBeenCalledTimes(1);
+    // Nothing logged while the AI line may still come.
+    expect(mockTrack).not.toHaveBeenCalledWith("coach_note_loaded", expect.anything());
+
+    expect(first.claimCoachRequest).toHaveBeenCalledTimes(1);
+    await act(async () => resolve(AI));
+    expect(first.setCoachNotes).toHaveBeenCalledWith(TODAY, AI);
+
+    // The store now holds the claim and the lines: the AI line shows, no new call.
+    const claimed = {
+      date: TODAY,
+      notes: AI,
+      requests: 1,
+      asked: THREE.map((t) => coachTaskKey(t.text)),
+      logged: false,
+    };
+    mockStore = { ...makeStore({ tasks: THREE, coachNotes: claimed }), claimCoachRequest: mockStore.claimCoachRequest };
+    await view.rerender(<HomeScreen />);
+    expect(screen.getByTestId("coach-note-start")).toHaveTextContent("Find the lead by the door.");
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(mockTrack).toHaveBeenCalledWith("coach_note_loaded", { source: "ai" });
+    expect(mockStore.markCoachNoteLogged).toHaveBeenCalledWith(TODAY);
+  });
+
+  it("a failed call keeps the built-in line quietly (no error text, nothing stored)", async () => {
+    at(9);
+    mockProxyUrl = PROXY;
+    request.mockRejectedValue(new MomentumAiError("network", "offline"));
+    mockStore = makeStore({ tasks: THREE });
+    const view = await render(<HomeScreen />);
+    await act(async () => {});
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(mockStore.setCoachNotes).not.toHaveBeenCalled();
+    expect(screen.getByTestId("coach-note-start")).toHaveTextContent(localCoachLine("start", "Walk the dog", TODAY));
+    expect(screen.queryByText(/offline|went wrong|try again/i)).toBeNull();
+
+    // The claim stuck (the store counted it): no retry for the same texts, and the note logs as local.
+    const claimed = { date: TODAY, notes: {}, requests: 1, asked: THREE.map((t) => coachTaskKey(t.text)), logged: false };
+    mockStore = makeStore({ tasks: THREE, coachNotes: claimed });
+    await view.rerender(<HomeScreen />);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("coach-note-start")).toHaveTextContent(localCoachLine("start", "Walk the dog", TODAY));
+    expect(mockTrack).toHaveBeenCalledWith("coach_note_loaded", { source: "local" });
+  });
+
+  it("never calls for free users, unconfirmed Plus, fewer than three on an open day, or no proxy", async () => {
+    at(9);
+    mockProxyUrl = PROXY;
+    mockStore = { ...makeStore({ tasks: THREE }), plusConfirmed: false, hasPlus: false };
+    const view = await render(<HomeScreen />);
+    expect(screen.getByTestId("coach-note")).toBeOnTheScreen();
+
+    mockStore = { ...makeStore({ tasks: THREE }), plusConfirmed: false, hasPlus: true };
+    await view.rerender(<HomeScreen />);
+    mockStore = makeStore({ tasks: tasks("Walk", "Read") });
+    await view.rerender(<HomeScreen />);
+    mockProxyUrl = null;
+    mockStore = makeStore({ tasks: THREE });
+    await view.rerender(<HomeScreen />);
+    expect(request).not.toHaveBeenCalled();
+    expect(mockStore.claimCoachRequest).not.toHaveBeenCalled();
+  });
+
+  it("a set day with one task counts as three set, and a spent daily cap means no call", async () => {
+    at(9);
+    mockProxyUrl = PROXY;
+    mockStore = makeStore({ ...SET, tasks: tasks("Walk"), coachNotes: { date: TODAY, notes: {}, requests: 2, asked: [], logged: true } });
+    const view = await render(<HomeScreen />);
+    expect(request).not.toHaveBeenCalled();
+
+    mockStore = makeStore({ ...SET, tasks: tasks("Walk") });
+    await view.rerender(<HomeScreen />);
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });
