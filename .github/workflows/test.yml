@@ -40,3 +40,34 @@ jobs:
 
       - name: UI tests (Jest)
         run: npx jest --ci
+
+  # Day keys, midnight rollover and auto-lock all use the device's local time.
+  # CI runs in UTC, so repeat the suites east and west of it (Kiritimati is
+  # UTC+14, where "T00:00Z" is already the afternoon).
+  timezones:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: [Asia/Kolkata, America/New_York, Pacific/Kiritimati]
+    env:
+      TZ: ${{ matrix.tz }}
+    name: tests (${{ matrix.tz }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Unit tests (Vitest)
+        run: npx vitest run
+
+      - name: UI tests (Jest)
+        run: npx jest --ci

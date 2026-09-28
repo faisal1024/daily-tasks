@@ -1,4 +1,4 @@
-import { storeDayFor } from "./date";
+import { fromDateKey, storeDayFor } from "./date";
 import { MAX_TASKS } from "./types";
 import type {
   AppState,
@@ -74,10 +74,14 @@ function taskRecordsMatchTasks(record: DayRecord, tasks: Task[]): boolean {
 }
 
 function restoreTasksFromRecord(record: DayRecord): Task[] {
+  // Local midnight of that day, not UTC midnight: east of UTC, "T00:00Z" is
+  // already mid-day (14:00 in Kiritimati), past the auto-lock time, so the
+  // restored tasks would never count towards locking the day.
+  const createdAt = fromDateKey(record.date).toISOString();
   return record.tasks.map((task) => ({
     id: task.id,
     text: task.text,
-    createdAt: `${record.date}T00:00:00.000Z`,
+    createdAt,
     carriedOver: task.carriedOver,
     ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
   }));
