@@ -403,7 +403,10 @@ function reduce(state: AppState, action: Action): AppState {
       return next === state ? state : syncTodayHistory(next, action.today);
     }
     case "hydrate":
-      return action.state;
+      // The live list is the saved day's list: if its history record ever
+      // drifted (an old build, a bad save), repair it now, before a rollover
+      // archives the stale copy as that day's history.
+      return syncTodayHistory(action.state, action.state.lastOpenedDate);
     case "rollover": {
       const rolled = applyRollover(state, action.today);
       // A draft for a day that has already passed is no longer useful.

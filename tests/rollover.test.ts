@@ -6,6 +6,7 @@ import {
   settlePendingRollover,
   syncTodayHistory,
 } from "../lib/daily-tasks/rollover";
+import { autoLockEligibleTaskCount } from "../lib/daily-tasks/locking";
 import { DEFAULT_JOURNEY } from "../lib/daily-tasks/journey";
 import type { AppState } from "../lib/daily-tasks/types";
 import {
@@ -153,6 +154,41 @@ describe("applyRollover", () => {
       next.history["2026-04-17"]?.tasks.find((task) => task.id === "unfinished-yesterday")
         ?.rolloverOutcome,
     ).toBe("unresolved");
+  });
+  it("restores a day from history with its tasks created at that day's local midnight, so it still auto-locks", () => {
+    // Passes trivially under TZ=UTC (local midnight is T00:00Z): the CI TZ matrix is what makes it bite.
+    // The clock went >1 day back and the app followed it; the date is now fixed
+    // forward to a day that already has a record the live list doesn't match.
+    const restoredDay = "2026-04-20";
+    const earlyLock = { enabled: true, hour: 5, minute: 0 };
+    const next = applyRollover(
+      makeState({
+        autoLock: earlyLock,
+        history: {
+          [restoredDay]: {
+            date: restoredDay,
+            total: 2,
+            completed: 0,
+            locked: false,
+            lockSource: null,
+            reflection: null,
+            reflectionResult: null,
+            tasks: [
+              { id: "r1", text: "Run", completed: false, carriedOver: false, rolloverOutcome: null },
+              { id: "r2", text: "Read", completed: false, carriedOver: false, rolloverOutcome: null },
+            ],
+          },
+        },
+      }),
+      restoredDay,
+    );
+
+    expect(next.tasks.map((task) => task.id)).toEqual(["r1", "r2"]);
+    // Local midnight, not "T00:00Z" (05:30 in Kolkata, 14:00 in Kiritimati:
+    // past the lock time, so the day would never auto-lock).
+    const localMidnight = new Date(2026, 3, 20).toISOString();
+    expect(next.tasks.map((task) => task.createdAt)).toEqual([localMidnight, localMidnight]);
+    expect(autoLockEligibleTaskCount(next.tasks, restoredDay, earlyLock)).toBe(2);
   });
 });
 
