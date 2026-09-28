@@ -86,7 +86,7 @@ import {
   refreshBackup,
   saveState,
 } from "./storage";
-import { computeDayStreak } from "./streaks";
+import { computeDayStreak, showedUp } from "./streaks";
 import type { EveningClose } from "./evening";
 import { draftForNotification, draftForTomorrow } from "./evening";
 import { readTodayAgenda } from "./agenda";
@@ -178,11 +178,11 @@ type Action =
   | { type: "setAnalyticsEnabled"; enabled: boolean }
   | { type: "reset"; state: AppState };
 
-/** Days with at least one task planned, counting today as a day ("Day N"). */
+/** Days shown up (the shared `showedUp` rule), counting today as a day ("Day N"). */
 export function countDaysShowedUp(history: AppState["history"], today: string): number {
   let count = 0;
   for (const record of Object.values(history)) {
-    if (record.date < today && record.total > 0) count += 1;
+    if (record.date < today && showedUp(record)) count += 1;
   }
   return count + 1;
 }
@@ -1157,6 +1157,26 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     }, 60_000);
     return () => clearInterval(id);
   }, [ensureDay, state.autoLock, state.tasks, state.todayLocked]);
+
+  // Also roll over right at local midnight, so Today (which re-renders on the
+  // hour) never pairs 00:00 with yesterday's tasks until the next minute tick.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      const now = new Date();
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      // A little past midnight, so a timer that fires early still sees the new day.
+      timer = setTimeout(() => {
+        ensureDay();
+        schedule();
+      }, midnight.getTime() - now.getTime() + 50);
+    };
+    schedule();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [ensureDay]);
 
   const isCompleted = useCallback(
     (id: TaskId) => state.todayCompletions.includes(id),

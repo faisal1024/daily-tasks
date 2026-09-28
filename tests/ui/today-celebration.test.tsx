@@ -120,7 +120,8 @@ function makeStore(overrides: Partial<AppState> = {}, journeyLevel = 4) {
 }
 
 beforeEach(() => {
-  jest.useFakeTimers();
+  // Pinned to a morning on TODAY: the lower section depends on the hour (1.2).
+  jest.useFakeTimers({ now: new Date(2026, 8, 26, 9, 0) });
 });
 
 afterEach(() => {

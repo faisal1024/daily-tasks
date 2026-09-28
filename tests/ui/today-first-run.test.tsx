@@ -265,7 +265,7 @@ describe("Today: first run, AI sort accounting", () => {
     // One already used: a double refund would show 0, a missing refund 2.
     await AsyncStorage.setItem(FREE_KEY, "1");
     (sortBrainDump as jest.Mock).mockReturnValue(new Promise(() => {}));
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: new Date(2026, 8, 26, 9, 0) });
     mockStore = makeStore();
     await render(<HomeScreen />);
     await dump("swim, bike");
@@ -290,7 +290,7 @@ describe("Today: first run, AI sort accounting", () => {
 
   it("the one-per-install first sort that times out doesn't touch the free Today sorts", async () => {
     (sortBrainDump as jest.Mock).mockReturnValue(new Promise(() => {}));
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: new Date(2026, 8, 26, 9, 0) });
     mockStore = makeStore();
     await render(<HomeScreen />);
     await dump("swim");

@@ -9,6 +9,7 @@
 // left out of the weekday patterns. What's already done today always counts.
 
 import { addDays, fromDateKey } from "./date";
+import { showedUp } from "./streaks";
 import type { History } from "./types";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -135,10 +136,9 @@ export function weeklyHeadline(input: {
   return `${tasks} done. Every one counts.`;
 }
 
-/** The seven days ending today. */
-export function buildWeeklyReview(history: History, today: string): WeeklyReview {
-  const dates = lastDays(today, 7);
-  const days: ReviewDay[] = dates.map((date) => {
+/** The seven days ending today, oldest first (shared with Today's week row). */
+export function reviewDays(history: History, today: string): ReviewDay[] {
+  return lastDays(today, 7).map((date) => {
     const record = history[date];
     const weekday = WEEKDAYS[fromDateKey(date).getDay()];
     const total = record?.total ?? 0;
@@ -153,10 +153,16 @@ export function buildWeeklyReview(history: History, today: string): WeeklyReview
       perfect: total > 0 && completed === total,
     };
   });
+}
+
+/** The seven days ending today. */
+export function buildWeeklyReview(history: History, today: string): WeeklyReview {
+  const days = reviewDays(history, today);
 
   const completed = days.reduce((sum, day) => sum + day.completed, 0);
   const perfectDays = days.filter((day) => day.perfect).length;
-  const showedUpDays = days.filter((day) => day.completed > 0).length;
+  // The one "showed up" rule (planned something), as for Day N and Today's week row.
+  const showedUpDays = days.filter(showedUp).length;
 
   // Compare like with like: two finished 7-day windows. Today joins only once
   // it's done; before that, the windows end yesterday (so a morning with
