@@ -17,6 +17,8 @@ export interface WidgetSnapshot {
   streak: number;
   /** Plus users can tick tasks off from the widget. */
   plus: boolean;
+  /** "Day N": days the user has shown up, including today (same as the Today header). */
+  day: number;
 }
 
 /** One tick/untick made in the widget, queued for the app. */
@@ -32,6 +34,7 @@ export function buildWidgetSnapshot(input: {
   today: string;
   streak: number;
   plus: boolean;
+  day: number;
 }): WidgetSnapshot {
   const done = new Set(input.state.todayCompletions);
   return {
@@ -39,6 +42,7 @@ export function buildWidgetSnapshot(input: {
     tasks: input.state.tasks.map((task) => ({ id: task.id, text: task.text, done: done.has(task.id) })),
     streak: Math.max(0, Math.floor(input.streak)),
     plus: input.plus,
+    day: Math.max(1, Math.floor(input.day)),
   };
 }
 

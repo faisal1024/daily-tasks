@@ -80,6 +80,9 @@ struct Snapshot: Codable {
   let streak: Int
   /// Plus users can tick tasks off from the widget.
   let plus: Bool
+  /// "Day N" (days shown up, including today). Optional: snapshots written by
+  /// app versions before 1.2 don't have it and must still decode.
+  var day: Int? = nil
 
   var completed: Int { tasks.filter(\.done).count }
   var nextOpen: WidgetTask? { tasks.first { !$0.done } }

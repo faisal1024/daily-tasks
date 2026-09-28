@@ -28,6 +28,7 @@ describe("buildWidgetSnapshot", () => {
       today: TODAY,
       streak: 4.7,
       plus: false,
+      day: 12,
     });
     expect(snapshot).toEqual({
       date: TODAY,
@@ -37,9 +38,10 @@ describe("buildWidgetSnapshot", () => {
       ],
       streak: 4,
       plus: false,
+      day: 12,
     });
     expect(
-      buildWidgetSnapshot({ state: { tasks: [], todayCompletions: [] }, today: TODAY, streak: -2, plus: true }),
+      buildWidgetSnapshot({ state: { tasks: [], todayCompletions: [] }, today: TODAY, streak: -2, plus: true, day: 1 }),
     ).toMatchObject({ streak: 0, plus: true });
   });
 });
