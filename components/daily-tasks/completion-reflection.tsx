@@ -123,7 +123,7 @@ export function CompletionReflection({
             >
               <Text
                 className="text-sm font-semibold"
-                style={{ color: colors.background }}
+                style={{ color: colors.onPrimary }}
               >
                 Save note
               </Text>

@@ -1024,11 +1024,11 @@ export default function HomeScreen() {
                       <Ionicons
                         name={source.personalized || entry.prominent ? "sparkles" : "bulb-outline"}
                         size={18}
-                        color={entry.prominent ? "#fff" : colors.primary}
+                        color={entry.prominent ? colors.onPrimary : colors.primary}
                       />
                       <Text
                         className="text-base font-semibold"
-                        style={{ color: entry.prominent ? "#fff" : colors.primary }}
+                        style={{ color: entry.prominent ? colors.onPrimary : colors.primary }}
                       >
                         {entry.label}
                       </Text>
