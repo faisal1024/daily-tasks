@@ -58,6 +58,15 @@ describe("buildWeeklyReview: headline and counts", () => {
     expect(review.days[6]).toMatchObject({ date: TODAY, isToday: true, total: 3, completed: 0 });
   });
 
+  it("counts a day as showed up once something was planned (the Day N rule), done or not", () => {
+    const review = buildWeeklyReview(
+      history([[0, 3, 0], [1, 2, 0], [2, 3, 1], [3, 3, 3], [4, 1, 1], [8, 3, 3]]),
+      TODAY,
+    );
+    expect(review.showedUpDays).toBe(5);
+    expect(review.headline).toBe("You showed up 5 days this week.");
+  });
+
   it("welcomes a first-week user who has planned today, and a brand-new user with nothing yet", () => {
     const planned = buildWeeklyReview(history([[0, 3, 0]]), TODAY);
     expect(planned.firstWeek).toBe(true);

@@ -83,19 +83,20 @@ export function buildWeekSummary(
   };
 }
 
-/** VoiceOver label for the week row. */
+/** VoiceOver label for the week row ("Opens Progress" is its hint). */
 export function weekRowLabel(showedUpDays: number, daysShowedUp: number): string {
-  return `This week: ${showedUpDays} of 7 days. ${dayChipText(daysShowedUp)}. Opens Progress.`;
+  return `This week: showed up ${showedUpDays} of the last 7 days. ${dayChipText(daysShowedUp)}.`;
 }
 
-/** The done card's title: "3 of 3" for a full day, otherwise "All done". */
+/** The done card's title: "3 of 3" for a full day, otherwise "All done for now". */
 export function doneCardTitle(total: number): string {
-  return total >= MAX_TASKS ? "3 of 3. Rest is part of it." : "All done. Rest is part of it.";
+  return total >= MAX_TASKS ? "3 of 3. Rest is part of it." : "All done for now. Rest is part of it.";
 }
+
+const plural = (n: number, word: string) => (n === 1 ? `1 ${word}` : `${n} ${word}s`);
 
 /** Small wins from the last seven days: positive counts only, never misses. */
 export function smallWinsLine(summary: Pick<WeekSummary, "showedUpDays" | "tasksDone">): string {
   if (summary.showedUpDays <= 1) return "Your first finished day this week.";
-  const tasks = summary.tasksDone === 1 ? "1 task" : `${summary.tasksDone} tasks`;
-  return `This week: ${summary.showedUpDays} days, ${tasks} done`;
+  return `This week you showed up ${plural(summary.showedUpDays, "day")} and finished ${plural(summary.tasksDone, "task")}.`;
 }

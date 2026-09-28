@@ -114,17 +114,17 @@ describe("buildWeekSummary", () => {
 describe("Today copy", () => {
   it("doneCardTitle: 3 of 3 for a full day, All done otherwise", () => {
     expect(doneCardTitle(3)).toBe("3 of 3. Rest is part of it.");
-    expect(doneCardTitle(2)).toBe("All done. Rest is part of it.");
-    expect(doneCardTitle(1)).toBe("All done. Rest is part of it.");
+    expect(doneCardTitle(2)).toBe("All done for now. Rest is part of it.");
+    expect(doneCardTitle(1)).toBe("All done for now. Rest is part of it.");
   });
 
   it("smallWinsLine: positive counts, a first-day line, and a singular task", () => {
-    expect(smallWinsLine({ showedUpDays: 5, tasksDone: 13 })).toBe("This week: 5 days, 13 tasks done");
+    expect(smallWinsLine({ showedUpDays: 5, tasksDone: 13 })).toBe("This week you showed up 5 days and finished 13 tasks.");
     expect(smallWinsLine({ showedUpDays: 1, tasksDone: 3 })).toBe("Your first finished day this week.");
-    expect(smallWinsLine({ showedUpDays: 2, tasksDone: 1 })).toBe("This week: 2 days, 1 task done");
+    expect(smallWinsLine({ showedUpDays: 2, tasksDone: 1 })).toBe("This week you showed up 2 days and finished 1 task.");
   });
 
   it("weekRowLabel speaks the week, the day count and where it goes", () => {
-    expect(weekRowLabel(4, 24)).toBe("This week: 4 of 7 days. Day 24. Opens Progress.");
+    expect(weekRowLabel(4, 24)).toBe("This week: showed up 4 of the last 7 days. Day 24.");
   });
 });

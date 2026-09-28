@@ -1,4 +1,5 @@
 import { Pressable, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { GradientCard } from "@/components/daily-tasks/gradient-card";
 import { Fonts } from "@/constants/theme";
@@ -19,7 +20,7 @@ export function DoneCard({
   week: Pick<WeekSummary, "showedUpDays" | "tasksDone">;
   /** The check-in follows below: keep the line about closing the day. */
   eveningCheckIn: boolean;
-  /** Only when there's an open slot and the day isn't set. */
+  /** Only while the ideas entry would show (an open slot on an unset day). */
   onPullOneMore?: () => void;
 }) {
   const title = doneCardTitle(total);
@@ -38,7 +39,7 @@ export function DoneCard({
         </Text>
         {eveningCheckIn ? (
           <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 15, marginTop: 4 }}>
-            You showed up today. Close the day below and your coach drafts tomorrow.
+            Close the day below and your coach drafts tomorrow.
           </Text>
         ) : null}
       </View>
@@ -47,13 +48,24 @@ export function DoneCard({
           onPress={onPullOneMore}
           accessibilityRole="button"
           accessibilityLabel="Pull one more from Ideas"
-          hitSlop={8}
-          className="self-start mt-1"
+          accessibilityHint="Opens Ideas"
+          // A quiet pill, still a full 44pt target.
+          style={{
+            alignSelf: "flex-start",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            marginTop: 8,
+            minHeight: 44,
+            paddingVertical: 10,
+            paddingHorizontal: 14,
+            borderRadius: 999,
+            backgroundColor: "rgba(255,255,255,0.18)",
+          }}
           testID="pull-one-more"
         >
-          <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700", textDecorationLine: "underline" }}>
-            Pull one more from Ideas
-          </Text>
+          <Ionicons name="add" size={16} color="#fff" />
+          <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700" }}>Pull one more from Ideas</Text>
         </Pressable>
       ) : null}
     </GradientCard>

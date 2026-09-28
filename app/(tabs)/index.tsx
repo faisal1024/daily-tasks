@@ -27,6 +27,7 @@ import {
 } from "@/components/daily-tasks/ritual-cards";
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
+import { NextPathLink } from "@/components/daily-tasks/next-path-link";
 import { FirstRun } from "@/components/daily-tasks/first-run";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
@@ -274,7 +275,7 @@ export default function HomeScreen() {
     sourceDay: state.tomorrowDraft ? state.history[addDays(state.tomorrowDraft.forDate, -1)] : null,
   });
   // An empty day opens on the morning ritual: last night's draft, or the prompt.
-  const morning = total === 0 && !state.todayLocked;
+  const emptyMorning = total === 0 && !state.todayLocked;
   // Kept fresh while the app is open (top of each hour, and on coming back).
   const hour = useHour();
   const eveningCheckIn = showEveningCheckIn({
@@ -320,15 +321,13 @@ export default function HomeScreen() {
     />
   );
   // The right column (iPad) / lower section (phone) only exists when it has
-  // content. Morning and midday always have the week row.
+  // content. Every phase past "plan" has some: the week row (morning, midday),
+  // the check-in (evening) or the done card.
   const rightHasContent =
     (Boolean(state.pendingRollover) && (wide || Boolean(draft))) ||
     ideasVisible ||
-    progress.isPerfect ||
-    eveningCheckIn ||
     Boolean(draft) ||
-    phase === "morning" ||
-    phase === "midday";
+    phase !== "plan";
   const twoColumn = wide && rightHasContent;
   const dateLabel = fromDateKey(today).toLocaleDateString(undefined, {
     weekday: "long",
@@ -817,14 +816,14 @@ export default function HomeScreen() {
                 )}
                 {/* With a draft (or on iPad): after it, as the quieter choice. */}
                 {!rolloverOnTop && rolloverCard}
-                {morning && !draft && (
+                {emptyMorning && !draft && (
                   <MorningHero
                     onDump={() => setBrainDumpOpen(true)}
                     onBrowseIdeas={() => setIdeasOpen(true)}
                   />
                 )}
                 {/* A finished day swaps these for the done card's quiet "Pull one more". */}
-                {ideasVisible && !morning && !draft && phase !== "done" && (
+                {ideasVisible && !emptyMorning && !draft && phase !== "done" && (
                   <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
                     <Pressable
                       onPress={() => setIdeasOpen(true)}
@@ -877,26 +876,16 @@ export default function HomeScreen() {
                 {phase === "midday" && (
                   <>
                     {/* PR B: the Coach's note (momentum) goes here. */}
-                    {nextMilestone && (
-                      <Pressable
-                        onPress={openProgress}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Next on your path: ${nextMilestone.title}. Opens Progress.`}
-                        className="flex-row items-center gap-2 rounded-3xl border px-4 py-3"
-                        style={{ borderColor: colors.border, backgroundColor: colors.surface }}
-                        testID="next-path-link"
-                      >
-                        <Ionicons name="trail-sign-outline" size={18} color={colors.primary} />
-                        <Text className="flex-1 text-base text-foreground" numberOfLines={2}>
-                          <Text style={{ color: colors.muted }}>Next on your path: </Text>
-                          <Text className="font-semibold">{nextMilestone.title}</Text>
-                        </Text>
-                        <Ionicons name="chevron-forward" size={16} color={colors.muted} />
-                      </Pressable>
-                    )}
+                    {nextMilestone && <NextPathLink title={nextMilestone.title} onPress={openProgress} />}
                     {state.momentumSettings.eveningReflection && (
                       <View className="flex-row items-center gap-2 px-1" testID="tonight-teaser">
-                        <Ionicons name="moon-outline" size={16} color={colors.muted} />
+                        <Ionicons
+                          name="moon-outline"
+                          size={16}
+                          color={colors.muted}
+                          accessibilityElementsHidden
+                          importantForAccessibility="no-hide-descendants"
+                        />
                         <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
                           Tonight, one tap closes the day and drafts tomorrow.
                         </Text>
@@ -912,9 +901,7 @@ export default function HomeScreen() {
                     total={total}
                     week={week}
                     eveningCheckIn={eveningCheckIn}
-                    onPullOneMore={
-                      remainingSlots > 0 && !state.todayLocked ? () => setIdeasOpen(true) : undefined
-                    }
+                    onPullOneMore={ideasVisible ? () => setIdeasOpen(true) : undefined}
                   />
                 )}
                 {eveningCheckIn && (

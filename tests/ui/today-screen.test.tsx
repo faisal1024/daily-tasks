@@ -166,7 +166,17 @@ function makeStore(overrides: Partial<AppState> = {}) {
   };
 }
 
+// Today's lower section depends on the hour (1.2): pin the clock so no test
+// depends on when CI runs. By default a morning on TODAY, faking only the
+// clock (the screen's own timers still run); tests that need fake timers or
+// another hour install their own.
+const MORNING = new Date(2026, 8, 26, 9, 0);
+
 beforeEach(() => {
+  jest.useFakeTimers({
+    now: MORNING,
+    doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"],
+  });
   // The real fallback-aware sorter by default (no proxy → simple local split).
   (sortBrainDump as jest.Mock).mockImplementation(
     jest.requireActual("@/lib/daily-tasks/ai-helpers").sortBrainDump,
@@ -502,7 +512,7 @@ describe("perfect-day moment", () => {
   }
 
   it("celebrates the third task and marks a rating due, without asking on top of the celebration", async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: MORNING });
     await reachPerfectDay();
     expect(screen.getByText("celebration-visible")).toBeOnTheScreen();
     expect(mockStore.markReviewDue).toHaveBeenCalledTimes(1);
@@ -1012,7 +1022,7 @@ describe("perfect-day moment: once per day", () => {
 
 describe("Plus gates (free plan)", () => {
   it("Break it down opens the paywall right away instead of calling the AI, then runs once Plus is bought", async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: MORNING });
     mockProxyUrl = "https://proxy.test/api/momentum/plan";
     (requestBreakDown as jest.Mock).mockResolvedValue(["Clear counter"]);
     const free = { ...makeStore({ ...SET, tasks: tasks("Clean kitchen") }), hasPlus: false };
@@ -1038,7 +1048,7 @@ describe("Plus gates (free plan)", () => {
   });
 
   it("after the free AI sorts, brain dump uses the on-device split (no AI call), logs the gate, and offers Plus", async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: MORNING });
     mockProxyUrl = "https://proxy.test/api/momentum/plan";
     await AsyncStorage.setItem(FREE_DUMPS_KEY, "3");
     mockStore = { ...makeStore(), hasPlus: false };
@@ -1221,7 +1231,7 @@ describe("Free AI brain dumps (free plan)", () => {
   });
 
   it("the used-up split is tidied, and Get Plus on its review closes the sheet for the paywall", async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: MORNING });
     await AsyncStorage.setItem(FREE_DUMPS_KEY, "3");
     mockStore = { ...makeStore(), hasPlus: false };
     await render(<HomeScreen />);
@@ -1277,7 +1287,7 @@ describe("Win-back paywall on Today", () => {
   };
 
   it("never opens on launch, only a moment after a task is completed", async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: MORNING });
     lapsedFree();
     await render(<HomeScreen />);
     await act(async () => {
@@ -1298,7 +1308,7 @@ describe("Win-back paywall on Today", () => {
   });
 
   it("not when a task is unticked", async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: MORNING });
     lapsedFree();
     mockStore = { ...mockStore, isCompleted: () => true };
     await render(<HomeScreen />);
@@ -1310,7 +1320,7 @@ describe("Win-back paywall on Today", () => {
   });
 
   it("not when something else is on screen by then (a sheet opened)", async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: MORNING });
     lapsedFree();
     mockStore = { ...makeStore({ tasks: tasks("Walk") }), hasPlus: false };
     await render(<HomeScreen />);
@@ -1326,7 +1336,7 @@ describe("Win-back paywall on Today", () => {
     ["it isn't due", () => (mockPaywall = { paywallSource: null, entitlementActive: false, winBackDue: false })],
     ["the user has Plus", () => (mockStore = { ...mockStore, hasPlus: true })],
   ])("not when %s", async (_why, tweak) => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: MORNING });
     lapsedFree();
     tweak();
     await render(<HomeScreen />);
@@ -1656,8 +1666,8 @@ describe("Today card (Phase 10a)", () => {
     await render(<HomeScreen />);
     expect(upNext()).toHaveLength(0);
     const card = within(screen.getByTestId("done-card"));
-    expect(card.getByText("All done. Rest is part of it.")).toBeOnTheScreen();
-    expect(card.getByText(/^You showed up today\./)).toBeOnTheScreen();
+    expect(card.getByText("All done for now. Rest is part of it.")).toBeOnTheScreen();
+    expect(card.getByText("Close the day below and your coach drafts tomorrow.")).toBeOnTheScreen();
     // Phase 10b: only a full three-for-three day drops the line (Change stays reachable).
     expect(screen.getByTestId("status-line")).toBeOnTheScreen();
   });
@@ -1850,7 +1860,7 @@ describe("Today by time of day (1.2)", () => {
     });
     await render(<HomeScreen />);
     expect(
-      screen.getByRole("button", { name: "This week: 1 of 7 days. Day 1. Opens Progress." }),
+      screen.getByRole("button", { name: "This week: showed up 1 of the last 7 days. Day 1." }),
     ).toBeOnTheScreen();
     expect(screen.getAllByTestId("week-row")).toHaveLength(1);
     expect(screen.queryByTestId("done-card")).toBeNull();
@@ -1900,6 +1910,21 @@ describe("Today by time of day (1.2)", () => {
     expect(screen.queryByTestId("tonight-teaser")).toBeNull();
   });
 
+  it("evening: the check-in as before, and no week row or midday extras", async () => {
+    at(18);
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read"),
+      momentumPlan: plan([milestone("m1", "Run 1 km")]),
+      ...evening(true),
+    });
+    await render(<HomeScreen />);
+    expect(screen.getByText("How did today feel?")).toBeOnTheScreen();
+    expect(screen.queryByTestId("week-row")).toBeNull();
+    expect(screen.queryByTestId("next-path-link")).toBeNull();
+    expect(screen.queryByTestId("tonight-teaser")).toBeNull();
+    expect(screen.queryByTestId("done-card")).toBeNull();
+  });
+
   it("done: the card with its title and small wins; Pull one more opens Ideas on an open day with a slot", async () => {
     at(10);
     mockStore = makeStore({
@@ -1910,8 +1935,8 @@ describe("Today by time of day (1.2)", () => {
     });
     await render(<HomeScreen />);
     const card = within(screen.getByTestId("done-card"));
-    expect(card.getByText("All done. Rest is part of it.")).toBeOnTheScreen();
-    expect(card.getByText("This week: 2 days, 5 tasks done")).toBeOnTheScreen();
+    expect(card.getByText("All done for now. Rest is part of it.")).toBeOnTheScreen();
+    expect(card.getByText("This week you showed up 2 days and finished 5 tasks.")).toBeOnTheScreen();
     // Done replaces the morning section, at any hour.
     expect(screen.queryByTestId("week-row")).toBeNull();
     expect(screen.queryByTestId("need-ideas")).toBeNull();
