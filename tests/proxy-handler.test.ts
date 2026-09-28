@@ -15,7 +15,7 @@ import {
   userIdFrom,
 } from "../server/handler.mjs";
 import { hashId, secretsMatch } from "../server/config.mjs";
-import { BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, EVENING_ROUTE, PLAN_ROUTE } from "../server/routes.mjs";
+import { BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, COACH_NOTE_ROUTE, EVENING_ROUTE, PLAN_ROUTE } from "../server/routes.mjs";
 
 const PLAN_PAYLOAD = {
   profile: { goalTitle: "Run a 5K", timeAvailability: "30_min" },
@@ -369,12 +369,13 @@ describe("entitlements", () => {
     expect(t.warned("RevenueCat couldn't answer")).toBe(1);
   });
 
-  it.each([PLAN_ROUTE, BREAK_DOWN_ROUTE, EVENING_ROUTE])("enforce: 402 Plus required for a free id on %s", async (path) => {
+  it.each([PLAN_ROUTE, BREAK_DOWN_ROUTE, EVENING_ROUTE, COACH_NOTE_ROUTE])("enforce: 402 Plus required for a free id on %s", async (path) => {
     const t = setup({ env: enforce, entitlement: "free" });
     const body = {
       [PLAN_ROUTE]: PLAN_PAYLOAD,
       [BREAK_DOWN_ROUTE]: { task: "Clean the kitchen", goalTitle: null },
       [EVENING_ROUTE]: { result: "good", tasks: [] },
+      [COACH_NOTE_ROUTE]: { tasks: ["Walk"], goalTitle: null, tone: "calm" },
     }[path];
     expect(await t.call({ path, headers: withId, body })).toEqual({ status: 402, body: { error: "Plus required" } });
     expect(t.budget.spend).not.toHaveBeenCalled();

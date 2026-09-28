@@ -15,7 +15,7 @@ import {
   createProxyServer,
   readConfig,
 } from "../server/app.mjs";
-import { EVENING_ROUTE } from "../server/routes.mjs";
+import { COACH_NOTE_ROUTE, EVENING_ROUTE } from "../server/routes.mjs";
 import {
   BRAIN_DUMP_SCHEMA,
   BRAIN_DUMP_SYSTEM_PROMPT,
@@ -51,6 +51,13 @@ import {
   SYSTEM_PROMPT,
   sanitizePlan,
 } from "../server/providers/plan-contract.mjs";
+import {
+  COACH_SCHEMA,
+  COACH_SYSTEM_PROMPT,
+  COACH_TOOL_DESCRIPTION,
+  COACH_TOOL_NAME,
+  buildCoachPrompt,
+} from "../server/providers/coach-contract.mjs";
 
 const PLAN_PAYLOAD = {
   profile: { goalTitle: "Run a 5K", timeAvailability: "30_min" },
@@ -141,13 +148,14 @@ afterEach(async () => {
 });
 
 describe("route table", () => {
-  it("exposes exactly the plan, brain-dump, break-down and evening routes", () => {
+  it("exposes exactly the plan, brain-dump, break-down, evening and coach-note routes", () => {
     expect(PLAN_ROUTE).toBe("/api/momentum/plan");
     expect(BRAIN_DUMP_ROUTE).toBe("/api/momentum/brain-dump");
     expect(BREAK_DOWN_ROUTE).toBe("/api/momentum/break-down");
     expect(EVENING_ROUTE).toBe("/api/momentum/evening");
+    expect(COACH_NOTE_ROUTE).toBe("/api/momentum/coach-note");
     expect(Object.keys(ROUTES).sort()).toEqual(
-      [BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, EVENING_ROUTE, PLAN_ROUTE].sort(),
+      [BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, COACH_NOTE_ROUTE, EVENING_ROUTE, PLAN_ROUTE].sort(),
     );
     expect(ROUTES[EVENING_ROUTE].name).toBe("evening");
   });
@@ -481,6 +489,66 @@ describe("helper routes over HTTP", () => {
     const res = await post(BRAIN_DUMP_ROUTE);
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "FAKE_API_KEY is not configured" });
+  });
+});
+
+describe("coach-note route over HTTP (1.2)", () => {
+  const COACH_PAYLOAD = { tasks: ["Walk", "Read"], goalTitle: "Run a 5K", tone: "friendly" };
+
+  it("passes the coach tool, schema and prompt, and returns only cleaned lines, one per task sent", async () => {
+    const provider = fakeProvider(async () => ({
+      notes: [
+        { start: "Put on shoes. See https://spam.example", momentum: "It builds\nthe habit.", extra: "junk" },
+        { start: "Open the book.", momentum: "Ten pages is plenty." },
+        { start: "Past the tasks sent", momentum: "dropped" },
+      ],
+      extra: "model junk",
+    }));
+    const { post } = await start({ provider });
+    const res = await post(COACH_NOTE_ROUTE, COACH_PAYLOAD);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      notes: [
+        // The line with a link is dropped whole (the app uses its built-in one).
+        { start: "", momentum: "It builds the habit." },
+        { start: "Open the book.", momentum: "Ten pages is plenty." },
+      ],
+    });
+    expect(provider.generatePlan.mock.calls[0][0]).toEqual({
+      system: COACH_SYSTEM_PROMPT,
+      user: buildCoachPrompt(COACH_PAYLOAD),
+      schema: COACH_SCHEMA,
+      toolName: COACH_TOOL_NAME,
+      toolDescription: COACH_TOOL_DESCRIPTION,
+    });
+  });
+
+  it("answers 400 for bad tasks or tone, before calling the provider", async () => {
+    const { post, provider } = await start();
+    for (const body of [
+      { tasks: [] },
+      { tasks: ["a", "b", "c", "d"] },
+      { tasks: ["  "] },
+      { tasks: ["x".repeat(121)] },
+      { tasks: ["Walk"], tone: "hype" },
+      { tasks: ["Walk"], goalTitle: 3 },
+    ]) {
+      expect((await post(COACH_NOTE_ROUTE, body)).status).toBe(400);
+    }
+    expect(provider.generatePlan).not.toHaveBeenCalled();
+  });
+
+  it("answers 502 when no entry has both lines after cleaning", async () => {
+    const provider = fakeProvider(async () => ({
+      notes: [
+        { start: "https://only.a.link", momentum: "fine" },
+        { start: "ok", momentum: "\u0000\u0001" },
+      ],
+    }));
+    const { post } = await start({ provider });
+    const res = await post(COACH_NOTE_ROUTE, COACH_PAYLOAD);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "AI response did not include a valid coach-note" });
   });
 });
 

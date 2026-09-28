@@ -19,6 +19,7 @@ import { useColors } from "@/hooks/use-colors";
 import { ScreenContainer } from "@/components/screen-container";
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
 import { BrainDumpSheet } from "@/components/daily-tasks/brain-dump-sheet";
+import { CoachNote } from "@/components/daily-tasks/coach-note";
 import { CompletionReflection } from "@/components/daily-tasks/completion-reflection";
 import {
   EveningResult,
@@ -63,6 +64,17 @@ import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
+import {
+  coachNote,
+  coachNoteKind,
+  coachNoteLogged,
+  coachTaskKey,
+  coachTasksSet,
+  needsCoachRequest,
+  nextOpenTask,
+  requestCoachNotes,
+  showsCoachNote,
+} from "@/lib/daily-tasks/coach-note";
 import { addDays, fromDateKey, greetingFor, greetingText } from "@/lib/daily-tasks/date";
 import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
@@ -144,10 +156,14 @@ export default function HomeScreen() {
     clearTaskSteps,
     hasPlus,
     plusConfirmed,
+    plusPending,
     daysShowedUp,
     setEveningClose,
     applyTomorrowDraft,
     dismissTomorrowDraft,
+    claimCoachRequest,
+    setCoachNotes,
+    markCoachNoteLogged,
   } = useDailyTasks();
   const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue } = usePlus();
   const winBackDueRef = useRef(winBackDue);
@@ -301,6 +317,92 @@ export default function HomeScreen() {
     ? nextIncompleteMilestone(state.momentumPlan.milestones, state.completedMilestoneIds)
     : null;
   const openProgress = () => router.navigate("/journey");
+  // The Coach's note (morning and midday, once the three are set, something
+  // is ticked, or it's midday): one line about the next open task.
+  const coachTask = showsCoachNote({
+    phase,
+    taskCount: total,
+    completedCount: progress.completed,
+    locked: state.todayLocked,
+  })
+    ? nextOpenTask(state.tasks, state.todayCompletions)
+    : null;
+  const note = coachTask
+    ? coachNote({
+        cache: state.coachNotes,
+        today,
+        taskText: coachTask.text,
+        kind: coachNoteKind(progress.completed),
+      })
+    : null;
+  // AI lines for confirmed Plus ("still checking" must not spend a call), once
+  // the three are set; built-in lines otherwise, and on any failure.
+  const coachAiUser = plusConfirmed && proxyRouteUrl(getMomentumAiProxyUrl(), "coach-note") != null;
+  const coachTasksReady = coachTasksSet(total, state.todayLocked);
+  const coachAi = coachAiUser && coachTasksReady;
+  const coachTexts = useMemo(() => state.tasks.map((task) => task.text), [state.tasks]);
+  const coachDue = coachAi && needsCoachRequest(state.coachNotes, today, coachTexts);
+  // A ref, not just state: re-renders mid-request must never start a second call.
+  const coachInFlight = useRef(false);
+  // The day and texts last asked about: the same ask is never sent twice in a
+  // session, even if the stored claim didn't stick.
+  const coachLastAsk = useRef<string | null>(null);
+  const [coachLoading, setCoachLoading] = useState(false);
+  const noteShown = note !== null;
+  // Under the note, "Need ideas?" and "Brain dump" shrink to one quiet line.
+  const quietEntries = noteShown;
+  useEffect(() => {
+    if (!ready || !noteShown || !coachDue || coachInFlight.current) return;
+    const ask = `${today}|${coachTexts.map(coachTaskKey).join("\n")}`;
+    if (coachLastAsk.current === ask) return;
+    coachLastAsk.current = ask;
+    coachInFlight.current = true;
+    setCoachLoading(true);
+    // Counted before the call, so a failure can't be retried into a third one.
+    const day = today;
+    claimCoachRequest(coachTexts);
+    void requestCoachNotes({
+      input: {
+        tasks: coachTexts,
+        goalTitle: state.momentumProfile.goalTitle,
+        tone: state.momentumSettings.suggestionTone,
+      },
+    })
+      .then((notes) => setCoachNotes(day, notes))
+      // Quietly keep the built-in lines.
+      .catch(() => {})
+      .finally(() => {
+        coachInFlight.current = false;
+        setCoachLoading(false);
+      });
+    // Only when a call becomes due (or the last one settles with another due:
+    // an edit or midnight mid-call); the goal and tone are read at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, noteShown, coachDue, coachLoading, today, coachTexts]);
+  // coach_note_loaded once a day, with the source of what's shown once it
+  // settles: never while Plus is still being checked, and for AI users only
+  // once the three are set and their call is done (or, if they never set
+  // three, local at midday). Free users: on first show.
+  const noteSource = note?.source ?? null;
+  useEffect(() => {
+    if (!ready || !noteSource || plusPending || coachDue || coachLoading) return;
+    if (coachAiUser && !coachTasksReady && phase !== "midday") return;
+    if (coachNoteLogged(state.coachNotes, today)) return;
+    track("coach_note_loaded", { source: noteSource });
+    markCoachNoteLogged(today);
+  }, [
+    ready,
+    noteSource,
+    plusPending,
+    coachDue,
+    coachLoading,
+    coachAiUser,
+    coachTasksReady,
+    phase,
+    state.coachNotes,
+    today,
+    markCoachNoteLogged,
+  ]);
   // Yesterday's unfinished ones: a card, so the draft and the rest of Today
   // stay usable (it used to be a blocking modal). On a phone with no draft it
   // leads, above the three slots; otherwise it follows the draft, quietly.
@@ -822,8 +924,51 @@ export default function HomeScreen() {
                     onBrowseIdeas={() => setIdeasOpen(true)}
                   />
                 )}
-                {/* A finished day swaps these for the done card's quiet "Pull one more". */}
-                {ideasVisible && !emptyMorning && !draft && phase !== "done" && (
+                {/* Morning and midday lead with the Coach's note. No onStart yet:
+                    PR C adds focus mode, and with it the Start button. */}
+                {note && <CoachNote text={note.text} kind={note.kind} source={note.source} />}
+                {/* A finished day swaps these for the done card's quiet "Pull one more".
+                    Under the coach's note they shrink to one quiet line of links. */}
+                {ideasVisible && !emptyMorning && !draft && phase !== "done" && quietEntries && (
+                  <View
+                    className="flex-row items-center gap-2 px-1"
+                    style={{ flexWrap: "wrap" }}
+                    testID="quiet-entries"
+                  >
+                    <Pressable
+                      onPress={() => setIdeasOpen(true)}
+                      accessibilityRole="button"
+                      // "Need ideas?" already ends the sentence.
+                      accessibilityLabel={`${entry.label} Opens suggestions`}
+                      style={{ minHeight: 44, justifyContent: "center" }}
+                      testID="need-ideas"
+                    >
+                      <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                        {entry.label}
+                      </Text>
+                    </Pressable>
+                    <Text
+                      className="text-sm"
+                      style={{ color: colors.muted }}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no-hide-descendants"
+                    >
+                      ·
+                    </Text>
+                    <Pressable
+                      onPress={() => setBrainDumpOpen(true)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Brain dump. Write everything down and pick today's tasks"
+                      style={{ minHeight: 44, justifyContent: "center" }}
+                      testID="brain-dump-entry"
+                    >
+                      <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                        Brain dump
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
+                {ideasVisible && !emptyMorning && !draft && phase !== "done" && !quietEntries && (
                   <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
                     <Pressable
                       onPress={() => setIdeasOpen(true)}
@@ -865,17 +1010,13 @@ export default function HomeScreen() {
                   </View>
                 )}
 
-                {/* Morning: one small first step, then the week so far. */}
+                {/* Morning: after the note's small first step, the week so far. */}
                 {phase === "morning" && (
-                  <>
-                    {/* PR B: the Coach's note (a tiny first step, with Start) goes here. */}
-                    <WeekRow summary={week} daysShowedUp={daysShowedUp} onPress={openProgress} />
-                  </>
+                  <WeekRow summary={week} daysShowedUp={daysShowedUp} onPress={openProgress} />
                 )}
-                {/* Midday: momentum, where it leads, and what tonight brings. */}
+                {/* Midday: after the note's momentum, where it leads, and what tonight brings. */}
                 {phase === "midday" && (
                   <>
-                    {/* PR B: the Coach's note (momentum) goes here. */}
                     {nextMilestone && <NextPathLink title={nextMilestone.title} onPress={openProgress} />}
                     {state.momentumSettings.eveningReflection && (
                       <View className="flex-row items-center gap-2 px-1" testID="tonight-teaser">

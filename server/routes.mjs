@@ -22,6 +22,16 @@ import {
   validateBreakDownPayload,
 } from "./providers/helpers-contract.mjs";
 import {
+  COACH_SCHEMA,
+  COACH_SYSTEM_PROMPT,
+  COACH_TOOL_DESCRIPTION,
+  COACH_TOOL_NAME,
+  buildCoachPrompt,
+  isValidCoach,
+  sanitizeCoach,
+  validateCoachPayload,
+} from "./providers/coach-contract.mjs";
+import {
   EVENING_SCHEMA,
   EVENING_SYSTEM_PROMPT,
   EVENING_TOOL_DESCRIPTION,
@@ -46,6 +56,7 @@ export const PLAN_ROUTE = "/api/momentum/plan";
 export const BRAIN_DUMP_ROUTE = "/api/momentum/brain-dump";
 export const BREAK_DOWN_ROUTE = "/api/momentum/break-down";
 export const EVENING_ROUTE = "/api/momentum/evening";
+export const COACH_NOTE_ROUTE = "/api/momentum/coach-note";
 
 export const ROUTES = {
   [PLAN_ROUTE]: {
@@ -97,5 +108,18 @@ export const ROUTES = {
     validatePayload: validateEveningPayload,
     isValidResult: isValidEvening,
     sanitizeResult: sanitizeEvening,
+  },
+  [COACH_NOTE_ROUTE]: {
+    name: "coach-note",
+    // Plus only (checked server-side when ENTITLEMENT_MODE is on).
+    plusOnly: true,
+    system: COACH_SYSTEM_PROMPT,
+    buildPrompt: buildCoachPrompt,
+    schema: COACH_SCHEMA,
+    toolName: COACH_TOOL_NAME,
+    toolDescription: COACH_TOOL_DESCRIPTION,
+    validatePayload: validateCoachPayload,
+    isValidResult: isValidCoach,
+    sanitizeResult: sanitizeCoach,
   },
 };

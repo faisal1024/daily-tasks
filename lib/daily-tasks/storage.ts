@@ -7,6 +7,8 @@ import { DEFAULT_JOURNEY, type Journey } from "./journey";
 import type {
   AppState,
   AutoLockConfig,
+  CoachNoteLines,
+  CoachNotesCache,
   DayRecord,
   DayTaskRecord,
   GeneratedTask,
@@ -28,6 +30,10 @@ import {
   DEFAULT_MOMENTUM_PROFILE,
   DEFAULT_MOMENTUM_SETTINGS,
   DEFAULT_NOTIFICATIONS,
+  MAX_COACH_CACHE_ENTRIES,
+  MAX_COACH_KEY_CHARS,
+  MAX_COACH_LINE,
+  MAX_COACH_REQUESTS_PER_DAY,
   MAX_PARKED_TASKS,
 } from "./types";
 
@@ -512,6 +518,7 @@ export function normalizeState(value: unknown): AppState | null {
     tomorrowDraft: normalizeTomorrowDraft(value.tomorrowDraft),
     eveningClose: normalizeEveningClose(value.eveningClose),
     agendaEnabled: value.agendaEnabled === true,
+    coachNotes: normalizeCoachNotes(value.coachNotes),
   };
 }
 
@@ -519,6 +526,40 @@ export function normalizeState(value: unknown): AppState | null {
 function capChars(text: string, max: number): string {
   const chars = Array.from(text);
   return chars.length > max ? chars.slice(0, max).join("") : text;
+}
+
+/** Today's AI coach lines: only well-formed entries, capped, at most a day's worth. */
+function normalizeCoachNotes(value: unknown): CoachNotesCache | null {
+  if (!isRecord(value) || typeof value.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.date)) {
+    return null;
+  }
+  const notes: Record<string, CoachNoteLines> = {};
+  if (isRecord(value.notes)) {
+    // A day has at most a few task texts (two requests of three).
+    for (const [key, lines] of Object.entries(value.notes).slice(0, MAX_COACH_CACHE_ENTRIES)) {
+      if (!validCoachKey(key) || !isRecord(lines)) continue;
+      const start =
+        typeof lines.start === "string" && lines.start.trim() ? capChars(lines.start, MAX_COACH_LINE) : null;
+      const momentum =
+        typeof lines.momentum === "string" && lines.momentum.trim()
+          ? capChars(lines.momentum, MAX_COACH_LINE)
+          : null;
+      if (start && momentum) notes[key] = { start, momentum };
+    }
+  }
+  const requests =
+    typeof value.requests === "number" && Number.isInteger(value.requests)
+      ? Math.min(Math.max(value.requests, 0), MAX_COACH_REQUESTS_PER_DAY)
+      : 0;
+  const asked = Array.isArray(value.asked)
+    ? value.asked.filter((key): key is string => typeof key === "string" && validCoachKey(key)).slice(0, MAX_COACH_CACHE_ENTRIES)
+    : [];
+  return { date: value.date, notes, requests, asked, logged: value.logged === true };
+}
+
+function validCoachKey(key: string): boolean {
+  const length = Array.from(key).length;
+  return length > 0 && length <= MAX_COACH_KEY_CHARS && key !== "__proto__";
 }
 
 function normalizeEveningClose(value: unknown): EveningCloseRecord | null {
@@ -605,6 +646,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     tomorrowDraft: null,
     eveningClose: null,
     agendaEnabled: false,
+    coachNotes: null,
   };
 }
 

@@ -279,7 +279,8 @@ function selectPrimaryTag(input: CoachMessageInput): CoachMessageTag {
   return "choosing";
 }
 
-function pickStable<T>(items: T[], parts: string[]): T {
+/** The same item for the same parts, every time (also used by coach-note.ts). */
+export function pickStable<T>(items: T[], parts: string[]): T {
   const hash = stableHash(parts.join("|"));
   return items[hash % items.length] as T;
 }

@@ -204,3 +204,28 @@ describe("store: rating due", () => {
     expect(result.current.state.lastReviewPromptAt).not.toBeNull();
   });
 });
+
+describe("store: the Coach's note cache over midnight (1.2)", () => {
+  it("the day change drops yesterday's coachNotes, and a late reply or mark for yesterday doesn't recreate them", async () => {
+    fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
+    const lines = { start: "Open it.", momentum: "Keep going." };
+    const { result } = await renderOnDay(
+      { tasks: [WALK], coachNotes: { date: D, notes: { walk: lines }, requests: 2, asked: ["walk"], logged: true } },
+      new Date(2026, 8, 25, 8),
+    );
+    expect(result.current.state.coachNotes?.date).toBe(D);
+
+    // The call made for D answers just after midnight: the rollover runs first,
+    // and the reply (and the analytics mark) for D are dropped.
+    jest.setSystemTime(new Date(2026, 8, 26, 0, 0, 10));
+    await act(async () => result.current.setCoachNotes(D, { walk: lines }));
+    expect(result.current.today).toBe(NEXT);
+    expect(result.current.state.coachNotes).toBeNull();
+    await act(async () => result.current.markCoachNoteLogged(D));
+    expect(result.current.state.coachNotes).toBeNull();
+
+    // Today's own claim starts a fresh cache with today's count.
+    await act(async () => result.current.claimCoachRequest(["Walk"]));
+    expect(result.current.state.coachNotes).toEqual({ date: NEXT, notes: {}, requests: 1, asked: ["walk"], logged: false });
+  });
+});
