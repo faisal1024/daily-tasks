@@ -10,17 +10,20 @@ import type { CoachNote as CoachNoteValue } from "@/lib/daily-tasks/coach-note";
  * border, so it sits quieter than the task card. It's read in place by
  * VoiceOver, never announced (a line swapping in shouldn't interrupt).
  *
- * `onStart` shows a Start button (focus mode on the next task).
+ * `onStart` shows a Start button (focus mode on `taskText`, the next task).
  */
 export function CoachNote({
   text,
   kind,
   source,
+  taskText,
   onStart,
 }: {
   text: string;
   kind: CoachNoteValue["kind"];
   source: CoachNoteValue["source"];
+  /** The task the note is about, for the Start button's label. */
+  taskText?: string;
   onStart?: () => void;
 }) {
   const colors = useColors();
@@ -52,8 +55,8 @@ export function CoachNote({
         <Pressable
           onPress={onStart}
           accessibilityRole="button"
-          accessibilityLabel="Start"
-          accessibilityHint="Opens focus mode for the next task"
+          accessibilityLabel={taskText ? `Start: ${taskText}` : "Start"}
+          accessibilityHint="Opens focus mode"
           hitSlop={8}
           style={({ pressed }) => ({
             minHeight: 44,
@@ -65,7 +68,7 @@ export function CoachNote({
           })}
           testID="coach-note-start-button"
         >
-          <Text className="text-sm font-semibold" style={{ color: "#fff" }}>
+          <Text className="text-sm font-semibold" style={{ color: colors.onPrimary }}>
             Start
           </Text>
         </Pressable>

@@ -18,13 +18,23 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
+import { useSheetAnimation } from "@/hooks/use-sheet-animation";
+import {
+  cancelFocusTimerNotification,
+  scheduleFocusTimerNotification,
+} from "@/lib/daily-tasks/notifications";
 import type { Task } from "@/lib/daily-tasks/types";
 
 export type FocusTimer = 0 | 10 | 25;
 export const FOCUS_TIMERS: FocusTimer[] = [0, 10, 25];
-export const TIMES_UP_TEXT = "Time's up. Keep going, or take a break.";
+
+export function timesUpText(minutes: number): string {
+  return `That's ${minutes} minutes. Keep going, or take a break.`;
+}
 
 const MINUTE_MS = 60_000;
+/** Lets the button's own "selected" read out before the timer is announced. */
+const START_ANNOUNCE_DELAY_MS = 300;
 
 /** m:ss, rounding up so it never shows 0:00 with time still left. */
 function clock(ms: number): string {
@@ -33,41 +43,40 @@ function clock(ms: number): string {
 }
 
 interface FocusModeProps {
-  visible: boolean;
   task: Task;
   /** The coach's `start` line for this task (AI or built-in), if any. */
   startLine?: string | null;
   onToggleStep: (stepId: string) => void;
-  /** Ticks the task the normal way; the screen closes focus mode. */
-  onDone: () => void;
-  /** Not now, or swiped away: closes without changes. */
+  /** Ticks the task the normal way (once); the screen closes focus mode. */
+  onDone: (timer: FocusTimer) => void;
+  /** Closes without changes. */
   onClose: () => void;
-  /** Once, however it closes (or unmounts): the last timer started, 0 if none. */
-  onEnd?: (timer: FocusTimer) => void;
+  /** A timer was started (or started again). */
+  onTimerStart?: (timer: Exclude<FocusTimer, 0>) => void;
 }
 
 /**
  * Mounted only while open (see Today), so each open starts with no timer.
  * The timer runs from a start timestamp, so it's right after the app comes
- * back from the background; it ticks each second only while running.
+ * back from the background; it ticks each second only while running. Full
+ * screen on iPhone, so a stray swipe can't drop a running timer: Done and
+ * Not now are the ways out.
  */
-export function FocusMode({ visible, task, startLine, onToggleStep, onDone, onClose, onEnd }: FocusModeProps) {
+export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTimerStart }: FocusModeProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const animation = useSheetAnimation();
+  const fullScreen = Platform.OS === "ios" && !Platform.isPad;
   const [timer, setTimer] = useState<FocusTimer>(0);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const durationMs = timer * MINUTE_MS;
-  const remainingMs = startedAt === null ? 0 : Math.max(0, durationMs - (now - startedAt));
+  // Clamped both ways: the clock can move back as well as forward.
+  const remainingMs =
+    startedAt === null ? 0 : Math.min(durationMs, Math.max(0, durationMs - (now - startedAt)));
   const running = startedAt !== null && remainingMs > 0;
   const finished = startedAt !== null && remainingMs === 0;
-
-  // Analytics on the way out: the last timer they started.
-  const lastTimer = useRef<FocusTimer>(0);
-  const onEndRef = useRef(onEnd);
-  onEndRef.current = onEnd;
-  useEffect(() => () => onEndRef.current?.(lastTimer.current), []);
 
   useEffect(() => {
     if (!running) return;
@@ -81,40 +90,75 @@ export function FocusMode({ visible, task, startLine, onToggleStep, onDone, onCl
     };
   }, [running]);
 
+  // A notification for the end, in case they're in another app (only with
+  // permission already given). Replaced on a restart; gone on None or close.
+  useEffect(() => {
+    if (startedAt === null) return;
+    void scheduleFocusTimerNotification(new Date(startedAt + durationMs));
+    return () => {
+      void cancelFocusTimerNotification();
+    };
+  }, [startedAt, durationMs]);
+
   // Once per run: one light haptic and the line read out. Never closes.
   useEffect(() => {
     if (!finished) return;
+    void cancelFocusTimerNotification();
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    AccessibilityInfo.announceForAccessibility(TIMES_UP_TEXT);
+    AccessibilityInfo.announceForAccessibility(timesUpText(timer));
+    // Only when it finishes; the length can't change without restarting it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finished]);
 
-  // Picking a length (again) starts it from the top; None clears it.
+  const announceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (announceTimer.current) clearTimeout(announceTimer.current);
+    },
+    [],
+  );
+
+  // None clears it. A length starts it; the running one is left alone (a
+  // stray tap mustn't reset it), and starts again once it's finished.
   const pickTimer = (minutes: FocusTimer) => {
-    setTimer(minutes);
+    if (announceTimer.current) clearTimeout(announceTimer.current);
     if (minutes === 0) {
+      setTimer(0);
       setStartedAt(null);
       return;
     }
+    if (minutes === timer && running) return;
     const start = Date.now();
+    setTimer(minutes);
     setStartedAt(start);
     setNow(start);
-    lastTimer.current = minutes;
-    AccessibilityInfo.announceForAccessibility(`Timer started, ${minutes} minutes`);
+    onTimerStart?.(minutes);
+    announceTimer.current = setTimeout(() => {
+      announceTimer.current = null;
+      AccessibilityInfo.announceForAccessibility(`Timer started, ${minutes} minutes`);
+    }, START_ANNOUNCE_DELAY_MS);
+  };
+
+  // A double tap on Done must tick it only once.
+  const doneRef = useRef(false);
+  const done = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    onDone(timer);
   };
 
   const steps = task.steps ?? [];
+  const allStepsDone = steps.length > 0 && steps.every((step) => step.done);
   // Read as whole minutes, so VoiceOver isn't told every second.
   const minutesLeft = Math.ceil(remainingMs / MINUTE_MS);
-  const timerLabel = finished
-    ? "Timer finished"
-    : `Timer: ${minutesLeft} ${minutesLeft === 1 ? "minute" : "minutes"} left of ${timer}`;
+  const timerLabel = finished ? "Timer finished" : `${minutesLeft} of ${timer} minutes left`;
 
   return (
     <Modal
-      visible={visible}
+      visible
       onRequestClose={onClose}
-      animationType="slide"
-      presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
+      animationType={animation}
+      presentationStyle={fullScreen ? "fullScreen" : "pageSheet"}
     >
       <View
         style={{ flex: 1, backgroundColor: colors.background }}
@@ -124,7 +168,8 @@ export function FocusMode({ visible, task, startLine, onToggleStep, onDone, onCl
         <ScrollView
           contentContainerStyle={{
             paddingHorizontal: 24,
-            paddingTop: Platform.OS === "ios" ? 32 : insets.top + 24,
+            // A page sheet (iPad) sits below the status bar already.
+            paddingTop: Platform.OS === "ios" && !fullScreen ? 32 : insets.top + 24,
             paddingBottom: 24,
             gap: 20,
           }}
@@ -181,7 +226,10 @@ export function FocusMode({ visible, task, startLine, onToggleStep, onDone, onCl
             </View>
           ) : null}
 
-          <View className="gap-4 items-center">
+          <View className="gap-3 items-center">
+            <Text className="self-start text-sm font-semibold" style={{ color: colors.muted }}>
+              Timer
+            </Text>
             <View
               className="flex-row self-stretch rounded-full p-1"
               style={{ backgroundColor: colors.surface }}
@@ -196,7 +244,7 @@ export function FocusMode({ visible, task, startLine, onToggleStep, onDone, onCl
                     accessibilityRole="button"
                     accessibilityLabel={minutes === 0 ? "No timer" : `${minutes} minute timer`}
                     accessibilityState={{ selected }}
-                    accessibilityHint={minutes !== 0 && selected ? "Starts it again" : undefined}
+                    accessibilityHint={minutes !== 0 && selected && finished ? "Starts it again" : undefined}
                     style={{
                       flex: 1,
                       minHeight: 44,
@@ -207,8 +255,11 @@ export function FocusMode({ visible, task, startLine, onToggleStep, onDone, onCl
                     }}
                     testID={`focus-timer-${minutes}`}
                   >
-                    <Text className="text-sm font-semibold" style={{ color: selected ? "#fff" : colors.foreground }}>
-                      {minutes === 0 ? "None" : `${minutes} min`}
+                    <Text
+                      className="text-sm font-semibold"
+                      style={{ color: selected ? colors.onPrimary : colors.foreground }}
+                    >
+                      {minutes === 0 ? "No timer" : `${minutes} min`}
                     </Text>
                   </Pressable>
                 );
@@ -216,37 +267,52 @@ export function FocusMode({ visible, task, startLine, onToggleStep, onDone, onCl
             </View>
 
             {startedAt !== null ? (
-              <View accessible accessibilityLabel={timerLabel} testID="focus-timer-ring">
-                <ProgressRing completed={durationMs - remainingMs} total={durationMs} size={168} strokeWidth={10}>
-                  <Text
-                    style={{
-                      color: colors.foreground,
-                      fontFamily: Fonts.rounded,
-                      fontSize: 36,
-                      fontWeight: "700",
-                      fontVariant: ["tabular-nums"],
-                    }}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    testID="focus-timer-remaining"
-                  >
-                    {clock(remainingMs)}
-                  </Text>
+              <View accessible accessibilityLabel={timerLabel} testID="focus-timer-ring" className="mt-2">
+                <ProgressRing
+                  completed={durationMs - remainingMs}
+                  total={durationMs}
+                  color={finished ? colors.success : colors.primary}
+                  size={168}
+                  strokeWidth={10}
+                >
+                  {finished ? (
+                    <Ionicons name="checkmark" size={48} color={colors.success} testID="focus-timer-check" />
+                  ) : (
+                    <Text
+                      style={{
+                        color: colors.foreground,
+                        fontFamily: Fonts.rounded,
+                        fontSize: 36,
+                        fontWeight: "700",
+                        fontVariant: ["tabular-nums"],
+                      }}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      testID="focus-timer-remaining"
+                    >
+                      {clock(remainingMs)}
+                    </Text>
+                  )}
                 </ProgressRing>
               </View>
             ) : null}
 
             {finished ? (
               <Text className="text-base text-center text-foreground" testID="focus-times-up">
-                {TIMES_UP_TEXT}
+                {timesUpText(timer)}
               </Text>
             ) : null}
           </View>
         </ScrollView>
 
         <View className="px-6 pt-3 gap-2" style={{ paddingBottom: insets.bottom + 16 }}>
+          {allStepsDone ? (
+            <Text className="text-sm text-center" style={{ color: colors.muted }} testID="focus-steps-done">
+              All steps done.
+            </Text>
+          ) : null}
           <Pressable
-            onPress={onDone}
+            onPress={done}
             accessibilityRole="button"
             accessibilityLabel="Done"
             accessibilityHint="Marks this task done"
@@ -260,7 +326,7 @@ export function FocusMode({ visible, task, startLine, onToggleStep, onDone, onCl
             })}
             testID="focus-done"
           >
-            <Text className="text-base font-bold" style={{ color: "#fff" }}>
+            <Text className="text-base font-bold" style={{ color: colors.onPrimary }}>
               Done
             </Text>
           </Pressable>

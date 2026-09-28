@@ -949,7 +949,11 @@ export default function HomeScreen() {
                     text={note.text}
                     kind={note.kind}
                     source={note.source}
-                    onStart={() => setFocusTaskId(coachTask.id)}
+                    taskText={coachTask.text}
+                    onStart={() => {
+                      setFocusTaskId(coachTask.id);
+                      track("focus_opened");
+                    }}
                   />
                 )}
                 {/* A finished day swaps these for the done card's quiet "Pull one more".
@@ -1213,19 +1217,20 @@ export default function HomeScreen() {
 
       {focusTask && (
         <FocusMode
-          visible
           task={focusTask}
           startLine={focusStartLine}
           onToggleStep={(stepId) => toggleTaskStep(focusTask.id, stepId)}
-          onDone={() => {
-            track("focus_completed");
+          onTimerStart={(timer) => track("focus_timer_started", { timer })}
+          onDone={(timer) => {
             // The normal path, so the haptic, celebration and win-back all happen.
             handleToggle(focusTask.id);
+            track("focus_completed", { timer });
             setFocusTaskId(null);
+            // The third one gets the celebration instead.
+            const perfect = total === MAX_TASKS && completedCount + 1 === MAX_TASKS;
+            if (!perfect) AccessibilityInfo.announceForAccessibility(`Done: ${focusTask.text}`);
           }}
           onClose={() => setFocusTaskId(null)}
-          // One per open, however it closes, with the last timer they started.
-          onEnd={(timer) => track("focus_opened", { timer })}
         />
       )}
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { View, Text } from "react-native";
+import { View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 
 import { useColors } from "@/hooks/use-colors";
@@ -7,15 +7,18 @@ import { useColors } from "@/hooks/use-colors";
 interface ProgressRingProps {
   completed: number;
   total: number;
+  /** The filled arc's colour. */
+  color: string;
   size?: number;
   strokeWidth?: number;
-  /** Replaces the "n/total focuses" label in the middle (e.g. focus mode's timer). */
-  children?: ReactNode;
+  /** What sits in the middle (e.g. focus mode's timer). */
+  children: ReactNode;
 }
 
 export function ProgressRing({
   completed,
   total,
+  color,
   size = 156,
   strokeWidth = 14,
   children,
@@ -26,9 +29,6 @@ export function ProgressRing({
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - ratio);
-
-  const accent =
-    ratio >= 1 ? colors.success : ratio > 0 ? colors.primary : colors.muted;
 
   return (
     <View
@@ -48,7 +48,7 @@ export function ProgressRing({
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke={accent}
+          stroke={color}
           strokeWidth={strokeWidth}
           fill="none"
           strokeLinecap="round"
@@ -57,20 +57,7 @@ export function ProgressRing({
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
       </Svg>
-      <View className="absolute items-center justify-center">
-        {children ?? (
-          <>
-            <Text
-              className="text-4xl font-extrabold text-foreground"
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              {completed}/{total || 0}
-            </Text>
-            <Text className="text-sm text-muted mt-1 uppercase tracking-wide">focuses</Text>
-          </>
-        )}
-      </View>
+      <View className="absolute items-center justify-center">{children}</View>
     </View>
   );
 }

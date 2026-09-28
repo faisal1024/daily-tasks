@@ -39,6 +39,7 @@ export type AnalyticsEvent =
   | "rollover_resolved"
   | "coach_note_loaded"
   | "focus_opened"
+  | "focus_timer_started"
   | "focus_completed";
 
 type PropValue = string | number | boolean;

@@ -19,12 +19,11 @@ function configureHandler() {
   if (handlerConfigured) return;
   handlerConfigured = true;
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: false,
-      shouldSetBadge: false,
-    }),
+    // Focus mode's timer end is said in-app already, so it isn't shown there.
+    handleNotification: async (notification) => {
+      const show = notification.request.identifier !== FOCUS_TIMER_NOTIFICATION_ID;
+      return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: false, shouldSetBadge: false };
+    },
   });
 }
 
@@ -124,4 +123,43 @@ async function runSync({
 export async function cancelAllNotifications(): Promise<void> {
   if (Platform.OS === "web") return;
   await cancelAllManaged();
+}
+
+// Focus mode's timer (1.2): one quiet notification for when it ends, in case
+// they're in another app. Its id is outside MANAGED_REMINDER_PREFIX, so the
+// reminder syncs never cancel it; the handler above doesn't show it in-app
+// (focus mode says it there). Only with permission already granted: it never asks.
+export const FOCUS_TIMER_NOTIFICATION_ID = "three-today:focus-timer";
+export const FOCUS_TIMER_NOTIFICATION_BODY = "Time's up. Keep going, or take a break.";
+
+// One at a time, like the reminder syncs. A schedule that another call has
+// already overtaken (a restart, a cancel) is skipped; the later call wins.
+let focusQueue: Promise<void> = Promise.resolve();
+let focusGeneration = 0;
+
+function queueFocus(step: () => Promise<void>): Promise<void> {
+  // A missed end-of-timer notification is fine; focus mode still says it there.
+  const run = focusQueue.then(step).catch(() => {});
+  focusQueue = run;
+  return run;
+}
+
+export function scheduleFocusTimerNotification(at: Date): Promise<void> {
+  if (Platform.OS === "web") return Promise.resolve();
+  const generation = ++focusGeneration;
+  return queueFocus(async () => {
+    if (generation !== focusGeneration) return;
+    if ((await getNotificationPermissionStatus()) !== "granted" || generation !== focusGeneration) return;
+    await Notifications.scheduleNotificationAsync({
+      identifier: FOCUS_TIMER_NOTIFICATION_ID,
+      content: { title: "Three Today", body: FOCUS_TIMER_NOTIFICATION_BODY, sound: false },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at },
+    });
+  });
+}
+
+export function cancelFocusTimerNotification(): Promise<void> {
+  if (Platform.OS === "web") return Promise.resolve();
+  focusGeneration++;
+  return queueFocus(() => Notifications.cancelScheduledNotificationAsync(FOCUS_TIMER_NOTIFICATION_ID));
 }
