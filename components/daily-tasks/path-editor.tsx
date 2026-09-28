@@ -176,7 +176,7 @@ export function PathEditor({ visible, goalTitle, milestones, plus, onSave, onSug
                   autoFocus={d.id === undefined}
                   placeholderTextColor={colors.muted}
                   maxLength={80}
-                  accessibilityLabel={`Step ${index + 1}`}
+                  accessibilityLabel={`Step ${index + 1}${d.done ? ", reached" : ""}`}
                   className="flex-1 text-base"
                   style={{ color: colors.foreground, fontWeight: "700" }}
                 />

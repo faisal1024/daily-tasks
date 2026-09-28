@@ -177,3 +177,27 @@ describe("cleanMilestones", () => {
     expect(cleanMilestones(items, 1000)).toHaveLength(6);
   });
 });
+
+describe("keepPath honours where the path came from", () => {
+  const base = (over: Partial<MomentumPlan>): MomentumPlan => ({
+    id: "p",
+    goalTitle: "Run a 5K",
+    generatedAt: "x",
+    provider: "template",
+    milestones: [{ id: "a", title: "Mine", description: "", completedAt: null }],
+    taskPool: [],
+    todaySuggestions: [],
+    promptSummary: "",
+    version: 1,
+    ...over,
+  });
+  const ai = base({ provider: "ai", milestones: [{ id: "b", title: "AI step", description: "", completedAt: null }] });
+
+  it("an edited path on a template-provider plan (as restored after a relaunch) is kept", () => {
+    expect(keepPath(base({ pathSource: "user" }), ai)?.milestones[0].title).toBe("Mine");
+  });
+
+  it("an untouched starter path is upgraded by an AI plan", () => {
+    expect(keepPath(base({}), ai)?.milestones[0].title).toBe("AI step");
+  });
+});

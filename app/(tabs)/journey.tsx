@@ -50,6 +50,10 @@ export default function JourneyScreen() {
     }
     wasFinding.current = findingPath;
   }, [findingPath, state.momentumPlanStatus]);
+  // A later successful plan means the note no longer applies.
+  useEffect(() => {
+    if (state.momentumPlanStatus === "ready") setPathNote(null);
+  }, [state.momentumPlanStatus]);
   const milestonesDone = momentumMilestones.filter((m) => m.done).length;
   const nextMilestoneIndex = momentumMilestones.findIndex((m) => !m.done);
 

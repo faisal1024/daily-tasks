@@ -52,13 +52,13 @@ beforeEach(async () => {
 describe("PathEditor", () => {
   it("starts from the current path; rename, remove and add, then Save sends the cleaned list and closes", async () => {
     const { onSave, onClose } = await renderEditor();
-    expect(screen.getByLabelText("Step 1")).toHaveDisplayValue("Walk 10 minutes");
+    expect(screen.getByLabelText(/^Step 1(, reached)?$/)).toHaveDisplayValue("Walk 10 minutes");
     expect(screen.getByLabelText("Step 2 details")).toHaveDisplayValue("Jog 1 mile details");
 
-    await fireEvent.changeText(screen.getByLabelText("Step 1"), "Walk 15 minutes");
+    await fireEvent.changeText(screen.getByLabelText(/^Step 1(, reached)?$/), "Walk 15 minutes");
     await fireEvent.press(screen.getByRole("button", { name: "Remove step 2" }));
     await fireEvent.press(screen.getByTestId("path-editor-add"));
-    await fireEvent.changeText(screen.getByLabelText("Step 2"), "Race day");
+    await fireEvent.changeText(screen.getByLabelText(/^Step 2(, reached)?$/), "Race day");
     await fireEvent.press(saveButton());
 
     expect(onSave).toHaveBeenCalledWith([
@@ -77,7 +77,7 @@ describe("PathEditor", () => {
 
   it("Save is disabled (and does nothing) when every step is blank", async () => {
     const { onSave, onClose } = await renderEditor();
-    await fireEvent.changeText(screen.getByLabelText("Step 1"), "   ");
+    await fireEvent.changeText(screen.getByLabelText(/^Step 1(, reached)?$/), "   ");
     await fireEvent.press(screen.getByRole("button", { name: "Remove step 2" }));
     expect(saveButton()).toBeDisabled();
     await fireEvent.press(saveButton());
@@ -98,7 +98,7 @@ describe("PathEditor", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(alert).not.toHaveBeenCalled();
 
-    await fireEvent.changeText(screen.getByLabelText("Step 1"), "Changed");
+    await fireEvent.changeText(screen.getByLabelText(/^Step 1(, reached)?$/), "Changed");
     await fireEvent.press(screen.getByRole("button", { name: "Cancel editing" }));
     expect(alert).toHaveBeenCalledTimes(1);
     const [title, , buttons] = alert.mock.calls[0] as [string, string, AlertButton[]];
@@ -183,7 +183,7 @@ describe("Journey: Edit your path", () => {
 
     await fireEvent.press(screen.getByRole("button", { name: "Edit your path" }));
     expect(screen.getByTestId("path-editor")).toBeOnTheScreen();
-    await fireEvent.changeText(screen.getByLabelText("Step 2"), "Jog 2 miles");
+    await fireEvent.changeText(screen.getByLabelText(/^Step 2(, reached)?$/), "Jog 2 miles");
     await fireEvent.press(screen.getByTestId("path-editor-save"));
 
     await waitFor(() => expect(screen.queryByTestId("path-editor")).toBeNull());
