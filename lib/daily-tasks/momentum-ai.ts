@@ -59,6 +59,10 @@ export interface AiPlanRequestPayload {
   coachMemory?: string | null;
   /** Today's events and reminders, pre-formatted (see agenda.ts). */
   agenda?: string[];
+  /** The user's kept path, so the day's ideas aim at its next step. */
+  currentPath?: { title: string; done: boolean }[];
+  /** The user asked for a fresh path (the milestones returned replace theirs). */
+  newPath?: boolean;
 }
 
 /**
@@ -165,6 +169,8 @@ export async function requestMomentumAiPlan({
   settings,
   coachMemory = null,
   agenda = [],
+  currentPath = [],
+  newPath = false,
   proxyUrl = getMomentumAiProxyUrl(),
   proxySecret = getMomentumProxySecret(),
   now = new Date(),
@@ -176,6 +182,8 @@ export async function requestMomentumAiPlan({
   settings: MomentumSettings;
   coachMemory?: string | null;
   agenda?: string[];
+  currentPath?: { title: string; done: boolean }[];
+  newPath?: boolean;
   proxyUrl?: string | null;
   proxySecret?: string | null;
   now?: Date;
@@ -186,10 +194,16 @@ export async function requestMomentumAiPlan({
     throw new Error("AI proxy URL is not configured.");
   }
 
-  const payload = buildAiPlanRequestPayload({ profile, history, settings, coachMemory, agenda, now });
-  if (!payload) {
+  const base = buildAiPlanRequestPayload({ profile, history, settings, coachMemory, agenda, now });
+  if (!base) {
     throw new Error("Profile is incomplete.");
   }
+  const path = currentPath.slice(0, 6).map((step) => ({ title: step.title.slice(0, 120), done: step.done }));
+  const payload: AiPlanRequestPayload = {
+    ...base,
+    ...(path.length > 0 ? { currentPath: path } : {}),
+    ...(newPath ? { newPath: true } : {}),
+  };
 
   const data = (await postToProxy({
     url: proxyUrl,

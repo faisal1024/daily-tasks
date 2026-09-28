@@ -110,3 +110,35 @@ describe("sanitizePlan", () => {
     expect(sanitizePlan(null)).toEqual({ milestones: [], todaySuggestions: [], taskPool: [] });
   });
 });
+
+describe("the kept path in the plan prompt", () => {
+  const path = [
+    { title: "Run 1K without stopping", done: true },
+    { title: "Run 3K", done: false },
+  ];
+
+  it("shows the user's path and aims today's ideas at the next unreached step", () => {
+    const prompt = buildPrompt({ ...PAYLOAD, currentPath: path });
+    expect(prompt).toContain("- Run 1K without stopping (reached)");
+    expect(prompt).toContain("- Run 3K");
+    expect(prompt).toMatch(/first milestone not yet reached/);
+  });
+
+  it("asks for different milestones when the user wants a fresh path", () => {
+    const prompt = buildPrompt({ ...PAYLOAD, currentPath: path, newPath: true });
+    expect(prompt).toMatch(/asked for a fresh path/);
+    expect(prompt).toMatch(/differ from these/);
+  });
+
+  it("says nothing about a path when there isn't one (older builds)", () => {
+    expect(buildPrompt(PAYLOAD)).not.toMatch(/path toward the goal|fresh path/);
+  });
+
+  it("validates the optional path fields", () => {
+    expect(validatePayload({ ...PAYLOAD, currentPath: path, newPath: true })).toBeNull();
+    expect(validatePayload({ ...PAYLOAD, currentPath: "x" })).toBe("Invalid currentPath");
+    expect(validatePayload({ ...PAYLOAD, currentPath: Array(7).fill({ title: "a" }) })).toBe("Invalid currentPath");
+    expect(validatePayload({ ...PAYLOAD, currentPath: [{ title: 3 }] })).toBe("Invalid currentPath");
+    expect(validatePayload({ ...PAYLOAD, newPath: "yes" })).toBe("Invalid newPath");
+  });
+});

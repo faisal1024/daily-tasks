@@ -168,3 +168,30 @@ describe("normalizeState: todayLockedAt", () => {
     expect(state?.todayLockSource).toBe("auto");
   });
 });
+
+describe("the path's origin survives a relaunch", () => {
+  const plan = (pathSource?: string) => ({
+    id: "p1",
+    goalTitle: "Run a 5K",
+    generatedAt: "2026-09-28T08:00:00.000Z",
+    provider: "template",
+    milestones: [{ id: "milestone_x", title: "My own step", description: "", completedAt: null }],
+    taskPool: [],
+    todaySuggestions: [],
+    promptSummary: "",
+    version: 1,
+    ...(pathSource ? { pathSource } : {}),
+  });
+  const restored = (pathSource?: string) =>
+    normalizeState(JSON.parse(JSON.stringify({ ...buildInitialState(), momentumPlan: plan(pathSource) })))?.momentumPlan;
+
+  it("keeps an edited path marked as the user's (so an AI plan never replaces it)", () => {
+    expect(restored("user")?.pathSource).toBe("user");
+    expect(restored("ai")?.pathSource).toBe("ai");
+  });
+
+  it("older saves without it, or junk values, leave it unset (derived from provider)", () => {
+    expect(restored()?.pathSource).toBeUndefined();
+    expect(restored("bogus")?.pathSource).toBeUndefined();
+  });
+});

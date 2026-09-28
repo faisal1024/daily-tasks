@@ -2,7 +2,7 @@
 // be unit-tested in plain Node and reused by the store reducer.
 
 import { awardMilestone, type Journey } from "./journey";
-import type { MomentumMilestone } from "./types";
+import type { MomentumMilestone, MomentumPlan } from "./types";
 
 export type MilestoneView = MomentumMilestone & { done: boolean };
 
@@ -89,4 +89,48 @@ export function completeMilestone(params: {
     journey: awardMilestone(journey),
     pendingMilestoneCelebration: milestone.title,
   };
+}
+
+/**
+ * The path toward a goal is the user's, not the day's: when the daily ideas are
+ * refreshed (same goal), keep the milestones already there. It only changes
+ * when the goal changes, the user edits it, or they ask for a new one.
+ */
+export function keepPath(prev: MomentumPlan | null, next: MomentumPlan | null): MomentumPlan | null {
+  if (!prev || !next || next === prev) return next;
+  if (prev.goalTitle !== next.goalTitle || prev.milestones.length === 0) return next;
+  // An untouched starter path is upgraded once by the first AI plan (e.g. right
+  // after onboarding or a goal change); an AI or user path is kept.
+  if (pathSourceOf(prev) === "template" && next.provider === "ai") return { ...next, pathSource: "ai" };
+  if (next.milestones === prev.milestones && next.pathSource === prev.pathSource) return next;
+  return { ...next, milestones: prev.milestones, pathSource: pathSourceOf(prev) };
+}
+
+export function pathSourceOf(plan: MomentumPlan): "template" | "ai" | "user" {
+  return plan.pathSource ?? (plan.provider === "ai" ? "ai" : "template");
+}
+
+/** Clean an edited path: trimmed, capped, no blanks; stable ids kept, new ones minted. */
+export function cleanMilestones(
+  items: { id?: string; title: string; description?: string; completedAt?: string | null }[],
+  now: number = Date.now(),
+): MomentumMilestone[] {
+  const out: MomentumMilestone[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of items.entries()) {
+    const title = item.title.replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!title) continue;
+    let id = item.id && !seen.has(item.id) ? item.id : `milestone_${now.toString(36)}_${index}`;
+    while (seen.has(id)) id = `${id}_`;
+    seen.add(id);
+    out.push({
+      id,
+      title,
+      description: (item.description ?? "").replace(/\s+/g, " ").trim().slice(0, 200),
+      // An older save may mark a step reached here: keep it with the step.
+      completedAt: id === item.id ? (item.completedAt ?? null) : null,
+    });
+    if (out.length >= 6) break;
+  }
+  return out;
 }

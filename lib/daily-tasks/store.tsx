@@ -41,6 +41,7 @@ import {
 } from "./momentum-ai";
 import {
   buildAdaptationSnapshot,
+  buildMilestones,
   buildMomentumPlan,
   isMomentumProfileComplete,
 } from "./momentum";
@@ -62,7 +63,9 @@ import {
   type LevelProgress,
 } from "./journey";
 import {
+  cleanMilestones,
   completeMilestone as completeMilestoneState,
+  keepPath,
   milestonesWithCompletion,
   type MilestoneView,
 } from "./milestones";
@@ -168,6 +171,9 @@ type Action =
   | { type: "dismissTomorrowDraft" }
   | { type: "setAgendaEnabled"; enabled: boolean }
   | { type: "completeMilestone"; id: string }
+  | { type: "setMilestones"; items: { id?: string; title: string; description?: string }[] }
+  | { type: "requestNewPath" }
+  | { type: "resetPathToTemplate" }
   | { type: "uncompleteMilestone"; id: string }
   | { type: "setAnalyticsEnabled"; enabled: boolean }
   | { type: "reset"; state: AppState };
@@ -206,13 +212,49 @@ function resetMilestonesIfGoalChanged(
 }
 
 function reducer(state: AppState, action: Action): AppState {
-  const next = reduce(state, action);
+  const next = keepGoalPath(state, action, reduce(state, action));
   // Today changed under yesterday's card (a draft, a brain dump, setting the
   // day): drop what's now covered or has no room. See settlePendingRollover.
   return next.pendingRollover &&
     (next.tasks !== state.tasks || next.todayLocked !== state.todayLocked)
     ? settlePendingRollover(next)
     : next;
+}
+
+/**
+ * Daily idea refreshes rebuild the plan; the path toward the goal must not
+ * change with them. Keep the milestones unless the user edited them, asked for
+ * a new path (then the next AI plan brings one, and old ticks reset), or the
+ * goal itself changed (keepPath compares goals).
+ */
+function keepGoalPath(state: AppState, action: Action, next: AppState): AppState {
+  // A new-path request ends with any answer, and with a goal change or an edit.
+  let out = next;
+  const settlesRequest =
+    action.type === "requestMomentumPlanSucceeded" ||
+    action.type === "requestMomentumPlanFailed" ||
+    action.type === "setMilestones" ||
+    action.type === "resetPathToTemplate" ||
+    next.momentumProfile.goalTitle !== state.momentumProfile.goalTitle;
+  if (settlesRequest && out.pathRefreshPending) out = { ...out, pathRefreshPending: false };
+  if (action.type === "setMilestones" || action.type === "resetPathToTemplate") return out;
+  if (out.momentumPlan === state.momentumPlan) return out;
+  if (
+    action.type === "requestMomentumPlanSucceeded" &&
+    state.pathRefreshPending &&
+    state.momentumPlan &&
+    out.momentumPlan?.goalTitle === state.momentumPlan.goalTitle
+  ) {
+    // The fresh path the user asked for: it replaces theirs, and old ticks go.
+    return {
+      ...out,
+      momentumPlan: { ...out.momentumPlan, pathSource: "ai" },
+      completedMilestoneIds: [],
+      pendingMilestoneCelebration: null,
+    };
+  }
+  const plan = keepPath(state.momentumPlan, out.momentumPlan);
+  return plan === out.momentumPlan ? out : { ...out, momentumPlan: plan };
 }
 
 function reduce(state: AppState, action: Action): AppState {
@@ -253,6 +295,34 @@ function reduce(state: AppState, action: Action): AppState {
     }
     case "setAgendaEnabled":
       return state.agendaEnabled === action.enabled ? state : { ...state, agendaEnabled: action.enabled };
+    case "setMilestones": {
+      if (!state.momentumPlan) return state;
+      const before = new Map(state.momentumPlan.milestones.map((m) => [m.id, m]));
+      const milestones = cleanMilestones(
+        action.items.map((item) => ({ ...item, completedAt: item.id ? before.get(item.id)?.completedAt : null })),
+      );
+      if (milestones.length === 0) return state;
+      const ids = new Set(milestones.map((m) => m.id));
+      const celebrated = state.pendingMilestoneCelebration;
+      return {
+        ...state,
+        momentumPlan: { ...state.momentumPlan, milestones, pathSource: "user" },
+        // A removed step's tick (and pending celebration) goes with it.
+        completedMilestoneIds: state.completedMilestoneIds.filter((id) => ids.has(id)),
+        pendingMilestoneCelebration:
+          celebrated && !milestones.some((m) => m.title === celebrated) ? null : celebrated,
+      };
+    }
+    case "requestNewPath":
+      return state.pathRefreshPending ? state : { ...state, pathRefreshPending: true };
+    case "resetPathToTemplate":
+      if (!state.momentumPlan) return state;
+      return {
+        ...state,
+        momentumPlan: { ...state.momentumPlan, pathSource: "template", milestones: buildMilestones(state.momentumProfile.goalTitle ?? state.momentumPlan.goalTitle ?? "your goal") },
+        completedMilestoneIds: [],
+        pendingMilestoneCelebration: null,
+      };
     case "dismissTomorrowDraft":
       return state.tomorrowDraft ? { ...state, tomorrowDraft: null } : state;
     case "completeMilestone": {
@@ -747,7 +817,7 @@ interface StoreContextValue {
   completeMomentumOnboarding: (profile: MomentumProfile) => void;
   updateMomentumProfile: (profile: MomentumProfile) => void;
   regenerateMomentumPlan: () => void;
-  requestMomentumPlan: () => Promise<void>;
+  requestMomentumPlan: (options?: { newPath?: boolean }) => Promise<void>;
   setMomentumSetting: <K extends keyof AppState["momentumSettings"]>(
     key: K,
     value: AppState["momentumSettings"][K],
@@ -771,6 +841,10 @@ interface StoreContextValue {
   setAgendaEnabled: (enabled: boolean) => void;
   completeMilestone: (id: string) => void;
   uncompleteMilestone: (id: string) => void;
+  /** Save an edited path (rename, reword, add, remove). */
+  editMilestones: (items: { id?: string; title: string; description?: string }[]) => void;
+  /** Replace the path: a fresh AI path with Plus, else the starter template. Resets its ticks. */
+  suggestNewPath: () => void;
   /** Days with a plan (today included): the "Day N" chip. */
   daysShowedUp: number;
   parkTasks: (texts: string[]) => void;
@@ -1155,7 +1229,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // late (e.g. started before a goal edit) must not overwrite a newer result
   // or flip "loading" off while the newer request is still in flight.
   const latestAiRequest = useRef(0);
-  const requestMomentumPlan = useCallback(async () => {
+  const requestMomentumPlan = useCallback(async (options: { newPath?: boolean } = {}) => {
     // AI ideas are a Plus feature; free users keep the on-device template plan.
     if (!hasPlus) return;
     const requestId = ++latestAiRequest.current;
@@ -1170,6 +1244,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         settings: state.momentumSettings,
         coachMemory: state.coachMemory,
         agenda,
+        // The kept path, so the day's ideas aim at its next step.
+        currentPath: milestonesWithCompletion(state.momentumPlan?.milestones ?? [], state.completedMilestoneIds).map(
+          (m) => ({ title: m.title, done: m.done }),
+        ),
+        newPath: options.newPath === true,
         now,
       });
       if (!isLatestRequest(requestId, latestAiRequest.current)) return;
@@ -1191,7 +1270,18 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     state.momentumSettings,
     state.coachMemory,
     state.agendaEnabled,
+    state.momentumPlan,
+    state.completedMilestoneIds,
   ]);
+
+  const suggestNewPath = useCallback(() => {
+    if (hasPlus) {
+      dispatch({ type: "requestNewPath" });
+      void requestMomentumPlan({ newPath: true });
+    } else {
+      dispatch({ type: "resetPathToTemplate" });
+    }
+  }, [hasPlus, requestMomentumPlan]);
 
   // Auto-generate the AI plan once per (day + goal) when a proxy URL is
   // configured. No URL → this is a no-op and the app stays on the local
@@ -1318,6 +1408,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const uncompleteMilestone = useCallback((id: string) => {
     dispatch({ type: "uncompleteMilestone", id });
   }, []);
+  const editMilestones = useCallback((items: { id?: string; title: string; description?: string }[]) => {
+    dispatch({ type: "setMilestones", items });
+  }, []);
   const daysShowedUp = useMemo(
     () => countDaysShowedUp(state.history, today),
     [state.history, today],
@@ -1411,6 +1504,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAgendaEnabled,
       completeMilestone,
       uncompleteMilestone,
+      editMilestones,
+      suggestNewPath,
       daysShowedUp,
       parkTasks: parkTasksCb,
       removeParkedTask: removeParkedTaskCb,
@@ -1469,6 +1564,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAgendaEnabled,
       completeMilestone,
       uncompleteMilestone,
+      editMilestones,
+      suggestNewPath,
       daysShowedUp,
       parkTasksCb,
       removeParkedTaskCb,

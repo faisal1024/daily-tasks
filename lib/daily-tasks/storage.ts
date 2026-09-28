@@ -375,6 +375,11 @@ function normalizeMomentumPlan(value: unknown): MomentumPlan | null {
     generatedAt: value.generatedAt,
     provider: value.provider === "ai" || value.provider === "template" ? value.provider : "template",
     milestones,
+    // Where the path came from must survive a relaunch: an edited path must
+    // never look like an untouched starter path (which an AI plan may replace).
+    ...(value.pathSource === "template" || value.pathSource === "ai" || value.pathSource === "user"
+      ? { pathSource: value.pathSource }
+      : {}),
     taskPool,
     todaySuggestions: todaySuggestions.slice(0, 3),
     promptSummary: typeof value.promptSummary === "string" ? value.promptSummary : "",
