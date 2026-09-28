@@ -228,10 +228,17 @@ struct SunCheck: View {
         .font(.system(size: size))
         .foregroundStyle(palette.primary)
         .widgetAccentable()
-      Image(systemName: "checkmark.circle.fill")
-        .font(.system(size: size * 0.5, weight: .bold))
-        .foregroundStyle(palette.fill)
-        .offset(x: size * 0.15, y: size * 0.1)
+      // A darkened disc under the check, so it doesn't vanish into the
+      // white sun (a knocked-out check.circle shows the sun through it).
+      ZStack {
+        Circle().fill(Color.black.opacity(0.35))
+        Circle().strokeBorder(palette.fill, lineWidth: max(1, size * 0.05))
+        Image(systemName: "checkmark")
+          .font(.system(size: size * 0.24, weight: .heavy))
+          .foregroundStyle(palette.fill)
+      }
+      .frame(width: size * 0.5, height: size * 0.5)
+      .offset(x: size * 0.15, y: size * 0.1)
     }
     .accessibilityHidden(true)
   }
@@ -366,7 +373,8 @@ struct MediumView: View {
             TaskRow(task: task, date: snapshot.date, interactive: snapshot.plus, isNext: task.id == nextId)
           }
           Spacer(minLength: 0)
-          if !snapshot.plus {
+          // No upsell on a finished day: that moment is for the win.
+          if !snapshot.plus && !snapshot.allDone {
             Text("With Plus, tick off right here.")
               .font(.caption2)
               .foregroundStyle(palette.secondary)
