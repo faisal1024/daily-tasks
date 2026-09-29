@@ -18,6 +18,7 @@ import { renderWithProviders as render } from "./render";
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusTimerNotification: jest.fn(async () => {}),
   cancelFocusTimerNotification: jest.fn(async () => {}),
+  dismissFocusTimerNotification: jest.fn(async () => {}),
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
 }));
 const schedule = scheduleFocusTimerNotification as jest.Mock;
@@ -211,7 +212,7 @@ describe("FocusMode", () => {
     expect(screen.queryByTestId("focus-times-up")).toBeNull();
   });
 
-  it("schedules the end notification on start, cancels on Cancel, reschedules on a new start, and cancels at zero", async () => {
+  it("schedules the end notification on start, cancels on Cancel, reschedules on a new start, and leaves it to go off at zero", async () => {
     await renderFocus();
     await pick("10 minute timer");
     expect(schedule).toHaveBeenCalledTimes(1);
@@ -227,8 +228,8 @@ describe("FocusMode", () => {
 
     cancel.mockClear();
     await advance(20 * MIN);
-    // Said in-app instead.
-    expect(cancel).toHaveBeenCalled();
+    // Left to go off (its sound plays in-app), then dismissed a moment later.
+    expect(cancel).not.toHaveBeenCalled();
   });
 
   it("Not now calls only onClose; Done calls onDone once with the timer, even on a double tap", async () => {

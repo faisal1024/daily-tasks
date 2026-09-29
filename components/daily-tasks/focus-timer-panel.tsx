@@ -34,6 +34,7 @@ import {
 import { loadLastCustomTimer, saveLastCustomTimer } from "@/lib/daily-tasks/focus-timer-storage";
 import {
   cancelFocusTimerNotification,
+  dismissFocusTimerNotification,
   getNotificationPermissionStatus,
   scheduleFocusTimerNotification,
 } from "@/lib/daily-tasks/notifications";
@@ -42,6 +43,8 @@ const MINUTE_MS = 60_000;
 /** Lets the tapped button's own label read out before the announcement. */
 const ANNOUNCE_DELAY_MS = 300;
 const MAX_RING = 232;
+/** After the end, the delivered notification is cleared from Notification Center. */
+const DISMISS_AFTER_END_MS = 3_000;
 
 /**
  * A run. `endAt` while it's running (or finished), `pausedMs` (time left)
@@ -56,7 +59,7 @@ interface Run {
 interface FocusTimerPanelProps {
   /** A timer started (a chip, Start or Restart), with its length in minutes. */
   onStart: (minutes: number) => void;
-  /** Cancel or Clear: the timer is gone. */
+  /** Cancel of a running or paused timer (not Clear after the end). */
   onCancel?: () => void;
   /** Whether a timer is running or paused (not idle or finished). */
   onActiveChange?: (active: boolean) => void;
@@ -141,15 +144,28 @@ export function FocusTimerPanel({ onStart, onCancel, onActiveChange, onReveal }:
 
   // A notification for the end, in case they're in another app (only with
   // permission already given). Replaced on a restart or resume; cancelled
-  // (and cleared if it already went off) as soon as it isn't running.
+  // (and cleared if it already went off) on Pause, Cancel and unmount while
+  // running. Not on finishing: the in-app tick can beat iOS delivering it, and
+  // it must still go off so its sound plays (the handler hides the banner in
+  // the app); it's cleared from Notification Center a moment later instead.
+  // Read in the cleanup, which runs after this render: set while rendering.
+  const finishedRef = useRef(false);
+  finishedRef.current = finished;
   const runMinutes = run?.minutes ?? 0;
   useEffect(() => {
     if (runningEndAt === null) return;
     void scheduleFocusTimerNotification(new Date(runningEndAt), runMinutes);
     return () => {
-      void cancelFocusTimerNotification();
+      if (!finishedRef.current) void cancelFocusTimerNotification();
     };
   }, [runningEndAt, runMinutes]);
+
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearDismissTimer = () => {
+    if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    dismissTimer.current = null;
+  };
+  useEffect(() => clearDismissTimer, []);
 
   const announceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const announceSoon = (text: string) => {
@@ -174,11 +190,22 @@ export function FocusTimerPanel({ onStart, onCancel, onActiveChange, onReveal }:
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     }
     AccessibilityInfo.announceForAccessibility(timesUpText(run.minutes));
+    clearDismissTimer();
+    dismissTimer.current = setTimeout(() => {
+      dismissTimer.current = null;
+      void dismissFocusTimerNotification();
+    }, DISMISS_AFTER_END_MS);
     // Only when it finishes; the length can't change without a new run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finished]);
 
   const startRun = (minutes: number) => {
+    // After a finish the last one was left to go off: clear it first (the
+    // queue keeps this ahead of the new schedule).
+    if (finished) {
+      clearDismissTimer();
+      void cancelFocusTimerNotification();
+    }
     const start = Date.now();
     setNow(start);
     setRun({ minutes, endAt: start + minutes * MINUTE_MS, pausedMs: 0 });
@@ -223,10 +250,12 @@ export function FocusTimerPanel({ onStart, onCancel, onActiveChange, onReveal }:
   // Cancel (and Clear) go back to the length chips.
   const reset = () => {
     if (announceTimer.current) clearTimeout(announceTimer.current);
-    const hadRun = run !== null;
+    // Only a running or paused timer counts as cancelled: Clear after the end
+    // keeps it as the last timer for analytics.
+    const wasActive = active;
     setRun(null);
     setCustomOpen(false);
-    if (hadRun) onCancel?.();
+    if (wasActive) onCancel?.();
   };
 
   const restart = () => {

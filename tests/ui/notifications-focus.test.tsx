@@ -76,6 +76,14 @@ describe("focus timer notification", () => {
     expect(mocked.dismissNotificationAsync).toHaveBeenCalledWith(FOCUS_TIMER_NOTIFICATION_ID);
   });
 
+  it("dismiss clears a delivered one without cancelling what's scheduled (errors swallowed)", async () => {
+    mocked.dismissNotificationAsync.mockRejectedValueOnce(new Error("none"));
+    const { dismissFocusTimerNotification, FOCUS_TIMER_NOTIFICATION_ID } = load();
+    await expect(dismissFocusTimerNotification()).resolves.toBeUndefined();
+    expect(mocked.dismissNotificationAsync).toHaveBeenCalledWith(FOCUS_TIMER_NOTIFICATION_ID);
+    expect(mocked.cancelScheduledNotificationAsync).not.toHaveBeenCalled();
+  });
+
   it("the handler hides only the focus notification in-app, and plays only its sound", async () => {
     const { scheduleFocusTimerNotification, FOCUS_TIMER_NOTIFICATION_ID } = load();
     await scheduleFocusTimerNotification(AT, 10);

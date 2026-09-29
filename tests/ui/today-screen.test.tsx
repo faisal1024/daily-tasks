@@ -103,6 +103,7 @@ jest.mock("expo-router", () => ({
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusTimerNotification: jest.fn(async () => {}),
   cancelFocusTimerNotification: jest.fn(async () => {}),
+  dismissFocusTimerNotification: jest.fn(async () => {}),
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
 }));
 const mockTrack = jest.fn();

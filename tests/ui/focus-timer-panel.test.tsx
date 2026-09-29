@@ -14,6 +14,7 @@ import { timesUpText } from "@/lib/daily-tasks/focus-timer";
 import { LAST_CUSTOM_TIMER_KEY } from "@/lib/daily-tasks/focus-timer-storage";
 import {
   cancelFocusTimerNotification,
+  dismissFocusTimerNotification,
   getNotificationPermissionStatus,
   scheduleFocusTimerNotification,
 } from "@/lib/daily-tasks/notifications";
@@ -23,10 +24,12 @@ import { renderWithProviders as render } from "./render";
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusTimerNotification: jest.fn(async () => {}),
   cancelFocusTimerNotification: jest.fn(async () => {}),
+  dismissFocusTimerNotification: jest.fn(async () => {}),
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
 }));
 const schedule = scheduleFocusTimerNotification as jest.Mock;
 const cancel = cancelFocusTimerNotification as jest.Mock;
+const dismiss = dismissFocusTimerNotification as jest.Mock;
 const permission = getNotificationPermissionStatus as jest.Mock;
 
 const START = new Date(2026, 8, 26, 9, 0);
@@ -324,12 +327,13 @@ describe("FocusTimerPanel: running", () => {
 });
 
 describe("FocusTimerPanel: finishing", () => {
-  it("one success haptic, the time's-up line, Restart and Clear; the notification is cancelled", async () => {
+  it("one success haptic, the time's-up line, Restart and Clear; the notification is left to go off", async () => {
     const { onStart } = await renderPanel();
     await press("5 minute timer");
     await advance(5 * MIN);
     expect(screen.getByTestId("focus-times-up")).toHaveTextContent("That's 5 minutes. Keep going, or take a break.");
-    expect(cancel).toHaveBeenCalledTimes(1);
+    // Not cancelled: it may not have been delivered yet, and its sound must play.
+    expect(cancel).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Restart" })).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Clear timer" })).toHaveTextContent("Clear");
     expect(screen.getByRole("button", { name: "Restart" }).props.accessibilityHint).toBe(
@@ -352,6 +356,57 @@ describe("FocusTimerPanel: finishing", () => {
     await press("Clear timer");
     expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+  });
+
+  it("the delivered notification is dismissed (not cancelled) 3 s after the end", async () => {
+    await renderPanel();
+    await press("5 minute timer");
+    await advance(5 * MIN);
+    expect(dismiss).not.toHaveBeenCalled();
+    await advance(2_900);
+    expect(dismiss).not.toHaveBeenCalled();
+    await advance(100);
+    expect(dismiss).toHaveBeenCalledTimes(1);
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("Restart right after the end cancels the old one before scheduling the new, and drops the pending dismiss", async () => {
+    await renderPanel();
+    await press("5 minute timer");
+    await advance(5 * MIN);
+    schedule.mockClear();
+    const order: string[] = [];
+    cancel.mockImplementation(async () => void order.push("cancel"));
+    schedule.mockImplementation(async () => void order.push("schedule"));
+    await press("Restart");
+    expect(order).toEqual(["cancel", "schedule"]);
+    await advance(10_000);
+    expect(dismiss).not.toHaveBeenCalled();
+  });
+
+  it("unmounting after the end drops the pending dismiss", async () => {
+    const { view } = await renderPanel();
+    await press("5 minute timer");
+    await advance(5 * MIN);
+    await view.unmount();
+    await advance(10_000);
+    expect(dismiss).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("Clear after the end doesn't count as a cancel; Cancel while paused does", async () => {
+    const onStart = jest.fn();
+    const onCancel = jest.fn();
+    await render(<FocusTimerPanel onStart={onStart} onCancel={onCancel} />);
+    await act(async () => {});
+    await press("5 minute timer");
+    await advance(5 * MIN);
+    await press("Clear timer");
+    expect(onCancel).not.toHaveBeenCalled();
+    await press("10 minute timer");
+    await press("Pause");
+    await press("Cancel");
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("announces only start, pause, resume and the end, never each second or minute", async () => {
@@ -396,6 +451,9 @@ describe("FocusMode: the timer reported on Done", () => {
     await advance(5 * MIN);
     await press("Restart");
     expect(onTimerStart.mock.calls).toEqual([[20], [5], [5]]);
+    // Clear after the end keeps it as the last timer.
+    await advance(5 * MIN);
+    await press("Clear timer");
     await press("Done");
     expect(onDone).toHaveBeenCalledWith(5);
   });

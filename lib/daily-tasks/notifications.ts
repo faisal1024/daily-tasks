@@ -177,3 +177,14 @@ export function cancelFocusTimerNotification(): Promise<void> {
     await Notifications.dismissNotificationAsync(FOCUS_TIMER_NOTIFICATION_ID).catch(() => {});
   });
 }
+
+/**
+ * Clears one that already went off from Notification Center, without
+ * touching what's scheduled (the timer finished; a restart schedules anew).
+ */
+export function dismissFocusTimerNotification(): Promise<void> {
+  if (Platform.OS === "web") return Promise.resolve();
+  return queueFocus(async () => {
+    await Notifications.dismissNotificationAsync(FOCUS_TIMER_NOTIFICATION_ID).catch(() => {});
+  });
+}
