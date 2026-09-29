@@ -1089,15 +1089,10 @@ interface StoreContextValue {
   /** Stop and clear it (Stop timer, Stop here, or on to a break-down). */
   stopFocusSession: (outcome: Extract<FocusSessionOutcome, "stopped" | "broken_down">) => void;
   /**
-   * Today opens this task's focus screen (1.3): "start my next task" (widget,
-   * Siri) while another task's timer is on (the screen says starting would
-   * stop the other), or a tap on the Live Activity. Cleared with
-   * clearFocusPrompt once shown.
-   */
-  /**
    * A task's focus screen to open from outside: start my next task (widget,
    * Siri) with another task's timer on, a tap on the Live Activity, or a tap
-   * on the end notification with its check-in due.
+   * on the end notification with its check-in due. Cleared with
+   * clearFocusPrompt once shown.
    */
   focusPrompt: { taskId: TaskId; source: "widget" | "siri" | "live_activity" | "notification"; nonce: number } | null;
   clearFocusPrompt: () => void;
@@ -1950,7 +1945,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const pauseFocusSession = useCallback(() => {
     const session = stateRef.current.focusSession;
     const now = Date.now();
-    if (!session || pauseSession(session, now).status !== "paused") {
+    // Only a running timer pauses (a stale menu on a paused one changes nothing).
+    if (!session || session.status !== "running" || pauseSession(session, now).status !== "paused") {
       // Not running: nothing to pause (an ended one is settled as usual).
       if (session?.status === "running") dispatch({ type: "pauseFocusSession", now });
       return false;
