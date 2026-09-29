@@ -161,6 +161,22 @@ describe("store: evening close and tomorrow's draft", () => {
     expect(result.current.state.parkedTasks).toEqual([]);
   });
 
+  it("ticking a draft task that's already saved for later takes it out of Saved; one addTasks can't take is saved", async () => {
+    fakeClockAt(new Date(2026, 8, 26, 8, 0));
+    const { result } = await renderStore(
+      {
+        tasks: [task("t0", "Walk"), task("t1", "Hydrate")],
+        parkedTasks: [{ id: "p1", text: "read", parkedAt: "" }],
+        tomorrowDraft: { forDate: "2026-09-26", tasks: ["Read", "Stretch"], note: "", because: "", source: "local" },
+      },
+      new Date(2026, 8, 26, 7),
+    );
+    // Both ticked, but only one slot: Read lands (and leaves Saved), Stretch is saved.
+    await act(async () => result.current.applyTomorrowDraft(["Read", "Stretch"], ["Read", "Stretch"]));
+    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Walk", "Hydrate", "Read"]);
+    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Stretch"]);
+  });
+
   it("uses the draft in the morning: adds its tasks and clears it", async () => {
     fakeClockAt(new Date(2026, 8, 26, 8, 0));
     const { result } = await renderStore(

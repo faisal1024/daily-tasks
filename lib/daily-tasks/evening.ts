@@ -66,12 +66,26 @@ const LOCAL_NOTES: Record<ReflectionResult, string> = {
   missed: "Some days go sideways. Tomorrow is a fresh start.",
 };
 
+// Draft tasks match list tasks ignoring case and spacing.
+const draftKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
+/** Drop repeats (case- and space-insensitive), keeping the first. */
+function uniqueTexts(texts: string[]): string[] {
+  const seen = new Set<string>();
+  return texts.filter((text) => {
+    const k = draftKey(text);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 /**
  * On-device close: tomorrow carries over what's still open (at most three),
  * with a note and because line that match how the day felt.
  */
 export function localEveningClose(input: EveningInput): EveningClose {
-  const open = input.tasks.filter((task) => !task.done).map((task) => task.text);
+  const open = uniqueTexts(input.tasks.filter((task) => !task.done).map((task) => task.text));
   const tomorrow = open.slice(0, MAX_TASKS);
   const because =
     tomorrow.length === 0
@@ -80,6 +94,46 @@ export function localEveningClose(input: EveningInput): EveningClose {
         ? "Just what's still open, nothing new on top."
         : "Picking up where today left off.";
   return { note: LOCAL_NOTES[input.result], because, tomorrow, memory: null, source: "local" };
+}
+
+// Evening words → the morning after. Longer phrases first so "tomorrow
+// morning" becomes "this morning", not "today morning".
+const MORNING_SWAPS: [RegExp, string][] = [
+  [/^the day after tomorrow$/i, "tomorrow"],
+  [/^tomorrow (morning|afternoon|evening)$/i, "this $1"],
+  [/^tomorrow night$/i, "tonight"],
+  [/^this (morning|afternoon|evening)$/i, "yesterday $1"],
+  [/^tonight$/i, "last night"],
+  [/^yesterday$/i, "the day before"],
+  [/^today$/i, "yesterday"],
+  [/^tomorrow$/i, "today"],
+];
+const MORNING_WORDS =
+  /\b(?:the day after tomorrow|tomorrow (?:morning|afternoon|evening|night)|this (?:morning|afternoon|evening)|tonight|yesterday|today|tomorrow)\b/gi;
+
+/** Match the source's case: ALL CAPS, Capitalised, or lower. */
+function matchCase(source: string, replacement: string): string {
+  if (source.length > 1 && source === source.toUpperCase()) return replacement.toUpperCase();
+  if (source[0] === source[0].toUpperCase()) return replacement[0].toUpperCase() + replacement.slice(1);
+  return replacement;
+}
+
+/**
+ * Evening text, read the next morning. The because line is stored as written
+ * at the close ("Because today worked well, tomorrow builds on it") and
+ * rewritten only for display on the morning card ("Because yesterday worked
+ * well, today builds on it"). One pass over the text, so a
+ * swapped word is never swapped again (tomorrow → today stays today).
+ * Possessives come along ("tomorrow's" → "today's"). Only for the morning
+ * card: the evening result shows the text as written.
+ */
+export function morningPerspective(text: string): string {
+  return text.replace(MORNING_WORDS, (found) => {
+    for (const [pattern, replacement] of MORNING_SWAPS) {
+      if (pattern.test(found)) return matchCase(found, found.replace(pattern, replacement).toLowerCase());
+    }
+    return found;
+  });
 }
 
 /** Normalise the proxy's evening response; throws if nothing usable. */
@@ -157,9 +211,6 @@ export function isDayClosed(
   return result === undefined || record.result === result;
 }
 
-// Draft tasks match list tasks ignoring case and spacing.
-const draftKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
-
 /**
  * The draft to show this morning: only for today, when there's room, and
  * without anything already on today's list, anything finished after the
@@ -174,7 +225,7 @@ export function draftToShow(
   for (const task of input.sourceDay?.tasks ?? []) {
     if (task.completed || task.rolloverOutcome === "dropped") have.add(draftKey(task.text));
   }
-  const remaining = draft.tasks.filter((text) => !have.has(draftKey(text)));
+  const remaining = uniqueTexts(draft.tasks.filter((text) => !have.has(draftKey(text))));
   if (remaining.length === 0 || input.taskTexts.length >= MAX_TASKS) return null;
   return { ...draft, tasks: remaining };
 }

@@ -219,6 +219,19 @@ describe("rollover keeps brain-dump leftovers", () => {
   });
 });
 
+describe("carrying a task that's also saved for later", () => {
+  it("takes it out of Saved for later (case- and space-insensitive), leaving the rest", () => {
+    const parkedTasks = [
+      { id: "p1", text: " b ", parkedAt: "2026-04-18T08:00:00.000Z" },
+      { id: "p2", text: "Buy shoes", parkedAt: "2026-04-18T08:00:00.000Z" },
+    ];
+    const rolled = applyRollover(makeState({ parkedTasks }), "2026-04-18");
+    const resolved = resolvePendingRollover(rolled, ["b"], new Date("2026-04-18T09:00:00Z"));
+    expect(resolved.tasks.map((t) => t.text)).toEqual(["B"]);
+    expect(resolved.parkedTasks.map((p) => p.id)).toEqual(["p2"]);
+  });
+});
+
 describe("resolvePendingRollover", () => {
   it("carries chosen tasks into today and marks the rest dropped", () => {
     const rolled = applyRollover(makeState(), "2026-04-18");

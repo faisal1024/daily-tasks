@@ -254,12 +254,15 @@ export function IdeasSheet({
 
           {parked.length > 0 && (
             <View className="gap-2 mt-2" testID="parked-ideas">
-              <Text
-                className="text-sm font-semibold uppercase tracking-wide"
-                style={{ color: colors.muted }}
-              >
-                Saved from your brain dump
-              </Text>
+              {/* The saved-only sheet's title already says it. */}
+              {!savedOnly && (
+                <Text
+                  className="text-sm font-semibold uppercase tracking-wide"
+                  style={{ color: colors.muted }}
+                >
+                  Saved for later
+                </Text>
+              )}
               {parked.map((item) => (
                 <View
                   key={item.id}

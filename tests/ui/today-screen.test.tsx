@@ -874,7 +874,7 @@ describe("Ideas sheet: parked items and Set these three", () => {
     mockStore = makeStore({ tasks: tasks("Walk"), parkedTasks });
     await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("need-ideas"));
-    expect(screen.getByText("Saved from your brain dump")).toBeOnTheScreen();
+    expect(screen.getByText("Saved for later")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Add Water plants" }));
     expect(mockStore.addParkedTask).toHaveBeenCalledWith("p2");
     await fireEvent.press(screen.getByRole("button", { name: "Remove Buy shoes from saved" }));
@@ -1512,8 +1512,9 @@ describe("Today: unlock and saved ideas", () => {
     await rerender(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("need-ideas"));
     expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
-    expect(screen.queryByText("Saved for later")).toBeNull();
+    // The normal view's title; "Saved for later" is only its section label now.
     expect(screen.getByText("Ideas for today")).toBeOnTheScreen();
+    expect(screen.getAllByText("Saved for later")).toHaveLength(1);
   });
 
   it("keeps the saved-for-later link on a set day, even with a free slot", async () => {
@@ -1547,12 +1548,54 @@ describe("Today: morning draft and evening close", () => {
   it("uses last night's draft, only as many tasks as there's room for", async () => {
     mockStore = makeStore({
       tasks: tasks("Walk", "Read"),
-      tomorrowDraft: { forDate: TODAY, tasks: ["Stretch", "Call mum", "Hydrate"], note: "", because: "Lighter today.", source: "local" },
+      tomorrowDraft: { forDate: TODAY, tasks: ["Stretch", "Call mum", "Hydrate"], note: "", because: "Lighter tomorrow.", source: "local" },
     });
     await render(<HomeScreen />);
+    // Written last night ("tomorrow"), read this morning ("today").
     expect(screen.getByTestId("tomorrow-draft")).toHaveTextContent(/Lighter today\./);
     await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
     expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch"], ["Stretch", "Call mum", "Hydrate"]);
+  });
+
+  it("uses only the ticked draft tasks, saves the rest, says so, and tracks count/skipped/source", async () => {
+    mockStore = makeStore({
+      tasks: [],
+      tomorrowDraft: {
+        forDate: TODAY,
+        tasks: ["Stretch", "Call mum", "Hydrate"],
+        note: "",
+        because: "Because today worked well, tomorrow builds on it.",
+        source: "ai",
+      },
+    });
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("tomorrow-draft")).toHaveTextContent(/Because yesterday worked well, today builds on it\./);
+    await fireEvent.press(screen.getByRole("checkbox", { name: "Call mum" }));
+    expect(screen.getByTestId("tomorrow-draft-use")).toHaveTextContent("Add 2");
+    await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
+    expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch", "Hydrate"], ["Stretch", "Call mum", "Hydrate"]);
+    expect(mockTrack).toHaveBeenCalledWith("tomorrow_draft_used", { count: 2, skipped: 1, source: "ai" });
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Added 2 tasks\. 1 saved for later\./);
+    // VoiceOver hears the same line.
+    expect(announce).toHaveBeenCalledWith("Added 2 tasks. 1 saved for later.");
+    announce.mockRestore();
+  });
+
+  it("using every drafted task shows no saved-for-later toast", async () => {
+    mockStore = makeStore({
+      tasks: [],
+      tomorrowDraft: { forDate: TODAY, tasks: ["Stretch", "Hydrate"], note: "", because: "", source: "local" },
+    });
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
+    // No toast, but VoiceOver still hears what happened.
+    expect(announce).toHaveBeenCalledWith("Added 2 tasks.");
+    announce.mockRestore();
+    expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch", "Hydrate"], ["Stretch", "Hydrate"]);
+    expect(mockTrack).toHaveBeenCalledWith("tomorrow_draft_used", { count: 2, skipped: 0, source: "local" });
+    expect(screen.queryByTestId("today-toast")).toBeNull();
   });
 
   it("offers only draft tasks that weren't carried over, finished or dropped yesterday", async () => {
