@@ -433,7 +433,7 @@ export default function HomeScreen() {
   const [focusCustom, setFocusCustom] = useState(false);
   const openFocus = (
     taskId: string,
-    source: "coach" | "row" | "widget" | "siri" | "live_activity",
+    source: "coach" | "row" | "row_words" | "widget" | "siri" | "live_activity",
     custom = false,
   ) => {
     setFocusCustom(custom);
@@ -1051,7 +1051,7 @@ export default function HomeScreen() {
                           onTimer={(anchor) => openTimerMenu(task.id, task.text, anchor)}
                           session={focusSession?.taskId === task.id ? focusSession : null}
                           controls={sessionControls}
-                          onOpenTimer={() => openFocus(task.id, "row")}
+                          onOpenTimer={(via) => openFocus(task.id, via === "words" ? "row_words" : "row")}
                         />
                       </View>
                     );

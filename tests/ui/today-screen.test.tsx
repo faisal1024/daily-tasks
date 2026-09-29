@@ -2781,8 +2781,8 @@ describe("Timer on your tasks (1.3)", () => {
     expect(screen.queryByRole("button", { name: "Start a timer: Walk" })).toBeNull();
     expect(screen.getByRole("button", { name: "Start a timer: Read" })).toBeOnTheScreen();
     const pill = screen.getByTestId("task-timer-running-t0");
-    expect(pill.props.accessibilityLabel).toBe("Pause timer, 7 minutes left");
-    expect(pill.props.accessibilityState).toMatchObject({ disabled: false });
+    expect(pill.props.accessibilityLabel).toBe("Pause timer: Walk, 7 minutes left");
+    expect(pill.props.accessibilityValue).toEqual({ text: "Running" });
     expect(screen.getByTestId("task-timer-pause-t0")).toBeOnTheScreen();
     expect(screen.getByTestId("task-timer-left-t0")).toHaveTextContent("7:00");
     expect(screen.queryByTestId("now-bar")).toBeNull();
@@ -2792,7 +2792,7 @@ describe("Timer on your tasks (1.3)", () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
     await render(<HomeScreen />);
     const said = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions");
-    await press("Pause timer, 7 minutes left");
+    await press("Pause timer: Walk, 7 minutes left");
     expect(mockStore.pauseFocusSession).toHaveBeenCalledTimes(1);
     expect(mockStore.resumeFocusSession).not.toHaveBeenCalled();
     expect(screen.queryByTestId("focus-mode")).toBeNull();
@@ -2802,7 +2802,7 @@ describe("Timer on your tasks (1.3)", () => {
     await fireEvent.press(screen.getByTestId("task-words-t0", { includeHiddenElements: true }));
     expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
     expect(screen.getByTestId("focus-timer-remaining")).toHaveTextContent("7:00");
-    expect(focusEvents()).toEqual([["focus_opened", { source: "row" }]]);
+    expect(focusEvents()).toEqual([["focus_opened", { source: "row_words" }]]);
   });
 
   it("paused: the pill offers ▶ with the frozen time, and a tap resumes", async () => {
@@ -2810,11 +2810,12 @@ describe("Timer on your tasks (1.3)", () => {
     await render(<HomeScreen />);
     expect(screen.getByTestId("task-timer-left-t0")).toHaveTextContent("6:00");
     expect(screen.getByTestId("task-timer-play-t0")).toBeOnTheScreen();
+    expect(screen.getByTestId("task-session-line-t0")).toHaveTextContent("Paused.");
     await act(async () => {
       jest.setSystemTime(NOW + 30 * MIN);
     });
     expect(screen.getByTestId("task-timer-left-t0")).toHaveTextContent("6:00");
-    await press("Resume timer, 6 minutes left");
+    await press("Resume timer: Walk, 6 minutes left");
     expect(mockStore.resumeFocusSession).toHaveBeenCalledTimes(1);
     expect(mockStore.pauseFocusSession).not.toHaveBeenCalled();
   });
@@ -2874,6 +2875,7 @@ describe("Timer on your tasks (1.3)", () => {
     // The pill at time's up opens the focus screen.
     await fireEvent.press(pill);
     expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    expect(focusEvents()).toEqual([["focus_opened", { source: "row" }]]);
   });
 
   it("time's up never looks like done: a bell (not a green tick) on the row's pill", async () => {
@@ -2962,6 +2964,19 @@ describe("Timer on your tasks (1.3)", () => {
     });
     await render(<HomeScreen />);
     expect(screen.getByTestId("task-session-line-t0")).toHaveTextContent("Just start. You can stop after 5.");
+  });
+
+  it("the hero row hides its Break it down · Not today line while it's timed (long press, check-in and focus have them)", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayLocked: true, focusSession: running() });
+    const view = await render(<HomeScreen />);
+    expect(screen.getByRole("checkbox", { name: "Up next. Task 1: Walk" })).toBeOnTheScreen();
+    // The row's own "Not today" (the swipe action has the same name, but no hint).
+    const heroNotToday = () =>
+      screen.queryAllByRole("button", { name: "Not today: Walk" }).filter((b) => b.props.accessibilityHint === "Saves it for later");
+    expect(heroNotToday()).toHaveLength(0);
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayLocked: true });
+    await view.rerender(<HomeScreen />);
+    expect(heroNotToday()).toHaveLength(1);
   });
 
   it("no timer pill, line or check-in without a session", async () => {

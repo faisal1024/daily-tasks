@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 
-import { announcePolitely } from "@/components/daily-tasks/focus-check-in";
+import { announcePolitely } from "@/lib/daily-tasks/announce";
 import { checkInTitle, sessionMinutes, type FocusSession } from "@/lib/daily-tasks/focus-session";
 import { durationWords } from "@/lib/daily-tasks/focus-timer";
 

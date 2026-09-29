@@ -10,17 +10,14 @@ import { Platform, Pressable, Text, View, useWindowDimensions } from "react-nati
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 
-import {
-  announcePolitely,
-  focusPillStyle,
-  type FocusSessionControls,
-} from "@/components/daily-tasks/focus-check-in";
+import { focusPillStyle, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { MinutesStepper } from "@/components/daily-tasks/minutes-stepper";
 import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { Fonts } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { useFocusClock } from "@/hooks/use-focus-clock";
+import { announcePolitely } from "@/lib/daily-tasks/announce";
 import {
   MINUTE_MS,
   remainingMs,
