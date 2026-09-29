@@ -131,7 +131,8 @@ export async function cancelAllNotifications(): Promise<void> {
 // they're in another app. Like Apple's Timer it plays the default
 // notification sound (which respects the silent switch; the reminders stay
 // silent). It isn't time-sensitive (that needs an extra Apple capability),
-// so a Focus mode may hold it back. Android uses the default channel. Its id is outside MANAGED_REMINDER_PREFIX, so the
+// so an iOS Focus (e.g. Do Not Disturb) may hold it back. Android uses the
+// default channel. Its id is outside MANAGED_REMINDER_PREFIX, so the
 // reminder syncs never cancel it; the handler above doesn't show it in-app
 // (focus mode says it there). Only with permission already granted: it never asks.
 export const FOCUS_TIMER_NOTIFICATION_ID = "three-today:focus-timer";

@@ -62,7 +62,7 @@ describe("app assets", () => {
     expect(missing).toEqual([]);
   });
 
-  it("iOS entitlements keep the app group and nothing needing a new Apple capability", () => {
+  it("iOS entitlements keep the app group and leave out time-sensitive notifications", () => {
     const config = readFileSync(resolve(ROOT, "app.config.ts"), "utf8");
     expect(config).toContain('"com.apple.security.application-groups"');
     // Time Sensitive Notifications needs the capability on the App ID first.
