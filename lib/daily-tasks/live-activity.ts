@@ -1,7 +1,8 @@
 // The focus session's Live Activity and Dynamic Island (1.3, PR F), through
 // the local FocusActivity module (modules/focus-activity). Activities start on
-// iOS 17+ only (the widget extension that draws them needs 17); without the
-// module (Android, web, Expo Go, tests) every call is a no-op.
+// iOS 17.2+ only (the widget extension needs 17, and its button intents are
+// marked 17.2 in the App Intents metadata); the module checks too. Without
+// the module (Android, web, Expo Go, tests) every call is a no-op.
 //
 // The store calls syncLiveActivity whenever the session changes, and again
 // when the app becomes active (reconcile): one activity for the running or
@@ -37,6 +38,14 @@ function getModule(): FocusActivityModule | null {
   if (activityModule !== undefined) return activityModule;
   activityModule = Platform.OS === "ios" ? loadFocusActivity() : null;
   return activityModule;
+}
+
+/** iOS 17.2 or later (an unreadable version is left to the module's own check). */
+export function supportsLiveActivityStart(version: string | number | undefined = Platform.Version): boolean {
+  const text = String(version ?? "").trim();
+  if (!/^\d+(\.\d+)*$/.test(text)) return true;
+  const [major = 0, minor = 0] = text.split(".").map(Number);
+  return major > 17 || (major === 17 && minor >= 2);
 }
 
 /** What the activity shows of a session (the fields its content is built from). */
@@ -89,7 +98,7 @@ async function sync(
   if (started.has(session.id)) return;
   // A new activity only for a timer that's on (not one already at time's up),
   // and only if the user allows them.
-  if (session.status === "ended" || !native.areActivitiesEnabled()) return;
+  if (session.status === "ended" || !supportsLiveActivityStart() || !native.areActivitiesEnabled()) return;
   if (await native.start(json)) {
     started.add(session.id);
     shown.set(session.id, key);

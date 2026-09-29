@@ -69,6 +69,13 @@ describe("applyFocusCommands", () => {
     expect(kept.session).toMatchObject({ kind: "timer", durationMs: 20 * 60_000, endAt: T0 + 26 * 60_000 });
   });
 
+  it("extend at the day-long cap is a no-op (not recorded)", () => {
+    const capped = { ...session, durationMs: 24 * 60 * 60_000, endAt: T0 + 60_000 };
+    const out = applyFocusCommands(capped, [{ seq: 1, sessionId: "s1", action: "extend", at: T0 + 2 * 60_000 }], T0 + 3 * 60_000);
+    expect(out.session).toBe(capped);
+    expect(out.applied).toEqual([]);
+  });
+
   it("a pause that finds the time already up ends it, and isn't recorded as a pause", () => {
     const late = applyFocusCommands(session, [{ seq: 1, sessionId: "s1", action: "pause", at: T0 + 21 * 60_000 }], T0 + 22 * 60_000);
     expect(late.session?.status).toBe("ended");

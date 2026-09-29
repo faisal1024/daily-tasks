@@ -13,6 +13,8 @@ import WidgetKit
 // Lock screen: ring | caption + task (2 lines) | big time, buttons below,
 // kept within 160pt with a 2-line task at larger text sizes.
 
+/// The lock screen's background in light mode (the widget's daytime indigo).
+private let lockScreenIndigo = Color(hex: 0x4A40D0)
 /// On the dark Dynamic Island: a lighter indigo that reads on black.
 private let islandAccent = Color(hex: 0x9B94FF)
 /// Text on an islandAccent button.
@@ -61,6 +63,11 @@ extension FocusActivityAttributes.ContentState {
     case .done: return "Done"
     case .stopped: return "Timer stopped"
     }
+  }
+
+  /// The Dynamic Island's shorter caption (one narrow line).
+  func islandCaption(_ phase: FocusPhase) -> String {
+    phase == .running && kind == "starter" && minutes == 5 ? "Just start" : caption(phase)
   }
 
   /// The time's-up button, as the app's check-in has it.
@@ -237,8 +244,10 @@ struct FocusLockScreenView: View {
   var body: some View {
     let state = context.state
     let phase = state.phase(at: Date(), isStale: context.isStale)
-    // The widget's time-of-day colours; its evening ones in dark mode (and StandBy).
-    let tint = (colorScheme == .dark ? DayPhase.evening : DayPhase(date: Date())).colors[0]
+    // The widget's daytime indigo at every hour (never the morning's warm red:
+    // this sits on the lock screen all day); its evening colour in dark mode
+    // and StandBy.
+    let tint = colorScheme == .dark ? DayPhase.evening.colors[0] : lockScreenIndigo
     VStack(alignment: .leading, spacing: 10) {
       HStack(alignment: .center, spacing: 12) {
         FocusRing(state: state, phase: phase, size: 44, lineWidth: 5)
@@ -284,7 +293,7 @@ struct FocusLiveActivity: Widget {
         }
         DynamicIslandExpandedRegion(.center) {
           VStack(alignment: .leading, spacing: 1) {
-            Text(state.caption(phase))
+            Text(state.islandCaption(phase))
               .font(.caption2.weight(.semibold))
               .foregroundStyle(.white.opacity(0.7))
               .lineLimit(1)

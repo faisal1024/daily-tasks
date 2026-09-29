@@ -2,18 +2,20 @@ import ActivityKit
 import ExpoModulesCore
 
 // The focus session's Live Activity (1.3), driven by the app's store through
-// lib/daily-tasks/live-activity.ts. Activities start on iOS 17+ only: the
-// widget extension that draws them (and their buttons) needs iOS 17, so an
-// activity started on 16 would have no views. Elsewhere every call is a no-op. Nothing here throws into JS: a failed start or update
-// just means no (or a stale) Live Activity, and the app reconciles on its next
-// foreground. The attributes and the button logic are in FocusActivityShared.swift.
+// lib/daily-tasks/live-activity.ts. Activities start on iOS 17.2+ only: the
+// widget extension that draws them needs iOS 17, and Xcode's extracted App
+// Intents metadata marks the Live Activity's button intents as introduced in
+// 17.2, so an earlier start could show buttons that don't work. Elsewhere
+// every call is a no-op. Nothing here throws into JS: a failed start or
+// update just means no (or a stale) Live Activity, and the app reconciles on
+// its next foreground. The attributes and the button logic are in FocusActivityShared.swift.
 public class FocusActivityModule: Module {
   public func definition() -> ModuleDefinition {
     Name("FocusActivity")
 
     /// Live Activities are allowed for this app (the user can turn them off).
     Function("areActivitiesEnabled") { () -> Bool in
-      guard #available(iOS 17.0, *) else { return false }
+      guard #available(iOS 17.2, *) else { return false }
       return ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
@@ -26,7 +28,7 @@ public class FocusActivityModule: Module {
     /// Start one for a session (the mirror's JSON; see FocusSessionMirror), or
     /// update the one it already has. Only a running or paused session gets one.
     AsyncFunction("start") { (json: String) async -> Bool in
-      guard #available(iOS 17.0, *), let session = FocusGroup.decodeSession(json) else { return false }
+      guard #available(iOS 17.2, *), let session = FocusGroup.decodeSession(json) else { return false }
       guard session.status == "running" || session.status == "paused" else { return false }
       if !FocusActions.liveActivities(for: session.id).isEmpty {
         await FocusActions.show(session)

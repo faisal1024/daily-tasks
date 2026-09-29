@@ -167,7 +167,10 @@ public enum FocusGroup {
   /// once, in one process or in two (the widget extension, and the app, which
   /// runs a Live Activity's intents). An NSLock within the process, plus an
   /// flock on a file in the App Group container across processes. The app's
-  /// JS never writes these keys (only the "processed" marks), so it needn't lock.
+  /// JS doesn't take this lock: it writes only the "processed" marks of the
+  /// queues, but it does rewrite `widget.snapshot` whole (as before 1.3), so a
+  /// native optimistic tick can in rare cases be overwritten by the app's own
+  /// fresh snapshot (which is then correct anyway once the tap is applied).
   static let lock = NSLock()
   static let lockFileName = "FocusQueue.lock"
 
@@ -403,7 +406,9 @@ public enum FocusActions {
         session.startedAt = at
         session.endAt = at + keepGoingMs
       } else {
+        // At the day-long cap it's a no-op, as in the app (focus-session.ts extend).
         let duration = min(maxSessionMs, session.durationMs + extendMs)
+        guard duration > session.durationMs else { return nil }
         session.endAt = at + (duration - session.durationMs)
         session.durationMs = duration
       }
