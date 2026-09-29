@@ -3,7 +3,12 @@ import { Platform } from "react-native";
 
 import {
   __resetWidgetBridgeForTests,
+  invalidateFocusSession,
   invalidateWidgetSnapshot,
+  markFocusCommandsProcessed,
+  markFocusStartRequestHandled,
+  readFocusCommands,
+  readFocusStartRequest,
   markWidgetTogglesProcessed,
   readWidgetToggles,
   writeFocusSession,
@@ -111,7 +116,7 @@ describe("widget bridge: the focus session (1.3)", () => {
     status: "running",
   };
 
-  it("mirrors it as {v: 1, rev, ...session}, then JSON null once it's gone, skipping unchanged writes and not reloading the widget", () => {
+  it("mirrors it as {v: 1, rev, ...session}, then JSON null once it's gone, skipping unchanged writes and reloading the widget on each write", () => {
     writeFocusSession(SESSION);
     expect(mockNative.setString).toHaveBeenCalledTimes(1);
     expect(mockNative.setString).toHaveBeenCalledWith("focus.session", expect.any(String), GROUP);
@@ -129,7 +134,9 @@ describe("widget bridge: the focus session (1.3)", () => {
 
     writeFocusSession(null);
     expect(mockNative.setString).toHaveBeenLastCalledWith("focus.session", "null", GROUP);
-    expect(mockNative.reloadWidget).not.toHaveBeenCalled();
+    // The widget shows the session (PR F): each real write refreshes it.
+    expect(mockNative.reloadWidget).toHaveBeenCalledTimes(3);
+    expect(mockNative.reloadWidget).toHaveBeenCalledWith("DailyTasksWidget");
   });
 
   it("a failed write is retried on the next call (not cached as written)", () => {
@@ -146,5 +153,52 @@ describe("widget bridge: the focus session (1.3)", () => {
     mockAvailable = false;
     expect(() => writeFocusSession(SESSION)).not.toThrow();
     expect(mockNative.setString).not.toHaveBeenCalled();
+  });
+  it("invalidateFocusSession makes the next (unchanged) write go through: it undoes a Live Activity tap the app didn't apply", () => {
+    writeFocusSession(SESSION);
+    // A Pause on the lock screen wrote its own optimistic mirror meanwhile.
+    mockStrings.set("focus.session", JSON.stringify({ ...SESSION, status: "paused" }));
+    writeFocusSession(SESSION);
+    expect(mockNative.setString).toHaveBeenCalledTimes(1);
+    invalidateFocusSession();
+    writeFocusSession(SESSION);
+    expect(mockNative.setString).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(mockStrings.get("focus.session")!)).toMatchObject({ status: "running" });
+  });
+});
+
+describe("widget bridge: the Live Activity's queues and Siri's start request (1.3, PR F)", () => {
+  it("reads focus.commands with focus.processedSeq and records the last applied there", () => {
+    expect(readFocusCommands()).toEqual({ raw: null, processedSeq: 0 });
+    mockStrings.set("focus.commands", "[1]");
+    mockInts.set("focus.processedSeq", 4);
+    expect(readFocusCommands()).toEqual({ raw: "[1]", processedSeq: 4 });
+    markFocusCommandsProcessed(9);
+    expect(mockNative.setInt).toHaveBeenCalledWith("focus.processedSeq", 9, GROUP);
+  });
+
+  it("reads focus.startRequest with the last handled id, and records one handled in focus.startHandled", () => {
+    mockStrings.set("focus.startRequest", '{"id":"r1"}');
+    expect(readFocusStartRequest()).toEqual({ raw: '{"id":"r1"}', handledId: null });
+    markFocusStartRequestHandled("r1");
+    expect(mockNative.setString).toHaveBeenCalledWith("focus.startHandled", "r1", GROUP);
+    expect(readFocusStartRequest()).toEqual({ raw: '{"id":"r1"}', handledId: "r1" });
+  });
+
+  it("never throws: a failing module or none reads as empty", () => {
+    mockNative.getString.mockImplementation(() => {
+      throw new Error("no group");
+    });
+    mockNative.setInt.mockImplementationOnce(() => {
+      throw new Error("no group");
+    });
+    expect(readFocusCommands()).toEqual({ raw: null, processedSeq: 0 });
+    expect(readFocusStartRequest()).toEqual({ raw: null, handledId: null });
+    expect(() => markFocusCommandsProcessed(1)).not.toThrow();
+    mockNative.getString.mockImplementation((key: string) => mockStrings.get(key) ?? null);
+    __resetWidgetBridgeForTests();
+    mockAvailable = false;
+    expect(readFocusCommands()).toEqual({ raw: null, processedSeq: 0 });
+    expect(() => markFocusStartRequestHandled("x")).not.toThrow();
   });
 });

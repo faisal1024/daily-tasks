@@ -8,6 +8,8 @@ struct TodayEntry: TimelineEntry {
   let date: Date
   /// nil when the app hasn't written anything yet, or the snapshot is from another day.
   let snapshot: Snapshot?
+  /// Today's focus session (1.3), if there is one.
+  var session: FocusSessionMirror? = nil
 }
 
 struct TodayProvider: TimelineProvider {
@@ -29,18 +31,25 @@ struct TodayProvider: TimelineProvider {
       ?? now.addingTimeInterval(60 * 60)
     let current = currentEntry(now)
     // Same data, later dates: the background theme follows the time of day
-    // (see DayPhase) without the app having to run.
-    let themeChanges = DayPhase.boundaryHours
+    // (see DayPhase) without the app having to run, and a running timer
+    // turns into "Time's up" at its end.
+    var changes = DayPhase.boundaryHours
       .compactMap { calendar.date(bySettingHour: $0, minute: 0, second: 0, of: now) }
+    if let session = current.session, session.isRunning(at: now), let end = session.endDate {
+      changes.append(end)
+    }
+    let later = changes
       .filter { $0 > now && $0 < midnight }
-      .map { TodayEntry(date: $0, snapshot: current.snapshot) }
-    let entries = [current] + themeChanges + [TodayEntry(date: midnight, snapshot: nil)]
+      .sorted()
+      .map { TodayEntry(date: $0, snapshot: current.snapshot, session: current.session) }
+    let entries = [current] + later + [TodayEntry(date: midnight, snapshot: nil)]
     completion(Timeline(entries: entries, policy: .after(midnight)))
   }
 
   private func currentEntry(_ now: Date = Date()) -> TodayEntry {
-    let snapshot = Shared.loadSnapshot()
-    return TodayEntry(date: now, snapshot: snapshot?.date == Shared.todayKey(now) ? snapshot : nil)
+    let loaded = Shared.loadSnapshot()
+    let snapshot = loaded?.date == Shared.todayKey(now) ? loaded : nil
+    return TodayEntry(date: now, snapshot: snapshot, session: Shared.loadFocusSession(now: now))
   }
 }
 
@@ -267,6 +276,8 @@ struct TaskRow: View {
   let interactive: Bool
   /// The next open task: bold and slightly larger.
   var isNext = false
+  /// Its timer is on (1.3): a small timer glyph after the words.
+  var timed = false
   var lineLimit = 1
   @Environment(\.palette) private var palette
 
@@ -302,6 +313,12 @@ struct TaskRow: View {
         .lineLimit(lineLimit)
         .minimumScaleFactor(0.85)
         .privacySensitive()
+      if timed {
+        Image(systemName: "timer")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(palette.secondary)
+          .accessibilityHidden(true)
+      }
       Spacer(minLength: 0)
     }
     // A comfortable tap target only where the row is a button; read-only rows
@@ -311,11 +328,190 @@ struct TaskRow: View {
   }
 }
 
+// MARK: - Focus session (1.3)
+
+/// Starts a timer on the next open task in the app (the last length used, or
+/// 20 minutes). A small widget can't hold a Link, so it's a button whose
+/// intent opens the app; the medium one uses StartLink.
+struct StartButton: View {
+  @Environment(\.palette) private var palette
+
+  var body: some View {
+    Button(intent: StartFromWidgetIntent()) {
+      // "▶ Start": a 36pt capsule, clear of the ring and the task below.
+      Label("Start", systemImage: "play.fill")
+        .font(.system(size: 13, weight: .bold, design: .rounded))
+        .labelStyle(CompactLabel())
+        .foregroundStyle(palette.primary)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 36)
+        .background(Capsule().fill(palette.track))
+        .contentShape(Capsule())
+        .widgetAccentable()
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Start a timer")
+    .accessibilityHint("Opens Three Today and starts a timer on your next task")
+  }
+}
+
+struct StartLink: View {
+  var body: some View {
+    if let url = FocusGroup.startURL(kind: "timer", source: "widget") {
+      Link(destination: url) {
+        StartGlyph()
+      }
+      .accessibilityLabel("Start a timer")
+      .accessibilityHint("Opens Three Today and starts a timer on this task")
+    }
+  }
+}
+
+/// ▶ in a soft circle.
+struct StartGlyph: View {
+  @Environment(\.palette) private var palette
+
+  var body: some View {
+    ZStack {
+      Circle().fill(palette.track)
+      Image(systemName: "play.fill")
+        .font(.system(size: 12, weight: .bold))
+        .foregroundStyle(palette.primary)
+        .offset(x: 1)
+    }
+    .frame(width: 30, height: 30)
+    .contentShape(Circle())
+    .widgetAccentable()
+  }
+}
+
+extension FocusSessionMirror {
+  /// When the current countdown began (a pause or "5 more minutes" moves the
+  /// end; `startedAt` is when the session began).
+  func countdown(at now: Date) -> ClosedRange<Date>? {
+    guard isRunning(at: now), let end = endDate, durationMs > 0 else { return nil }
+    return end.addingTimeInterval(-durationMs / 1000)...end
+  }
+
+  var focusText: String { stepText ?? taskText }
+}
+
+/// The session's time: a live countdown while it runs, the time left while
+/// paused, nothing at time's up (the caption says it).
+struct SessionTime: View {
+  let session: FocusSessionMirror
+  let date: Date
+  var fontSize: CGFloat
+  @Environment(\.palette) private var palette
+
+  var body: some View {
+    Group {
+      if let countdown = session.countdown(at: date) {
+        Text(timerInterval: countdown, countsDown: true)
+      } else if session.status == "paused" {
+        Text(formatRemaining(ms: session.pausedRemainingMs ?? 0))
+      }
+      // Time's up: the line below says so (with its bell).
+    }
+    .font(.system(size: fontSize, weight: .bold, design: .rounded))
+    .monospacedDigit()
+    .multilineTextAlignment(.trailing)
+    .lineLimit(1)
+    .minimumScaleFactor(0.7)
+    .frame(maxWidth: 84, alignment: .trailing)
+    .foregroundStyle(palette.primary)
+    .widgetAccentable()
+    .accessibilityHidden(true)
+  }
+}
+
+/// "Now" / "Paused" / "Time's up" with the session's words (small widget).
+struct SessionBlock: View {
+  let session: FocusSessionMirror
+  let date: Date
+  @Environment(\.palette) private var palette
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 1) {
+      Label(sessionCaption(session, date), systemImage: sessionSymbol(session, date))
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(palette.secondary)
+        .labelStyle(CompactLabel())
+      Text(session.focusText)
+        .font(.system(size: 15, weight: .bold))
+        .foregroundStyle(palette.primary)
+        .lineLimit(2)
+        .minimumScaleFactor(0.85)
+        .privacySensitive()
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(sessionSpoken(session, date))
+  }
+}
+
+/// The medium widget's header while a session is on.
+struct SessionHeader: View {
+  let session: FocusSessionMirror
+  let date: Date
+  @Environment(\.palette) private var palette
+
+  var body: some View {
+    HStack(spacing: 5) {
+      Image(systemName: sessionSymbol(session, date))
+      if let countdown = session.countdown(at: date) {
+        Text(timerInterval: countdown, countsDown: true)
+          .monospacedDigit()
+          .frame(maxWidth: 64, alignment: .leading)
+      } else if session.status == "paused" {
+        Text("Paused · \(formatRemaining(ms: session.pausedRemainingMs ?? 0)) left")
+          .monospacedDigit()
+      } else {
+        Text("Time's up")
+      }
+    }
+    .font(.caption.weight(.semibold))
+    .foregroundStyle(palette.primary)
+    .lineLimit(1)
+    .widgetAccentable()
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(sessionSpoken(session, date))
+  }
+}
+
+private struct CompactLabel: LabelStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: 4) {
+      configuration.icon
+      configuration.title
+    }
+  }
+}
+
+private func sessionCaption(_ session: FocusSessionMirror, _ date: Date) -> String {
+  if session.isRunning(at: date) { return "Now" }
+  return session.status == "paused" ? "Paused" : "Time's up"
+}
+
+private func sessionSymbol(_ session: FocusSessionMirror, _ date: Date) -> String {
+  if session.isRunning(at: date) { return "timer" }
+  return session.status == "paused" ? "pause.fill" : "bell.fill"
+}
+
+private func sessionSpoken(_ session: FocusSessionMirror, _ date: Date) -> String {
+  if session.isRunning(at: date) { return "Timer on \(session.focusText)" }
+  if session.status == "paused" {
+    return "Timer paused on \(session.focusText), \(formatRemaining(ms: session.pausedRemainingMs ?? 0)) left"
+  }
+  return "Time's up on \(session.focusText)"
+}
+
 // MARK: - Families
 
 struct SmallView: View {
   let snapshot: Snapshot?
   let phase: DayPhase
+  var session: FocusSessionMirror? = nil
+  var date = Date()
   @Environment(\.palette) private var palette
 
   var body: some View {
@@ -323,10 +519,19 @@ struct SmallView: View {
       HStack(alignment: .top) {
         RingCount(snapshot: snapshot, size: 54, lineWidth: 6, numeralSize: 24, sunWhenDone: true)
         Spacer(minLength: 4)
-        PhaseGlyph(phase: phase)
+        VStack(alignment: .trailing, spacing: 6) {
+          PhaseGlyph(phase: phase)
+          if let session {
+            SessionTime(session: session, date: date, fontSize: 20)
+          } else if snapshot?.nextOpen != nil {
+            StartButton()
+          }
+        }
       }
       Spacer(minLength: 4)
-      if let snapshot {
+      if snapshot != nil, let session {
+        SessionBlock(session: session, date: date)
+      } else if let snapshot {
         if let next = snapshot.nextOpen {
           Text("Next")
             .font(.caption2.weight(.semibold))
@@ -346,6 +551,8 @@ struct SmallView: View {
 struct MediumView: View {
   let snapshot: Snapshot?
   let phase: DayPhase
+  var session: FocusSessionMirror? = nil
+  var date = Date()
   @Environment(\.palette) private var palette
 
   var body: some View {
@@ -353,7 +560,9 @@ struct MediumView: View {
       RingCount(snapshot: snapshot, size: 96, lineWidth: 9, numeralSize: 40)
       VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 6) {
-          if let snapshot, snapshot.allDone {
+          if let session {
+            SessionHeader(session: session, date: date)
+          } else if let snapshot, snapshot.allDone {
             allDoneHeader(snapshot)
           } else {
             Text(header)
@@ -368,9 +577,18 @@ struct MediumView: View {
         if let snapshot {
           // All done keeps the (done) rows so a mistaken tick can be undone
           // right here (Plus); the header says it's all done.
-          let nextId = snapshot.nextOpen?.id
+          // The timer's task leads while one is on; otherwise the next open
+          // one, with Start beside it.
+          let nextId = session?.taskId ?? snapshot.nextOpen?.id
           ForEach(snapshot.tasks) { task in
-            TaskRow(task: task, date: snapshot.date, interactive: snapshot.plus, isNext: task.id == nextId)
+            HStack(spacing: 10) {
+              TaskRow(
+                task: task, date: snapshot.date, interactive: snapshot.plus, isNext: task.id == nextId,
+                timed: session?.taskId == task.id)
+              if session == nil && task.id == nextId {
+                StartLink()
+              }
+            }
           }
           Spacer(minLength: 0)
           // No upsell on a finished day: that moment is for the win.
@@ -494,9 +712,9 @@ struct DailyTasksWidgetView: View {
       case .accessoryInline:
         inline
       case .systemMedium:
-        MediumView(snapshot: snapshot, phase: phase)
+        MediumView(snapshot: snapshot, phase: phase, session: session, date: entry.date)
       default:
-        SmallView(snapshot: snapshot, phase: phase)
+        SmallView(snapshot: snapshot, phase: phase, session: session, date: entry.date)
       }
     }
     .environment(\.palette, Palette(fullColor: fullColor))
@@ -527,6 +745,15 @@ struct DailyTasksWidgetView: View {
     case .accessoryCircular, .accessoryRectangular, .accessoryInline: return true
     default: return false
     }
+  }
+
+  /// Today's focus session while its task is on the list and still open (a
+  /// Done from the Live Activity or the widget hides it at once).
+  private var session: FocusSessionMirror? {
+    guard let session = entry.session, let snapshot,
+      snapshot.tasks.contains(where: { $0.id == session.taskId && !$0.done })
+    else { return nil }
+    return session
   }
 
   /// Today's snapshot with at least one task, else nil (the empty state).
@@ -636,6 +863,7 @@ struct DailyTasksWidget: Widget {
 struct DailyTasksWidgetBundle: WidgetBundle {
   var body: some Widget {
     DailyTasksWidget()
+    FocusLiveActivity()
   }
 }
 
