@@ -158,7 +158,7 @@ public enum FocusGroup {
   /// Its categories (the buttons): a timer's 5 more minutes / Done.
   static let timerCategoryId = "three-today:focus-session"
   /// A timer's body (lib/daily-tasks/focus-session.ts notificationBody).
-  static let timerNotificationBody = "Time's up. Done, or 5 more minutes?"
+  static let timerNotificationBody = "Time's up. 5 more minutes, or mark it done?"
   static let heldNotificationKey = "focus.heldNotification"
   static let heldNotificationSessionKey = "focus.heldNotificationSession"
   /// Queues are kept short even if the app isn't opened for a long time.

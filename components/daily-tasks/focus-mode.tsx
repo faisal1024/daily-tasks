@@ -1,16 +1,20 @@
 // "Start" focus mode (1.2): one task, full screen, with its steps and its
 // timer. Since 1.3 it's the detail view of the focus session: the timer is
-// the store's, so closing this doesn't stop it. Done ticks the task through
-// Today's normal toggle path.
+// the store's, so closing this doesn't stop it. Nothing here ticks the task
+// unless it says so: "✓ Mark task done" ticks it through Today's normal toggle
+// path; Back to Today and Take a break leave it open (a timer session is
+// often just the first sitting). One way off the page at a time: Back to
+// Today, or Take a break at time's up.
 import { useEffect, useRef, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FocusCheckIn, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
+import { FocusCheckIn, MarkTaskDoneLink, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { FocusTimerPanel } from "@/components/daily-tasks/focus-timer-panel";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
+import { useSessionEnded } from "@/hooks/use-focus-clock";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { sessionMinutes, type FocusSession } from "@/lib/daily-tasks/focus-session";
 import type { Task } from "@/lib/daily-tasks/types";
@@ -23,11 +27,12 @@ interface FocusModeProps {
   session: FocusSession | null;
   onToggleStep: (stepId: string) => void;
   /**
-   * Ticks the task the normal way (once); the screen closes focus mode.
+   * "✓ Mark task done": ticks the task the normal way (once); the screen
+   * closes focus mode.
    * `timer` is the session's length in minutes, 0 for none.
    */
   onDone: (timer: number) => void;
-  /** Closes; a running timer keeps going. */
+  /** Back to Today (and after Take a break): closes; a running timer keeps going. */
   onClose: () => void;
   /** A length was chosen here, in minutes (1–180): starts a session on this task. */
   onStartTimer: (minutes: number) => void;
@@ -39,8 +44,10 @@ interface FocusModeProps {
 }
 
 /**
- * Mounted only while open (see Today). Full screen on iPhone; Done and Close
- * are the ways out, and neither stops the timer (Stop timer does).
+ * Mounted only while open (see Today). Full screen on iPhone. One way out at
+ * a time: Back to Today (the timer keeps going), or at time's up the
+ * check-in's Take a break (ends the session). "✓ Mark task done" ticks the
+ * task and closes.
  */
 export function FocusMode({
   task,
@@ -58,12 +65,14 @@ export function FocusMode({
   const insets = useSafeAreaInsets();
   const animation = useSheetAnimation();
   const fullScreen = Platform.OS === "ios" && !Platform.isPad;
-  const timerActive = session !== null && session.status !== "ended";
+  // At time's up the check-in's Take a break is the way out (never both).
+  const timesUp = useSessionEnded(session);
+  const timerActive = session !== null && !timesUp;
   // The custom wheel waits until the sheet has finished sliding in: its
   // first-spin fix (see CountdownWheel) only works once it's on screen.
   const [shown, setShown] = useState(false);
-  // While the custom wheel shows, its Start is the one solid button and Done
-  // steps back to a tint.
+  // While the custom wheel shows, its Start is the one solid button and Back
+  // to Today steps back to a tint.
   const [customOpen, setCustomOpen] = useState(false);
 
   // Custom opening or a timer starting scrolls the timer (last) into view.
@@ -83,12 +92,22 @@ export function FocusMode({
     [],
   );
 
-  // A double tap on Done must tick it only once.
+  // A double tap on Mark task done must tick it only once.
   const doneRef = useRef(false);
   const done = () => {
     if (doneRef.current) return;
     doneRef.current = true;
     onDone(session ? sessionMinutes(session) : 0);
+  };
+  // The check-in here: its Mark task done is the screen's (closes, reports
+  // the length), and Take a break ends the session and goes back to Today.
+  const checkInControls: FocusSessionControls = {
+    ...controls,
+    done,
+    takeBreak: () => {
+      controls.takeBreak();
+      onClose();
+    },
   };
 
   const steps = task.steps ?? [];
@@ -183,7 +202,7 @@ export function FocusMode({
               onReveal={revealTimer}
               onCustomOpenChange={setCustomOpen}
               checkIn={
-                session ? <FocusCheckIn session={session} controls={controls} showDone={false} /> : null
+                session ? <FocusCheckIn session={session} controls={checkInControls} /> : null
               }
             />
           </View>
@@ -195,37 +214,33 @@ export function FocusMode({
               All steps done.
             </Text>
           ) : null}
-          <Pressable
-            onPress={done}
-            accessibilityRole="button"
-            accessibilityLabel="Done"
-            accessibilityHint="Marks this task done"
-            style={({ pressed }) => ({
-              minHeight: 52,
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 999,
-              backgroundColor: customOpen ? `${colors.primary}1F` : colors.primary,
-              opacity: pressed ? 0.85 : 1,
-            })}
-            testID="focus-done"
-          >
-            <Text className="text-base font-bold" style={{ color: customOpen ? colors.primaryInk : colors.onPrimary }}>
-              Done
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel={timerActive ? "Back to Today" : "Close"}
-            accessibilityHint={timerActive ? "The timer keeps going" : "Closes focus mode"}
-            style={{ minHeight: 44, alignItems: "center", justifyContent: "center" }}
-            testID="focus-close"
-          >
-            <Text className="text-base font-semibold" style={{ color: colors.muted }}>
-              {timerActive ? "Back to Today" : "Close"}
-            </Text>
-          </Pressable>
+          {timesUp ? null : (
+            <>
+              <Pressable
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Back to Today"
+                accessibilityHint={timerActive ? "The timer keeps going" : "Closes focus mode"}
+                style={({ pressed }) => ({
+                  minHeight: 52,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: 999,
+                  backgroundColor: customOpen ? `${colors.primary}1F` : colors.primary,
+                  opacity: pressed ? 0.85 : 1,
+                })}
+                testID="focus-close"
+              >
+                <Text
+                  className="text-base font-bold"
+                  style={{ color: customOpen ? colors.primaryInk : colors.onPrimary }}
+                >
+                  Back to Today
+                </Text>
+              </Pressable>
+              <MarkTaskDoneLink taskText={task.text} onPress={done} testID="focus-done" align="center" />
+            </>
+          )}
         </View>
       </View>
     </Modal>

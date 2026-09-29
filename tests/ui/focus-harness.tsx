@@ -45,6 +45,7 @@ function FocusHarness({ startLine = null, initialCustom, onToggleStep, onDone, o
         pause: store.pauseFocusSession,
         resume: store.resumeFocusSession,
         stop: () => store.stopFocusSession("stopped"),
+        takeBreak: () => store.stopFocusSession("break"),
         extend: store.extendFocusSession,
         keepGoing: store.keepGoingFocusSession,
         done: () => store.toggleTask(task.id),

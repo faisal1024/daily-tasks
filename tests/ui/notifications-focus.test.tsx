@@ -1,6 +1,6 @@
 // The focus session's end notification (1.2, per session since 1.3):
 // scheduled only with permission, with the 5 more minutes / Done category
-// (a starter's: Keep going / Done),
+// (a starter's: Keep going / Mark done),
 // cancel wins over an earlier schedule, never shown in-app, and never touched
 // by the reminder syncs.
 import * as Notifications from "expo-notifications";
@@ -41,7 +41,7 @@ const INPUT = {
   kind: "timer" as const,
   at: AT,
   title: "Walk",
-  body: "Time's up. Done, or 5 more minutes?",
+  body: "Time's up. 5 more minutes, or mark it done?",
 };
 
 beforeEach(() => {
@@ -56,14 +56,14 @@ describe("focus timer notification", () => {
     // Extend on the left, Done on the right (as everywhere else).
     expect(mocked.setNotificationCategoryAsync).toHaveBeenCalledWith(FOCUS_CATEGORY_ID, [
       { identifier: "focus-extend", buttonTitle: "5 more minutes", options: { opensAppToForeground: true } },
-      { identifier: "focus-done", buttonTitle: "Done", options: { opensAppToForeground: true } },
+      { identifier: "focus-done", buttonTitle: "Mark done", options: { opensAppToForeground: true } },
     ]);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledWith({
       identifier: FOCUS_TIMER_NOTIFICATION_ID,
       content: {
         title: "Walk",
-        body: "Time's up. Done, or 5 more minutes?",
+        body: "Time's up. 5 more minutes, or mark it done?",
         sound: true,
         categoryIdentifier: FOCUS_CATEGORY_ID,
         data: { focusSessionId: "s1", taskId: "t0" },
@@ -75,14 +75,14 @@ describe("focus timer notification", () => {
   });
 
   // R1 (1.3 polish): a starter's notification had the timer's "5 more
-  // minutes"; it has its own category now, Keep going / Done.
-  it("gives a starter's notification the Keep going / Done category", async () => {
+  // minutes"; it has its own category now, Keep going / Mark done.
+  it("gives a starter's notification the Keep going / Mark done category", async () => {
     const { scheduleFocusSessionNotification, FOCUS_STARTER_CATEGORY_ID } = load();
     await scheduleFocusSessionNotification({ ...INPUT, kind: "starter", body: "5 minutes in. Keep going?" });
     expect(FOCUS_STARTER_CATEGORY_ID).toBe("three-today:focus-starter");
     expect(mocked.setNotificationCategoryAsync).toHaveBeenCalledWith(FOCUS_STARTER_CATEGORY_ID, [
       { identifier: "focus-keep-going", buttonTitle: "Keep going", options: { opensAppToForeground: true } },
-      { identifier: "focus-done", buttonTitle: "Done", options: { opensAppToForeground: true } },
+      { identifier: "focus-done", buttonTitle: "Mark done", options: { opensAppToForeground: true } },
     ]);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledWith(
       expect.objectContaining({

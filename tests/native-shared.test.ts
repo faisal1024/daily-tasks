@@ -55,6 +55,19 @@ describe("shared Swift sources", () => {
     expect(read("lib/daily-tasks/notifications.ts")).toContain('FOCUS_CATEGORY_ID = "three-today:focus-session"');
   });
 
+  // Owner feedback: ending a timer isn't finishing the task, so the button
+  // that ticks it says so everywhere: "Mark done" on the Live Activity, the
+  // Dynamic Island (the same FocusButtons) and both notification categories.
+  it("the Live Activity and the notifications call the ticking button Mark done (never a bare Done)", () => {
+    const activity = read("targets/widget/FocusLiveActivity.swift");
+    expect(activity).toContain('"Mark done", "checkmark", solid: false');
+    expect(activity).toContain('.accessibilityLabel("Mark task done: \\(state.taskText)")');
+    expect(activity).not.toMatch(/"Done", "checkmark"/);
+    const notifications = read("lib/daily-tasks/notifications.ts");
+    expect(notifications.match(/identifier: FOCUS_ACTION_DONE, buttonTitle: "Mark done"/g)).toHaveLength(2);
+    expect(notifications).not.toContain('buttonTitle: "Done"');
+  });
+
   // Each App Group key, by what it's for: the Swift constant (FocusGroup in
   // FocusActivityShared.swift, Shared.swift for the widget's own) and the
   // TS constant in widget-bridge.ts must hold the same string.

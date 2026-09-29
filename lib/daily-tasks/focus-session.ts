@@ -42,7 +42,8 @@ export const MAX_SESSION_MS = 24 * 60 * MINUTE_MS;
 /** Where a session was started (analytics). "check_in": the starter offered after "Stuck?". */
 export type FocusSessionSource = "row" | "coach" | "widget" | "siri" | "focus" | "check_in";
 /** How a session (or one of its countdowns) ended (analytics). */
-export type FocusSessionOutcome = "done" | "extended" | "stopped" | "cleared" | "broken_down";
+/** "break": Take a break at time's up (the session ends, the task stays open). */
+export type FocusSessionOutcome = "done" | "extended" | "stopped" | "break" | "cleared" | "broken_down";
 
 /** A new session's length in whole minutes: at least 1, at most a day. */
 export function clampSessionMinutes(minutes: number): number {
@@ -216,12 +217,12 @@ export function notificationTitle(session: FocusSession): string {
 
 /**
  * The end notification's body (the title names the task): a timer asks
- * "Done, or 5 more minutes?", a starter "5 minutes in. Keep going?" (its
- * buttons: Done / 5 more minutes, or Keep going / Done).
+ * "5 more minutes, or mark it done?", a starter "5 minutes in. Keep going?"
+ * (its buttons: 5 more minutes / Mark done, or Keep going / Mark done).
  */
 export function notificationBody(session: FocusSession): string {
   if (session.kind === "starter") return checkInTitle(session);
-  return "Time's up. Done, or 5 more minutes?";
+  return "Time's up. 5 more minutes, or mark it done?";
 }
 
 /** A starter's line while it runs (only for the first 5 minutes' length). */

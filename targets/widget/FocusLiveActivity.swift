@@ -196,8 +196,9 @@ struct FocusTime: View {
 }
 
 /// The buttons, which act in place (LiveActivityIntent): Pause/Resume and
-/// Done while it runs; at time's up, 5 more minutes (Keep going for a
-/// starter) and Done. Done is never the loud one.
+/// Mark done while it runs; at time's up, 5 more minutes (Keep going for a
+/// starter) and Mark done. Mark done (it ticks the task) is never the loud
+/// one, and says what it does: ending a timer isn't finishing the task.
 struct FocusButtons: View {
   let attributes: FocusActivityAttributes
   let state: FocusActivityAttributes.ContentState
@@ -221,10 +222,9 @@ struct FocusButtons: View {
       if phase == .running || phase == .paused || phase == .timesUp {
         pill(
           FocusDoneIntent(sessionId: attributes.sessionId, taskId: attributes.taskId, date: attributes.date),
-          "Done", "checkmark", solid: false
+          "Mark done", "checkmark", solid: false
         )
-        .accessibilityLabel("Mark done")
-        .accessibilityHint("Ticks off \(state.focusText)")
+        .accessibilityLabel("Mark task done: \(state.taskText)")
       }
     }
   }

@@ -181,9 +181,15 @@ describe("FocusMode", () => {
     expect(screen.getByTestId("focus-timer-times-up")).toHaveTextContent("Time's up");
     expect(screen.getByLabelText("Time's up")).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "5 more minutes" })).toBeOnTheScreen();
-    expect(screen.getByRole("button", { name: "Stop here" }).props.accessibilityHint).toBe("Clears the timer");
-    // The footer's Done is the only Done.
-    expect(screen.getAllByRole("button", { name: "Done" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Take a break" }).props.accessibilityHint).toBe(
+      "Ends the timer. The task stays open.",
+    );
+    // No Done, no Stop here; one Mark task done (the check-in's), and Take a
+    // break replaces Back to Today.
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop here" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Mark task done" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Back to Today" })).toBeNull();
     await advance(5 * MIN);
     expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
     expect(Haptics.notificationAsync).toHaveBeenCalledWith(Haptics.NotificationFeedbackType.Success);
@@ -202,8 +208,8 @@ describe("FocusMode", () => {
     expect(said()).toEqual(["Timer started, 10 minutes", "Time's up on “Walk the dog”."]);
   });
 
-  it("Stop timer goes back to the picker; 5 more minutes runs it again; Stop here clears it", async () => {
-    await renderFocus();
+  it("Stop timer goes back to the picker; 5 more minutes runs it again; Take a break clears it and closes, the task still open", async () => {
+    const { onClose, onDone } = await renderFocus();
     await pick("20 minute timer");
     await advance(3 * MIN);
     expect(remaining()).toHaveTextContent("17:00");
@@ -221,7 +227,12 @@ describe("FocusMode", () => {
     expect(screen.queryByTestId("focus-check-in")).toBeNull();
 
     await advance(5 * MIN + 100);
-    await pick("Stop here");
+    await pick("Take a break");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onDone).not.toHaveBeenCalled();
+    // The harness keeps the screen up (onClose is a stub): the task is still
+    // open (it's the one shown) and the session is gone.
+    expect(screen.getByRole("header", { name: "Focus: Walk the dog" })).toBeOnTheScreen();
     expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
     expect(screen.getByRole("button", { name: "10 minute timer" })).not.toBeSelected();
     // Nothing fires later: no third haptic, no check-in.
@@ -235,7 +246,7 @@ describe("FocusMode", () => {
     await pick("10 minute timer");
     expect(schedule).toHaveBeenCalledTimes(1);
     expect(schedule).toHaveBeenLastCalledWith(
-      expect.objectContaining({ at: new Date(START.getTime() + 10 * MIN), body: "Time's up. Done, or 5 more minutes?" }),
+      expect.objectContaining({ at: new Date(START.getTime() + 10 * MIN), body: "Time's up. 5 more minutes, or mark it done?" }),
     );
     expect(cancel).not.toHaveBeenCalled();
 
@@ -255,7 +266,7 @@ describe("FocusMode", () => {
     expect(schedule).toHaveBeenLastCalledWith(expect.objectContaining({ at: new Date(extendedAt + 5 * MIN) }));
   });
 
-  it("Back to Today (while a timer runs) calls only onClose and keeps the timer; Done calls onDone once with the timer, even on a double tap", async () => {
+  it("Back to Today (while a timer runs) calls only onClose and keeps the timer and the task; ✓ Mark task done calls onDone once with the timer, even on a double tap", async () => {
     const { onClose, onDone, onToggleStep } = await renderFocus();
     await pick("20 minute timer");
     const close = screen.getByRole("button", { name: "Back to Today" });
@@ -266,18 +277,27 @@ describe("FocusMode", () => {
     expect(onDone).not.toHaveBeenCalled();
     expect(onToggleStep).not.toHaveBeenCalled();
     expect(cancel).not.toHaveBeenCalled();
+    // The timer keeps going (the harness leaves the screen up).
+    await advance(MIN);
+    expect(remaining()).toHaveTextContent("19:00");
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    const markDone = screen.getByRole("button", { name: "Mark task done" });
+    expect(markDone.props.accessibilityHint).toBe("Ticks off Walk the dog");
+    expect(markDone).toHaveTextContent(/Mark task done/);
 
-    await pick("Done");
-    await pick("Done");
+    await pick("Mark task done");
+    await pick("Mark task done");
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(onDone).toHaveBeenCalledWith(20);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("Done with no timer reports 0, and Close's hint doesn't mention one", async () => {
+  it("with no timer: Back to Today (its hint doesn't mention one) and ✓ Mark task done, which reports 0", async () => {
     const { onDone } = await renderFocus();
-    expect(screen.getByRole("button", { name: "Close" }).props.accessibilityHint).toBe("Closes focus mode");
-    await pick("Done");
+    expect(screen.getByRole("button", { name: "Back to Today" }).props.accessibilityHint).toBe("Closes focus mode");
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    await pick("Mark task done");
     expect(onDone).toHaveBeenCalledWith(0);
   });
 
@@ -296,17 +316,26 @@ describe("FocusMode", () => {
     expect(remaining()).toHaveTextContent("7:59");
   });
 
-  it("at zero, the check-in's 5 more minutes is tinted: the footer's Done is the only solid button", async () => {
+  it("one solid button: Back to Today while it runs; at zero the check-in's 5 more minutes (Take a break tinted, no footer)", async () => {
     await renderFocus();
     await pick("5 minute timer");
-    await advance(5 * MIN + 100);
-    const extend = screen.getByTestId("focus-check-in-extend");
     const flat = (node: { props: Record<string, unknown> }) => Object.assign({}, ...[node.props.style].flat());
-    const style = flat(extend);
-    expect(style.backgroundColor).not.toBe(Colors.light.primary);
-    const done = screen.getByTestId("focus-done");
-    const doneStyle = flat(done);
-    expect(doneStyle.backgroundColor).toBe(Colors.light.primary);
+    expect(flat(screen.getByTestId("focus-close")).backgroundColor).toBe(Colors.light.primary);
+    await advance(5 * MIN + 100);
+    expect(flat(screen.getByTestId("focus-check-in-extend")).backgroundColor).toBe(Colors.light.primary);
+    expect(flat(screen.getByTestId("focus-check-in-break")).backgroundColor).not.toBe(Colors.light.primary);
+    expect(screen.queryByTestId("focus-close")).toBeNull();
+    expect(screen.queryByTestId("focus-done")).toBeNull();
+  });
+
+  it("✓ Mark task done at time's up ticks the task on the store (the check-in's link, the normal path)", async () => {
+    // No onDone stub: the harness's own ticks the task on the store.
+    await renderFocus({ onDone: undefined });
+    await pick("5 minute timer");
+    await advance(5 * MIN + 100);
+    await pick("Mark task done");
+    // The harness's default onDone ticks the task: the screen has no open task left.
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
   });
 
   it("opened for Custom…, the length wheel shows once the screen is up (so its first-spin fix runs on screen)", async () => {

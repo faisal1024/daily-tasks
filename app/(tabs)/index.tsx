@@ -462,7 +462,7 @@ export default function HomeScreen() {
     // Only when a new prompt arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusPrompt]);
-  // "Done: <task>" after Done in focus mode (see onDone below).
+  // "Done: <task>" after Mark task done in focus mode (see onDone below).
   const focusDoneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -895,12 +895,14 @@ export default function HomeScreen() {
   };
 
   // What the row's timer pill, the focus screen and the check-in can do to the session.
-  // Done ticks through the normal path, so the haptic, celebration and
-  // win-back all happen (and the store clears the session).
+  // Only "Mark task done" ticks, through the normal path, so the haptic,
+  // celebration and win-back all happen (and the store clears the session).
+  // Stop timer and Take a break end the session and leave the task open.
   const sessionControls: FocusSessionControls = {
     pause: pauseFocusSession,
     resume: resumeFocusSession,
     stop: () => stopFocusSession("stopped"),
+    takeBreak: () => stopFocusSession("break"),
     extend: extendFocusSession,
     keepGoing: keepGoingFocusSession,
     done: () => {

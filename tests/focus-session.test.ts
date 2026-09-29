@@ -123,7 +123,7 @@ describe("focus session: pause, resume, extend", () => {
   it("the check-in names the step or task (curly quotes); the notification's title is the task, its body the question", () => {
     expect(checkInTitle(timer())).toBe("Time's up on “Walk”.");
     expect(notificationTitle(timer())).toBe("Walk");
-    expect(notificationBody(timer())).toBe("Time's up. Done, or 5 more minutes?");
+    expect(notificationBody(timer())).toBe("Time's up. 5 more minutes, or mark it done?");
     expect(checkInTitle(starter({ stepText: "Find the lead" }))).toBe("5 minutes in. Keep going?");
     expect(notificationBody(starter({ stepText: "Find the lead" }))).toBe("5 minutes in. Keep going?");
     const long = timer(10, { taskText: "x".repeat(80) });

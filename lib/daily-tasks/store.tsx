@@ -1086,8 +1086,8 @@ interface StoreContextValue {
   extendFocusSession: () => void;
   /** A starter's "Keep going": a 20-minute timer on the same task. */
   keepGoingFocusSession: () => void;
-  /** Stop and clear it (Stop timer, Stop here, or on to a break-down). */
-  stopFocusSession: (outcome: Extract<FocusSessionOutcome, "stopped" | "broken_down">) => void;
+  /** Stop and clear it (Stop timer, Take a break, or on to a break-down); the task stays open. */
+  stopFocusSession: (outcome: Extract<FocusSessionOutcome, "stopped" | "break" | "broken_down">) => void;
   /**
    * A task's focus screen to open from outside: start my next task (widget,
    * Siri) with another task's timer on, a tap on the Live Activity, or a tap
@@ -1975,14 +1975,14 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     track("focus_session_ended", { outcome: "extended", minutes: sessionMinutes(session) });
     dispatch({ type: "keepGoingFocusSession", now: Date.now() });
   }, []);
-  const stopFocusSession = useCallback((outcome: Extract<FocusSessionOutcome, "stopped" | "broken_down">) => {
+  const stopFocusSession = useCallback((outcome: Extract<FocusSessionOutcome, "stopped" | "break" | "broken_down">) => {
     if (!stateRef.current.focusSession) return;
     focusOutcome.current = outcome;
     dispatch({ type: "clearFocusSession" });
   }, []);
 
   // The end notification's buttons (and a tap on it), including the one that
-  // launched the app. Held until saved state has loaded. Done ticks the task
+  // launched the app. Held until saved state has loaded. Mark done ticks the task
   // the normal way (Today celebrates if it's on screen); a tap for another
   // session (an old notification) is ignored.
   const readyRef = useRef(ready);
