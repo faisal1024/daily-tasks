@@ -283,6 +283,29 @@ describe("One timer, on the task (real store)", () => {
     // No longer a 5-minute starter: its "Just start" line is gone.
     expect(screen.queryByText(/Just start/)).toBeNull();
   });
+
+  // PR #76: a starter's Take a break ends it, and the task stays open (it
+  // was only the first five minutes).
+  it("a starter reaching 5 on its row: Take a break clears it (break, 5 min), the task stays open, nothing completed", async () => {
+    await openToday(
+      session({ kind: "starter", stepText: "Find the lead", durationMs: 5 * MIN, startedAt: NOW, endAt: NOW + 5 * MIN }),
+    );
+    await advance(5 * MIN + 1000);
+    (track as jest.Mock).mockClear();
+    const checkIn = within(screen.getByTestId("task-check-in-t0"));
+    await fireEvent.press(checkIn.getByRole("button", { name: "Take a break" }));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const calls = (track as jest.Mock).mock.calls;
+    expect(calls.filter((c) => c[0] === "focus_session_ended")).toEqual([
+      ["focus_session_ended", { outcome: "break", minutes: 5 }],
+    ]);
+    expect(calls.filter((c) => c[0] === "focus_completed" || c[0] === "task_completed")).toEqual([]);
+    expect(screen.queryByTestId("task-check-in-t0")).toBeNull();
+    expect(screen.queryByTestId("task-timer-running-t0")).toBeNull();
+    expect(screen.queryByTestId("task-session-line-t0")).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Task 1: Walk" })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Start a timer: Walk" })).toBeOnTheScreen();
+  });
   // R9 (1.3 polish): the timed task's long-press menu leads with its timer's
   // choices, and every sheet is tinted with the app's primary.
   it("long press on the timed task: Open focus, Pause timer, Stop timer first, then the row's actions, tinted", async () => {
