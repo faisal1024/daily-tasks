@@ -18,6 +18,12 @@ const PROCESSED_KEY = "widget.processedSeq";
 export const FOCUS_SESSION_KEY = "focus.session";
 /** Bumped if the mirrored shape ever changes incompatibly. */
 export const FOCUS_SESSION_VERSION = 1;
+/** Pause/Resume from the Live Activity, queued for the app (PR F; see focus-commands.ts). */
+const FOCUS_COMMANDS_KEY = "focus.commands";
+const FOCUS_COMMANDS_PROCESSED_KEY = "focus.processedSeq";
+/** "Start my next task" from Siri or the widget, left for the app (see focus-link.ts). */
+const FOCUS_START_REQUEST_KEY = "focus.startRequest";
+const FOCUS_START_HANDLED_KEY = "focus.startHandled";
 
 let storage: WidgetStorageModule | null | undefined;
 let lastWritten: string | null = null;
@@ -80,12 +86,20 @@ export function markWidgetTogglesProcessed(seq: number): void {
 }
 
 /**
+ * The mirror's JSON for a session: its own fields plus `v` and `rev` (see
+ * writeFocusSession). The Live Activity is started and updated with the same.
+ */
+export function focusSessionJson(session: FocusSession, rev: number): string {
+  return JSON.stringify({ v: FOCUS_SESSION_VERSION, rev, ...session });
+}
+
+/**
  * Mirror the focus session to the App Group (skipped when unchanged): the
- * session's own fields plus `v` and `rev`, or JSON `null` when there's none.
- * Times are epoch milliseconds. `rev` goes up with every write (it's at least
- * the time of the write, so it keeps going up across launches): native code
- * can tell a newer state from an older one. Nothing reloads the widget yet:
- * nothing native reads it until the Live Activity and widget Start (PR F).
+ * session's own fields plus `v` and `rev`, or JSON `null` when there's none,
+ * and refresh the widget (it shows the session). Times are epoch
+ * milliseconds. `rev` goes up with every write (it's at least the time of the
+ * write, so it keeps going up across launches): native code can tell a newer
+ * state from an older one.
  */
 export function writeFocusSession(session: FocusSession | null): void {
   const store = getStorage();
@@ -93,13 +107,72 @@ export function writeFocusSession(session: FocusSession | null): void {
   const content = session ? JSON.stringify(session) : "null";
   if (content === lastSessionWritten) return;
   const rev = Math.max(lastSessionRev + 1, Date.now());
-  const raw = session ? JSON.stringify({ v: FOCUS_SESSION_VERSION, rev, ...session }) : "null";
+  const raw = session ? focusSessionJson(session, rev) : "null";
   try {
     store.setString(FOCUS_SESSION_KEY, raw, APP_GROUP);
     lastSessionWritten = content;
     lastSessionRev = rev;
+    store.reloadWidget(WIDGET_KIND);
   } catch {
     // Native readers keep the previous one; the next change writes again.
+  }
+}
+
+/**
+ * Forget the last session written, so the next write goes through: the Live
+ * Activity's Pause/Resume write the mirror optimistically, and one the app
+ * didn't apply (a stale tap) must be undone there.
+ */
+export function invalidateFocusSession(): void {
+  lastSessionWritten = null;
+}
+
+/** The Live Activity's queued commands (raw JSON) and the last one the app applied. */
+export function readFocusCommands(): { raw: string | null; processedSeq: number } {
+  const store = getStorage();
+  if (!store) return { raw: null, processedSeq: 0 };
+  try {
+    const processed = Number(store.getInt(FOCUS_COMMANDS_PROCESSED_KEY, APP_GROUP));
+    return {
+      raw: store.getString(FOCUS_COMMANDS_KEY, APP_GROUP) ?? null,
+      processedSeq: Number.isFinite(processed) ? processed : 0,
+    };
+  } catch {
+    return { raw: null, processedSeq: 0 };
+  }
+}
+
+export function markFocusCommandsProcessed(seq: number): void {
+  const store = getStorage();
+  if (!store) return;
+  try {
+    store.setInt(FOCUS_COMMANDS_PROCESSED_KEY, seq, APP_GROUP);
+  } catch {
+    // Re-applying is harmless: pause and resume are no-ops when already so.
+  }
+}
+
+/** The start request Siri or the widget left (raw JSON) and the id of the last one handled. */
+export function readFocusStartRequest(): { raw: string | null; handledId: string | null } {
+  const store = getStorage();
+  if (!store) return { raw: null, handledId: null };
+  try {
+    return {
+      raw: store.getString(FOCUS_START_REQUEST_KEY, APP_GROUP) ?? null,
+      handledId: store.getString(FOCUS_START_HANDLED_KEY, APP_GROUP) ?? null,
+    };
+  } catch {
+    return { raw: null, handledId: null };
+  }
+}
+
+export function markFocusStartRequestHandled(id: string): void {
+  const store = getStorage();
+  if (!store) return;
+  try {
+    store.setString(FOCUS_START_HANDLED_KEY, id, APP_GROUP);
+  } catch {
+    // It's ignored anyway once it's older than a minute.
   }
 }
 

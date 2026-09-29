@@ -111,7 +111,7 @@ describe("widget bridge: the focus session (1.3)", () => {
     status: "running",
   };
 
-  it("mirrors it as {v: 1, rev, ...session}, then JSON null once it's gone, skipping unchanged writes and not reloading the widget", () => {
+  it("mirrors it as {v: 1, rev, ...session}, then JSON null once it's gone, skipping unchanged writes and reloading the widget on each write", () => {
     writeFocusSession(SESSION);
     expect(mockNative.setString).toHaveBeenCalledTimes(1);
     expect(mockNative.setString).toHaveBeenCalledWith("focus.session", expect.any(String), GROUP);
@@ -129,7 +129,9 @@ describe("widget bridge: the focus session (1.3)", () => {
 
     writeFocusSession(null);
     expect(mockNative.setString).toHaveBeenLastCalledWith("focus.session", "null", GROUP);
-    expect(mockNative.reloadWidget).not.toHaveBeenCalled();
+    // The widget shows the session (PR F): each real write refreshes it.
+    expect(mockNative.reloadWidget).toHaveBeenCalledTimes(3);
+    expect(mockNative.reloadWidget).toHaveBeenCalledWith("DailyTasksWidget");
   });
 
   it("a failed write is retried on the next call (not cached as written)", () => {

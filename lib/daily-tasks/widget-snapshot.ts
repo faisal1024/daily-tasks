@@ -27,6 +27,8 @@ export interface WidgetToggle {
   id: TaskId;
   date: string;
   done: boolean;
+  /** "live_activity" for Done on the Live Activity (1.3); absent for a widget tap. */
+  source?: string;
 }
 
 export function buildWidgetSnapshot(input: {

@@ -184,6 +184,8 @@ export default function HomeScreen() {
     extendFocusSession,
     keepGoingFocusSession,
     stopFocusSession,
+    focusPrompt,
+    clearFocusPrompt,
   } = useDailyTasks();
   const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue } = usePlus();
   const winBackDueRef = useRef(winBackDue);
@@ -428,7 +430,11 @@ export default function HomeScreen() {
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   // Opened from a task's timer menu (Custom…): the length wheel shows at once.
   const [focusCustom, setFocusCustom] = useState(false);
-  const openFocus = (taskId: string, source: "coach" | "row" | "now_bar", custom = false) => {
+  const openFocus = (
+    taskId: string,
+    source: "coach" | "row" | "now_bar" | "widget" | "siri",
+    custom = false,
+  ) => {
     setFocusCustom(custom);
     setFocusTaskId(taskId);
     track("focus_opened", { source });
@@ -442,6 +448,17 @@ export default function HomeScreen() {
   useEffect(() => {
     setFocusTaskId(null);
   }, [today]);
+  // "Start my next task" (widget, Siri) while another task's timer is on: its
+  // focus screen, which says a start there stops the other (never replaced silently).
+  useEffect(() => {
+    if (!focusPrompt) return;
+    clearFocusPrompt();
+    if (state.tasks.some((task) => task.id === focusPrompt.taskId && !isCompleted(task.id))) {
+      openFocus(focusPrompt.taskId, focusPrompt.source);
+    }
+    // Only when a new prompt arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusPrompt]);
   // "Done: <task>" after Done in focus mode (see onDone below).
   const focusDoneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(

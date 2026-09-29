@@ -28,7 +28,10 @@ const config: ExpoConfig = {
       "com.apple.security.application-groups": [`group.${env.iosBundleId}`],
     },
     "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        // The focus session's Live Activity (1.3). Updated from the device
+        // only: no push updates, so no push entitlement.
+        "NSSupportsLiveActivities": true
       }
   },
   android: {
@@ -66,6 +69,8 @@ const config: ExpoConfig = {
   plugins: [
     "expo-router",
     "@bacons/apple-targets",
+    // Siri / Shortcuts and the Live Activity's buttons in the app target (1.3).
+    "./plugins/with-focus-app-intents",
     "expo-notifications",
     [
       "expo-calendar",
