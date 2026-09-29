@@ -26,8 +26,6 @@ const config: ExpoConfig = {
     // Shared with the home/lock-screen widget (targets/widget).
     entitlements: {
       "com.apple.security.application-groups": [`group.${env.iosBundleId}`],
-      // Focus mode's timer-end notification is time-sensitive (like Apple's Timer).
-      "com.apple.developer.usernotifications.time-sensitive": true,
     },
     "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false

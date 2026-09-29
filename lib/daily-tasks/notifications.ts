@@ -130,8 +130,8 @@ export async function cancelAllNotifications(): Promise<void> {
 // Focus mode's timer (1.2): one notification for when it ends, in case
 // they're in another app. Like Apple's Timer it plays the default
 // notification sound (which respects the silent switch; the reminders stay
-// silent) and is time-sensitive on iOS, so a Focus mode doesn't hold it back.
-// Android uses the default channel. Its id is outside MANAGED_REMINDER_PREFIX, so the
+// silent). It isn't time-sensitive (that needs an extra Apple capability),
+// so a Focus mode may hold it back. Android uses the default channel. Its id is outside MANAGED_REMINDER_PREFIX, so the
 // reminder syncs never cancel it; the handler above doesn't show it in-app
 // (focus mode says it there). Only with permission already granted: it never asks.
 export const FOCUS_TIMER_NOTIFICATION_ID = "three-today:focus-timer";
@@ -161,7 +161,6 @@ export function scheduleFocusTimerNotification(at: Date, minutes: number): Promi
         title: "Three Today",
         body: timesUpText(minutes),
         sound: true,
-        interruptionLevel: "timeSensitive",
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at },
     });

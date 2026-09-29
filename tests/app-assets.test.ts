@@ -62,9 +62,10 @@ describe("app assets", () => {
     expect(missing).toEqual([]);
   });
 
-  it("iOS entitlements keep the app group and allow the time-sensitive focus-timer notification", () => {
+  it("iOS entitlements keep the app group and nothing needing a new Apple capability", () => {
     const config = readFileSync(resolve(ROOT, "app.config.ts"), "utf8");
     expect(config).toContain('"com.apple.security.application-groups"');
-    expect(config).toMatch(/"com\.apple\.developer\.usernotifications\.time-sensitive":\s*true/);
+    // Time Sensitive Notifications needs the capability on the App ID first.
+    expect(config).not.toContain("usernotifications.time-sensitive");
   });
 });
