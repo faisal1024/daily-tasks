@@ -2939,4 +2939,39 @@ describe("Timer on your tasks (1.3)", () => {
     await render(<HomeScreen />);
     expect(screen.queryByTestId("now-bar")).toBeNull();
   });
+
+  it("start my next task (widget, Siri) with another task's timer on: that task's focus screen opens, warning it stops the other, with focus_opened from widget / siri", async () => {
+    const clearFocusPrompt = jest.fn();
+    mockStore = {
+      ...makeStore({ tasks: tasks("Walk", "Read"), focusSession: running({ taskId: "t1", taskText: "Read" }) }),
+      focusPrompt: { taskId: "t0", source: "widget" as const, nonce: 1 },
+      clearFocusPrompt,
+    } as MockStore;
+    const view = await render(<HomeScreen />);
+    expect(clearFocusPrompt).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Walk");
+    expect(screen.getByTestId("focus-timer-replaces")).toHaveTextContent('This stops the timer on "Read".');
+    expect(mockStore.startFocusSession).not.toHaveBeenCalled();
+    expect(mockStore.stopFocusSession).not.toHaveBeenCalled();
+    expect(focusEvents()).toEqual([["focus_opened", { source: "widget" }]]);
+
+    // Siri's, for a task that's since been ticked: nothing opens.
+    mockTrack.mockClear();
+    mockStore = {
+      ...makeStore({ tasks: tasks("Walk", "Read"), todayCompletions: ["t0"], focusSession: running({ taskId: "t1" }) }),
+      focusPrompt: { taskId: "t0", source: "siri" as const, nonce: 2 },
+      clearFocusPrompt,
+    } as MockStore;
+    await view.rerender(<HomeScreen />);
+    expect(clearFocusPrompt).toHaveBeenCalledTimes(2);
+    expect(focusEvents()).toEqual([]);
+
+    mockStore = {
+      ...makeStore({ tasks: tasks("Walk", "Read"), focusSession: running({ taskId: "t1" }) }),
+      focusPrompt: { taskId: "t0", source: "siri" as const, nonce: 3 },
+      clearFocusPrompt,
+    } as MockStore;
+    await view.rerender(<HomeScreen />);
+    expect(focusEvents()).toEqual([["focus_opened", { source: "siri" }]]);
+  });
 });
