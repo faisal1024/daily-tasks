@@ -20,10 +20,11 @@ function configureHandler() {
   if (handlerConfigured) return;
   handlerConfigured = true;
   Notifications.setNotificationHandler({
-    // Focus mode's timer end is said in-app already, so it isn't shown there.
+    // Focus mode's timer end is shown in-app already, so it isn't shown
+    // there; its sound still plays, so the end is heard (like Apple's Timer).
     handleNotification: async (notification) => {
-      const show = notification.request.identifier !== FOCUS_TIMER_NOTIFICATION_ID;
-      return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: false, shouldSetBadge: false };
+      const focus = notification.request.identifier === FOCUS_TIMER_NOTIFICATION_ID;
+      return { shouldShowBanner: !focus, shouldShowList: !focus, shouldPlaySound: focus, shouldSetBadge: false };
     },
   });
 }
@@ -126,8 +127,11 @@ export async function cancelAllNotifications(): Promise<void> {
   await cancelAllManaged();
 }
 
-// Focus mode's timer (1.2): one quiet notification for when it ends, in case
-// they're in another app. Its id is outside MANAGED_REMINDER_PREFIX, so the
+// Focus mode's timer (1.2): one notification for when it ends, in case
+// they're in another app. Like Apple's Timer it plays the default
+// notification sound (which respects the silent switch; the reminders stay
+// silent) and is time-sensitive on iOS, so a Focus mode doesn't hold it back.
+// Android uses the default channel. Its id is outside MANAGED_REMINDER_PREFIX, so the
 // reminder syncs never cancel it; the handler above doesn't show it in-app
 // (focus mode says it there). Only with permission already granted: it never asks.
 export const FOCUS_TIMER_NOTIFICATION_ID = "three-today:focus-timer";
@@ -153,7 +157,12 @@ export function scheduleFocusTimerNotification(at: Date, minutes: number): Promi
     if ((await getNotificationPermissionStatus()) !== "granted" || generation !== focusGeneration) return;
     await Notifications.scheduleNotificationAsync({
       identifier: FOCUS_TIMER_NOTIFICATION_ID,
-      content: { title: "Three Today", body: timesUpText(minutes), sound: false },
+      content: {
+        title: "Three Today",
+        body: timesUpText(minutes),
+        sound: true,
+        interruptionLevel: "timeSensitive",
+      },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at },
     });
   });
@@ -165,6 +174,17 @@ export function cancelFocusTimerNotification(): Promise<void> {
   return queueFocus(async () => {
     await Notifications.cancelScheduledNotificationAsync(FOCUS_TIMER_NOTIFICATION_ID);
     // One that already went off shouldn't linger in Notification Center.
+    await Notifications.dismissNotificationAsync(FOCUS_TIMER_NOTIFICATION_ID).catch(() => {});
+  });
+}
+
+/**
+ * Clears one that already went off from Notification Center, without
+ * touching what's scheduled (the timer finished; a restart schedules anew).
+ */
+export function dismissFocusTimerNotification(): Promise<void> {
+  if (Platform.OS === "web") return Promise.resolve();
+  return queueFocus(async () => {
     await Notifications.dismissNotificationAsync(FOCUS_TIMER_NOTIFICATION_ID).catch(() => {});
   });
 }

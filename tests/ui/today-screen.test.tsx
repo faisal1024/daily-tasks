@@ -103,6 +103,8 @@ jest.mock("expo-router", () => ({
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusTimerNotification: jest.fn(async () => {}),
   cancelFocusTimerNotification: jest.fn(async () => {}),
+  dismissFocusTimerNotification: jest.fn(async () => {}),
+  getNotificationPermissionStatus: jest.fn(async () => "granted"),
 }));
 const mockTrack = jest.fn();
 jest.mock("@/lib/daily-tasks/analytics", () => ({
@@ -2478,13 +2480,13 @@ describe("Focus mode from the coach's note (1.2)", () => {
     await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("coach-note-start-button"));
     expect(focusEvents()).toEqual([["focus_opened"]]);
-    await fireEvent.press(screen.getByRole("button", { name: "25 minute timer" }));
-    // The running one again: a no-op, no event.
-    await fireEvent.press(screen.getByRole("button", { name: "25 minute timer" }));
+    // A length chip starts it at once.
+    await fireEvent.press(screen.getByRole("button", { name: "20 minute timer" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
     await fireEvent.press(screen.getByRole("button", { name: "10 minute timer" }));
     expect(focusEvents()).toEqual([
       ["focus_opened"],
-      ["focus_timer_started", { timer: 25 }],
+      ["focus_timer_started", { timer: 20 }],
       ["focus_timer_started", { timer: 10 }],
     ]);
     await fireEvent.press(screen.getByRole("button", { name: "Not now" }));
@@ -2494,7 +2496,7 @@ describe("Focus mode from the coach's note (1.2)", () => {
 
     // A fresh open starts with no timer.
     await fireEvent.press(screen.getByTestId("coach-note-start-button"));
-    expect(screen.getByRole("button", { name: "No timer" })).toBeSelected();
+    expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "10 minute timer" }));
     await fireEvent.press(screen.getByRole("button", { name: "Done" }));
     expect(focusEvents().slice(3)).toEqual([
