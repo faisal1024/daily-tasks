@@ -24,10 +24,18 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 
+import { announcePolitely, FocusCheckIn, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { useColors } from "@/hooks/use-colors";
 import { useFocusClock } from "@/hooks/use-focus-clock";
-import { MINUTE_MS, remainingMs, sessionPhase, type FocusSession } from "@/lib/daily-tasks/focus-session";
+import {
+  checkInTitle,
+  MINUTE_MS,
+  remainingMs,
+  sessionPhase,
+  starterLine,
+  type FocusSession,
+} from "@/lib/daily-tasks/focus-session";
 import { durationWords, formatRemaining } from "@/lib/daily-tasks/focus-timer";
 import {
   TASK_ROW_ACTION_LABELS,
@@ -60,20 +68,35 @@ interface TaskRowProps {
    * button's node, for the action sheet's popover on iPad.
    */
   onTimer?: (anchor: number | null) => void;
-  /** The focus session, when it's on this task: its ring and time left replace ▶. */
+  /**
+   * The focus session, when it's on this task (1.3, "one timer, on the
+   * task"): its pill (ring, ⏸/▶ and time left) replaces ▶, and at zero the
+   * check-in shows under the row.
+   */
   session?: FocusSession | null;
-  /** Tapping the running timer: opens the focus screen. */
+  /** What the pill and the check-in do to the session (pause/resume, Done, …). */
+  controls?: FocusSessionControls;
+  /**
+   * Opens the focus screen: a tap on the timed task's words (their menu moves
+   * to a long press meanwhile), or on the pill at time's up.
+   */
   onOpenTimer?: () => void;
 }
 
 const ACTION_WIDTH = 84;
 /** The checkbox's VoiceOver action for the timer button. */
 const START_TIMER_ACTION = "startTimer";
+/** The checkbox's VoiceOver action for the timed task's focus screen. */
+const OPEN_FOCUS_ACTION = "openFocus";
+/** The row's words start after the circle's column (30) and the gap (12). */
+const TEXT_INSET = 42;
 
 /**
  * One row of Today's card. Only the circle finishes a task. Tapping the words
  * opens the row's menu (Edit, Not today, Break it down, Delete, as allowed);
  * swiping left shows Not today / Delete; VoiceOver gets the same actions.
+ * While the focus session is on this task, tapping the words opens the focus
+ * screen instead and a long press opens the menu.
  */
 export function TaskRow({
   task,
@@ -93,6 +116,7 @@ export function TaskRow({
   onClearSteps,
   onTimer,
   session = null,
+  controls,
   onOpenTimer,
 }: TaskRowProps) {
   const colors = useColors();
@@ -191,10 +215,16 @@ export function TaskRow({
 
   const canStartTimer = Boolean(onTimer) && !completed && !editing && !session;
   const startTimer = () => onTimer?.(timerRef.current ? findNodeHandle(timerRef.current) : null);
+  // The timed task: its words open the focus screen (the detail view).
+  const opensFocus = Boolean(session && onOpenTimer) && !completed;
 
   const onA11yAction = (event: AccessibilityActionEvent) => {
     if (event.nativeEvent.actionName === START_TIMER_ACTION) {
       if (canStartTimer) startTimer();
+      return;
+    }
+    if (event.nativeEvent.actionName === OPEN_FOCUS_ACTION) {
+      if (opensFocus) onOpenTimer?.();
       return;
     }
     const name = event.nativeEvent.actionName as TaskRowAction;
@@ -262,7 +292,7 @@ export function TaskRow({
         {hero ? (
           <Text
             className="text-xs font-bold uppercase"
-            style={{ color: colors.primary, letterSpacing: 0.6, marginLeft: 42, marginBottom: 4 }}
+            style={{ color: colors.primary, letterSpacing: 0.6, marginLeft: TEXT_INSET, marginBottom: 4 }}
             accessibilityElementsHidden
             importantForAccessibility="no"
           >
@@ -281,6 +311,7 @@ export function TaskRow({
               accessibilityActions={[
                 ...actions.map((action) => ({ name: action, label: TASK_ROW_ACTION_LABELS[action] })),
                 ...(canStartTimer ? [{ name: START_TIMER_ACTION, label: "Start timer" }] : []),
+                ...(opensFocus ? [{ name: OPEN_FOCUS_ACTION, label: "Open focus" }] : []),
               ]}
               onAccessibilityAction={onA11yAction}
               onPress={() => {
@@ -319,9 +350,9 @@ export function TaskRow({
               />
             ) : (
               <Pressable
-                onPress={openMenu}
+                onPress={opensFocus ? onOpenTimer : openMenu}
                 onLongPress={openMenu}
-                disabled={actions.length === 0}
+                disabled={actions.length === 0 && !opensFocus}
                 hitSlop={4}
                 testID={`task-words-${task.id}`}
                 // The checkbox already announces this task, its state and actions.
@@ -342,6 +373,8 @@ export function TaskRow({
                 </Text>
               </Pressable>
             )}
+
+            {session && !completed && !editing ? <RowSessionLine session={session} /> : null}
 
             {task.carriedOver && !completed && !editing ? (
               <Text className="text-xs" style={{ color: colors.warning }}>
@@ -450,10 +483,11 @@ export function TaskRow({
             ) : null}
           </View>
 
-          {/* The timer (1.3): quiet, and no taller than the circle, so it
-              never grows the row. Its 44pt target comes from the hit slop. */}
+          {/* The timer (1.3): the day's one timer, as a pill no taller than
+              the circle, so it never grows the row. Its 44pt target comes
+              from the hit slop. */}
           {!completed && !editing && session ? (
-            <RowTimer session={session} taskText={task.text} onPress={onOpenTimer} />
+            <RowTimer session={session} taskText={task.text} controls={controls} onOpen={onOpenTimer} />
           ) : canStartTimer ? (
             <Pressable
               ref={timerRef}
@@ -476,55 +510,151 @@ export function TaskRow({
             </Pressable>
           ) : null}
         </View>
+
+        {/* Time's up: the check-in, right under its task, in line with the words. */}
+        {!completed && !editing && session && controls ? <RowCheckIn session={session} controls={controls} /> : null}
       </View>
     </ReanimatedSwipeable>
   );
 }
 
-/** The running (or paused, or finished) timer in its task's row. */
-function RowTimer({ session, taskText, onPress }: { session: FocusSession; taskText: string; onPress?: () => void }) {
+const PILL_HEIGHT = 30;
+
+/**
+ * The running (or paused, or finished) timer in its task's row: a pill with a
+ * small ring (⏸ inside while running, ▶ while paused) and the time left.
+ * Tapping it pauses or resumes; at time's up it shows a bell and opens focus.
+ */
+function RowTimer({
+  session,
+  taskText,
+  controls,
+  onOpen,
+}: {
+  session: FocusSession;
+  taskText: string;
+  controls?: FocusSessionControls;
+  onOpen?: () => void;
+}) {
   const colors = useColors();
   const now = useFocusClock(session);
   const phase = sessionPhase(session, now);
   const left = remainingMs(session, now);
+  const paused = phase === "paused";
+  const ended = phase === "ended";
+  const pill = {
+    height: PILL_HEIGHT,
+    minWidth: 44,
+    paddingLeft: 4,
+    paddingRight: ended ? 4 : 10,
+    borderRadius: PILL_HEIGHT / 2,
+    borderWidth: 1,
+    // The outline carries the shape (the tint alone is too faint to).
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}1F`,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 6,
+  };
+
+  if (ended) {
+    return (
+      <Pressable
+        onPress={onOpen}
+        accessibilityRole="button"
+        accessibilityLabel={`Time's up: ${taskText}`}
+        accessibilityHint="Opens focus"
+        hitSlop={{ top: 7, bottom: 7 }}
+        style={({ pressed }) => ({ ...pill, opacity: pressed ? 0.7 : 1 })}
+        testID={`task-timer-running-${session.taskId}`}
+      >
+        {/* Time's up, not done: a bell on the full ring, never a green tick. */}
+        <ProgressRing completed={session.durationMs} total={session.durationMs} color={colors.primary} size={22} strokeWidth={2.5}>
+          <Ionicons name="notifications-outline" size={11} color={colors.primary} testID={`task-timer-times-up-${session.taskId}`} />
+        </ProgressRing>
+      </Pressable>
+    );
+  }
+
   // Whole minutes, so VoiceOver isn't told every second.
-  const label =
-    phase === "ended"
-      ? `Time's up: ${taskText}`
-      : `Timer${phase === "paused" ? " paused" : ""}: ${taskText}, ${durationWords(Math.ceil(left / MINUTE_MS))} left`;
+  const label = `${paused ? "Resume" : "Pause"} timer, ${durationWords(Math.ceil(left / MINUTE_MS))} left`;
+  const toggle = () => {
+    if (!controls) return;
+    if (paused) {
+      controls.resume();
+      announcePolitely("Resumed");
+    } else {
+      controls.pause();
+      announcePolitely("Paused");
+    }
+  };
   return (
     <Pressable
-      onPress={onPress}
+      onPress={toggle}
+      disabled={!controls}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityHint="Opens focus"
+      accessibilityState={{ disabled: !controls }}
       hitSlop={{ top: 7, bottom: 7 }}
-      style={{ minWidth: 44, height: 30, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 6 }}
+      style={({ pressed }) => ({ ...pill, opacity: pressed ? 0.7 : 1 })}
       testID={`task-timer-running-${session.taskId}`}
     >
+      {/* Paused: the ring goes quiet and the glyph offers ▶. */}
       <ProgressRing
         completed={session.durationMs - left}
         total={session.durationMs}
-        color={phase === "paused" ? colors.muted : colors.primary}
+        color={paused ? colors.muted : colors.primary}
         size={22}
-        strokeWidth={3}
+        strokeWidth={2.5}
       >
-        {phase === "paused" ? <Ionicons name="pause" size={10} color={colors.muted} /> : null}
-        {/* Time's up, not done: a bell on the full ring, never a green tick. */}
-        {phase === "ended" ? (
-          <Ionicons name="notifications-outline" size={11} color={colors.primary} testID={`task-timer-times-up-${session.taskId}`} />
-        ) : null}
+        <Ionicons
+          name={paused ? "play" : "pause"}
+          size={10}
+          color={colors.primary}
+          testID={`task-timer-${paused ? "play" : "pause"}-${session.taskId}`}
+        />
       </ProgressRing>
-      {phase !== "ended" ? (
-        <Text
-          className="text-sm font-semibold"
-          style={{ color: phase === "paused" ? colors.muted : colors.primary, fontVariant: ["tabular-nums"] }}
-          maxFontSizeMultiplier={1.3}
-          testID={`task-timer-left-${session.taskId}`}
-        >
-          {formatRemaining(left)}
-        </Text>
-      ) : null}
+      <Text
+        className="text-sm font-semibold"
+        style={{ color: paused ? colors.muted : colors.primary, fontVariant: ["tabular-nums"] }}
+        maxFontSizeMultiplier={1.3}
+        testID={`task-timer-left-${session.taskId}`}
+      >
+        {formatRemaining(left)}
+      </Text>
     </Pressable>
+  );
+}
+
+/**
+ * The muted line under the timed task's words while it runs: the step it's
+ * on (a starter after "Stuck?") and a 5-minute starter's "Just start" line.
+ */
+function RowSessionLine({ session }: { session: FocusSession }) {
+  const colors = useColors();
+  const now = useFocusClock(session);
+  if (sessionPhase(session, now) === "ended") return null;
+  const line = [session.stepText ? `Now: ${session.stepText}` : null, starterLine(session)].filter(Boolean).join(" ");
+  if (!line) return null;
+  return (
+    <Text className="text-sm" style={{ color: colors.muted }} testID={`task-session-line-${session.taskId}`}>
+      {line}
+    </Text>
+  );
+}
+
+/** At zero, the check-in under its task's row (in line with the words; no card of its own). */
+function RowCheckIn({ session, controls }: { session: FocusSession; controls: FocusSessionControls }) {
+  const colors = useColors();
+  const now = useFocusClock(session);
+  if (sessionPhase(session, now) !== "ended") return null;
+  return (
+    <View style={{ marginLeft: TEXT_INSET, marginTop: 10, gap: 8 }} testID={`task-check-in-${session.taskId}`}>
+      <Text className="text-sm font-semibold" style={{ color: colors.muted }} testID="task-check-in-title">
+        {session.kind === "starter" || session.stepText ? checkInTitle(session) : "Time's up."}
+      </Text>
+      <FocusCheckIn session={session} controls={controls} showTitle={false} />
+    </View>
   );
 }

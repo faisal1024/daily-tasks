@@ -1,7 +1,7 @@
 // The end check-in (1.3): when a focus session reaches zero it asks what's
 // next instead of stopping dead. A timer: Done / 5 more minutes / Stuck?
 // Break it down (and Not now). A starter: Keep going / Done / Stop here.
-// Shown in the Now bar and on the focus screen; it never ticks anything itself.
+// Shown under the task's row on Today and on the focus screen; it never ticks anything itself.
 // On the focus screen the footer's Done is the one solid button, so the
 // check-in's buttons are tinted there.
 import { AccessibilityInfo, Platform, Pressable, Text, View } from "react-native";

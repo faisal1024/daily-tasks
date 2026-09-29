@@ -736,7 +736,7 @@ describe("rating on a later app open", () => {
       focusSession: paused,
     });
     await render(<HomeScreen />);
-    await fireEvent.press(screen.getByTestId("now-bar-open"));
+    await fireEvent.press(screen.getByTestId("task-words-t1", { includeHiddenElements: true }));
     expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
     await settle();
     expect(requestAppReview).not.toHaveBeenCalled();
@@ -2775,66 +2775,94 @@ describe("Timer on your tasks (1.3)", () => {
     expect(focusEvents()).toEqual([["focus_opened", { source: "row" }]]);
   });
 
-  it("the running row shows its ring and time left instead of ▶; tapping it opens the focus screen", async () => {
+  it("the running row shows its pill (ring with ⏸, time left) instead of ▶, and no second timer on Today", async () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
     await render(<HomeScreen />);
     expect(screen.queryByRole("button", { name: "Start a timer: Walk" })).toBeNull();
     expect(screen.getByRole("button", { name: "Start a timer: Read" })).toBeOnTheScreen();
-    const rowTimer = screen.getByTestId("task-timer-running-t0");
-    expect(rowTimer.props.accessibilityLabel).toBe("Timer: Walk, 7 minutes left");
+    const pill = screen.getByTestId("task-timer-running-t0");
+    expect(pill.props.accessibilityLabel).toBe("Pause timer, 7 minutes left");
+    expect(pill.props.accessibilityState).toMatchObject({ disabled: false });
+    expect(screen.getByTestId("task-timer-pause-t0")).toBeOnTheScreen();
     expect(screen.getByTestId("task-timer-left-t0")).toHaveTextContent("7:00");
-    await fireEvent.press(rowTimer);
+    expect(screen.queryByTestId("now-bar")).toBeNull();
+  });
+
+  it("tapping the pill pauses (and says so); the task's words open the focus screen", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
+    await render(<HomeScreen />);
+    const said = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions");
+    await press("Pause timer, 7 minutes left");
+    expect(mockStore.pauseFocusSession).toHaveBeenCalledTimes(1);
+    expect(mockStore.resumeFocusSession).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    expect(said).toHaveBeenCalledWith("Paused", { queue: true });
+    said.mockRestore();
+
+    await fireEvent.press(screen.getByTestId("task-words-t0", { includeHiddenElements: true }));
     expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
     expect(screen.getByTestId("focus-timer-remaining")).toHaveTextContent("7:00");
     expect(focusEvents()).toEqual([["focus_opened", { source: "row" }]]);
   });
 
-  it("the Now bar shows the task and time left, and Pause pauses", async () => {
-    mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
-    await render(<HomeScreen />);
-    expect(screen.getByTestId("now-bar-task")).toHaveTextContent("Walk");
-    expect(screen.getByTestId("now-bar-time")).toHaveTextContent("7:00 left");
-    await press("Pause timer");
-    expect(mockStore.pauseFocusSession).toHaveBeenCalledTimes(1);
-    expect(mockStore.resumeFocusSession).not.toHaveBeenCalled();
-  });
-
-  it("the Now bar says Paused with the frozen time, and Resume resumes", async () => {
+  it("paused: the pill offers ▶ with the frozen time, and a tap resumes", async () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: paused() });
     await render(<HomeScreen />);
-    expect(screen.getByTestId("now-bar-time")).toHaveTextContent("Paused · 6:00 left");
+    expect(screen.getByTestId("task-timer-left-t0")).toHaveTextContent("6:00");
+    expect(screen.getByTestId("task-timer-play-t0")).toBeOnTheScreen();
     await act(async () => {
       jest.setSystemTime(NOW + 30 * MIN);
     });
-    expect(screen.getByTestId("now-bar-time")).toHaveTextContent("Paused · 6:00 left");
-    await press("Resume timer");
+    expect(screen.getByTestId("task-timer-left-t0")).toHaveTextContent("6:00");
+    await press("Resume timer, 6 minutes left");
     expect(mockStore.resumeFocusSession).toHaveBeenCalledTimes(1);
+    expect(mockStore.pauseFocusSession).not.toHaveBeenCalled();
   });
 
-  it("tapping the Now bar opens the focus screen; Back to Today keeps the timer, Stop timer ends it", async () => {
+  it("the timed task's words open the focus screen (long press keeps the menu); Back to Today keeps the timer, Stop timer ends it", async () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
+    const sheet = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
     await render(<HomeScreen />);
-    await fireEvent.press(screen.getByTestId("now-bar-open"));
+    const words = () => screen.getByTestId("task-words-t0", { includeHiddenElements: true });
+    await fireEvent(words(), "longPress");
+    expect(sheet).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    sheet.mockRestore();
+
+    await fireEvent.press(words());
     expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
-    expect(focusEvents()).toEqual([["focus_opened", { source: "now_bar" }]]);
     await press("Back to Today");
     expect(screen.queryByTestId("focus-mode")).toBeNull();
     expect(mockStore.stopFocusSession).not.toHaveBeenCalled();
-    expect(screen.getByTestId("now-bar")).toBeOnTheScreen();
+    expect(screen.getByTestId("task-timer-running-t0")).toBeOnTheScreen();
 
-    await fireEvent.press(screen.getByTestId("now-bar-open"));
+    await fireEvent.press(words());
     await press("Stop timer");
     expect(mockStore.stopFocusSession).toHaveBeenCalledWith("stopped");
   });
 
-  it("at zero the Now bar says Time's up with the check-in: Done ticks the task, 5 more extends, Stop here clears", async () => {
+  it("VoiceOver: the timed task's checkbox has an Open focus action", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
+    await render(<HomeScreen />);
+    const box = screen.getByRole("checkbox", { name: "Task 1: Walk" });
+    expect(box.props.accessibilityActions).toEqual(expect.arrayContaining([{ name: "openFocus", label: "Open focus" }]));
+    await fireEvent(box, "accessibilityAction", { nativeEvent: { actionName: "openFocus" } });
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    // Another task's checkbox has none.
+    const other = screen.getByRole("checkbox", { name: "Task 2: Read" });
+    expect(other.props.accessibilityActions).not.toEqual(expect.arrayContaining([{ name: "openFocus", label: "Open focus" }]));
+  });
+
+  it("at zero the check-in shows under the task's row: Done ticks the task, 5 more extends, Stop here clears", async () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: ended() });
     await render(<HomeScreen />);
-    expect(screen.getByTestId("now-bar-title")).toHaveTextContent('Time\'s up on "Walk".');
-    const open = screen.getByTestId("now-bar-open");
-    expect(open.props.accessibilityLabel).toBe('Time\'s up on "Walk".');
-    expect(open.props.accessibilityHint).toBe("Opens focus");
-    const checkIn = within(screen.getByTestId("now-bar"));
+    const checkIn = within(screen.getByTestId("task-check-in-t0"));
+    expect(checkIn.getByTestId("task-check-in-title")).toHaveTextContent("Time's up.");
+    // Inside the tasks card, not a card of its own.
+    expect(within(screen.getByTestId("today-tasks")).getByTestId("task-check-in-t0")).toBeOnTheScreen();
+    const pill = screen.getByTestId("task-timer-running-t0");
+    expect(pill.props.accessibilityLabel).toBe("Time's up: Walk");
+    expect(pill.props.accessibilityHint).toBe("Opens focus");
     await fireEvent.press(checkIn.getByRole("button", { name: "5 more minutes" }));
     expect(mockStore.extendFocusSession).toHaveBeenCalledTimes(1);
     await fireEvent.press(checkIn.getByRole("button", { name: "Stop here" }));
@@ -2843,20 +2871,21 @@ describe("Timer on your tasks (1.3)", () => {
     expect(mockStore.toggleTask).toHaveBeenCalledWith("t0");
     // No proxy: no Stuck? link.
     expect(checkIn.queryByRole("button", { name: "Stuck? Break it down" })).toBeNull();
+    // The pill at time's up opens the focus screen.
+    await fireEvent.press(pill);
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
   });
 
-  it("time's up never looks like done: a bell (not a green tick) in the Now bar and on the row", async () => {
+  it("time's up never looks like done: a bell (not a green tick) on the row's pill", async () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: ended() });
     await render(<HomeScreen />);
     // Ionicons renders its glyph as text: look for each icon's character.
     const glyph = (name: "notifications-outline" | "checkmark-circle" | "checkmark") =>
       String.fromCodePoint(Ionicons.glyphMap[name] as number);
-    expect(screen.getByTestId("now-bar-times-up-icon")).toHaveTextContent(glyph("notifications-outline"));
     expect(screen.getByTestId("task-timer-times-up-t0")).toHaveTextContent(glyph("notifications-outline"));
-    const now = screen.getByTestId("now-bar");
-    expect(within(now).queryByText(glyph("checkmark-circle"))).toBeNull();
+    expect(within(screen.getByTestId("task-check-in-t0")).queryByText(glyph("checkmark-circle"))).toBeNull();
     expect(within(screen.getByTestId("task-timer-running-t0")).queryByText(glyph("checkmark"))).toBeNull();
-    expect(screen.getByTestId("task-timer-running-t0").props.accessibilityLabel).toBe("Time's up: Walk");
+    expect(screen.queryByTestId("task-timer-left-t0")).toBeNull();
   });
 
   it("Stuck? (Plus) ends the session as broken down, breaks the task down, then offers a 5-minute starter on the first step", async () => {
@@ -2911,12 +2940,13 @@ describe("Timer on your tasks (1.3)", () => {
       focusSession: ended({ kind: "starter", durationMs: 5 * MIN, startedAt: NOW - 5 * MIN }),
     });
     await render(<HomeScreen />);
-    expect(screen.getByTestId("now-bar-title")).toHaveTextContent("5 minutes in. Keep going?");
+    // Under its own task's row, so the line needn't name it.
+    expect(within(screen.getByTestId("task-check-in-t0")).getByTestId("task-check-in-title")).toHaveTextContent(
+      "5 minutes in. Keep going?",
+    );
     const keep = screen.getByRole("button", { name: "Keep going" });
     expect(keep.props.accessibilityHint).toBe("Starts a 20-minute timer");
     expect(screen.queryByRole("button", { name: "5 more minutes" })).toBeNull();
-    // The starter's line doesn't name the task: the subtitle does.
-    expect(screen.getByTestId("now-bar-subtitle")).toHaveTextContent("Walk");
     await fireEvent.press(keep);
     expect(mockStore.keepGoingFocusSession).toHaveBeenCalledTimes(1);
     await press("Stop here");
@@ -2925,19 +2955,21 @@ describe("Timer on your tasks (1.3)", () => {
     expect(mockStore.toggleTask).toHaveBeenCalledWith("t0");
   });
 
-  it("a running starter says 'Just start' in the Now bar", async () => {
+  it("a running starter says 'Just start' under its task's words", async () => {
     mockStore = makeStore({
       tasks: tasks("Walk", "Read"),
       focusSession: running({ kind: "starter", durationMs: 5 * MIN, startedAt: NOW, endAt: NOW + 5 * MIN }),
     });
     await render(<HomeScreen />);
-    expect(screen.getByTestId("now-bar-starter")).toHaveTextContent("Just start. You can stop after 5.");
+    expect(screen.getByTestId("task-session-line-t0")).toHaveTextContent("Just start. You can stop after 5.");
   });
 
-  it("no Now bar without a session", async () => {
+  it("no timer pill, line or check-in without a session", async () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Read") });
     await render(<HomeScreen />);
-    expect(screen.queryByTestId("now-bar")).toBeNull();
+    expect(screen.queryByTestId("task-timer-running-t0")).toBeNull();
+    expect(screen.queryByTestId("task-session-line-t0")).toBeNull();
+    expect(screen.queryByTestId("focus-check-in")).toBeNull();
   });
 
   it("start my next task (widget, Siri) with another task's timer on: that task's focus screen opens, warning it stops the other, with focus_opened from widget / siri", async () => {

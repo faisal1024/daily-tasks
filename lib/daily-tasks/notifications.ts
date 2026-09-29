@@ -133,7 +133,7 @@ export async function cancelAllNotifications(): Promise<void> {
 // so an iOS Focus (e.g. Do Not Disturb) may hold it back. Android uses the
 // default channel. Its id is outside MANAGED_REMINDER_PREFIX, so the
 // reminder syncs never cancel it; the handler above doesn't show it in-app
-// (the Now bar says it there). Only with permission already granted: it never asks.
+// (the task row's check-in says it there). Only with permission already granted: it never asks.
 export const FOCUS_TIMER_NOTIFICATION_ID = "three-today:focus-timer";
 // Its buttons: Done and "5 more minutes". Both open the app, so a tap is
 // handled even when the app wasn't running (a background action is lost then).
@@ -148,7 +148,7 @@ let focusGeneration = 0;
 let categoryReady = false;
 
 function queueFocus(step: () => Promise<void>): Promise<void> {
-  // A missed end notification is fine; the Now bar still says it in the app.
+  // A missed end notification is fine; the task row's check-in still says it in the app.
   const run = focusQueue.then(step).catch(() => {});
   focusQueue = run;
   return run;

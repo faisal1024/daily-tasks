@@ -1962,7 +1962,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const pendingFocusResponses = useRef<FocusNotificationResponse[]>([]);
   const handleFocusResponse = useRef<(response: FocusNotificationResponse) => void>(() => {});
   handleFocusResponse.current = (response) => {
-    // Any tap on it shows Today, where the Now bar and check-in are.
+    // Any tap on it shows Today, where the task row's timer and check-in are.
     navigateToToday();
     const current = stateRef.current;
     const session = current.focusSession;
