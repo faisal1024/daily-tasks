@@ -9,7 +9,7 @@
 // paused session, updated when it changes (pause, resume, 5 more minutes, the
 // task's words), "Time's up" once it ends; any other activity is ended
 // (an orphan from a session that's gone). When the session goes, its activity
-// shows "Done" or "Timer stopped" briefly and then goes. One the user swiped
+// shows "Done", "Timer stopped" or "Timer ended" (a break) briefly and then goes. One the user swiped
 // away isn't brought back for that session. Nothing here throws.
 import { Platform } from "react-native";
 
@@ -18,12 +18,13 @@ import { loadFocusActivity, type FocusActivityModule } from "@/modules/focus-act
 import type { FocusSession } from "./focus-session";
 import { focusSessionJson } from "./widget-bridge";
 
-/** How long the final "Done" / "Timer stopped" shows, in seconds. */
+/** How long the final "Done" / "Timer stopped" / "Timer ended" shows, in seconds. */
 export const FINAL_DISMISS_SECONDS = 8;
 /** An activity's content must stay under 4 KB: long words are cut. */
 export const ACTIVITY_TEXT_MAX = 120;
 
-export type LiveActivityEnding = "done" | "stopped";
+/** "break": Take a break at time's up ("Timer ended"; the task stays open). */
+export type LiveActivityEnding = "done" | "stopped" | "break";
 
 let activityModule: FocusActivityModule | null | undefined;
 // Calls are chained so a start can't race an update or end.

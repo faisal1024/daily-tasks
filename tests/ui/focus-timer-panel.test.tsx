@@ -7,7 +7,7 @@
 // surviving Close) is in focus-mode.test.tsx.
 import { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AppState, Platform, StyleSheet } from "react-native";
+import { AppState, Dimensions, Platform, StyleSheet } from "react-native";
 import { act, fireEvent, screen, within } from "@testing-library/react-native";
 
 import { FocusCheckIn, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
@@ -521,7 +521,7 @@ describe("FocusTimerPanel: the end-time icon", () => {
 });
 
 // 1.3 polish (PR #75): the one solid button, the Pause hint, the starter's
-// line while paused, and where Stop here sits.
+// line while paused, and the check-in's link row (PR #76).
 describe("FocusTimerPanel: 1.3 polish", () => {
   const fill = (testID: string) => StyleSheet.flatten(screen.getByTestId(testID).props.style).backgroundColor;
   const tint = `${ThemeColors.primary.light}1F`;
@@ -588,6 +588,28 @@ describe("FocusTimerPanel: 1.3 polish", () => {
     expect(screen.queryByTestId("focus-starter-line")).toBeNull();
     await view.rerender(panel(resume(pause(running, Date.now() + MIN), Date.now() + 2 * MIN)));
     expect(screen.getByTestId("focus-starter-line")).toBeOnTheScreen();
+  });
+
+  // PR #76 review: the tick grows with the text size, to 1.4× (as the check-in's buttons cap it).
+  it("the ✓ on Mark task done scales with the font scale, capped at 1.4×", async () => {
+    const ended = { ...startSession({ id: "s", taskId: TASK.id, taskText: TASK.text, date: "2026-09-26", kind: "timer", minutes: 5, now: Date.now() - 6 * MIN }), status: "ended" as const };
+    const original = Dimensions.get("window");
+    const setFontScale = (fontScale: number) =>
+      act(async () => {
+        Dimensions.set({ window: { ...original, fontScale }, screen: { ...original, fontScale } });
+      });
+    const size = () => StyleSheet.flatten(screen.getByTestId("focus-check-in-done-icon").props.style).fontSize;
+    try {
+      await setFontScale(1);
+      await render(<FocusCheckIn session={ended} controls={noControls()} />);
+      expect(size()).toBe(16);
+      await setFontScale(1.2);
+      expect(size()).toBe(19);
+      await setFontScale(3);
+      expect(size()).toBe(22);
+    } finally {
+      await setFontScale(original.fontScale);
+    }
   });
 
   // R8, revised: the links sit left-aligned under the buttons, as

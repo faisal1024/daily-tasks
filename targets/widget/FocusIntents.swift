@@ -71,6 +71,25 @@ struct FocusExtendIntent: LiveActivityIntent {
   }
 }
 
+/// Time's up: Take a break (a starter's Stop for now). Ends the session; the
+/// task stays open.
+@available(iOS 17.0, *)
+struct FocusBreakIntent: LiveActivityIntent {
+  static let title: LocalizedStringResource = "Take a break"
+  static let description = IntentDescription("Ends the timer. The task stays open.")
+  static let isDiscoverable = false
+
+  @Parameter(title: "Session") var sessionId: String
+
+  init() {}
+  init(sessionId: String) { self.sessionId = sessionId }
+
+  func perform() async throws -> some IntentResult {
+    await FocusActions.takeBreak(sessionId: sessionId)
+    return .result()
+  }
+}
+
 @available(iOS 17.0, *)
 struct FocusDoneIntent: LiveActivityIntent {
   static let title: LocalizedStringResource = "Mark the task done"

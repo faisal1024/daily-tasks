@@ -227,7 +227,7 @@ describe("One timer, on the task (real store)", () => {
     const checkIn = within(within(screen.getByTestId("today-tasks")).getByTestId("task-check-in-t0"));
     expect(checkIn.getByTestId("task-check-in-title")).toHaveTextContent("Time's up.");
     expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
-    expect(said().filter((s) => s === "Time's up on “Walk”.")).toHaveLength(1);
+    expect(said().filter((s) => s === "Time's up on “Walk”. 5 more minutes, or take a break.")).toHaveLength(1);
     await advance(MIN);
     expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
 
@@ -273,7 +273,8 @@ describe("One timer, on the task (real store)", () => {
     expect(checkIn.getByTestId("task-check-in-title")).toHaveTextContent("5 minutes in. Keep going?");
     expect(checkIn.queryByRole("button", { name: "5 more minutes" })).toBeNull();
     expect(checkIn.queryByRole("button", { name: "Done" })).toBeNull();
-    expect(checkIn.getByRole("button", { name: "Take a break" })).toBeOnTheScreen();
+    expect(checkIn.getByRole("button", { name: "Stop for now" })).toBeOnTheScreen();
+    expect(checkIn.queryByRole("button", { name: "Take a break" })).toBeNull();
     expect(checkIn.getByRole("button", { name: "Mark task done" })).toBeOnTheScreen();
     await fireEvent.press(checkIn.getByRole("button", { name: "Keep going" }));
     await act(async () => {});
@@ -286,14 +287,14 @@ describe("One timer, on the task (real store)", () => {
 
   // PR #76: a starter's Take a break ends it, and the task stays open (it
   // was only the first five minutes).
-  it("a starter reaching 5 on its row: Take a break clears it (break, 5 min), the task stays open, nothing completed", async () => {
+  it("a starter reaching 5 on its row: Stop for now clears it (break, 5 min), the task stays open, nothing completed", async () => {
     await openToday(
       session({ kind: "starter", stepText: "Find the lead", durationMs: 5 * MIN, startedAt: NOW, endAt: NOW + 5 * MIN }),
     );
     await advance(5 * MIN + 1000);
     (track as jest.Mock).mockClear();
     const checkIn = within(screen.getByTestId("task-check-in-t0"));
-    await fireEvent.press(checkIn.getByRole("button", { name: "Take a break" }));
+    await fireEvent.press(checkIn.getByRole("button", { name: "Stop for now" }));
     for (let i = 0; i < 3; i++) await act(async () => {});
     const calls = (track as jest.Mock).mock.calls;
     expect(calls.filter((c) => c[0] === "focus_session_ended")).toEqual([

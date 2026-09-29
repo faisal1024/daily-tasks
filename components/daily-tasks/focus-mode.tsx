@@ -91,6 +91,11 @@ export function FocusMode({
     },
     [],
   );
+  // At time's up the check-in (under the ring) is what matters: bring it in.
+  useEffect(() => {
+    // Only when time's up comes (revealTimer only touches refs).
+    if (timesUp) revealTimer();
+  }, [timesUp]);
 
   // A double tap on Mark task done must tick it only once.
   const doneRef = useRef(false);
@@ -125,6 +130,9 @@ export function FocusMode({
       <View
         style={{ flex: 1, backgroundColor: colors.background }}
         accessibilityViewIsModal
+        // VoiceOver's escape (two-finger Z): the screen's one way out, Back
+        // to Today, or at time's up Take a break.
+        onAccessibilityEscape={timesUp ? checkInControls.takeBreak : onClose}
         testID="focus-mode"
       >
         <ScrollView
@@ -202,7 +210,7 @@ export function FocusMode({
               onReveal={revealTimer}
               onCustomOpenChange={setCustomOpen}
               checkIn={
-                session ? <FocusCheckIn session={session} controls={checkInControls} /> : null
+                session ? <FocusCheckIn session={session} controls={checkInControls} focusTitle /> : null
               }
             />
           </View>

@@ -4,7 +4,7 @@
 // notification, and closing without stopping it. Run on the real store.
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AppState } from "react-native";
+import { AccessibilityInfo, AppState, ScrollView } from "react-native";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
 import { useFocusSessionCues } from "@/hooks/use-focus-session-cues";
@@ -198,6 +198,35 @@ describe("FocusMode", () => {
     expect(onDone).not.toHaveBeenCalled();
   });
 
+  // PR #76 review: at time's up the check-in is brought into view and
+  // VoiceOver goes to its line; the escape gesture is the screen's way out.
+  it("at time's up: scrolls the check-in into view, moves VoiceOver to its line, and escape is Take a break", async () => {
+    const scroll = jest.spyOn(ScrollView.prototype, "scrollToEnd").mockImplementation(() => {});
+    const focus = jest.spyOn(AccessibilityInfo, "sendAccessibilityEvent").mockImplementation(() => {});
+    const { onClose, onDone } = await renderFocus();
+    // Before any session, escape is Back to Today.
+    await act(async () => fireEvent(screen.getByTestId("focus-mode"), "accessibilityEscape"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await pick("5 minute timer");
+    await advance(100);
+    scroll.mockClear();
+    expect(focus).not.toHaveBeenCalled();
+    await advance(5 * MIN + 100);
+    // The scroll (and the focus) wait a frame.
+    await advance(100);
+    expect(screen.getByTestId("focus-check-in")).toBeOnTheScreen();
+    expect(scroll).toHaveBeenCalled();
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(focus.mock.calls[0][1]).toBe("focus");
+    expect(screen.getByTestId("focus-check-in-title").props.accessibilityRole).toBe("header");
+    // Escape at time's up: Take a break (the session ends, the task stays open).
+    await act(async () => fireEvent(screen.getByTestId("focus-mode"), "accessibilityEscape"));
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onDone).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
+    expect(screen.getByRole("header", { name: "Focus: Walk the dog" })).toBeOnTheScreen();
+  });
+
   it("says only the start and the end, never each second or minute", async () => {
     await renderFocus();
     await pick("10 minute timer");
@@ -205,7 +234,11 @@ describe("FocusMode", () => {
     await advance(9 * MIN);
     expect(said()).toHaveLength(1);
     await advance(2 * MIN);
-    expect(said()).toEqual(["Timer started, 10 minutes", "Time's up on “Walk the dog”."]);
+    // At the end: the check-in's line and its two choices.
+    expect(said()).toEqual([
+      "Timer started, 10 minutes",
+      "Time's up on “Walk the dog”. 5 more minutes, or take a break.",
+    ]);
   });
 
   it("Stop timer goes back to the picker; 5 more minutes runs it again; Take a break clears it and closes, the task still open", async () => {

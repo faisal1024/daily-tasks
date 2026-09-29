@@ -2664,6 +2664,7 @@ describe("Timer on your tasks (1.3)", () => {
   const NOW = MORNING.getTime();
   const focusEvents = () => mockTrack.mock.calls.filter((c) => String(c[0]).startsWith("focus_"));
   const press = (name: string) => fireEvent.press(screen.getByRole("button", { name }));
+  const pause = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
   function running(overrides: Partial<NonNullable<AppState["focusSession"]>> = {}): NonNullable<AppState["focusSession"]> {
     return {
@@ -2883,6 +2884,7 @@ describe("Timer on your tasks (1.3)", () => {
 
   // Owner feedback: ending a timer never ticks the task.
   it("the focus screen at time's up: Take a break (no Back to Today) ends the session and goes back to Today, the task still open", async () => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: ended() });
     await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("task-timer-running-t0"));
@@ -2895,6 +2897,23 @@ describe("Timer on your tasks (1.3)", () => {
     expect(mockStore.toggleTask).not.toHaveBeenCalled();
     expect(screen.queryByTestId("focus-mode")).toBeNull();
     expect(focusEvents()).toEqual([["focus_opened", { source: "row" }]]);
+    // Said once the screen has gone: the task wasn't ticked.
+    expect(announce).not.toHaveBeenCalledWith("Timer ended. Walk is still open.");
+    await pause(600);
+    expect(announce).toHaveBeenCalledWith("Timer ended. Walk is still open.");
+    announce.mockRestore();
+  });
+
+  it("Stop timer says the timer stopped and the task is still open", async () => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("task-words-t0", { includeHiddenElements: true }));
+    await press("Stop timer");
+    expect(mockStore.stopFocusSession).toHaveBeenCalledWith("stopped");
+    await pause(600);
+    expect(announce).toHaveBeenCalledWith("Timer stopped. Walk is still open.");
+    announce.mockRestore();
   });
 
   it("the focus screen at time's up: ✓ Mark task done ticks the task the normal way, tracks focus_completed and closes", async () => {
@@ -2968,7 +2987,7 @@ describe("Timer on your tasks (1.3)", () => {
     expect(screen.queryByRole("button", { name: "Stuck? Break it down" })).toBeNull();
   });
 
-  it("a starter's check-in: Keep going (a 20-minute timer), Take a break, ✓ Mark task done", async () => {
+  it("a starter's check-in: Keep going (a 20-minute timer), Stop for now (a break), ✓ Mark task done", async () => {
     mockStore = makeStore({
       tasks: tasks("Walk", "Read"),
       focusSession: ended({ kind: "starter", durationMs: 5 * MIN, startedAt: NOW - 5 * MIN }),
@@ -2983,7 +3002,11 @@ describe("Timer on your tasks (1.3)", () => {
     expect(screen.queryByRole("button", { name: "5 more minutes" })).toBeNull();
     await fireEvent.press(keep);
     expect(mockStore.keepGoingFocusSession).toHaveBeenCalledTimes(1);
-    await press("Take a break");
+    expect(screen.queryByRole("button", { name: "Take a break" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop for now" }).props.accessibilityHint).toBe(
+      "Ends the timer. The task stays open.",
+    );
+    await press("Stop for now");
     expect(mockStore.stopFocusSession).toHaveBeenCalledWith("break");
     expect(mockStore.toggleTask).not.toHaveBeenCalled();
     await press("Mark task done");

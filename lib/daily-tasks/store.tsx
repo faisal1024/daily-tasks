@@ -292,12 +292,23 @@ function trackAppliedTaps(before: AppState, toggles: WidgetToggle[]): void {
   if (toggles.some((toggle) => toggle.source === "live_activity" && toggle.done)) void dismissFocusTimerNotification();
 }
 
-/** The Live Activity's Pause / Resume / 5 more minutes, once applied. */
-function trackCommands(before: FocusSession | null, applied: FocusCommandAction[]): void {
+/**
+ * The Live Activity's Pause / Resume / 5 more minutes / Take a break, once
+ * applied. A break's focus_session_ended is sent here only at launch
+ * (`breakEndedHere`); while the app runs, the session-ended effect sends it.
+ */
+function trackCommands(
+  before: FocusSession | null,
+  applied: FocusCommandAction[],
+  breakEndedHere = false,
+): void {
   for (const action of applied) {
     track("live_activity_action", { action });
     // Like the app's own "5 more minutes" / "Keep going": that countdown ended.
     if (action === "extend" && before) track("focus_session_ended", { outcome: "extended", minutes: sessionMinutes(before) });
+    if (action === "break" && before && breakEndedHere) {
+      track("focus_session_ended", { outcome: "break", minutes: sessionMinutes(before) });
+    }
   }
   // No dismiss here: the intent already removed the answered "Time's up",
   // and by the time the app applies the tap the extended countdown may have
@@ -1147,6 +1158,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     const now = Date.now();
     const before = stateRef.current.focusSession;
     const { applied } = applyFocusCommands(before, commands, now);
+    // A lock-screen Take a break: the session-ended effect reports it as one.
+    if (applied.includes("break")) focusOutcome.current = "break";
     dispatch({ type: "applyFocusCommands", commands, now });
     markFocusCommandsProcessed(lastCommandSeq(commands, processedSeq));
     // The activity wrote the mirror itself: rewrite it from the app's state,
@@ -1250,7 +1263,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       if (commands.length > 0) {
         markFocusCommandsProcessed(lastCommandSeq(commands, commandsSeq));
         invalidateFocusSession();
-        trackCommands(saved.focusSession ?? null, commanded.applied);
+        trackCommands(saved.focusSession ?? null, commanded.applied, true);
       }
       const hydrated = commanded.session
         ? { ...saved, focusSession: restoreSession(commanded.session, now) }
@@ -1413,6 +1426,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // the one its action gave, or else: its task was ticked ("done", from
   // anywhere), or it was cleared (deleted, Not today, a new day, another start).
   const focusOutcome = useRef<FocusSessionOutcome | null>(null);
+  // The last session's outcome, for the Live Activity's final words below.
+  const endedOutcome = useRef<FocusSessionOutcome | null>(null);
   const lastFocusSession = useRef<FocusSession | null>(null);
   useEffect(() => {
     const previous = lastFocusSession.current;
@@ -1421,6 +1436,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     const outcome =
       focusOutcome.current ?? (state.todayCompletions.includes(previous.taskId) ? "done" : "cleared");
     focusOutcome.current = null;
+    endedOutcome.current = outcome;
     track("focus_session_ended", { outcome, minutes: sessionMinutes(previous) });
     // Only when the session changes; completions are read at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1428,7 +1444,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
 
   // The Live Activity and Dynamic Island (1.3): started with a session,
   // updated as it changes, and ended with a short "Done" (its task was
-  // ticked) or "Timer stopped" when it goes. Reconciled whenever the app
+  // ticked), "Timer ended" (Take a break) or "Timer stopped" when it goes. Reconciled whenever the app
   // becomes active: an activity whose session is gone ends, and a session
   // without one (e.g. activities were off, or it was dismissed) gets one again.
   // The reconcile is a render away, so it sees the session after this
@@ -1452,7 +1468,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       previous && !focusSession
         ? stateRef.current.todayCompletions.includes(previous.taskId)
           ? "done"
-          : "stopped"
+          : endedOutcome.current === "break"
+            ? "break"
+            : "stopped"
         : undefined;
     void syncLiveActivity(focusSession, { ending, force });
   }, [ready, focusSession, liveNonce]);

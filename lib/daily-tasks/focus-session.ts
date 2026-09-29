@@ -206,6 +206,34 @@ export function checkInTitle(session: FocusSession): string {
   return `Time's up on “${sessionFocusText(session)}”.`;
 }
 
+/**
+ * The check-in's quiet way out (time's up): "Take a break" on a timer, "Stop
+ * for now" on a starter. Either ends the session; the task stays open.
+ */
+export function checkInBreakLabel(session: FocusSession): string {
+  return session.kind === "starter" ? "Stop for now" : "Take a break";
+}
+
+/**
+ * What VoiceOver says at time's up: the check-in's line and its two choices,
+ * e.g. "Time's up on “Walk”. 5 more minutes, or take a break." A starter:
+ * "5 minutes in. Keep going, or stop for now."
+ */
+export function checkInAnnouncement(session: FocusSession): string {
+  if (session.kind === "starter") {
+    return `${capitalize(durationWords(sessionMinutes(session)))} in. Keep going, or stop for now.`;
+  }
+  return `${checkInTitle(session)} 5 more minutes, or take a break.`;
+}
+
+/**
+ * Said after the session is ended by hand (Take a break, Stop timer): the
+ * task wasn't ticked. "Timer ended. Walk is still open."
+ */
+export function sessionEndedAnnouncement(stopped: "break" | "stopped", taskText: string): string {
+  return `${stopped === "break" ? "Timer ended" : "Timer stopped"}. ${taskText} is still open.`;
+}
+
 /** The end notification's title: the task's words, cut to about 60 characters. */
 export const NOTIFICATION_TITLE_MAX = 60;
 export function notificationTitle(session: FocusSession): string {

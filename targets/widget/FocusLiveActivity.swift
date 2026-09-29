@@ -34,7 +34,8 @@ extension FocusActivityAttributes.ContentState {
   func phase(at now: Date, isStale: Bool) -> FocusPhase {
     switch status {
     case "done": return .done
-    case "stopped": return .stopped
+    // Stopped by hand: Stop timer in the app, or Take a break ("break").
+    case "stopped", "break": return .stopped
     case "paused": return .paused
     case "running":
       if isStale { return .timesUp }
@@ -63,7 +64,7 @@ extension FocusActivityAttributes.ContentState {
     // The app's check-in: a starter asks to keep going.
     case .timesUp: return kind == "starter" ? "\(capitalized(durationWords(minutes))) in" : "Time's up"
     case .done: return "Done"
-    case .stopped: return "Timer stopped"
+    case .stopped: return status == "break" ? "Timer ended" : "Timer stopped"
     }
   }
 
@@ -74,6 +75,8 @@ extension FocusActivityAttributes.ContentState {
 
   /// The time's-up button, as the app's check-in has it.
   var extendTitle: String { kind == "starter" ? "Keep going" : "5 more minutes" }
+  /// The check-in's quiet way out (focus-session.ts checkInBreakLabel).
+  var breakTitle: String { kind == "starter" ? "Stop for now" : "Take a break" }
 
   /// A countdown of an hour or more needs the smaller compact font.
   var isLong: Bool { durationMs >= 3_600_000 }
@@ -195,10 +198,13 @@ struct FocusTime: View {
   }
 }
 
-/// The buttons, which act in place (LiveActivityIntent): Pause/Resume and
-/// Mark done while it runs; at time's up, 5 more minutes (Keep going for a
-/// starter) and Mark done. Mark done (it ticks the task) is never the loud
-/// one, and says what it does: ending a timer isn't finishing the task.
+/// The buttons, which act in place (LiveActivityIntent). While it runs, only
+/// Pause / Resume: the lock screen never offers a one-tap tick mid-session
+/// (a timer is often just the first sitting). At time's up, as the app's
+/// check-in: 5 more minutes (Keep going for a starter, the solid lead), Take
+/// a break (Stop for now), and Mark done, which ticks the task and is never
+/// the loud one. Three in one row (no icons, a smaller font) so the lock
+/// screen stays within 160pt.
 struct FocusButtons: View {
   let attributes: FocusActivityAttributes
   let state: FocusActivityAttributes.ContentState
@@ -208,36 +214,44 @@ struct FocusButtons: View {
   var solidInk: Color
 
   var body: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: 8) {
       switch phase {
       case .running:
-        pill(FocusPauseIntent(sessionId: attributes.sessionId), "Pause", "pause.fill", solid: false)
+        pill(FocusPauseIntent(sessionId: attributes.sessionId), "Pause", symbol: "pause.fill", solid: false)
       case .paused:
-        pill(FocusResumeIntent(sessionId: attributes.sessionId), "Resume", "play.fill", solid: false)
+        pill(FocusResumeIntent(sessionId: attributes.sessionId), "Resume", symbol: "play.fill", solid: false)
       case .timesUp:
-        pill(FocusExtendIntent(sessionId: attributes.sessionId), state.extendTitle, "goforward.plus", solid: true)
-      default:
-        EmptyView()
-      }
-      if phase == .running || phase == .paused || phase == .timesUp {
+        pill(FocusExtendIntent(sessionId: attributes.sessionId), state.extendTitle, solid: true)
+        pill(FocusBreakIntent(sessionId: attributes.sessionId), state.breakTitle, solid: false)
+          .accessibilityHint("Ends the timer. The task stays open.")
         pill(
           FocusDoneIntent(sessionId: attributes.sessionId, taskId: attributes.taskId, date: attributes.date),
-          "Mark done", "checkmark", solid: false
+          "Mark done", solid: false
         )
-        .accessibilityLabel("Mark task done: \(state.taskText)")
+        .accessibilityLabel("Mark task done")
+        .accessibilityHint("Ticks off \(state.taskText)")
+      default:
+        EmptyView()
       }
     }
   }
 
-  private func pill<I: AppIntent>(_ intent: I, _ title: String, _ symbol: String, solid: Bool) -> some View {
+  private func pill<I: AppIntent>(_ intent: I, _ title: String, symbol: String? = nil, solid: Bool) -> some View {
     Button(intent: intent) {
-      Label(title, systemImage: symbol)
-        .font(.system(size: 15, weight: .semibold, design: .rounded))
-        .lineLimit(1)
-        .minimumScaleFactor(0.8)
-        .frame(maxWidth: .infinity, minHeight: 34)
-        .foregroundStyle(solid ? solidInk : .white)
-        .background(Capsule().fill(solid ? solidFill : Color.white.opacity(0.2)))
+      Group {
+        if let symbol {
+          Label(title, systemImage: symbol)
+        } else {
+          Text(title)
+        }
+      }
+      .font(.system(size: symbol == nil ? 14 : 15, weight: .semibold, design: .rounded))
+      .lineLimit(1)
+      .minimumScaleFactor(0.7)
+      .padding(.horizontal, 6)
+      .frame(maxWidth: .infinity, minHeight: 34)
+      .foregroundStyle(solid ? solidInk : .white)
+      .background(Capsule().fill(solid ? solidFill : Color.white.opacity(0.2)))
     }
     .buttonStyle(.plain)
   }
@@ -250,12 +264,29 @@ struct FocusLockScreenView: View {
   @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
-    let state = context.state
-    let phase = state.phase(at: Date(), isStale: context.isStale)
     // The widget's daytime indigo at every hour (never the morning's warm red:
     // this sits on the lock screen all day); its evening colour in dark mode
     // and StandBy.
     let tint = colorScheme == .dark ? DayPhase.evening.colors[0] : lockScreenIndigo
+    FocusLockScreenContent(
+      attributes: context.attributes, state: context.state,
+      phase: context.state.phase(at: Date(), isStale: context.isStale), tint: tint
+    )
+    .activityBackgroundTint(tint)
+    .activitySystemActionForegroundColor(.white)
+    .widgetURL(FocusGroup.openURL(sessionId: context.attributes.sessionId))
+  }
+}
+
+/// The lock screen's layout, apart from ActivityKit (so its height can be
+/// measured with a render: within 160pt, see docs/2026-09-v1.3-timer.md).
+struct FocusLockScreenContent: View {
+  let attributes: FocusActivityAttributes
+  let state: FocusActivityAttributes.ContentState
+  let phase: FocusPhase
+  let tint: Color
+
+  var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(alignment: .center, spacing: 12) {
         FocusRing(state: state, phase: phase, size: 44, lineWidth: 5)
@@ -272,12 +303,9 @@ struct FocusLockScreenView: View {
         Spacer(minLength: 6)
         FocusTime(state: state, phase: phase, size: 26)
       }
-      FocusButtons(attributes: context.attributes, state: state, phase: phase, solidFill: .white, solidInk: tint)
+      FocusButtons(attributes: attributes, state: state, phase: phase, solidFill: .white, solidInk: tint)
     }
     .padding(14)
-    .activityBackgroundTint(tint)
-    .activitySystemActionForegroundColor(.white)
-    .widgetURL(FocusGroup.openURL(sessionId: context.attributes.sessionId))
   }
 }
 

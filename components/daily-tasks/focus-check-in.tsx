@@ -1,18 +1,24 @@
 // The end check-in (1.3): when a focus session reaches zero it asks what's
 // next instead of stopping dead. A timer: 5 more minutes / Take a break, then
 // the quiet links "Stuck? Break it down · ✓ Mark task done". A starter: Keep
-// going / Take a break, and "✓ Mark task done". Extend is always the lead
+// going / Stop for now, and "✓ Mark task done". Extend is always the lead
 // (solid, on the left), as on the Live Activity, the Dynamic Island and the
 // notification. A timer session is often just the first sitting, so ending
 // it never ticks the task: Take a break ends the session with the task still
 // open, and only "Mark task done" ticks it. Shown under the task's row on
 // Today and on the focus screen (which, at time's up, has no other way out).
-import { Pressable, Text, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { AccessibilityInfo, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import type { ThemeColorPalette } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
-import { checkInTitle, KEEP_GOING_MINUTES, type FocusSession } from "@/lib/daily-tasks/focus-session";
+import {
+  checkInBreakLabel,
+  checkInTitle,
+  KEEP_GOING_MINUTES,
+  type FocusSession,
+} from "@/lib/daily-tasks/focus-session";
 
 /** What the timer views can do to the session (Today wires them to the store). */
 export interface FocusSessionControls {
@@ -21,7 +27,7 @@ export interface FocusSessionControls {
   resume: () => boolean | void;
   /** Stop timer: clears the session (the task stays open). */
   stop: () => void;
-  /** Take a break (time's up): ends the session; the task stays open. */
+  /** Take a break / Stop for now (time's up): ends the session; the task stays open. */
   takeBreak: () => void;
   /** 5 more minutes. */
   extend: () => void;
@@ -59,13 +65,30 @@ export function FocusCheckIn({
   session,
   controls,
   showTitle = true,
+  focusTitle = false,
 }: {
   session: FocusSession;
   controls: FocusSessionControls;
   showTitle?: boolean;
+  /**
+   * Moves VoiceOver to the title when it shows (the focus screen at time's
+   * up), so the choices are right after it.
+   */
+  focusTitle?: boolean;
 }) {
   const colors = useColors();
   const starter = session.kind === "starter";
+  const titleRef = useRef<Text>(null);
+  useEffect(() => {
+    if (!focusTitle || !showTitle) return;
+    // A frame later, once it's laid out.
+    const frame = requestAnimationFrame(() => {
+      // (sendAccessibilityEvent "focus": setAccessibilityFocus's successor, it
+      // takes the element itself, so it works on the New Architecture.)
+      if (titleRef.current) AccessibilityInfo.sendAccessibilityEvent(titleRef.current, "focus");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusTitle, showTitle, session.id, session.durationMs]);
 
   const pill = (fill: "primary" | "tint", label: string, onPress: () => void, testID: string, hint?: string) => (
     <Pressable
@@ -103,13 +126,18 @@ export function FocusCheckIn({
   return (
     <View className="gap-2 self-stretch" testID="focus-check-in">
       {showTitle ? (
-        <Text className="text-base font-semibold text-foreground" testID="focus-check-in-title">
+        <Text
+          ref={titleRef}
+          className="text-base font-semibold text-foreground"
+          accessibilityRole="header"
+          testID="focus-check-in-title"
+        >
           {checkInTitle(session)}
         </Text>
       ) : null}
       <View className="flex-row gap-2">
         {lead}
-        {pill("tint", "Take a break", controls.takeBreak, "focus-check-in-break", "Ends the timer. The task stays open.")}
+        {pill("tint", checkInBreakLabel(session), controls.takeBreak, "focus-check-in-break", "Ends the timer. The task stays open.")}
       </View>
       {/* "Stuck? Break it down · ✓ Mark task done", left-aligned under the
           buttons; wraps at large text sizes rather than squeezing. */}
@@ -189,6 +217,9 @@ export function MarkTaskDoneLink({
   align?: "flex-start" | "center";
 }) {
   const colors = useColors();
+  // The tick grows with the text (to 1.4×, as the check-in's buttons cap it).
+  const { fontScale } = useWindowDimensions();
+  const iconSize = Math.round(16 * Math.min(Math.max(fontScale || 1, 1), 1.4));
   return (
     <Pressable
       onPress={onPress}
@@ -206,7 +237,7 @@ export function MarkTaskDoneLink({
       })}
       testID={testID}
     >
-      <Ionicons name="checkmark" size={16} color={colors.primaryInk} />
+      <Ionicons name="checkmark" size={iconSize} color={colors.primaryInk} testID={`${testID}-icon`} />
       <Text className="text-sm font-semibold" style={{ color: colors.primaryInk, flexShrink: 1 }}>
         Mark task done
       </Text>
