@@ -12,10 +12,29 @@ import { Platform, AppState as RNAppState, type AppStateStatus } from "react-nat
 
 import { storeDayFor, todayKey } from "./date";
 import {
+  cancelFocusTimerNotification,
   getNotificationPermissionStatus,
   requestNotificationPermission,
+  scheduleFocusSessionNotification,
+  subscribeFocusResponses,
   syncNotifications,
+  type FocusNotificationResponse,
 } from "./notifications";
+import {
+  extend as extendSession,
+  keepGoing as keepGoingSession,
+  notificationBody,
+  pause as pauseSession,
+  resume as resumeSession,
+  sessionForState,
+  sessionMinutes,
+  settle as settleSession,
+  startSession,
+  type FocusSession,
+  type FocusSessionKind,
+  type FocusSessionOutcome,
+  type FocusSessionSource,
+} from "./focus-session";
 import {
   classifyAiFailure,
   isFreshAiPlan,
@@ -98,6 +117,7 @@ import {
   invalidateWidgetSnapshot,
   markWidgetTogglesProcessed,
   readWidgetToggles,
+  writeFocusSession,
   writeWidgetSnapshot,
 } from "./widget-bridge";
 import {
@@ -182,6 +202,22 @@ type Action =
   | { type: "resetPathToTemplate" }
   | { type: "uncompleteMilestone"; id: string }
   | { type: "setAnalyticsEnabled"; enabled: boolean }
+  | {
+      type: "startFocusSession";
+      id: string;
+      taskId: TaskId;
+      kind: FocusSessionKind;
+      minutes: number;
+      stepText: string | null;
+      today: string;
+      now: number;
+    }
+  | { type: "pauseFocusSession"; now: number }
+  | { type: "resumeFocusSession"; now: number }
+  | { type: "extendFocusSession"; now: number }
+  | { type: "keepGoingFocusSession"; now: number }
+  | { type: "settleFocusSession"; now: number }
+  | { type: "clearFocusSession" }
   | { type: "reset"; state: AppState };
 
 /** Days shown up (the shared `showedUp` rule), counting today as a day ("Day N"). */
@@ -221,10 +257,58 @@ function reducer(state: AppState, action: Action): AppState {
   const next = keepGoalPath(state, action, reduce(state, action));
   // Today changed under yesterday's card (a draft, a brain dump, setting the
   // day): drop what's now covered or has no room. See settlePendingRollover.
-  return next.pendingRollover &&
-    (next.tasks !== state.tasks || next.todayLocked !== state.todayLocked)
-    ? settlePendingRollover(next)
-    : next;
+  const settled =
+    next.pendingRollover && (next.tasks !== state.tasks || next.todayLocked !== state.todayLocked)
+      ? settlePendingRollover(next)
+      : next;
+  return keepFocusSession(settled);
+}
+
+/**
+ * The focus session goes when its task is ticked (from anywhere, the widget
+ * included), deleted or saved for later, and when the day changes; an edit
+ * updates its words. See sessionForState.
+ */
+function keepFocusSession(state: AppState): AppState {
+  if (!state.focusSession) return state;
+  const focusSession = sessionForState(state.focusSession, state);
+  return focusSession === state.focusSession ? state : { ...state, focusSession };
+}
+
+/** The focus session's actions (1.3): each one only changes the session. */
+function reduceFocusSession(state: AppState, action: Action): FocusSession | null {
+  const session = state.focusSession;
+  switch (action.type) {
+    case "startFocusSession": {
+      // One of today's open tasks only; it replaces any other session.
+      const task = state.tasks.find((item) => item.id === action.taskId);
+      if (!task || state.todayCompletions.includes(task.id) || action.today !== state.lastOpenedDate) return session;
+      return startSession({
+        id: action.id,
+        taskId: task.id,
+        taskText: task.text,
+        stepText: action.stepText,
+        date: action.today,
+        kind: action.kind,
+        minutes: action.minutes,
+        now: action.now,
+      });
+    }
+    case "pauseFocusSession":
+      return session && pauseSession(session, action.now);
+    case "resumeFocusSession":
+      return session && resumeSession(session, action.now);
+    case "extendFocusSession":
+      return session && extendSession(session, action.now);
+    case "keepGoingFocusSession":
+      return session && keepGoingSession(session, action.now);
+    case "settleFocusSession":
+      return session && settleSession(session, action.now);
+    case "clearFocusSession":
+      return null;
+    default:
+      return session;
+  }
 }
 
 /**
@@ -265,6 +349,16 @@ function keepGoalPath(state: AppState, action: Action, next: AppState): AppState
 
 function reduce(state: AppState, action: Action): AppState {
   switch (action.type) {
+    case "startFocusSession":
+    case "pauseFocusSession":
+    case "resumeFocusSession":
+    case "extendFocusSession":
+    case "keepGoingFocusSession":
+    case "settleFocusSession":
+    case "clearFocusSession": {
+      const focusSession = reduceFocusSession(state, action);
+      return focusSession === state.focusSession ? state : { ...state, focusSession };
+    }
     case "markReviewPrompted":
       return { ...state, lastReviewPromptAt: action.at, reviewDueAt: null };
     case "markReviewDue":
@@ -902,6 +996,22 @@ interface StoreContextValue {
   /** RevenueCat hasn't answered yet (Plus status unknown). */
   plusPending: boolean;
   setAnalyticsEnabled: (enabled: boolean) => void;
+  /**
+   * Start a focus session on one of today's open tasks (1.3), replacing any
+   * other. A starter is 5 minutes; `stepText` names the step it's on.
+   */
+  startFocusSession: (
+    taskId: TaskId,
+    options: { kind: FocusSessionKind; minutes: number; source: FocusSessionSource; stepText?: string | null },
+  ) => void;
+  pauseFocusSession: () => void;
+  resumeFocusSession: () => void;
+  /** "5 more minutes". */
+  extendFocusSession: () => void;
+  /** A starter's "Keep going": a 20-minute timer on the same task. */
+  keepGoingFocusSession: () => void;
+  /** Stop and clear it (Stop timer, Stop here, Not now, or on to a break-down). */
+  stopFocusSession: (outcome: Extract<FocusSessionOutcome, "stopped" | "broken_down">) => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -1087,6 +1197,87 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     // Only these fields feed the snapshot (widgetNonce forces a rewrite).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, state.tasks, state.todayCompletions, today, widgetStreak, daysShowedUp, plusConfirmed, widgetNonce]);
+
+  // The focus session (1.3). Mirrored to the App Group for the widget and
+  // Live Activity whenever it changes.
+  const focusSession = state.focusSession;
+  useEffect(() => {
+    if (!ready) return;
+    writeFocusSession(focusSession);
+  }, [ready, focusSession]);
+
+  // Its end notification: scheduled while it runs (again on resume or
+  // extend, replacing the last), cancelled on pause and once it's gone. An
+  // ended one is left as it is: it's gone off, and its buttons still work.
+  const focusEndKey =
+    focusSession && focusSession.status === "running" && focusSession.endAt !== null
+      ? `${focusSession.id}|${focusSession.endAt}|${notificationBody(focusSession)}`
+      : null;
+  const focusStatus = focusSession?.status ?? null;
+  const focusNotified = useRef(false);
+  useEffect(() => {
+    if (!ready) return;
+    const session = stateRef.current.focusSession;
+    if (focusEndKey && session && session.endAt !== null) {
+      focusNotified.current = true;
+      void scheduleFocusSessionNotification({
+        sessionId: session.id,
+        taskId: session.taskId,
+        at: new Date(session.endAt),
+        body: notificationBody(session),
+      });
+      return;
+    }
+    if (focusStatus === "ended") {
+      // Cleared once it's answered (in the app, or by an old launch's session).
+      focusNotified.current = true;
+      return;
+    }
+    // Paused or gone. Nothing to cancel if nothing was scheduled since launch.
+    if (!focusNotified.current) return;
+    focusNotified.current = false;
+    void cancelFocusTimerNotification();
+  }, [ready, focusEndKey, focusStatus]);
+
+  // It's marked ended when it runs out (right on time while the app is open,
+  // or on coming back), so what's saved and mirrored says so too.
+  const focusEndAt = focusSession?.status === "running" ? focusSession.endAt : null;
+  useEffect(() => {
+    if (!ready || focusEndAt === null) return;
+    const settleNow = () => dispatch({ type: "settleFocusSession", now: Date.now() });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // A timer can fire a little early: then it waits again.
+    const arm = () => {
+      const wait = focusEndAt - Date.now();
+      if (wait <= 0) settleNow();
+      else timer = setTimeout(arm, wait + 20);
+    };
+    arm();
+    const sub = RNAppState.addEventListener("change", (status) => {
+      if (status === "active") settleNow();
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      sub.remove();
+    };
+  }, [ready, focusEndAt]);
+
+  // focus_session_ended when a session goes (or is replaced). The outcome is
+  // the one its action gave, or else: its task was ticked ("done", from
+  // anywhere), or it was cleared (deleted, Not today, a new day, another start).
+  const focusOutcome = useRef<FocusSessionOutcome | null>(null);
+  const lastFocusSession = useRef<FocusSession | null>(null);
+  useEffect(() => {
+    const previous = lastFocusSession.current;
+    lastFocusSession.current = focusSession;
+    if (!ready || !previous || focusSession?.id === previous.id) return;
+    const outcome =
+      focusOutcome.current ?? (state.todayCompletions.includes(previous.taskId) ? "done" : "cleared");
+    focusOutcome.current = null;
+    track("focus_session_ended", { outcome, minutes: sessionMinutes(previous) });
+    // Only when the session changes; completions are read at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, focusSession]);
 
   // One "app_opened" per day this app is used (drives D1/D7/D30 retention).
   const openedTracked = useRef<string | null>(null);
@@ -1530,6 +1721,89 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "setAnalyticsEnabled", enabled });
   }, []);
 
+  const startFocusSession = useCallback(
+    (
+      taskId: TaskId,
+      options: { kind: FocusSessionKind; minutes: number; source: FocusSessionSource; stepText?: string | null },
+    ) => {
+      const today = ensureDay();
+      const current = stateRef.current;
+      if (!current.tasks.some((task) => task.id === taskId) || current.todayCompletions.includes(taskId)) return;
+      dispatch({
+        type: "startFocusSession",
+        id: makeId(),
+        taskId,
+        kind: options.kind,
+        minutes: options.minutes,
+        stepText: options.stepText ?? null,
+        today,
+        now: Date.now(),
+      });
+      track("focus_session_started", { kind: options.kind, minutes: options.minutes, source: options.source });
+    },
+    [ensureDay],
+  );
+  const pauseFocusSession = useCallback(() => {
+    dispatch({ type: "pauseFocusSession", now: Date.now() });
+  }, []);
+  const resumeFocusSession = useCallback(() => {
+    dispatch({ type: "resumeFocusSession", now: Date.now() });
+  }, []);
+  // Each "5 more minutes" or "Keep going" ends one countdown: it's reported as
+  // extended, and the session goes on.
+  const extendFocusSession = useCallback(() => {
+    const session = stateRef.current.focusSession;
+    if (!session) return;
+    track("focus_session_ended", { outcome: "extended", minutes: sessionMinutes(session) });
+    dispatch({ type: "extendFocusSession", now: Date.now() });
+  }, []);
+  const keepGoingFocusSession = useCallback(() => {
+    const session = stateRef.current.focusSession;
+    if (!session) return;
+    track("focus_session_ended", { outcome: "extended", minutes: sessionMinutes(session) });
+    dispatch({ type: "keepGoingFocusSession", now: Date.now() });
+  }, []);
+  const stopFocusSession = useCallback((outcome: Extract<FocusSessionOutcome, "stopped" | "broken_down">) => {
+    if (!stateRef.current.focusSession) return;
+    focusOutcome.current = outcome;
+    dispatch({ type: "clearFocusSession" });
+  }, []);
+
+  // The end notification's buttons (and a tap on it), including the one that
+  // launched the app. Held until saved state has loaded. Done ticks the task
+  // the normal way (Today celebrates if it's on screen); a tap for another
+  // session (an old notification) is ignored.
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
+  const pendingFocusResponses = useRef<FocusNotificationResponse[]>([]);
+  const handleFocusResponse = useRef<(response: FocusNotificationResponse) => void>(() => {});
+  handleFocusResponse.current = (response) => {
+    const current = stateRef.current;
+    const session = current.focusSession;
+    if (!session || session.id !== response.sessionId) return;
+    if (response.action === "extend") {
+      extendFocusSession();
+      return;
+    }
+    if (response.action !== "done" || current.todayCompletions.includes(session.taskId)) return;
+    toggleTask(session.taskId);
+    track("task_completed", { count: countCompleted(current) + 1, source: "notification" });
+  };
+  useEffect(
+    () =>
+      subscribeFocusResponses((response) => {
+        if (readyRef.current) handleFocusResponse.current(response);
+        else pendingFocusResponses.current.push(response);
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (!ready) return;
+    const pending = pendingFocusResponses.current;
+    pendingFocusResponses.current = [];
+    pending.forEach((response) => handleFocusResponse.current(response));
+  }, [ready]);
+
   const journeyLevel = levelForXp(state.journey.xp);
   const journeyProgress = levelProgress(state.journey.xp);
   const pendingLevelUpValue = pendingLevelUp(state.journey);
@@ -1604,6 +1878,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       plusConfirmed,
       plusPending,
       setAnalyticsEnabled: setAnalyticsEnabledCb,
+      startFocusSession,
+      pauseFocusSession,
+      resumeFocusSession,
+      extendFocusSession,
+      keepGoingFocusSession,
+      stopFocusSession,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -1668,6 +1948,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       plusConfirmed,
       plusPending,
       setAnalyticsEnabledCb,
+      startFocusSession,
+      pauseFocusSession,
+      resumeFocusSession,
+      extendFocusSession,
+      keepGoingFocusSession,
+      stopFocusSession,
       refreshNotificationPermission,
       requestPermission,
       resetAll,

@@ -1,43 +1,44 @@
-// Focus timer v2 (1.2, PR #70): the panel on its own. Presets + the last custom
-// chip (which start at once), Custom with Start, the custom wheel (iOS) and
-// stepper (elsewhere),
-// Pause / Resume / Cancel and the end notification, the background resync,
-// finishing, what's announced, and onStart on Start and Restart.
-import * as Haptics from "expo-haptics";
+// Focus timer v2 (1.2, PR #70; on the session since 1.3): the panel on its
+// own, over the pure session engine. Presets + the last custom chip (which
+// start at once), Custom with Start, the custom wheel (iOS) and stepper
+// (elsewhere), Pause / Resume / Stop timer, the background resync, the
+// check-in at zero, what's announced, and the FocusMode wiring (Done's
+// report, Close's hint). The store side (the end notification, the session
+// surviving Close) is in focus-mode.test.tsx.
+import { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AccessibilityInfo, AppState, Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
+import { FocusCheckIn, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { FocusTimerPanel } from "@/components/daily-tasks/focus-timer-panel";
-import { timesUpText } from "@/lib/daily-tasks/focus-timer";
-import { LAST_CUSTOM_TIMER_KEY } from "@/lib/daily-tasks/focus-timer-storage";
 import {
-  cancelFocusTimerNotification,
-  dismissFocusTimerNotification,
-  getNotificationPermissionStatus,
-  scheduleFocusTimerNotification,
-} from "@/lib/daily-tasks/notifications";
+  extend,
+  keepGoing,
+  pause,
+  resume,
+  startSession,
+  type FocusSession,
+} from "@/lib/daily-tasks/focus-session";
+import { LAST_CUSTOM_TIMER_KEY } from "@/lib/daily-tasks/focus-timer-storage";
+import { getNotificationPermissionStatus } from "@/lib/daily-tasks/notifications";
 
+import { spyOnAnnouncements } from "./focus-harness";
 import { renderWithProviders as render } from "./render";
 
 jest.mock("@/lib/daily-tasks/notifications", () => ({
-  scheduleFocusTimerNotification: jest.fn(async () => {}),
-  cancelFocusTimerNotification: jest.fn(async () => {}),
-  dismissFocusTimerNotification: jest.fn(async () => {}),
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
 }));
-const schedule = scheduleFocusTimerNotification as jest.Mock;
-const cancel = cancelFocusTimerNotification as jest.Mock;
-const dismiss = dismissFocusTimerNotification as jest.Mock;
 const permission = getNotificationPermissionStatus as jest.Mock;
 
 const START = new Date(2026, 8, 26, 9, 0);
 const MIN = 60_000;
 const originalOS = Platform.OS;
+const TASK = { id: "t", text: "Write", createdAt: "", carriedOver: false };
 
 let appStateListeners: ((status: string) => void)[] = [];
-let announce: jest.SpyInstance;
+let said: () => string[];
 
 beforeEach(async () => {
   jest.useFakeTimers({ now: START });
@@ -50,7 +51,7 @@ beforeEach(async () => {
       },
     };
   }) as unknown as typeof AppState.addEventListener);
-  announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => {});
+  said = spyOnAnnouncements();
   await AsyncStorage.clear();
 });
 
@@ -61,9 +62,58 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
+/** The session engine without the store: what Today does, in a few lines. */
+function useLocalSession(onStart: (minutes: number) => void) {
+  const [session, setSession] = useState<FocusSession | null>(null);
+  const update = (change: (s: FocusSession, now: number) => FocusSession) =>
+    setSession((current) => current && change(current, Date.now()));
+  const controls: FocusSessionControls = {
+    pause: () => update(pause),
+    resume: () => update(resume),
+    stop: () => setSession(null),
+    extend: () => update((s, now) => extend(s, now)),
+    keepGoing: () => update((s, now) => keepGoing(s, now)),
+    done: jest.fn(),
+  };
+  const start = (minutes: number) => {
+    onStart(minutes);
+    setSession(
+      startSession({ id: `s${Date.now()}`, taskId: TASK.id, taskText: TASK.text, date: "2026-09-26", kind: "timer", minutes, now: Date.now() }),
+    );
+  };
+  return { session, controls, start };
+}
+
+function PanelHarness({ onStart }: { onStart: (minutes: number) => void }) {
+  const { session, controls, start } = useLocalSession(onStart);
+  return (
+    <FocusTimerPanel
+      session={session}
+      onStart={start}
+      controls={controls}
+      checkIn={session ? <FocusCheckIn session={session} controls={controls} showDone={false} /> : null}
+    />
+  );
+}
+
+function ModeHarness({ onDone }: { onDone: (timer: number) => void }) {
+  const { session, controls, start } = useLocalSession(() => {});
+  return (
+    <FocusMode
+      task={TASK}
+      session={session}
+      onToggleStep={jest.fn()}
+      onDone={onDone}
+      onClose={jest.fn()}
+      onStartTimer={start}
+      controls={controls}
+    />
+  );
+}
+
 async function renderPanel() {
   const onStart = jest.fn();
-  const view = await render(<FocusTimerPanel onStart={onStart} />);
+  const view = await render(<PanelHarness onStart={onStart} />);
   // Let the last-custom load settle.
   await act(async () => {});
   return { onStart, view };
@@ -116,7 +166,6 @@ describe("FocusTimerPanel: choosing a length", () => {
     );
     await press("5 minute timer");
     expect(onStart).toHaveBeenCalledWith(5);
-    expect(schedule).toHaveBeenCalledWith(new Date(START.getTime() + 5 * MIN), 5);
     expect(remaining()).toHaveTextContent("5:00");
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
   });
@@ -158,11 +207,10 @@ describe("FocusTimerPanel: custom length", () => {
     await press("Start");
     expect(onStart).toHaveBeenCalledWith(75);
     expect(remaining()).toHaveTextContent("1:15:00");
-    expect(schedule).toHaveBeenLastCalledWith(new Date(START.getTime() + 75 * MIN), 75);
     await act(async () => {});
     expect(await AsyncStorage.getItem(LAST_CUSTOM_TIMER_KEY)).toBe("75");
 
-    await press("Cancel");
+    await press("Stop timer");
     expect(screen.getByRole("button", { name: "1 hour 15 minutes timer" })).toHaveTextContent("1 hr 15 min");
   });
 
@@ -245,23 +293,19 @@ describe("FocusTimerPanel: custom length", () => {
 });
 
 describe("FocusTimerPanel: running", () => {
-  it("Start schedules the end notification with its minutes", async () => {
+  it("a chip starts it with its minutes", async () => {
     const { onStart } = await renderPanel();
     await press("20 minute timer");
     expect(onStart.mock.calls).toEqual([[20]]);
-    expect(schedule).toHaveBeenCalledTimes(1);
-    expect(schedule).toHaveBeenCalledWith(new Date(START.getTime() + 20 * MIN), 20);
     expect(remaining()).toHaveTextContent("20:00");
   });
 
-  it("Pause cancels the notification and freezes the time left, even as the clock moves on", async () => {
+  it("Pause freezes the time left, even as the clock moves on", async () => {
     await renderPanel();
     await press("10 minute timer");
     await advance(3 * MIN);
     expect(remaining()).toHaveTextContent("7:00");
-    expect(cancel).not.toHaveBeenCalled();
     await press("Pause");
-    expect(cancel).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("focus-timer-ends")).toHaveTextContent("Paused");
     expect(screen.getByTestId("focus-timer-ring").props.accessibilityLabel).toBe(
       "Timer paused, 7 minutes left of 10 minutes",
@@ -271,145 +315,75 @@ describe("FocusTimerPanel: running", () => {
     await advance(30 * MIN);
     jest.setSystemTime(START.getTime() + 60 * MIN);
     expect(remaining()).toHaveTextContent("7:00");
-    expect(screen.queryByTestId("focus-times-up")).toBeNull();
-    expect(schedule).toHaveBeenCalledTimes(1);
-    expect(Haptics.notificationAsync).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("focus-check-in")).toBeNull();
   });
 
-  it("Resume recomputes the end from now and reschedules the notification", async () => {
+  it("Resume recomputes the end from now", async () => {
     await renderPanel();
     await press("10 minute timer");
     await advance(3 * MIN);
     await press("Pause");
     await advance(20 * MIN);
-    const resumedAt = Date.now();
     await press("Resume");
-    expect(schedule).toHaveBeenCalledTimes(2);
-    expect(schedule).toHaveBeenLastCalledWith(new Date(resumedAt + 7 * MIN), 10);
     expect(remaining()).toHaveTextContent("7:00");
     await advance(2 * MIN);
     expect(remaining()).toHaveTextContent("5:00");
     await advance(5 * MIN);
-    expect(screen.getByTestId("focus-times-up")).toHaveTextContent(timesUpText(10));
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Write".');
   });
 
-  it("Cancel while running goes back to the picker (nothing picked) and cancels the notification", async () => {
+  it("Stop timer while running goes back to the picker (nothing picked)", async () => {
     await renderPanel();
     await press("10 minute timer");
     await advance(MIN);
-    await press("Cancel");
-    expect(cancel).toHaveBeenCalledTimes(1);
+    await press("Stop timer");
     expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
     expect(screen.getByRole("button", { name: "10 minute timer" })).not.toBeSelected();
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
     await advance(20 * MIN);
-    expect(Haptics.notificationAsync).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("focus-check-in")).toBeNull();
   });
 
-  it("back from the background past the end: AppState active finishes it", async () => {
+  it("back from the background past the end: AppState active shows the check-in", async () => {
     await renderPanel();
     await press("5 minute timer");
     expect(appStateListeners).toHaveLength(1);
     jest.setSystemTime(START.getTime() + 12 * MIN);
     await foreground();
-    expect(screen.getByTestId("focus-times-up")).toHaveTextContent(timesUpText(5));
-    expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Write".');
   });
 
-  it("Pause tapped after it ran out (between ticks) finishes it instead of pausing at 0:00", async () => {
+  it("Pause tapped after it ran out (between ticks) ends it instead of pausing at 0:00", async () => {
     await renderPanel();
     await press("5 minute timer");
     jest.setSystemTime(START.getTime() + 5 * MIN + 200);
     await press("Pause");
     expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
-    expect(screen.getByTestId("focus-times-up")).toBeOnTheScreen();
+    expect(screen.getByTestId("focus-check-in")).toBeOnTheScreen();
   });
 });
 
 describe("FocusTimerPanel: finishing", () => {
-  it("one success haptic, the time's-up line, Restart and Clear; the notification is left to go off", async () => {
-    const { onStart } = await renderPanel();
+  it("a check in the ring and the check-in: 5 more minutes and Not now (no Done: the screen has one)", async () => {
+    await renderPanel();
     await press("5 minute timer");
     await advance(5 * MIN);
-    expect(screen.getByTestId("focus-times-up")).toHaveTextContent("That's 5 minutes. Keep going, or take a break.");
-    // Not cancelled: it may not have been delivered yet, and its sound must play.
-    expect(cancel).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Restart" })).toBeOnTheScreen();
-    expect(screen.getByRole("button", { name: "Clear timer" })).toHaveTextContent("Clear");
-    expect(screen.getByRole("button", { name: "Restart" }).props.accessibilityHint).toBe(
-      "Starts the timer for 5 minutes again",
-    );
-    await advance(10 * MIN);
-    await foreground();
-    expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
-    expect(Haptics.notificationAsync).toHaveBeenCalledWith(Haptics.NotificationFeedbackType.Success);
+    expect(screen.getByTestId("focus-timer-check")).toBeOnTheScreen();
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Write".');
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop timer" })).toBeNull();
 
-    // Restart: a new run of the same length, reported and rescheduled.
-    const restartedAt = Date.now();
-    await press("Restart");
-    expect(onStart.mock.calls).toEqual([[5], [5]]);
-    expect(schedule).toHaveBeenLastCalledWith(new Date(restartedAt + 5 * MIN), 5);
+    // 5 more minutes: runs again for just the extra, on a ring of the new length.
+    await press("5 more minutes");
     expect(remaining()).toHaveTextContent("5:00");
-
+    expect(screen.getByTestId("focus-timer-ring").props.accessibilityLabel).toMatch(/^5 minutes left of 10 minutes/);
     await advance(5 * MIN);
-    expect(Haptics.notificationAsync).toHaveBeenCalledTimes(2);
-    await press("Clear timer");
+    await press("Not now");
     expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
   });
 
-  it("the delivered notification is dismissed (not cancelled) 3 s after the end", async () => {
-    await renderPanel();
-    await press("5 minute timer");
-    await advance(5 * MIN);
-    expect(dismiss).not.toHaveBeenCalled();
-    await advance(2_900);
-    expect(dismiss).not.toHaveBeenCalled();
-    await advance(100);
-    expect(dismiss).toHaveBeenCalledTimes(1);
-    expect(cancel).not.toHaveBeenCalled();
-  });
-
-  it("Restart right after the end cancels the old one before scheduling the new, and drops the pending dismiss", async () => {
-    await renderPanel();
-    await press("5 minute timer");
-    await advance(5 * MIN);
-    schedule.mockClear();
-    const order: string[] = [];
-    cancel.mockImplementation(async () => void order.push("cancel"));
-    schedule.mockImplementation(async () => void order.push("schedule"));
-    await press("Restart");
-    expect(order).toEqual(["cancel", "schedule"]);
-    await advance(10_000);
-    expect(dismiss).not.toHaveBeenCalled();
-  });
-
-  it("unmounting after the end drops the pending dismiss", async () => {
-    const { view } = await renderPanel();
-    await press("5 minute timer");
-    await advance(5 * MIN);
-    await view.unmount();
-    await advance(10_000);
-    expect(dismiss).not.toHaveBeenCalled();
-    expect(cancel).not.toHaveBeenCalled();
-  });
-
-  it("Clear after the end doesn't count as a cancel; Cancel while paused does", async () => {
-    const onStart = jest.fn();
-    const onCancel = jest.fn();
-    await render(<FocusTimerPanel onStart={onStart} onCancel={onCancel} />);
-    await act(async () => {});
-    await press("5 minute timer");
-    await advance(5 * MIN);
-    await press("Clear timer");
-    expect(onCancel).not.toHaveBeenCalled();
-    await press("10 minute timer");
-    await press("Pause");
-    await press("Cancel");
-    expect(onCancel).toHaveBeenCalledTimes(1);
-  });
-
-  it("announces only start, pause, resume and the end, never each second or minute", async () => {
+  it("the panel says Pause and Resume (the session's start and end are said by Today)", async () => {
     await renderPanel();
     await press("10 minute timer");
     await advance(2 * MIN);
@@ -417,64 +391,34 @@ describe("FocusTimerPanel: finishing", () => {
     await advance(MIN);
     await press("Resume");
     await advance(8 * MIN);
-    expect(announce.mock.calls).toEqual([["Timer started, 10 minutes"], ["Paused"], ["Resumed"], [timesUpText(10)]]);
-  });
-
-  it("a quick Pause then Resume announces only the latest", async () => {
-    await renderPanel();
-    await press("10 minute timer");
-    await advance(1000);
-    await press("Pause");
-    await press("Resume");
-    await advance(1000);
-    expect(announce.mock.calls).toEqual([["Timer started, 10 minutes"], ["Resumed"]]);
+    expect(said()).toEqual(["Paused", "Resumed"]);
   });
 });
 
 describe("FocusMode: the timer reported on Done", () => {
-  it("is the last started length (including a Restart), and each start is reported", async () => {
+  it("is the session's length, including 5 more minutes", async () => {
     const onDone = jest.fn();
-    const onTimerStart = jest.fn();
-    await render(
-      <FocusMode
-        task={{ id: "t", text: "Write", createdAt: "", carriedOver: false }}
-        onToggleStep={jest.fn()}
-        onDone={onDone}
-        onClose={jest.fn()}
-        onTimerStart={onTimerStart}
-      />,
-    );
+    await render(<ModeHarness onDone={onDone} />);
     await act(async () => {});
     await press("20 minute timer");
-    await press("Cancel");
+    await press("Stop timer");
     await press("5 minute timer");
     await advance(5 * MIN);
-    await press("Restart");
-    expect(onTimerStart.mock.calls).toEqual([[20], [5], [5]]);
-    // Clear after the end keeps it as the last timer.
-    await advance(5 * MIN);
-    await press("Clear timer");
+    await press("5 more minutes");
     await press("Done");
-    expect(onDone).toHaveBeenCalledWith(5);
+    expect(onDone).toHaveBeenCalledWith(10);
   });
 
-  it("is 0 after a Cancel, and Not now's hint says it stops a running timer", async () => {
+  it("is 0 after Stop timer, and Close's hint says a running timer keeps going", async () => {
     const onDone = jest.fn();
-    await render(
-      <FocusMode
-        task={{ id: "t", text: "Write", createdAt: "", carriedOver: false }}
-        onToggleStep={jest.fn()}
-        onDone={onDone}
-        onClose={jest.fn()}
-      />,
-    );
+    await render(<ModeHarness onDone={onDone} />);
     await act(async () => {});
-    const notNow = () => screen.getByRole("button", { name: "Not now" });
-    expect(notNow().props.accessibilityHint).toBe("Closes focus mode");
+    const close = () => screen.getByRole("button", { name: "Close" });
+    expect(close().props.accessibilityHint).toBe("Closes focus mode");
     await press("20 minute timer");
-    expect(notNow().props.accessibilityHint).toBe("Closes focus mode and stops the timer.");
-    await press("Cancel");
-    expect(notNow().props.accessibilityHint).toBe("Closes focus mode");
+    expect(close().props.accessibilityHint).toBe("Closes focus mode. The timer keeps going.");
+    await press("Stop timer");
+    expect(close().props.accessibilityHint).toBe("Closes focus mode");
     await press("Done");
     expect(onDone).toHaveBeenCalledWith(0);
   });

@@ -1,7 +1,6 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 
-import { timesUpText } from "./focus-timer";
 import { MANAGED_REMINDER_PREFIX, planReminders, planUpcomingMornings } from "./reminders";
 import type { NotificationConfig, NotificationPermissionState, TomorrowDraft } from "./types";
 
@@ -127,41 +126,74 @@ export async function cancelAllNotifications(): Promise<void> {
   await cancelAllManaged();
 }
 
-// Focus mode's timer (1.2): one notification for when it ends, in case
+// The focus session's end (1.3): one notification per session, in case
 // they're in another app. Like Apple's Timer it plays the default
 // notification sound (which respects the silent switch; the reminders stay
 // silent). It isn't time-sensitive (that needs an extra Apple capability),
 // so an iOS Focus (e.g. Do Not Disturb) may hold it back. Android uses the
 // default channel. Its id is outside MANAGED_REMINDER_PREFIX, so the
 // reminder syncs never cancel it; the handler above doesn't show it in-app
-// (focus mode says it there). Only with permission already granted: it never asks.
+// (the Now bar says it there). Only with permission already granted: it never asks.
 export const FOCUS_TIMER_NOTIFICATION_ID = "three-today:focus-timer";
+// Its buttons: Done and "5 more minutes". Both open the app, so a tap is
+// handled even when the app wasn't running (a background action is lost then).
+export const FOCUS_CATEGORY_ID = "three-today:focus-session";
+export const FOCUS_ACTION_DONE = "focus-done";
+export const FOCUS_ACTION_EXTEND = "focus-extend";
 
 // One at a time, like the reminder syncs. A schedule that another call has
-// already overtaken (a restart, a cancel) is skipped; the later call wins.
+// already overtaken (a reschedule, a cancel) is skipped; the later call wins.
 let focusQueue: Promise<void> = Promise.resolve();
 let focusGeneration = 0;
+let categoryReady = false;
 
 function queueFocus(step: () => Promise<void>): Promise<void> {
-  // A missed end-of-timer notification is fine; focus mode still says it there.
+  // A missed end notification is fine; the Now bar still says it in the app.
   const run = focusQueue.then(step).catch(() => {});
   focusQueue = run;
   return run;
 }
 
-/** At `at`, the same line focus mode shows for a `minutes`-long timer. */
-export function scheduleFocusTimerNotification(at: Date, minutes: number): Promise<void> {
+/** Registers the Done / 5 more minutes buttons once (before the first schedule). */
+async function ensureFocusCategory(): Promise<void> {
+  if (categoryReady || typeof Notifications.setNotificationCategoryAsync !== "function") return;
+  await Notifications.setNotificationCategoryAsync(FOCUS_CATEGORY_ID, [
+    { identifier: FOCUS_ACTION_DONE, buttonTitle: "Done", options: { opensAppToForeground: true } },
+    { identifier: FOCUS_ACTION_EXTEND, buttonTitle: "5 more minutes", options: { opensAppToForeground: true } },
+  ]);
+  categoryReady = true;
+}
+
+/** What the end notification needs from a running session. */
+export interface FocusNotificationInput {
+  sessionId: string;
+  taskId: string;
+  at: Date;
+  body: string;
+}
+
+/**
+ * The session's end notification at `at` (replacing any earlier one: one per
+ * session). One that already went off is cleared first, so an extended
+ * session's old "Time's up" doesn't linger in Notification Center.
+ */
+export function scheduleFocusSessionNotification({ sessionId, taskId, at, body }: FocusNotificationInput): Promise<void> {
   if (Platform.OS === "web") return Promise.resolve();
   const generation = ++focusGeneration;
   return queueFocus(async () => {
     if (generation !== focusGeneration) return;
     if ((await getNotificationPermissionStatus()) !== "granted" || generation !== focusGeneration) return;
+    await Notifications.dismissNotificationAsync(FOCUS_TIMER_NOTIFICATION_ID).catch(() => {});
+    // Without the buttons it still goes off: they're a shortcut, not the point.
+    await ensureFocusCategory().catch(() => {});
     await Notifications.scheduleNotificationAsync({
       identifier: FOCUS_TIMER_NOTIFICATION_ID,
       content: {
         title: "Three Today",
-        body: timesUpText(minutes),
+        body,
         sound: true,
+        categoryIdentifier: FOCUS_CATEGORY_ID,
+        data: { focusSessionId: sessionId, taskId },
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at },
     });
@@ -178,13 +210,59 @@ export function cancelFocusTimerNotification(): Promise<void> {
   });
 }
 
+/** A tap on the end notification: one of its buttons, or the notification itself. */
+export interface FocusNotificationResponse {
+  action: "done" | "extend" | "open";
+  sessionId: string;
+}
+
+/** The focus response in a notification response, or null for anything else. */
+export function parseFocusResponse(response: Notifications.NotificationResponse | null | undefined): FocusNotificationResponse | null {
+  const request = response?.notification?.request;
+  if (!request || request.identifier !== FOCUS_TIMER_NOTIFICATION_ID) return null;
+  const sessionId = (request.content?.data as Record<string, unknown> | undefined)?.focusSessionId;
+  if (typeof sessionId !== "string" || !sessionId) return null;
+  const action =
+    response?.actionIdentifier === FOCUS_ACTION_DONE
+      ? "done"
+      : response?.actionIdentifier === FOCUS_ACTION_EXTEND
+        ? "extend"
+        : "open";
+  return { action, sessionId };
+}
+
 /**
- * Clears one that already went off from Notification Center, without
- * touching what's scheduled (the timer finished; a restart schedules anew).
+ * Calls `listener` for each tap on a focus notification: while the app runs,
+ * and once for the tap that launched it (a cold start). Each tap is passed on
+ * once. Returns the unsubscribe.
  */
-export function dismissFocusTimerNotification(): Promise<void> {
-  if (Platform.OS === "web") return Promise.resolve();
-  return queueFocus(async () => {
-    await Notifications.dismissNotificationAsync(FOCUS_TIMER_NOTIFICATION_ID).catch(() => {});
-  });
+export function subscribeFocusResponses(listener: (response: FocusNotificationResponse) => void): () => void {
+  if (Platform.OS === "web") return () => {};
+  const seen = new Set<string>();
+  const handle = (response: Notifications.NotificationResponse | null | undefined) => {
+    const parsed = parseFocusResponse(response);
+    if (!parsed || !response) return;
+    const key = `${parsed.sessionId}|${response.actionIdentifier}|${response.notification.date}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    listener(parsed);
+    // Handled: a later read (e.g. a JS reload) mustn't replay it.
+    try {
+      Notifications.clearLastNotificationResponse?.();
+    } catch {
+      // Replays are ignored anyway (the store checks the session id).
+    }
+  };
+  let subscription: { remove: () => void } | null = null;
+  try {
+    subscription = Notifications.addNotificationResponseReceivedListener(handle);
+  } catch {
+    subscription = null;
+  }
+  try {
+    handle(Notifications.getLastNotificationResponse?.());
+  } catch {
+    // No launch tap to handle.
+  }
+  return () => subscription?.remove();
 }

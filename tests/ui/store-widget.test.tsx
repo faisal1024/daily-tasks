@@ -22,6 +22,7 @@ import type { WidgetSnapshot, WidgetToggle } from "@/lib/daily-tasks/widget-snap
 let mockQueue: { raw: string | null; processedSeq: number } = { raw: null, processedSeq: 0 };
 jest.mock("@/lib/daily-tasks/widget-bridge", () => ({
   writeWidgetSnapshot: jest.fn(),
+  writeFocusSession: jest.fn(),
   invalidateWidgetSnapshot: jest.fn(),
   readWidgetToggles: jest.fn(() => mockQueue),
   markWidgetTogglesProcessed: jest.fn((seq: number) => {

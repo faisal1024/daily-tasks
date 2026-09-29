@@ -4,6 +4,7 @@ import { isAiFailureKind, restorePlanStatus } from "./ai-status";
 import { todayKey } from "./date";
 import { migrateCompletedMilestoneIds, migrateMilestoneId } from "./milestones";
 import { DEFAULT_JOURNEY, type Journey } from "./journey";
+import { MAX_SESSION_MS, type FocusSession } from "./focus-session";
 import type {
   AppState,
   AutoLockConfig,
@@ -519,6 +520,7 @@ export function normalizeState(value: unknown): AppState | null {
     eveningClose: normalizeEveningClose(value.eveningClose),
     agendaEnabled: value.agendaEnabled === true,
     coachNotes: normalizeCoachNotes(value.coachNotes),
+    focusSession: normalizeFocusSession(value.focusSession),
   };
 }
 
@@ -555,6 +557,46 @@ function normalizeCoachNotes(value: unknown): CoachNotesCache | null {
     ? value.asked.filter((key): key is string => typeof key === "string" && validCoachKey(key)).slice(0, MAX_COACH_CACHE_ENTRIES)
     : [];
   return { date: value.date, notes, requests, asked, logged: value.logged === true };
+}
+
+const MAX_SESSION_TEXT = 200;
+
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * The focus session (1.3), or null when any part is missing or doesn't add
+ * up (a running one needs its end, a paused one its time left). The store
+ * then drops one whose task or day has gone (see sessionForState).
+ */
+function normalizeFocusSession(value: unknown): FocusSession | null {
+  if (!isRecord(value)) return null;
+  const { id, taskId, taskText, date, kind, status } = value;
+  if (typeof id !== "string" || !id || typeof taskId !== "string" || !taskId) return null;
+  if (typeof taskText !== "string" || typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  if (kind !== "timer" && kind !== "starter") return null;
+  if (status !== "running" && status !== "paused" && status !== "ended") return null;
+  const durationMs = finiteOrNull(value.durationMs);
+  const startedAt = finiteOrNull(value.startedAt);
+  const endAt = finiteOrNull(value.endAt);
+  const pausedRemainingMs = finiteOrNull(value.pausedRemainingMs);
+  if (durationMs === null || durationMs <= 0 || durationMs > MAX_SESSION_MS || startedAt === null) return null;
+  if (status === "running" && endAt === null) return null;
+  if (status === "paused" && (pausedRemainingMs === null || pausedRemainingMs < 0)) return null;
+  return {
+    id,
+    taskId,
+    taskText: capChars(taskText, MAX_SESSION_TEXT),
+    stepText: typeof value.stepText === "string" ? capChars(value.stepText, MAX_SESSION_TEXT) : null,
+    date,
+    kind,
+    durationMs,
+    startedAt,
+    endAt: status === "paused" ? null : endAt,
+    pausedRemainingMs: status === "paused" ? Math.min(pausedRemainingMs ?? 0, durationMs) : null,
+    status,
+  };
 }
 
 function validCoachKey(key: string): boolean {
@@ -647,6 +689,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     eveningClose: null,
     agendaEnabled: false,
     coachNotes: null,
+    focusSession: null,
   };
 }
 

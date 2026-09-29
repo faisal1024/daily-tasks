@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  ActionSheetIOS,
   Alert,
   AppState as RNAppState,
   KeyboardAvoidingView,
@@ -30,7 +31,9 @@ import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { NextPathLink } from "@/components/daily-tasks/next-path-link";
 import { FirstRun } from "@/components/daily-tasks/first-run";
+import type { FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
+import { NowBar, useFocusSessionCues } from "@/components/daily-tasks/now-bar";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
@@ -77,6 +80,9 @@ import {
   showsCoachNote,
 } from "@/lib/daily-tasks/coach-note";
 import { addDays, fromDateKey, greetingFor, greetingText } from "@/lib/daily-tasks/date";
+import { STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
+import { durationShort, timerMenuLengths } from "@/lib/daily-tasks/focus-timer";
+import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-storage";
 import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
@@ -113,7 +119,8 @@ const REVIEW_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 const REVIEW_SETTLE_MS = 2000;
 
 type Unlock =
-  | { kind: "break_down"; taskId: string; text: string }
+  // `starter`: from the timer's check-in, so a 5-minute starter is offered after.
+  | { kind: "break_down"; taskId: string; text: string; starter?: boolean }
   | { kind: "brain_dump" }
   | { kind: "new_ideas" };
 
@@ -167,6 +174,12 @@ export default function HomeScreen() {
     claimCoachRequest,
     setCoachNotes,
     markCoachNoteLogged,
+    startFocusSession,
+    pauseFocusSession,
+    resumeFocusSession,
+    extendFocusSession,
+    keepGoingFocusSession,
+    stopFocusSession,
   } = useDailyTasks();
   const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue } = usePlus();
   const winBackDueRef = useRef(winBackDue);
@@ -409,6 +422,13 @@ export default function HomeScreen() {
   // Focus mode (1.2) on one open task. It closes if that task is ticked or
   // removed meanwhile (e.g. from the widget), and when the day rolls over.
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  // Opened from a task's timer menu (Custom…): the length wheel shows at once.
+  const [focusCustom, setFocusCustom] = useState(false);
+  const openFocus = (taskId: string, source: "coach" | "row" | "now_bar", custom = false) => {
+    setFocusCustom(custom);
+    setFocusTaskId(taskId);
+    track("focus_opened", { source });
+  };
   const focusTask = focusTaskId
     ? (state.tasks.find((task) => task.id === focusTaskId && !isCompleted(task.id)) ?? null)
     : null;
@@ -426,6 +446,63 @@ export default function HomeScreen() {
     },
     [],
   );
+  // The focus session (1.3): one timer at a time, on the task's row, in the Now
+  // bar under the header, and on the focus screen. Its start and end are said
+  // (and the end felt) here, since Today is always mounted.
+  const focusSession = state.focusSession;
+  const sessionTask = focusSession ? (state.tasks.find((task) => task.id === focusSession.taskId) ?? null) : null;
+  useFocusSessionCues(focusSession);
+  // The last length used: first in a task's timer menu. Best-effort.
+  const [lastTimer, setLastTimer] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    void loadLastTimer().then((minutes) => {
+      if (live && minutes !== null) setLastTimer((current) => current ?? minutes);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const startTimer = (taskId: string, minutes: number, source: FocusSessionSource) => {
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    startFocusSession(taskId, { kind: "timer", minutes, source });
+    setLastTimer(minutes);
+    void saveLastTimer(minutes);
+  };
+  const startStarter = (taskId: string, source: FocusSessionSource, stepText?: string) => {
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    startFocusSession(taskId, { kind: "starter", minutes: STARTER_MINUTES, source, stepText });
+  };
+  // A task's ▶: 5 / 10 / 20 min (the last used first) or Custom…, which opens
+  // the focus screen with its length wheel.
+  const openTimerMenu = (taskId: string, text: string) => {
+    const lengths = timerMenuLengths(lastTimer);
+    const pick = (index: number) => {
+      if (index < lengths.length) startTimer(taskId, lengths[index], "row");
+      else if (index === lengths.length) openFocus(taskId, "row", true);
+    };
+    const labels = [...lengths.map(durationShort), "Custom…"];
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { title: `Timer: ${text}`, options: [...labels, "Cancel"], cancelButtonIndex: labels.length },
+        pick,
+      );
+      return;
+    }
+    // Android shows at most three buttons: page through with "More…".
+    const page = (from: number) => {
+      const rest = labels.length - from;
+      const buttons =
+        rest <= 2
+          ? labels.slice(from).map((label, i) => ({ text: label, onPress: () => pick(from + i) }))
+          : [
+              { text: labels[from], onPress: () => pick(from) },
+              { text: "More…", onPress: () => page(from + 1) },
+            ];
+      Alert.alert(`Timer: ${text}`, undefined, [...buttons, { text: "Cancel", style: "cancel" as const }]);
+    };
+    page(0);
+  };
   // Its coach line: the same `start` line the note gives (AI or built-in).
   const focusStartLine = focusTask
     ? coachNote({ cache: state.coachNotes, today, taskText: focusTask.text, kind: "start" }).text
@@ -559,6 +636,8 @@ export default function HomeScreen() {
     ideasOpen ||
     brainDumpOpen ||
     focusTaskId !== null ||
+    // A running timer or its check-in: no rating ask on top of either.
+    focusSession !== null ||
     showCelebration;
   useEffect(() => {
     if (!ready) return;
@@ -604,19 +683,34 @@ export default function HomeScreen() {
     }
   }, [state.todayLocked, state.hasSeenOnboarding, firstRunActive]);
 
-  const handleBreakDown = (taskId: string, text: string) => {
+  // `starter`: asked from a timer's check-in ("Stuck?"), so once the steps are
+  // in, a 5-minute starter on the first one is offered. `afterSheet`: the
+  // focus screen is closing first (iOS shows one modal at a time).
+  const handleBreakDown = (
+    taskId: string,
+    text: string,
+    options: { starter?: boolean; afterSheet?: boolean } = {},
+  ) => {
     if (breakingRef.current) return;
     if (!hasPlus) {
       showPaywall("break_down", {
         feature: "break_down",
-        resume: { kind: "break_down", taskId, text },
+        afterSheet: options.afterSheet,
+        resume: { kind: "break_down", taskId, text, starter: options.starter },
       });
       return;
     }
-    void runBreakDown(taskId, text);
+    void runBreakDown(taskId, text, options.starter);
   };
 
-  const runBreakDown = async (taskId: string, text: string) => {
+  const offerStarter = (taskId: string, step: string) => {
+    Alert.alert("Start with the first step?", `"${step}". Just 5 minutes.`, [
+      { text: "Not now", style: "cancel" },
+      { text: "Start 5 minutes", onPress: () => startStarter(taskId, "focus", step) },
+    ]);
+  };
+
+  const runBreakDown = async (taskId: string, text: string, starter = false) => {
     if (breakingRef.current) return;
     breakingRef.current = taskId;
     setBreakingTaskId(taskId);
@@ -626,6 +720,9 @@ export default function HomeScreen() {
       // Only if the task still reads the same (it may have been edited meanwhile).
       setTaskSteps(taskId, steps, text);
       track("break_down_used", { count: steps.length });
+      // The store keeps steps trimmed: match it, so the starter names the step.
+      const first = steps.map((step) => step.trim()).find(Boolean);
+      if (starter && first) offerStarter(taskId, first);
     } catch (error) {
       Alert.alert("Couldn't break it down", breakDownFailureMessage(classifyAiFailure(error)));
     } finally {
@@ -641,7 +738,7 @@ export default function HomeScreen() {
     if (unlock.kind === "break_down") {
       const task = state.tasks.find((t) => t.id === unlock.taskId);
       if (hasPlus && task && task.text === unlock.text && !isCompleted(task.id)) {
-        void runBreakDown(task.id, task.text);
+        void runBreakDown(task.id, task.text, unlock.starter);
       }
       return;
     }
@@ -745,6 +842,49 @@ export default function HomeScreen() {
     }
   };
 
+  // "Done: <task>" after a Done outside the task's own row. The celebration
+  // covers it when it's about to show (the same once-a-day check it uses).
+  // Said a moment later, so a closing sheet doesn't cut it off.
+  const announceDone = (text: string) => {
+    const celebrates =
+      celebratedDay.current !== today &&
+      isPerfectDayTransition({ previousCompleted: completedCount, completed: completedCount + 1, total });
+    if (celebrates) return;
+    if (focusDoneTimer.current) clearTimeout(focusDoneTimer.current);
+    focusDoneTimer.current = setTimeout(() => {
+      focusDoneTimer.current = null;
+      AccessibilityInfo.announceForAccessibility(`Done: ${text}`);
+    }, FOCUS_DONE_ANNOUNCE_DELAY_MS);
+  };
+
+  // What the Now bar, the focus screen and the check-in can do to the session.
+  // Done ticks through the normal path, so the haptic, celebration and
+  // win-back all happen (and the store clears the session).
+  const sessionControls: FocusSessionControls = {
+    pause: pauseFocusSession,
+    resume: resumeFocusSession,
+    stop: () => stopFocusSession("stopped"),
+    extend: extendFocusSession,
+    keepGoing: keepGoingFocusSession,
+    done: () => {
+      if (!sessionTask) return;
+      handleToggle(sessionTask.id);
+      announceDone(sessionTask.text);
+    },
+    // "Stuck?": on to a break-down (the Plus gate as usual), then a starter on
+    // its first step. Only while there's none yet and the AI can be reached.
+    breakDown:
+      sessionTask && breakDownAvailable && !(sessionTask.steps && sessionTask.steps.length > 0)
+        ? () => {
+            if (breakingRef.current) return;
+            const fromFocus = focusTaskId !== null;
+            stopFocusSession("broken_down");
+            setFocusTaskId(null);
+            handleBreakDown(sessionTask.id, sessionTask.text, { starter: true, afterSheet: fromFocus });
+          }
+        : undefined,
+  };
+
   const handleDelete = (id: string, text: string) => {
     if (state.todayLocked) return;
     Alert.alert("Remove this task?", `Remove "${text}" from today?`, [
@@ -822,6 +962,14 @@ export default function HomeScreen() {
             testID={twoColumn ? "today-two-column" : undefined}
           >
             <View style={twoColumn ? { flex: 1.25, gap: 14 } : { gap: 14 }}>
+              {/* The Now bar (1.3): the running timer, first under the header. */}
+              {focusSession && sessionTask ? (
+                <NowBar
+                  session={focusSession}
+                  controls={sessionControls}
+                  onOpen={() => openFocus(sessionTask.id, "now_bar")}
+                />
+              ) : null}
               {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
               {toast && (
                 <View
@@ -871,6 +1019,10 @@ export default function HomeScreen() {
                           onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
                           // Steps are a finishing aid, so clearing them is fine on a set day.
                           onClearSteps={() => clearTaskSteps(task.id)}
+                          // A timer is fine on a set day too: it's for doing the day.
+                          onTimer={() => openTimerMenu(task.id, task.text)}
+                          session={focusSession?.taskId === task.id ? focusSession : null}
+                          onOpenTimer={() => openFocus(task.id, "row")}
                         />
                       </View>
                     );
@@ -971,9 +1123,11 @@ export default function HomeScreen() {
                     kind={note.kind}
                     source={note.source}
                     taskText={coachTask.text}
+                    // One tap: a 5-minute starter (no length to choose), and
+                    // focus mode on the task, with its first step.
                     onStart={() => {
-                      setFocusTaskId(coachTask.id);
-                      track("focus_opened");
+                      startStarter(coachTask.id, "coach");
+                      openFocus(coachTask.id, "coach");
                     }}
                   />
                 )}
@@ -1240,27 +1394,18 @@ export default function HomeScreen() {
         <FocusMode
           task={focusTask}
           startLine={focusStartLine}
+          session={focusSession?.taskId === focusTask.id ? focusSession : null}
+          initialCustom={focusCustom}
           onToggleStep={(stepId) => toggleTaskStep(focusTask.id, stepId)}
-          onTimerStart={(timer) => track("focus_timer_started", { timer })}
+          // Starting here replaces a session on another task.
+          onStartTimer={(minutes) => startTimer(focusTask.id, minutes, "focus")}
+          controls={sessionControls}
           onDone={(timer) => {
             // The normal path, so the haptic, celebration and win-back all happen.
             handleToggle(focusTask.id);
             track("focus_completed", { timer });
             setFocusTaskId(null);
-            // The celebration covers it when it's about to show (the same
-            // once-a-day check it uses). Said a moment later, so the sheet
-            // closing doesn't cut it off.
-            const celebrates =
-              celebratedDay.current !== today &&
-              isPerfectDayTransition({ previousCompleted: completedCount, completed: completedCount + 1, total });
-            if (!celebrates) {
-              const text = `Done: ${focusTask.text}`;
-              if (focusDoneTimer.current) clearTimeout(focusDoneTimer.current);
-              focusDoneTimer.current = setTimeout(() => {
-                focusDoneTimer.current = null;
-                AccessibilityInfo.announceForAccessibility(text);
-              }, FOCUS_DONE_ANNOUNCE_DELAY_MS);
-            }
+            announceDone(focusTask.text);
           }}
           onClose={() => setFocusTaskId(null)}
         />
