@@ -12,7 +12,7 @@ interface ProgressRingProps {
   size?: number;
   strokeWidth?: number;
   /** What sits in the middle (e.g. focus mode's timer). */
-  children: ReactNode;
+  children?: ReactNode;
 }
 
 export function ProgressRing({

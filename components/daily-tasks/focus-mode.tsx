@@ -1,54 +1,67 @@
-// "Start" focus mode (1.2): one task, full screen, with its steps and an
-// optional timer. Done ticks it through Today's normal toggle path.
+// "Start" focus mode (1.2): one task, full screen, with its steps and its
+// timer. Since 1.3 it's the detail view of the focus session: the timer is
+// the store's, so closing this doesn't stop it. Done ticks the task through
+// Today's normal toggle path.
 import { useEffect, useRef, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { FocusCheckIn, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { FocusTimerPanel } from "@/components/daily-tasks/focus-timer-panel";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
+import { sessionMinutes, type FocusSession } from "@/lib/daily-tasks/focus-session";
 import type { Task } from "@/lib/daily-tasks/types";
 
 interface FocusModeProps {
   task: Task;
   /** The coach's `start` line for this task (AI or built-in), if any. */
   startLine?: string | null;
+  /** The focus session, when it's on this task. */
+  session: FocusSession | null;
   onToggleStep: (stepId: string) => void;
   /**
    * Ticks the task the normal way (once); the screen closes focus mode.
-   * `timer` is the last started timer's length in minutes, 0 for none.
+   * `timer` is the session's length in minutes, 0 for none.
    */
   onDone: (timer: number) => void;
-  /** Closes without changes. */
+  /** Closes; a running timer keeps going. */
   onClose: () => void;
-  /** A timer was started (or restarted), with its length in minutes (1–180). */
-  onTimerStart?: (timer: number) => void;
+  /** A length was chosen here, in minutes (1–180): starts a session on this task. */
+  onStartTimer: (minutes: number) => void;
+  controls: FocusSessionControls;
+  /** Opens with the custom length wheel showing. */
+  initialCustom?: boolean;
+  /** The task another session is on (a start here stops it), if any. */
+  otherTimerText?: string | null;
 }
 
 /**
- * Mounted only while open (see Today), so each open starts with no timer.
- * Full screen on iPhone, so a stray swipe can't drop a running timer: Done
- * and Not now are the ways out (either one ends the timer and its
- * notification).
+ * Mounted only while open (see Today). Full screen on iPhone; Done and Close
+ * are the ways out, and neither stops the timer (Stop timer does).
  */
-export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTimerStart }: FocusModeProps) {
+export function FocusMode({
+  task,
+  startLine,
+  session,
+  onToggleStep,
+  onDone,
+  onClose,
+  onStartTimer,
+  controls,
+  initialCustom = false,
+  otherTimerText = null,
+}: FocusModeProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const animation = useSheetAnimation();
   const fullScreen = Platform.OS === "ios" && !Platform.isPad;
-  // The last started timer's length (0 for none), reported on Done.
-  const lastTimer = useRef(0);
-  const timerStarted = (minutes: number) => {
-    lastTimer.current = minutes;
-    onTimerStart?.(minutes);
-  };
-  // A cancelled (or cleared) timer isn't reported on Done.
-  const timerCancelled = () => {
-    lastTimer.current = 0;
-  };
-  const [timerActive, setTimerActive] = useState(false);
+  const timerActive = session !== null && session.status !== "ended";
+  // The custom wheel waits until the sheet has finished sliding in: its
+  // first-spin fix (see CountdownWheel) only works once it's on screen.
+  const [shown, setShown] = useState(false);
 
   // Custom opening or a timer starting scrolls the timer (last) into view.
   const scrollRef = useRef<ScrollView>(null);
@@ -72,7 +85,7 @@ export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTi
   const done = () => {
     if (doneRef.current) return;
     doneRef.current = true;
-    onDone(lastTimer.current);
+    onDone(session ? sessionMinutes(session) : 0);
   };
 
   const steps = task.steps ?? [];
@@ -84,6 +97,8 @@ export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTi
       onRequestClose={onClose}
       animationType={animation}
       presentationStyle={fullScreen ? "fullScreen" : "pageSheet"}
+      onShow={() => setShown(true)}
+      testID="focus-modal"
     >
       <View
         style={{ flex: 1, backgroundColor: colors.background }}
@@ -153,10 +168,15 @@ export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTi
           ) : null}
 
           <FocusTimerPanel
-            onStart={timerStarted}
-            onCancel={timerCancelled}
-            onActiveChange={setTimerActive}
+            session={session}
+            onStart={onStartTimer}
+            controls={controls}
+            openCustom={initialCustom && shown}
+            otherTimerText={session ? null : otherTimerText}
             onReveal={revealTimer}
+            checkIn={
+              session ? <FocusCheckIn session={session} controls={controls} showDone={false} /> : null
+            }
           />
         </ScrollView>
 
@@ -188,13 +208,13 @@ export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTi
           <Pressable
             onPress={onClose}
             accessibilityRole="button"
-            accessibilityLabel="Not now"
-            accessibilityHint={timerActive ? "Closes focus mode and stops the timer." : "Closes focus mode"}
+            accessibilityLabel={timerActive ? "Back to Today" : "Close"}
+            accessibilityHint={timerActive ? "The timer keeps going" : "Closes focus mode"}
             style={{ minHeight: 44, alignItems: "center", justifyContent: "center" }}
-            testID="focus-not-now"
+            testID="focus-close"
           >
             <Text className="text-base font-semibold" style={{ color: colors.muted }}>
-              Not now
+              {timerActive ? "Back to Today" : "Close"}
             </Text>
           </Pressable>
         </View>

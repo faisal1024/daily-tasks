@@ -1,5 +1,5 @@
-// Focus mode's timer (1.2): its lengths and copy, shared by the screen and its
-// notification. Pure, so it's safe to import anywhere.
+// Focus mode's timer (1.2): its lengths and how they read, shared by the
+// focus screen, the Now bar and the task rows. Pure, so it's safe to import anywhere.
 import { formatTime } from "./date";
 
 /** The preset lengths, in minutes. */
@@ -54,7 +54,12 @@ export function formatEndTime(at: Date): string {
   return formatTime(at.getHours(), at.getMinutes());
 }
 
-/** Said when a focus timer ends, on screen and in the notification. */
-export function timesUpText(minutes: number): string {
-  return `That's ${durationWords(minutes)}. Keep going, or take a break.`;
+/**
+ * A task's timer menu (1.3): the last-used length first, then the presets.
+ * Custom… follows in the menu itself.
+ */
+export function timerMenuLengths(lastUsed: number | null): number[] {
+  const presets: number[] = [...FOCUS_TIMER_PRESETS];
+  if (lastUsed === null) return presets;
+  return [lastUsed, ...presets.filter((minutes) => minutes !== lastUsed)];
 }

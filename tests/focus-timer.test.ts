@@ -1,5 +1,5 @@
 // Focus timer v2 (1.2, PR #70): the pure helpers (clamp, lengths in words and
-// on chips, the clock face, the end time, the time's-up line) and the
+// on chips, the clock face, the end time, a task's timer menu) and the
 // best-effort store for the last custom length.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,7 +10,7 @@ import {
   durationWords,
   formatEndTime,
   formatRemaining,
-  timesUpText,
+  timerMenuLengths,
 } from "../lib/daily-tasks/focus-timer";
 import {
   LAST_CUSTOM_TIMER_KEY,
@@ -76,10 +76,11 @@ describe("focus timer helpers", () => {
     expect(formatRemaining(180 * 60_000)).toBe("3:00:00");
   });
 
-  it("timesUpText says the length in words, hours included", () => {
-    expect(timesUpText(10)).toBe("That's 10 minutes. Keep going, or take a break.");
-    expect(timesUpText(1)).toBe("That's 1 minute. Keep going, or take a break.");
-    expect(timesUpText(90)).toBe("That's 1 hour 30 minutes. Keep going, or take a break.");
+  // Replaces timesUpText (1.2): the end copy is the check-in's now (focus-session.ts).
+  it("timerMenuLengths lists the last-used length first, then the other presets", () => {
+    expect(timerMenuLengths(null)).toEqual([5, 10, 20]);
+    expect(timerMenuLengths(20)).toEqual([20, 5, 10]);
+    expect(timerMenuLengths(45)).toEqual([45, 5, 10, 20]);
   });
 
   describe("formatEndTime", () => {

@@ -1,4 +1,5 @@
 import type { AiFailureKind } from "./ai-status";
+import type { FocusSession } from "./focus-session";
 import type { Journey } from "./journey";
 
 export const MAX_TASKS = 3;
@@ -269,6 +270,9 @@ export interface AppState {
   // Today's AI coach lines (Plus), the calls they took, and whether the
   // note's analytics event went out; null until the first note of a day.
   coachNotes: CoachNotesCache | null;
+  // The focus session (1.3): one timer at a time on one of today's tasks, or
+  // null. See focus-session.ts.
+  focusSession: FocusSession | null;
 }
 
 export const GOAL_OPTIONS: string[] = [

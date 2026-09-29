@@ -6,8 +6,10 @@ import {
   invalidateWidgetSnapshot,
   markWidgetTogglesProcessed,
   readWidgetToggles,
+  writeFocusSession,
   writeWidgetSnapshot,
 } from "@/lib/daily-tasks/widget-bridge";
+import type { FocusSession } from "@/lib/daily-tasks/focus-session";
 import type { WidgetSnapshot } from "@/lib/daily-tasks/widget-snapshot";
 
 const GROUP = "group.com.faisalislam.dailytasks";
@@ -91,5 +93,58 @@ describe("widget bridge", () => {
     expect(mockNative.setString).not.toHaveBeenCalled();
     expect(mockNative.setInt).not.toHaveBeenCalled();
     expect(mockNative.reloadWidget).not.toHaveBeenCalled();
+  });
+});
+
+describe("widget bridge: the focus session (1.3)", () => {
+  const SESSION: FocusSession = {
+    id: "s1",
+    taskId: "a",
+    taskText: "Walk",
+    stepText: null,
+    date: "2026-09-26",
+    kind: "timer",
+    durationMs: 600_000,
+    startedAt: 1_000,
+    endAt: 601_000,
+    pausedRemainingMs: null,
+    status: "running",
+  };
+
+  it("mirrors it as {v: 1, rev, ...session}, then JSON null once it's gone, skipping unchanged writes and not reloading the widget", () => {
+    writeFocusSession(SESSION);
+    expect(mockNative.setString).toHaveBeenCalledTimes(1);
+    expect(mockNative.setString).toHaveBeenCalledWith("focus.session", expect.any(String), GROUP);
+    const first = JSON.parse(mockNative.setString.mock.calls[0][1]);
+    expect(first).toEqual({ v: 1, rev: expect.any(Number), ...SESSION });
+
+    writeFocusSession({ ...SESSION });
+    expect(mockNative.setString).toHaveBeenCalledTimes(1);
+
+    writeFocusSession({ ...SESSION, status: "paused", endAt: null, pausedRemainingMs: 300_000 });
+    const second = JSON.parse(mockNative.setString.mock.calls[1][1]);
+    expect(second).toMatchObject({ v: 1, status: "paused", endAt: null });
+    // Newer writes have a higher rev.
+    expect(second.rev).toBeGreaterThan(first.rev);
+
+    writeFocusSession(null);
+    expect(mockNative.setString).toHaveBeenLastCalledWith("focus.session", "null", GROUP);
+    expect(mockNative.reloadWidget).not.toHaveBeenCalled();
+  });
+
+  it("a failed write is retried on the next call (not cached as written)", () => {
+    mockNative.setString.mockImplementationOnce(() => {
+      throw new Error("no group");
+    });
+    writeFocusSession(SESSION);
+    writeFocusSession(SESSION);
+    expect(mockNative.setString).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(mockStrings.get("focus.session") ?? "null")).toEqual({ v: 1, rev: expect.any(Number), ...SESSION });
+  });
+
+  it("does nothing without the native module", () => {
+    mockAvailable = false;
+    expect(() => writeFocusSession(SESSION)).not.toThrow();
+    expect(mockNative.setString).not.toHaveBeenCalled();
   });
 });

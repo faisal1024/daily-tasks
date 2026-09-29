@@ -3,6 +3,7 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  findNodeHandle,
   Platform,
   Pressable,
   Text,
@@ -23,7 +24,11 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 
+import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { useColors } from "@/hooks/use-colors";
+import { useFocusClock } from "@/hooks/use-focus-clock";
+import { MINUTE_MS, remainingMs, sessionPhase, type FocusSession } from "@/lib/daily-tasks/focus-session";
+import { durationWords, formatRemaining } from "@/lib/daily-tasks/focus-timer";
 import {
   TASK_ROW_ACTION_LABELS,
   taskRowActions,
@@ -50,9 +55,20 @@ interface TaskRowProps {
   breakDownNeedsPlus?: boolean;
   onToggleStep?: (stepId: string) => void;
   onClearSteps?: () => void;
+  /**
+   * An open row's timer button: choose a length (1.3). `anchor` is the
+   * button's node, for the action sheet's popover on iPad.
+   */
+  onTimer?: (anchor: number | null) => void;
+  /** The focus session, when it's on this task: its ring and time left replace ▶. */
+  session?: FocusSession | null;
+  /** Tapping the running timer: opens the focus screen. */
+  onOpenTimer?: () => void;
 }
 
 const ACTION_WIDTH = 84;
+/** The checkbox's VoiceOver action for the timer button. */
+const START_TIMER_ACTION = "startTimer";
 
 /**
  * One row of Today's card. Only the circle finishes a task. Tapping the words
@@ -75,6 +91,9 @@ export function TaskRow({
   breakDownNeedsPlus = false,
   onToggleStep,
   onClearSteps,
+  onTimer,
+  session = null,
+  onOpenTimer,
 }: TaskRowProps) {
   const colors = useColors();
   const reduceMotion = useReducedMotion();
@@ -82,6 +101,7 @@ export function TaskRow({
   const [draft, setDraft] = useState(task.text);
   const inputRef = useRef<TextInputType | null>(null);
   const swipeRef = useRef<SwipeableMethods | null>(null);
+  const timerRef = useRef<View | null>(null);
   const committed = useRef(false);
 
   const hasSteps = Boolean(task.steps && task.steps.length > 0);
@@ -169,7 +189,14 @@ export function TaskRow({
     page(actions);
   };
 
+  const canStartTimer = Boolean(onTimer) && !completed && !editing && !session;
+  const startTimer = () => onTimer?.(timerRef.current ? findNodeHandle(timerRef.current) : null);
+
   const onA11yAction = (event: AccessibilityActionEvent) => {
+    if (event.nativeEvent.actionName === START_TIMER_ACTION) {
+      if (canStartTimer) startTimer();
+      return;
+    }
     const name = event.nativeEvent.actionName as TaskRowAction;
     if (actions.includes(name)) run(name);
   };
@@ -251,7 +278,10 @@ export function TaskRow({
               accessibilityState={{ checked: completed }}
               accessibilityLabel={`${hero ? "Up next. " : ""}Task ${index + 1}: ${task.text}`}
               accessibilityHint={completed ? "Marks it not done" : "Marks it done"}
-              accessibilityActions={actions.map((action) => ({ name: action, label: TASK_ROW_ACTION_LABELS[action] }))}
+              accessibilityActions={[
+                ...actions.map((action) => ({ name: action, label: TASK_ROW_ACTION_LABELS[action] })),
+                ...(canStartTimer ? [{ name: START_TIMER_ACTION, label: "Start timer" }] : []),
+              ]}
               onAccessibilityAction={onA11yAction}
               onPress={() => {
                 // Finish an edit before ticking, so the field doesn't stay open.
@@ -419,8 +449,82 @@ export function TaskRow({
               </View>
             ) : null}
           </View>
+
+          {/* The timer (1.3): quiet, and no taller than the circle, so it
+              never grows the row. Its 44pt target comes from the hit slop. */}
+          {!completed && !editing && session ? (
+            <RowTimer session={session} taskText={task.text} onPress={onOpenTimer} />
+          ) : canStartTimer ? (
+            <Pressable
+              ref={timerRef}
+              onPress={startTimer}
+              accessibilityRole="button"
+              accessibilityLabel={`Start a timer: ${task.text}`}
+              accessibilityHint="Choose a length and start a timer"
+              hitSlop={{ top: 7, bottom: 7 }}
+              style={({ pressed }) => ({
+                width: 44,
+                height: 30,
+                marginRight: -8,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.6 : 1,
+              })}
+              testID={`task-timer-${task.id}`}
+            >
+              <Ionicons name="timer-outline" size={23} color={colors.muted} />
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </ReanimatedSwipeable>
+  );
+}
+
+/** The running (or paused, or finished) timer in its task's row. */
+function RowTimer({ session, taskText, onPress }: { session: FocusSession; taskText: string; onPress?: () => void }) {
+  const colors = useColors();
+  const now = useFocusClock(session);
+  const phase = sessionPhase(session, now);
+  const left = remainingMs(session, now);
+  // Whole minutes, so VoiceOver isn't told every second.
+  const label =
+    phase === "ended"
+      ? `Time's up: ${taskText}`
+      : `Timer${phase === "paused" ? " paused" : ""}: ${taskText}, ${durationWords(Math.ceil(left / MINUTE_MS))} left`;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint="Opens focus"
+      hitSlop={{ top: 7, bottom: 7 }}
+      style={{ minWidth: 44, height: 30, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 6 }}
+      testID={`task-timer-running-${session.taskId}`}
+    >
+      <ProgressRing
+        completed={session.durationMs - left}
+        total={session.durationMs}
+        color={phase === "paused" ? colors.muted : colors.primary}
+        size={22}
+        strokeWidth={3}
+      >
+        {phase === "paused" ? <Ionicons name="pause" size={10} color={colors.muted} /> : null}
+        {/* Time's up, not done: a bell on the full ring, never a green tick. */}
+        {phase === "ended" ? (
+          <Ionicons name="notifications-outline" size={11} color={colors.primary} testID={`task-timer-times-up-${session.taskId}`} />
+        ) : null}
+      </ProgressRing>
+      {phase !== "ended" ? (
+        <Text
+          className="text-sm font-semibold"
+          style={{ color: phase === "paused" ? colors.muted : colors.primary, fontVariant: ["tabular-nums"] }}
+          maxFontSizeMultiplier={1.3}
+          testID={`task-timer-left-${session.taskId}`}
+        >
+          {formatRemaining(left)}
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
