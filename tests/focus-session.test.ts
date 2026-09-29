@@ -129,6 +129,10 @@ describe("focus session: pause, resume, extend", () => {
     const long = timer(10, { taskText: "x".repeat(80) });
     expect(notificationTitle(long)).toHaveLength(60);
     expect(notificationTitle(long).endsWith("…")).toBe(true);
+    // An emoji right at the cut stays whole (cut by code points, not UTF-16 units).
+    const emoji = notificationTitle(timer(10, { taskText: `${"x".repeat(58)}🐕🐕 walk` }));
+    expect(emoji).toBe(`${"x".repeat(58)}🐕…`);
+    expect(emoji).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
   });
 });
 

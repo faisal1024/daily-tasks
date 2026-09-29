@@ -133,7 +133,7 @@ struct StartNextTaskIntent: AppIntent {
 @available(iOS 16.0, *)
 struct StartStarterIntent: AppIntent {
   static let title: LocalizedStringResource = "Start a 5-minute starter"
-  static let description = IntentDescription("Starts 5 minutes on your next task. You can stop after 5.")
+  static let description = IntentDescription("Starts 5 minutes on your next task. You can stop after 5 minutes.")
   static let openAppWhenRun = true
 
   init() {}

@@ -485,6 +485,10 @@ public enum FocusActions {
     let delivered = await center.deliveredNotifications()
     let last = delivered.last(where: { $0.request.identifier == FocusGroup.notificationId })
     center.removeDeliveredNotifications(withIdentifiers: [FocusGroup.notificationId])
+    // Nothing left pending for the old end either.
+    center.removePendingNotificationRequests(withIdentifiers: [FocusGroup.notificationId])
+    // None delivered (notifications off, or cleared by the user): nothing to
+    // repeat; the app schedules the new end's when it next opens.
     guard let last else { return }
     var content: UNNotificationContent = last.request.content
     if asTimer, let timer = last.request.content.mutableCopy() as? UNMutableNotificationContent {

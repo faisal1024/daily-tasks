@@ -21,6 +21,17 @@ import {
 } from "@/lib/daily-tasks/focus-session";
 import { durationWords, formatRemaining } from "@/lib/daily-tasks/focus-timer";
 
+/**
+ * Pause or resume the timer, felt (a selection haptic) and said ("Paused" /
+ * "Resumed") only when it changed: the pill, and the timed row's menu.
+ */
+export function toggleTimer(controls: FocusSessionControls, action: "pause" | "resume"): void {
+  const changed = action === "pause" ? controls.pause() : controls.resume();
+  if (changed === false) return;
+  if (Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
+  announcePolitely(action === "pause" ? "Paused" : "Resumed");
+}
+
 /** Where the timed row's session is, read from one clock for the whole row. */
 export interface RowSessionClock {
   session: FocusSession;
@@ -58,8 +69,8 @@ function timeWidth(durationMs: number): number {
 
 /**
  * The pill: a small ring (⏸ inside while running, ▶ while paused) and the
- * time left. Tapping it pauses or resumes; at time's up it shows a bell and
- * opens the focus screen. No taller than the row's circle, so the row never
+ * time left. Tapping it pauses or resumes; at time's up it's the full ring
+ * with a bell (no outline) and opens the focus screen. No taller than the row's circle, so the row never
  * grows; its 44pt target comes from the hit slop.
  */
 export function RowTimerPill({
@@ -120,16 +131,7 @@ export function RowTimerPill({
 
   // Whole minutes, so VoiceOver isn't told every second.
   const label = `${paused ? "Resume" : "Pause"} timer: ${taskText}, ${durationWords(Math.ceil(left / MINUTE_MS))} left`;
-  const toggle = () => {
-    if (Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
-    if (paused) {
-      controls.resume();
-      announcePolitely("Resumed");
-    } else {
-      controls.pause();
-      announcePolitely("Paused");
-    }
-  };
+  const toggle = () => toggleTimer(controls, paused ? "resume" : "pause");
   return (
     <Pressable
       onPress={toggle}

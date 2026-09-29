@@ -2703,7 +2703,7 @@ describe("Timer on your tasks (1.3)", () => {
       (index: number) => void,
     ];
     expect(options).toMatchObject({
-      title: 'Focus on "Read"',
+      title: "Focus on “Read”",
       message: undefined,
       options: ["20 minutes", "5 minutes", "10 minutes", "Custom…", "Cancel"],
       cancelButtonIndex: 4,
@@ -2728,7 +2728,7 @@ describe("Timer on your tasks (1.3)", () => {
     await render(<HomeScreen />);
     await press("Start a timer: Read");
     expect(sheet.mock.calls[0][0]).toMatchObject({
-      title: 'Focus on "Read"',
+      title: "Focus on “Read”",
       message: "This stops the timer on “Walk”.",
     });
     const pick = sheet.mock.calls[0][1] as (index: number) => void;
@@ -2746,7 +2746,7 @@ describe("Timer on your tasks (1.3)", () => {
       await render(<HomeScreen />);
       await press("Start a timer: Read");
       const [title, message, buttons] = alert.mock.calls[0] as [string, string | undefined, { text: string; onPress?: () => void }[]];
-      expect(title).toBe('Focus on "Read"');
+      expect(title).toBe("Focus on “Read”");
       expect(message).toBeUndefined();
       expect(buttons.map((b) => b.text)).toEqual(["5 minutes", "Choose length…", "Cancel"]);
       await act(async () => buttons[0].onPress?.());

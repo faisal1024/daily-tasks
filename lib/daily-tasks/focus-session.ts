@@ -208,8 +208,10 @@ export function checkInTitle(session: FocusSession): string {
 /** The end notification's title: the task's words, cut to about 60 characters. */
 export const NOTIFICATION_TITLE_MAX = 60;
 export function notificationTitle(session: FocusSession): string {
-  const text = session.taskText.trim();
-  return text.length > NOTIFICATION_TITLE_MAX ? `${text.slice(0, NOTIFICATION_TITLE_MAX - 1).trimEnd()}…` : text;
+  // By code points, so an emoji (a surrogate pair) is never split.
+  const chars = Array.from(session.taskText.trim());
+  if (chars.length <= NOTIFICATION_TITLE_MAX) return chars.join("");
+  return `${chars.slice(0, NOTIFICATION_TITLE_MAX - 1).join("").trimEnd()}…`;
 }
 
 /**

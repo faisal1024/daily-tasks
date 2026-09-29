@@ -93,6 +93,20 @@ describe("AddTaskRow", () => {
     expect(onAdd).toHaveBeenCalledTimes(1);
     expect(onAdd).toHaveBeenCalledWith("Call the dentist");
   });
+
+  it("adds once when blur arrives before Return", async () => {
+    const onAdd = jest.fn();
+    await render(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} />);
+    await fireEvent.press(screen.getByText("Add a task"));
+    const input = screen.getByPlaceholderText("What's one thing for today?");
+    await fireEvent.changeText(input, "Walk");
+    await act(async () => {
+      input.props.onBlur?.();
+      input.props.onSubmitEditing?.({ nativeEvent: { text: "Walk" } });
+    });
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(onAdd).toHaveBeenCalledWith("Walk");
+  });
 });
 
 describe("StatusLine", () => {

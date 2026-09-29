@@ -2,7 +2,8 @@
 // next instead of stopping dead. A timer: 5 more minutes / Done / Stuck?
 // Break it down (and Stop here). A starter: Keep going / Done / Stop here.
 // Extend is always on the left and Done on the right, as on the Live
-// Activity, the Dynamic Island and the notification.
+// Activity, the Dynamic Island and the notification, and extend is the
+// lead (solid) one everywhere at time's up: one emphasis rule.
 // Shown under the task's row on Today and on the focus screen; it never ticks anything itself.
 // On the focus screen the footer's Done is the one solid button, so the
 // check-in's buttons are tinted there.
@@ -14,9 +15,10 @@ import { checkInTitle, KEEP_GOING_MINUTES, type FocusSession } from "@/lib/daily
 
 /** What the timer views can do to the session (Today wires them to the store). */
 export interface FocusSessionControls {
-  pause: () => void;
-  resume: () => void;
-  /** Stop timer, Not now, Stop here: clears the session. */
+  /** Pause / Resume: false when there was nothing to pause or resume. */
+  pause: () => boolean | void;
+  resume: () => boolean | void;
+  /** Stop timer, Stop here: clears the session. */
   stop: () => void;
   /** 5 more minutes. */
   extend: () => void;
@@ -116,8 +118,8 @@ export function FocusCheckIn({
         showDone ? pill("tint", "Done", controls.done, "focus-check-in-done", "Marks this task done") : null,
       ]
     : [
-        pill("tint", "5 more minutes", controls.extend, "focus-check-in-extend", "Adds 5 minutes to the timer"),
-        showDone ? pill("primary", "Done", controls.done, "focus-check-in-done", "Marks this task done") : null,
+        pill(lead, "5 more minutes", controls.extend, "focus-check-in-extend", "Adds 5 minutes to the timer"),
+        showDone ? pill("tint", "Done", controls.done, "focus-check-in-done", "Marks this task done") : null,
       ];
   const breakDown = !starter && controls.breakDown ? controls.breakDown : null;
 

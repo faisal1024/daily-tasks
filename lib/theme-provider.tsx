@@ -6,7 +6,8 @@ import { SchemeColors, type ColorScheme } from "@/constants/theme";
 
 type ThemeContextValue = {
   colorScheme: ColorScheme;
-  setColorScheme: (scheme: ColorScheme) => void;
+  /** Pins a scheme; "system" follows the system's Light/Dark again (the default). */
+  setColorScheme: (scheme: ColorScheme | "system") => void;
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -62,8 +63,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const setColorScheme = useCallback((scheme: ColorScheme) => {
-    setOverride(scheme);
+  const setColorScheme = useCallback((scheme: ColorScheme | "system") => {
+    setOverride(scheme === "system" ? null : scheme);
   }, []);
 
   useEffect(() => {

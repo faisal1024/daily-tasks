@@ -62,14 +62,14 @@ export default function JourneyScreen() {
   const showMilestoneCelebration = celebration === "milestone";
 
   const markNotReached = (id: string, title: string) => {
-    Alert.alert("Mark as not reached?", `"${title}"`, [
+    Alert.alert("Mark as not reached?", `“${title}”`, [
       { text: "Keep it", style: "cancel" },
       { text: "Not reached yet", onPress: () => uncompleteMilestone(id) },
     ]);
   };
 
   const markReached = (id: string, title: string) => {
-    Alert.alert("Reached this milestone?", `"${title}"`, [
+    Alert.alert("Reached this milestone?", `“${title}”`, [
       { text: "Not yet", style: "cancel" },
       { text: "Yes, I got there", onPress: () => completeMilestone(id) },
     ]);
@@ -249,7 +249,7 @@ export default function JourneyScreen() {
                     <Pressable
                       onPress={() => markNotReached(milestone.id, milestone.title)}
                       accessibilityRole="button"
-                      accessibilityLabel={`"${milestone.title}" reached`}
+                      accessibilityLabel={`“${milestone.title}” reached`}
                       accessibilityHint="Double-tap to mark it as not reached"
                       hitSlop={8}
                       testID={`milestone-done-${milestone.id}`}
@@ -262,7 +262,7 @@ export default function JourneyScreen() {
                     <Pressable
                       onPress={() => markReached(milestone.id, milestone.title)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Mark "${milestone.title}" as reached`}
+                      accessibilityLabel={`Mark “${milestone.title}” as reached`}
                       hitSlop={8}
                       className="rounded-full px-3 py-1.5"
                       style={{ backgroundColor: `${colors.primary}14` }}

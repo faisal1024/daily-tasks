@@ -25,7 +25,13 @@ import Animated, {
 } from "react-native-reanimated";
 
 import type { FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
-import { RowCheckIn, RowSessionLine, RowTimerPill, useRowSessionClock } from "@/components/daily-tasks/row-timer";
+import {
+  RowCheckIn,
+  RowSessionLine,
+  RowTimerPill,
+  toggleTimer,
+  useRowSessionClock,
+} from "@/components/daily-tasks/row-timer";
 import { useColors } from "@/hooks/use-colors";
 import type { FocusSession } from "@/lib/daily-tasks/focus-session";
 import {
@@ -193,9 +199,9 @@ export function TaskRow({
   const menuItems: { label: string; onPress: () => void; destructive?: boolean }[] = [
     ...(timed && opensFocus ? [{ label: "Open focus", onPress: () => onOpenTimer?.("words") }] : []),
     ...(timed && timed.clock.phase === "running"
-      ? [{ label: "Pause timer", onPress: () => timed.controls.pause() }]
+      ? [{ label: "Pause timer", onPress: () => toggleTimer(timed.controls, "pause") }]
       : timed && timed.clock.phase === "paused"
-        ? [{ label: "Resume timer", onPress: () => timed.controls.resume() }]
+        ? [{ label: "Resume timer", onPress: () => toggleTimer(timed.controls, "resume") }]
         : []),
     ...(timed ? [{ label: "Stop timer", onPress: () => timed.controls.stop() }] : []),
     ...actions.map((action) => ({

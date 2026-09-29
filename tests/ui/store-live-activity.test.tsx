@@ -783,8 +783,9 @@ describe("Live Activity: time's up button and a launch in the background", () =>
     });
     expect(events("live_activity_action")).toEqual([["live_activity_action", { action: "extend" }]]);
     expect(events("focus_session_ended")).toEqual([["focus_session_ended", { outcome: "extended", minutes: 10 }]]);
-    // U4: answered on the lock screen, the old "Time's up" is cleared.
-    expect(dismissFocusTimerNotification).toHaveBeenCalled();
+    // The intent itself removed the answered "Time's up" (natively); the
+    // app doesn't dismiss again, which could clear a fresh, unanswered one.
+    expect(dismissFocusTimerNotification).not.toHaveBeenCalled();
   });
 
   it("a starter's time's-up button is Keep going: a 20-minute timer from the tap", async () => {

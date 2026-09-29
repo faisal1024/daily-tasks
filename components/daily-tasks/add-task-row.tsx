@@ -31,10 +31,14 @@ export function AddTaskRow({
   // could drop characters typed fast, and a submit could read a stale state.
   // The field owns its text; this ref only mirrors it for submit and blur.
   const textRef = useRef("");
+  // One add per edit, whichever of Return and blur comes first (and however
+  // many times): reset each time the field opens.
+  const submittedRef = useRef(false);
   const ref = useRef<TextInputType | null>(null);
 
   useEffect(() => {
     if (editing) {
+      submittedRef.current = false;
       const t = setTimeout(() => ref.current?.focus(), 50);
       return () => clearTimeout(t);
     }
@@ -50,8 +54,10 @@ export function AddTaskRow({
   if (remainingSlots <= 0) return null;
 
   // Return passes the field's own text (the latest, whatever has rendered);
-  // blur reads the ref. Submit then blur adds it once: the ref is emptied.
+  // blur reads the ref. Only the first of them adds (submittedRef).
   const submit = (event?: NativeSyntheticEvent<TextInputSubmitEditingEventData>) => {
+    if (submittedRef.current) return;
+    submittedRef.current = true;
     const latest = typeof event?.nativeEvent?.text === "string" ? event.nativeEvent.text : textRef.current;
     textRef.current = "";
     if (disabled) {

@@ -299,9 +299,9 @@ function trackCommands(before: FocusSession | null, applied: FocusCommandAction[
     // Like the app's own "5 more minutes" / "Keep going": that countdown ended.
     if (action === "extend" && before) track("focus_session_ended", { outcome: "extended", minutes: sessionMinutes(before) });
   }
-  // 5 more minutes / Keep going answered the "Time's up" that went off: clear
-  // it from Notification Center (the new end's is scheduled as usual).
-  if (applied.includes("extend")) void dismissFocusTimerNotification();
+  // No dismiss here: the intent already removed the answered "Time's up",
+  // and by the time the app applies the tap the extended countdown may have
+  // ended too, with a fresh, unanswered one that must stay.
 }
 
 /** A "perfect day" is having at least one task and completing all of them. */
@@ -1075,19 +1075,29 @@ interface StoreContextValue {
     taskId: TaskId,
     options: { kind: FocusSessionKind; minutes: number; source: FocusSessionSource; stepText?: string | null },
   ) => void;
-  pauseFocusSession: () => void;
-  resumeFocusSession: () => void;
+  /**
+   * Pause / Resume: true when it changed anything. Only a running session
+   * pauses and only a paused one resumes (a menu opened before time's up
+   * can't pause an ended session); one that just ran out ends instead.
+   */
+  pauseFocusSession: () => boolean;
+  resumeFocusSession: () => boolean;
   /** "5 more minutes". */
   extendFocusSession: () => void;
   /** A starter's "Keep going": a 20-minute timer on the same task. */
   keepGoingFocusSession: () => void;
-  /** Stop and clear it (Stop timer, Stop here, Not now, or on to a break-down). */
+  /** Stop and clear it (Stop timer, Stop here, or on to a break-down). */
   stopFocusSession: (outcome: Extract<FocusSessionOutcome, "stopped" | "broken_down">) => void;
   /**
    * Today opens this task's focus screen (1.3): "start my next task" (widget,
    * Siri) while another task's timer is on (the screen says starting would
    * stop the other), or a tap on the Live Activity. Cleared with
    * clearFocusPrompt once shown.
+   */
+  /**
+   * A task's focus screen to open from outside: start my next task (widget,
+   * Siri) with another task's timer on, a tap on the Live Activity, or a tap
+   * on the end notification with its check-in due.
    */
   focusPrompt: { taskId: TaskId; source: "widget" | "siri" | "live_activity" | "notification"; nonce: number } | null;
   clearFocusPrompt: () => void;
@@ -1938,10 +1948,21 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     [ensureDay],
   );
   const pauseFocusSession = useCallback(() => {
-    dispatch({ type: "pauseFocusSession", now: Date.now() });
+    const session = stateRef.current.focusSession;
+    const now = Date.now();
+    if (!session || pauseSession(session, now).status !== "paused") {
+      // Not running: nothing to pause (an ended one is settled as usual).
+      if (session?.status === "running") dispatch({ type: "pauseFocusSession", now });
+      return false;
+    }
+    dispatch({ type: "pauseFocusSession", now });
+    return true;
   }, []);
   const resumeFocusSession = useCallback(() => {
+    const session = stateRef.current.focusSession;
+    if (!session || session.status !== "paused") return false;
     dispatch({ type: "resumeFocusSession", now: Date.now() });
+    return true;
   }, []);
   // Each "5 more minutes" or "Keep going" ends one countdown: it's reported as
   // extended, and the session goes on.

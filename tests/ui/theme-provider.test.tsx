@@ -71,3 +71,29 @@ describe("following the system appearance", () => {
     }
   });
 });
+
+it('setColorScheme pins a scheme, and "system" follows the system again', async () => {
+  const getScheme = jest.spyOn(Appearance, "getColorScheme").mockReturnValue("light");
+  const set = jest.spyOn(nativewindColorScheme, "set");
+  let api: ReturnType<typeof useThemeContext> | null = null;
+  function Probe() {
+    api = useThemeContext();
+    return <Text testID="scheme">{api.colorScheme}</Text>;
+  }
+  try {
+    await render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    await act(async () => api!.setColorScheme("dark"));
+    expect(screen.getByTestId("scheme")).toHaveTextContent("dark");
+    expect(set).toHaveBeenLastCalledWith("dark");
+    await act(async () => api!.setColorScheme("system"));
+    expect(screen.getByTestId("scheme")).toHaveTextContent("light");
+    expect(set).toHaveBeenLastCalledWith("system");
+  } finally {
+    getScheme.mockRestore();
+    set.mockRestore();
+  }
+});

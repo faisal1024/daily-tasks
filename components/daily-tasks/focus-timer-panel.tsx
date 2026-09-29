@@ -259,7 +259,8 @@ export function FocusTimerPanel({
         <ProgressRing
           completed={finished ? session.durationMs : left}
           total={session.durationMs}
-          color={colors.primary}
+          // Paused, it goes quiet (as the row's pill does).
+          color={paused ? colors.muted : colors.primary}
           size={ringSize}
           strokeWidth={10}
         >
@@ -340,7 +341,7 @@ export function FocusTimerPanel({
               }}
               accessibilityRole="button"
               accessibilityLabel="Resume"
-              accessibilityHint="Continues the timer"
+              accessibilityHint="Resumes the timer"
               style={pill("tint")}
               testID="focus-timer-resume"
             >

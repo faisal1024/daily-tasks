@@ -304,6 +304,33 @@ describe("store: the session's end", () => {
 });
 
 describe("store: pause, resume, extend, stop and the end notification", () => {
+  // A menu opened before time's up can still offer Pause: it must not pause
+  // (or resume) an ended session, and says it changed nothing.
+  it("pause and resume only act on a running / paused session, and report whether they did", async () => {
+    const { result } = await renderStore();
+    await act(async () => result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
+    let changed: boolean | undefined;
+    await act(async () => {
+      changed = result.current.resumeFocusSession();
+    });
+    expect(changed).toBe(false);
+    expect(result.current.state.focusSession).toMatchObject({ status: "running" });
+    await act(async () => {
+      jest.advanceTimersByTime(10 * MIN + 100);
+    });
+    expect(result.current.state.focusSession).toMatchObject({ status: "ended" });
+    await act(async () => {
+      changed = result.current.pauseFocusSession();
+    });
+    expect(changed).toBe(false);
+    expect(result.current.state.focusSession).toMatchObject({ status: "ended", pausedRemainingMs: null });
+    await act(async () => {
+      changed = result.current.resumeFocusSession();
+    });
+    expect(changed).toBe(false);
+    expect(result.current.state.focusSession).toMatchObject({ status: "ended" });
+  });
+
   it("pause cancels it; resume reschedules for the new end; extend reschedules; stop cancels and clears", async () => {
     const { result } = await renderStore();
     await act(async () => result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));

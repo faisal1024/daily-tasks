@@ -295,6 +295,9 @@ describe("One timer, on the task (real store)", () => {
     await act(async () => pick(1));
     await act(async () => {});
     expect(pill().props.accessibilityValue).toEqual({ text: "Paused" });
+    // Like the pill: felt and said.
+    expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
+    expect(said()).toContain("Paused");
     // Paused: the menu offers Resume timer instead.
     await fireEvent(words("t0"), "longPress");
     const [paused, pickPaused] = sheet.mock.calls.at(-1) as [{ options: string[] }, (index: number) => void];
@@ -317,15 +320,16 @@ describe("One timer, on the task (real store)", () => {
 
   // R2 (1.3 polish): extend on the left, Done on the right, as on the Live
   // Activity and the notification.
-  it("the timer's check-in: 5 more minutes (tint) then Done (solid); Stop here alone sits on the left", async () => {
+  it("the timer's check-in: 5 more minutes (solid, the lead) then Done (tint); Stop here alone sits on the left", async () => {
     await openToday(session({ status: "ended", endAt: NOW - 1000 }));
     const checkIn = within(screen.getByTestId("task-check-in-t0"));
     const buttons = checkIn.getAllByRole("button").map((button) => button.props.accessibilityLabel);
     expect(buttons.indexOf("5 more minutes")).toBeLessThan(buttons.indexOf("Done"));
     const done = StyleSheet.flatten(checkIn.getByRole("button", { name: "Done" }).props.style);
     const extend = StyleSheet.flatten(checkIn.getByRole("button", { name: "5 more minutes" }).props.style);
-    expect(done.backgroundColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
-    expect(extend.backgroundColor).toMatch(/1F$/);
+    // One emphasis rule at time's up: extend is the solid lead, as on the Live Activity.
+    expect(extend.backgroundColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    expect(done.backgroundColor).toMatch(/1F$/);
     // No break-down link here (the task has steps): Stop here isn't pushed right.
     expect(StyleSheet.flatten(checkIn.getByTestId("focus-check-in-links").props.style).justifyContent).toBe("flex-start");
     // Time's up: the pill is the ring and bell alone, no outline.

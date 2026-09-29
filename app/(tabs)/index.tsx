@@ -451,7 +451,8 @@ export default function HomeScreen() {
   }, [today]);
   // A task's focus screen from outside (1.3): "start my next task" (widget,
   // Siri) while another task's timer is on (the screen says a start there
-  // stops the other; never replaced silently), or a tap on the Live Activity.
+  // stops the other; never replaced silently), a tap on the Live Activity,
+  // or a tap on the end notification with its check-in due.
   useEffect(() => {
     if (!focusPrompt) return;
     clearFocusPrompt();
@@ -506,7 +507,7 @@ export default function HomeScreen() {
   // when this would stop another task's timer.
   const openTimerMenu = (taskId: string, text: string, anchor: number | null) => {
     const lengths = timerMenuLengths(lastTimer);
-    const title = `Focus on "${text}"`;
+    const title = `Focus on “${text}”`;
     const replaces =
       sessionTask && sessionTask.id !== taskId ? `This stops the timer on “${sessionTask.text}”.` : undefined;
     if (Platform.OS === "ios") {
@@ -924,7 +925,7 @@ export default function HomeScreen() {
 
   const handleDelete = (id: string, text: string) => {
     if (state.todayLocked) return;
-    Alert.alert("Remove this task?", `Remove "${text}" from today?`, [
+    Alert.alert("Remove this task?", `Remove “${text}” from today?`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",

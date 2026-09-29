@@ -98,7 +98,7 @@ enum DayPhase {
   /// Top-leading to bottom-trailing. Against every stop, white (primary text)
   /// is at least 5.6:1, white 85% (secondary) at least 4.5:1 and white 70%
   /// (faded: done tasks) at least 3.6:1. Dark mode darkens further. The
-  /// morning is a warm coral into a dusty rose (1.3: no brick red).
+  /// morning is a deep terracotta into a dusty rose (1.3: no brick red).
   var colors: [Color] {
     switch self {
     case .morning: return [Color(hex: 0xA04F32), Color(hex: 0x9E4A5C)]
@@ -343,10 +343,8 @@ struct StartButton: View {
       Label("Start", systemImage: "play.fill")
         .font(.system(size: 13, weight: .bold, design: .rounded))
         .labelStyle(CompactLabel())
-        // One line, never "Star/t": it takes its own width, shrinking a
-        // little at the largest text sizes rather than wrapping.
+        // One line, never "Star/t": it takes its own width.
         .lineLimit(1)
-        .minimumScaleFactor(0.8)
         .fixedSize(horizontal: true, vertical: false)
         .foregroundStyle(palette.primary)
         .padding(.horizontal, 12)

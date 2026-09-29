@@ -86,7 +86,7 @@ export function WeeklyReviewCard({ review, plus, canUnlock, onUnlock }: WeeklyRe
             <Insight
               key={task.text}
               icon="refresh-outline"
-              text={`"${task.text}" moved to the next day ${task.times} times. Maybe break it into tiny steps, or let it go for now.`}
+              text={`“${task.text}” moved to the next day ${task.times} times. Maybe break it into tiny steps, or let it go for now.`}
             />
           ))}
           {!hasInsights(review) && (

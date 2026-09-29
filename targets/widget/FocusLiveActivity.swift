@@ -105,7 +105,8 @@ private func capitalized(_ text: String) -> String { text.prefix(1).uppercased()
 // MARK: - Pieces
 
 /// The countdown ring: it drains on its own while running; frozen while
-/// paused (no glyph: the caption says Paused and Resume is right there);
+/// paused (no glyph: the caption says Paused and Resume is right there; the
+/// frozen arc is at half opacity, so paused never looks like running);
 /// full with a bell at time's up; a check once done.
 struct FocusRing: View {
   let state: FocusActivityAttributes.ContentState
@@ -132,7 +133,7 @@ struct FocusRing: View {
             .frame(width: size, height: size)
         }
       case .paused:
-        arc(state.pausedFraction)
+        arc(state.pausedFraction).opacity(0.5)
       case .timesUp:
         arc(1)
         if showsBell {
