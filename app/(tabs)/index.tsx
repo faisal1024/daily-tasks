@@ -33,7 +33,6 @@ import { NextPathLink } from "@/components/daily-tasks/next-path-link";
 import { FirstRun } from "@/components/daily-tasks/first-run";
 import type { FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
-import { NowBar, useFocusSessionCues } from "@/components/daily-tasks/now-bar";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
@@ -44,6 +43,7 @@ import { WeekRow } from "@/components/daily-tasks/week-row";
 import { useAppUpdate } from "@/hooks/use-app-update";
 import { useHour } from "@/hooks/use-hour";
 import { useAppActive } from "@/hooks/use-app-active";
+import { useFocusSessionCues } from "@/hooks/use-focus-session-cues";
 import {
   aiFailureMessage,
   breakDownFailureMessage,
@@ -433,7 +433,7 @@ export default function HomeScreen() {
   const [focusCustom, setFocusCustom] = useState(false);
   const openFocus = (
     taskId: string,
-    source: "coach" | "row" | "now_bar" | "widget" | "siri" | "live_activity",
+    source: "coach" | "row" | "row_words" | "widget" | "siri" | "live_activity",
     custom = false,
   ) => {
     setFocusCustom(custom);
@@ -469,8 +469,8 @@ export default function HomeScreen() {
     },
     [],
   );
-  // The focus session (1.3): one timer at a time, on the task's row, in the Now
-  // bar under the header, and on the focus screen. Its start and end are said
+  // The focus session (1.3): one timer at a time, on its task's row (the pill,
+  // and the check-in under it at zero) and on the focus screen. Its start and end are said
   // (and the end felt) here, since Today is always mounted.
   const focusSession = state.focusSession;
   // For code that runs after the paywall (see runBreakDown).
@@ -892,7 +892,7 @@ export default function HomeScreen() {
     }, FOCUS_DONE_ANNOUNCE_DELAY_MS);
   };
 
-  // What the Now bar, the focus screen and the check-in can do to the session.
+  // What the row's timer pill, the focus screen and the check-in can do to the session.
   // Done ticks through the normal path, so the haptic, celebration and
   // win-back all happen (and the store clears the session).
   const sessionControls: FocusSessionControls = {
@@ -998,14 +998,6 @@ export default function HomeScreen() {
             testID={twoColumn ? "today-two-column" : undefined}
           >
             <View style={twoColumn ? { flex: 1.25, gap: 14 } : { gap: 14 }}>
-              {/* The Now bar (1.3): the running timer, first under the header. */}
-              {focusSession && sessionTask ? (
-                <NowBar
-                  session={focusSession}
-                  controls={sessionControls}
-                  onOpen={() => openFocus(sessionTask.id, "now_bar")}
-                />
-              ) : null}
               {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
               {toast && (
                 <View
@@ -1058,7 +1050,8 @@ export default function HomeScreen() {
                           // A timer is fine on a set day too: it's for doing the day.
                           onTimer={(anchor) => openTimerMenu(task.id, task.text, anchor)}
                           session={focusSession?.taskId === task.id ? focusSession : null}
-                          onOpenTimer={() => openFocus(task.id, "row")}
+                          controls={sessionControls}
+                          onOpenTimer={(via) => openFocus(task.id, via === "words" ? "row_words" : "row")}
                         />
                       </View>
                     );
@@ -1160,10 +1153,10 @@ export default function HomeScreen() {
                     source={note.source}
                     taskText={coachTask.text}
                     // One tap: a 5-minute starter (no length to choose); it
-                    // shows in the Now bar and the row. Once it's on, the
+                    // shows on the task's row. Once it's on, the
                     // button opens focus mode instead (never a restart).
                     // A timer on another task: no button (the note stays a
-                    // quiet line; the Now bar has that timer).
+                    // quiet line; that task's row has the timer).
                     timerRunning={focusSession?.taskId === coachTask.id}
                     onStart={
                       focusSession && focusSession.taskId !== coachTask.id

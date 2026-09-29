@@ -18,7 +18,7 @@ const task = (text: string, extra: Partial<Task> = {}): Task => ({
   ...extra,
 });
 
-async function renderRow(props: Partial<React.ComponentProps<typeof TaskRow>> = {}) {
+async function renderRow(props: Partial<Omit<React.ComponentProps<typeof TaskRow>, "session" | "controls">> = {}) {
   const handlers = {
     onToggle: jest.fn(),
     onEdit: jest.fn(),

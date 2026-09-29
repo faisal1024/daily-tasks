@@ -7,7 +7,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppState } from "react-native";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
-import { useFocusSessionCues } from "@/components/daily-tasks/now-bar";
+import { useFocusSessionCues } from "@/hooks/use-focus-session-cues";
 import { Colors } from "@/constants/theme";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { buildInitialState } from "@/lib/daily-tasks/storage";

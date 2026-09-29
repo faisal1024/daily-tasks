@@ -2,7 +2,7 @@
 // handled by the store). Best-effort: before navigation is ready it does nothing.
 import { router } from "expo-router";
 
-/** Shows Today (the focus session's Now bar and check-in live there). */
+/** Shows Today (the focus session's timer pill and check-in live on its task row). */
 export function navigateToToday(): void {
   try {
     router.navigate("/");

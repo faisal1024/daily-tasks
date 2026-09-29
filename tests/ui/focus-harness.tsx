@@ -7,7 +7,7 @@ import { AccessibilityInfo } from "react-native";
 import { act } from "@testing-library/react-native";
 
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
-import { useFocusSessionCues } from "@/components/daily-tasks/now-bar";
+import { useFocusSessionCues } from "@/hooks/use-focus-session-cues";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import type { Task } from "@/lib/daily-tasks/types";

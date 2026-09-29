@@ -1,5 +1,5 @@
 // Focus mode's timer (1.2): its lengths and how they read, shared by the
-// focus screen, the Now bar and the task rows. Pure, so it's safe to import anywhere.
+// focus screen and the task rows. Pure, so it's safe to import anywhere.
 import { formatTime } from "./date";
 
 /** The preset lengths, in minutes. */
