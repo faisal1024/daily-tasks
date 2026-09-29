@@ -21,8 +21,9 @@ struct ToggleTaskIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult {
-    // Serialised: two quick taps can run two intents at once.
-    Shared.lock.withLock { apply() }
+    // Serialised (in and across processes): two quick taps can run two
+    // intents at once, and neither may lose the other's change.
+    FocusGroup.withLock { apply() }
     return .result()
   }
 

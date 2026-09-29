@@ -4,9 +4,13 @@
 // before anything else looks at the session (at launch, and whenever it becomes
 // active), so a pause on the lock screen is never overtaken by "time's up".
 // Pure; the bridge is widget-bridge.ts.
-import { pause, resume, type FocusSession } from "./focus-session";
+import { extend, keepGoing, pause, resume, sessionPhase, type FocusSession } from "./focus-session";
 
-export type FocusCommandAction = "pause" | "resume";
+/**
+ * "extend" is the time's-up button: 5 more minutes on a timer, "Keep going"
+ * (a 20-minute timer) on a starter, as the app's check-in offers.
+ */
+export type FocusCommandAction = "pause" | "resume" | "extend";
 
 /** One queued tap. `at` is when it was made (epoch ms). */
 export interface FocusCommand {
@@ -36,7 +40,7 @@ export function parseFocusCommands(raw: string | null, processedSeq: number): Fo
       return (
         Number.isInteger(command.seq) &&
         typeof command.sessionId === "string" &&
-        (command.action === "pause" || command.action === "resume") &&
+        (command.action === "pause" || command.action === "resume" || command.action === "extend") &&
         typeof command.at === "number" &&
         Number.isFinite(command.at)
       );
@@ -56,7 +60,9 @@ export function lastCommandSeq(commands: FocusCommand[], processedSeq: number): 
  * Only commands for this session count: one for an older session (the app
  * moved on meanwhile) is dropped. Pausing a paused session or resuming a
  * running one changes nothing, so replaying the queue is harmless. A tap time
- * in the future (the clock moved) counts as now. `applied` lists what changed it.
+ * in the future (the clock moved) counts as now. "extend" only acts at time's
+ * up (as its button only shows then). `applied` lists what each one did: a
+ * pause that found the time already up ended it instead, which isn't a pause.
  */
 export function applyFocusCommands(
   session: FocusSession | null,
@@ -68,10 +74,21 @@ export function applyFocusCommands(
   for (const command of commands) {
     if (!current || command.sessionId !== current.id) continue;
     const at = Math.min(command.at, now);
-    const next = command.action === "pause" ? pause(current, at) : resume(current, at);
+    const next = step(current, command.action, at);
     if (next === current) continue;
     current = next;
-    applied.push(command.action);
+    const did =
+      (command.action === "pause" && next.status === "paused") ||
+      (command.action === "resume" && next.status === "running") ||
+      command.action === "extend";
+    if (did) applied.push(command.action);
   }
   return { session: current, applied };
+}
+
+function step(session: FocusSession, action: FocusCommandAction, at: number): FocusSession {
+  if (action === "pause") return pause(session, at);
+  if (action === "resume") return resume(session, at);
+  if (sessionPhase(session, at) !== "ended") return session;
+  return session.kind === "starter" ? keepGoing(session, at) : extend(session, at);
 }

@@ -19,10 +19,6 @@ enum Shared {
 
   static var defaults: UserDefaults? { UserDefaults(suiteName: group) }
 
-  /// Serialises read-modify-write of the snapshot and queue: two quick taps
-  /// can run two intents at once, and neither may lose the other's change.
-  /// The same lock as the Live Activity's buttons (FocusActivityShared.swift).
-  static var lock: NSLock { FocusGroup.lock }
 
   /// Local calendar day as yyyy-MM-dd, matching the app's todayKey().
   static func todayKey(_ date: Date = Date()) -> String {

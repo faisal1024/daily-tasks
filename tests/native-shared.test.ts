@@ -15,9 +15,14 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 describe("shared Swift sources", () => {
   it("keeps FocusActivityShared.swift identical in the app module and the widget", () => {
-    expect(read("modules/focus-activity/ios/FocusActivityShared.swift")).toBe(
-      read("targets/widget/FocusActivityShared.swift"),
-    );
+    const app = read("modules/focus-activity/ios/FocusActivityShared.swift");
+    const widget = read("targets/widget/FocusActivityShared.swift");
+    const line = app.split("\n").findIndex((text, i) => text !== widget.split("\n")[i]);
+    expect(
+      app === widget,
+      `FocusActivityShared.swift differs between modules/focus-activity/ios and targets/widget (first at line ${line + 1}). ` +
+        "Edit one and copy it over: cp targets/widget/FocusActivityShared.swift modules/focus-activity/ios/",
+    ).toBe(true);
   });
 
   it("points the app and the widget at the same App Group and keys as the JS bridge", () => {
@@ -92,7 +97,8 @@ describe("shared Swift sources", () => {
     expect(fields("QueuedToggle")).toEqual(["date", "done", "id", "seq", "source"]);
     expect(shared).toContain('source: "live_activity"');
     // focus.startRequest: requestStart's keys.
-    expect(shared).toMatch(/"id": UUID\(\)\.uuidString, "kind": kind, "source": source, "at": nowMs\(\)/);
+    expect(shared).toMatch(/\["id": id, "kind": kind, "source": source, "at": nowMs\(\)\]/);
+    expect(shared).toContain('URLQueryItem(name: "id", value: id)');
     expect(parseFocusStartRequest(JSON.stringify({ id: "u", kind: "starter", source: "siri", at: 1000 }), null, 1000)).toEqual({
       id: "u",
       kind: "starter",

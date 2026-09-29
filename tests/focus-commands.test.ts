@@ -56,6 +56,25 @@ describe("applyFocusCommands", () => {
     expect(applyFocusCommands(null, [{ seq: 1, sessionId: "s1", action: "pause", at: T0 }], T0).session).toBeNull();
   });
 
+  it("extend acts only at time's up: 5 more minutes on a timer, Keep going (20 minutes) on a starter", () => {
+    const end = T0 + 20 * 60_000;
+    const early = applyFocusCommands(session, [{ seq: 1, sessionId: "s1", action: "extend", at: T0 + 60_000 }], T0 + 60_000);
+    expect(early.session).toBe(session);
+    expect(early.applied).toEqual([]);
+    const timer = applyFocusCommands(session, [{ seq: 1, sessionId: "s1", action: "extend", at: end + 1000 }], end + 2000);
+    expect(timer.session).toMatchObject({ status: "running", durationMs: 25 * 60_000, endAt: end + 1000 + 5 * 60_000 });
+    expect(timer.applied).toEqual(["extend"]);
+    const starter = startSession({ id: "s2", taskId: "a", taskText: "Walk", date: "2026-09-29", kind: "starter", minutes: 5, now: T0 });
+    const kept = applyFocusCommands(starter, [{ seq: 1, sessionId: "s2", action: "extend", at: T0 + 6 * 60_000 }], T0 + 6 * 60_000);
+    expect(kept.session).toMatchObject({ kind: "timer", durationMs: 20 * 60_000, endAt: T0 + 26 * 60_000 });
+  });
+
+  it("a pause that finds the time already up ends it, and isn't recorded as a pause", () => {
+    const late = applyFocusCommands(session, [{ seq: 1, sessionId: "s1", action: "pause", at: T0 + 21 * 60_000 }], T0 + 22 * 60_000);
+    expect(late.session?.status).toBe("ended");
+    expect(late.applied).toEqual([]);
+  });
+
   it("a tap time in the future counts as now", () => {
     const { session: paused } = applyFocusCommands(session, [{ seq: 1, sessionId: "s1", action: "pause", at: T0 + 99 * 60_000 }], T0 + 60_000);
     expect(paused?.pausedRemainingMs).toBe(19 * 60_000);

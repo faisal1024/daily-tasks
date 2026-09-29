@@ -11,11 +11,13 @@
 // - `focus.session`: the session, written by the app (and optimistically by a
 //   Pause/Resume tap here, like the widget's ticks);
 // - `focus.commands`: Pause/Resume taps queued for the app (only written here);
-//   the app records the last one it applied in `focus.processedSeq`;
+//   the app records the last one it applied in `focus.processedSeq`
+//   ("pause" | "resume", and "extend" for the time's-up button);
 // - `widget.toggles`: Done queues a tick there, exactly like the widget;
 // - `focus.startRequest`: "start my next task" from Siri or the widget.
 
 import ActivityKit
+import Darwin
 import Foundation
 import UserNotifications
 import WidgetKit
@@ -42,6 +44,9 @@ public struct FocusSessionMirror: Codable, Equatable {
   public var status: String
 
   public var endDate: Date? { endAt.map { Date(timeIntervalSince1970: $0 / 1000) } }
+
+  /// A shape this code understands (`v` goes up only for an incompatible change).
+  var isSupported: Bool { (v ?? 1) <= 1 }
 
   /// Counting down, with its end still ahead.
   public func isRunning(at now: Date) -> Bool {
@@ -104,11 +109,14 @@ extension FocusSessionMirror {
     FocusActivityAttributes(sessionId: id, taskId: taskId, date: date)
   }
 
+  /// The activity's content (its words cut to keep it well under ActivityKit's 4 KB).
   public var contentState: FocusActivityAttributes.ContentState {
     FocusActivityAttributes.ContentState(
-      taskText: taskText, stepText: stepText, kind: kind, status: status, endAt: endDate, durationMs: durationMs,
-      pausedRemainingMs: pausedRemainingMs)
+      taskText: Self.cut(taskText), stepText: stepText.map(Self.cut), kind: kind, status: status, endAt: endDate,
+      durationMs: durationMs, pausedRemainingMs: pausedRemainingMs)
   }
+
+  static func cut(_ text: String) -> String { text.count > 120 ? String(text.prefix(119)) + "\u{2026}" : text }
 
   /// A running countdown goes stale at its end: the views then say "Time's up".
   public var staleDate: Date? { status == "running" ? endDate : nil }
@@ -119,7 +127,7 @@ extension FocusSessionMirror {
 public struct FocusCommand: Codable, Equatable {
   public let seq: Int
   public let sessionId: String
-  /// "pause" | "resume"
+  /// "pause" | "resume" | "extend"
   public let action: String
   /// Epoch ms of the tap.
   public let at: Double
@@ -154,9 +162,30 @@ public enum FocusGroup {
 
   public static var defaults: UserDefaults? { UserDefaults(suiteName: group) }
 
-  /// Serialises read-modify-write of the App Group's JSON (two quick taps can
-  /// run two intents at once). The widget's Shared.lock is this lock.
-  public static let lock = NSLock()
+  /// Serialises read-modify-write of the App Group's JSON queues and
+  /// snapshot between native writers: two quick taps can run two intents at
+  /// once, in one process or in two (the widget extension, and the app, which
+  /// runs a Live Activity's intents). An NSLock within the process, plus an
+  /// flock on a file in the App Group container across processes. The app's
+  /// JS never writes these keys (only the "processed" marks), so it needn't lock.
+  static let lock = NSLock()
+  static let lockFileName = "FocusQueue.lock"
+
+  public static func withLock<T>(_ body: () -> T) -> T {
+    lock.lock()
+    defer { lock.unlock() }
+    let fd: Int32 =
+      FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
+      .map { open($0.appendingPathComponent(lockFileName).path, O_CREAT | O_RDWR, 0o644) } ?? -1
+    if fd >= 0 { flock(fd, LOCK_EX) }
+    defer {
+      if fd >= 0 {
+        flock(fd, LOCK_UN)
+        close(fd)
+      }
+    }
+    return body()
+  }
 
   /// Local calendar day as yyyy-MM-dd, matching the app's todayKey().
   public static func todayKey(_ date: Date = Date()) -> String {
@@ -171,13 +200,15 @@ public enum FocusGroup {
   static func nowMs(_ date: Date = Date()) -> Double { (date.timeIntervalSince1970 * 1000).rounded() }
 
   public static func loadSession() -> FocusSessionMirror? {
-    guard let raw = defaults?.string(forKey: sessionKey), let data = raw.data(using: .utf8) else { return nil }
-    return try? JSONDecoder().decode(FocusSessionMirror.self, from: data)
+    defaults?.string(forKey: sessionKey).flatMap(decodeSession)
   }
 
+  /// nil for anything malformed, or from a newer app with an incompatible shape.
   public static func decodeSession(_ raw: String) -> FocusSessionMirror? {
-    guard let data = raw.data(using: .utf8) else { return nil }
-    return try? JSONDecoder().decode(FocusSessionMirror.self, from: data)
+    guard let data = raw.data(using: .utf8),
+      let session = try? JSONDecoder().decode(FocusSessionMirror.self, from: data), session.isSupported
+    else { return nil }
+    return session
   }
 
   static func saveSession(_ session: FocusSessionMirror) {
@@ -195,7 +226,7 @@ public enum FocusGroup {
     defaults?.set(raw, forKey: key)
   }
 
-  /// Queue a Pause/Resume for the app. Call with `lock` held.
+  /// Queue a Pause/Resume/extend for the app. Call inside `withLock`.
   static func appendCommand(_ action: String, sessionId: String, at: Double) {
     let processed = defaults?.integer(forKey: commandsProcessedKey) ?? 0
     var commands = (load([FocusCommand].self, key: commandsKey) ?? []).filter { $0.seq > processed }
@@ -206,7 +237,7 @@ public enum FocusGroup {
   }
 
   /// Queue a tick/untick for the app (the widget's queue). Drops entries the
-  /// app already applied. Call with `lock` held.
+  /// app already applied. Call inside `withLock`.
   public static func appendToggle(id: String, date: String, done: Bool, source: String? = nil) {
     let processed = defaults?.integer(forKey: togglesProcessedKey) ?? 0
     var toggles = (load([QueuedToggle].self, key: togglesKey) ?? []).filter { $0.seq > processed }
@@ -217,7 +248,7 @@ public enum FocusGroup {
   }
 
   /// Shows a task as done in the widget's snapshot until the app rewrites it
-  /// (the optimistic tick the widget's own buttons make). Call with `lock` held.
+  /// (the optimistic tick the widget's own buttons make). Call inside `withLock`.
   static func markDoneInSnapshot(taskId: String, date: String) {
     guard let raw = defaults?.string(forKey: snapshotKey), let data = raw.data(using: .utf8),
       var snapshot = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -233,24 +264,36 @@ public enum FocusGroup {
 
   /// "Start my next task" (Siri, the widget): picked up by the app when it
   /// opens. `kind` is "timer" or "starter"; `source` is "siri" or "widget".
-  public static func requestStart(kind: String, source: String) {
-    let request: [String: Any] = [
-      "id": UUID().uuidString, "kind": kind, "source": source, "at": nowMs(),
-    ]
-    guard let data = try? JSONSerialization.data(withJSONObject: request), let raw = String(data: data, encoding: .utf8)
-    else { return }
-    defaults?.set(raw, forKey: startRequestKey)
+  /// Returns its id, which the deep link carries too (the app acts on it once).
+  @discardableResult
+  public static func requestStart(kind: String, source: String) -> String {
+    let id = UUID().uuidString
+    let request: [String: Any] = ["id": id, "kind": kind, "source": source, "at": nowMs()]
+    if let data = try? JSONSerialization.data(withJSONObject: request), let raw = String(data: data, encoding: .utf8) {
+      defaults?.set(raw, forKey: startRequestKey)
+    }
+    return id
   }
 
   /// The deep link the app handles (lib/daily-tasks/focus-link.ts).
-  public static func startURL(kind: String, source: String) -> URL? {
+  public static func startURL(kind: String, source: String, id: String? = nil) -> URL? {
     var components = URLComponents()
     components.scheme = "dailytasks"
     components.host = "focus"
     components.path = "/start"
     var items = [URLQueryItem(name: "task", value: "next"), URLQueryItem(name: "source", value: source)]
     if kind == "starter" { items.append(URLQueryItem(name: "kind", value: "starter")) }
+    if let id { items.append(URLQueryItem(name: "id", value: id)) }
     components.queryItems = items
+    return components.url
+  }
+
+  /// A tap on the Live Activity: the app opens that session's focus screen.
+  public static func openURL(sessionId: String) -> URL? {
+    var components = URLComponents()
+    components.scheme = "dailytasks"
+    components.host = "focus"
+    components.queryItems = [URLQueryItem(name: "session", value: sessionId)]
     return components.url
   }
 
@@ -303,8 +346,9 @@ public enum FocusActions {
   public static func pause(sessionId: String) async {
     let now = Date()
     let paused: FocusSessionMirror? = withLock {
-      guard var session = FocusGroup.loadSession(), session.id == sessionId, session.isRunning(at: now),
-        let endAt = session.endAt
+      // Yesterday's session (the app clears it at midnight) isn't paused.
+      guard var session = FocusGroup.loadSession(), session.id == sessionId, session.date == FocusGroup.todayKey(now),
+        session.isRunning(at: now), let endAt = session.endAt
       else { return nil }
       let at = FocusGroup.nowMs(now)
       session.pausedRemainingMs = min(session.durationMs, max(0, endAt - at))
@@ -324,9 +368,9 @@ public enum FocusActions {
   public static func resume(sessionId: String) async {
     let now = Date()
     let resumed: FocusSessionMirror? = withLock {
-      guard var session = FocusGroup.loadSession(), session.id == sessionId, session.status == "paused" else {
-        return nil
-      }
+      guard var session = FocusGroup.loadSession(), session.id == sessionId, session.date == FocusGroup.todayKey(now),
+        session.status == "paused"
+      else { return nil }
       let at = FocusGroup.nowMs(now)
       let left = min(session.durationMs, max(0, session.pausedRemainingMs ?? 0))
       session.endAt = at + left
@@ -342,6 +386,47 @@ public enum FocusActions {
     await show(resumed)
     FocusGroup.reloadWidget()
   }
+
+  /// The time's-up button: 5 more minutes on a timer; on a starter, "Keep
+  /// going" (a 20-minute timer), as the app's check-in offers. Only at time's up.
+  public static func extend(sessionId: String) async {
+    let now = Date()
+    let result: (session: FocusSessionMirror, wasStarter: Bool)? = withLock {
+      guard var session = FocusGroup.loadSession(), session.id == sessionId, session.date == FocusGroup.todayKey(now),
+        session.hasEnded(at: now)
+      else { return nil }
+      let at = FocusGroup.nowMs(now)
+      let wasStarter = session.kind == "starter"
+      if wasStarter {
+        session.kind = "timer"
+        session.durationMs = keepGoingMs
+        session.startedAt = at
+        session.endAt = at + keepGoingMs
+      } else {
+        let duration = min(maxSessionMs, session.durationMs + extendMs)
+        session.endAt = at + (duration - session.durationMs)
+        session.durationMs = duration
+      }
+      session.status = "running"
+      session.pausedRemainingMs = nil
+      session.rev = max((session.rev ?? 0) + 1, at)
+      FocusGroup.saveSession(session)
+      FocusGroup.appendCommand("extend", sessionId: sessionId, at: at)
+      return (session, wasStarter)
+    }
+    guard let result else { return await reflectApp(sessionId: sessionId) }
+    // A timer's notification says the same again at the new end; a starter's
+    // words change (the app schedules that one when it next opens).
+    if !result.wasStarter, let end = result.session.endDate {
+      await repeatDeliveredNotification(at: end)
+    }
+    await show(result.session)
+    FocusGroup.reloadWidget()
+  }
+
+  static let extendMs: Double = 5 * 60_000
+  static let keepGoingMs: Double = 20 * 60_000
+  static let maxSessionMs: Double = 24 * 60 * 60_000
 
   /// Done from the Live Activity: queues the tick like the widget does (the
   /// app applies it, with its usual celebration and analytics, when it next
@@ -377,8 +462,30 @@ public enum FocusActions {
   }
 
   // The end notification: a pause here holds it (its content is kept in the
-  // App Group), a resume here schedules it again for the new end. The app
-  // reschedules or cancels it too when it next becomes active.
+  // App Group), a resume here schedules it again for the new end, and 5 more
+  // minutes repeats the one that went off. The app reschedules or cancels it
+  // too when it next becomes active.
+
+  static func repeatDeliveredNotification(at end: Date) async {
+    let center = UNUserNotificationCenter.current()
+    let delivered = await center.deliveredNotifications()
+    guard let last = delivered.last(where: { $0.request.identifier == FocusGroup.notificationId }) else { return }
+    center.removeDeliveredNotifications(withIdentifiers: [FocusGroup.notificationId])
+    await schedule(last.request.content, at: end)
+  }
+
+  static func schedule(_ content: UNNotificationContent, at end: Date) async {
+    // Like the app: never for an end less than a second away, nor past the
+    // next midnight (the session clears then).
+    let calendar = Calendar.current
+    let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date())) ?? end
+    let interval = end.timeIntervalSinceNow
+    guard interval > 1, end <= midnight else { return }
+    let request = UNNotificationRequest(
+      identifier: FocusGroup.notificationId, content: content,
+      trigger: UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false))
+    try? await UNUserNotificationCenter.current().add(request)
+  }
 
   static func holdNotification(sessionId: String) async {
     let center = UNUserNotificationCenter.current()
@@ -401,21 +508,8 @@ public enum FocusActions {
     guard held == sessionId, let data,
       let content = try? NSKeyedUnarchiver.unarchivedObject(ofClass: UNNotificationContent.self, from: data)
     else { return }
-    // Like the app: never for an end less than a second away, nor past the
-    // next midnight (the session clears then).
-    let calendar = Calendar.current
-    let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date())) ?? end
-    let interval = end.timeIntervalSinceNow
-    guard interval > 1, end <= midnight else { return }
-    let request = UNNotificationRequest(
-      identifier: FocusGroup.notificationId, content: content,
-      trigger: UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false))
-    try? await UNUserNotificationCenter.current().add(request)
+    await schedule(content, at: end)
   }
 
-  private static func withLock<T>(_ body: () -> T) -> T {
-    FocusGroup.lock.lock()
-    defer { FocusGroup.lock.unlock() }
-    return body()
-  }
+  private static func withLock<T>(_ body: () -> T) -> T { FocusGroup.withLock(body) }
 }

@@ -402,7 +402,7 @@ describe("Live Activity: follows the session", () => {
     });
   });
 
-  it("reconciles on foreground: one dismissed meanwhile is re-created, an orphan ended, and the content re-sent", async () => {
+  it("reconciles on foreground: one the user dismissed isn't brought back for that session, an orphan is ended, and the content re-sent", async () => {
     const { result } = await renderStore();
     await act(async () =>
       result.current.startFocusSession("t0", {
@@ -415,19 +415,26 @@ describe("Live Activity: follows the session", () => {
     const id = result.current.state.focusSession!.id;
     expect(native.start).toHaveBeenCalledTimes(1);
 
+    // Still showing: a foreground re-sends its content (a button may have changed it).
+    await foreground();
+    await flush();
+    expect(native.update).toHaveBeenCalledTimes(1);
+
     // The user swiped it away, and a stale one from an older session showed up.
     mockActivities = ["old"];
     await foreground();
     await flush();
     expect(native.end).toHaveBeenCalledWith("old", null, 0);
-    expect(native.start).toHaveBeenCalledTimes(2);
-    expect(shownJson(native.start)[1]).toMatchObject({ id });
+    // Not re-requested for this session...
+    expect(native.start).toHaveBeenCalledTimes(1);
 
-    // Still showing: a foreground re-sends its content (a button may have changed it).
-    await foreground();
+    // ...but the next session gets one.
+    await act(async () =>
+      result.current.startFocusSession("t1", { kind: "timer", minutes: 10, source: "row" }),
+    );
     await flush();
     expect(native.start).toHaveBeenCalledTimes(2);
-    expect(native.update).toHaveBeenCalledTimes(1);
+    expect(shownJson(native.start)[1]).not.toMatchObject({ id });
   });
 
   it("a saved session that's already at time's up gets no new activity", async () => {
@@ -687,6 +694,27 @@ describe("Live Activity Done (widget.toggles, source live_activity)", () => {
     );
   });
 
+  it("counts only taps that change something, with task_completed from where it came", async () => {
+    const { result } = await renderStore({ todayCompletions: ["t1"] });
+    mockToggles = {
+      raw: JSON.stringify([
+        // Already done: nothing changes, nothing counted.
+        { seq: 1, id: "t1", date: TODAY, done: true, source: "live_activity" },
+        { seq: 2, id: "t0", date: TODAY, done: true, source: "live_activity" },
+        { seq: 3, id: "t2", date: TODAY, done: true },
+      ]),
+      processedSeq: 0,
+    };
+    await foreground();
+    await flush();
+    expect(result.current.state.todayCompletions.sort()).toEqual(["t0", "t1", "t2"]);
+    expect(events("live_activity_action")).toEqual([["live_activity_action", { action: "done" }]]);
+    expect(events("task_completed")).toEqual([
+      ["task_completed", { count: 2, source: "live_activity" }],
+      ["task_completed", { count: 3, source: "widget" }],
+    ]);
+  });
+
   it("a plain widget tick isn't counted as a Live Activity action", async () => {
     await renderStore();
     mockToggles = {
@@ -699,10 +727,79 @@ describe("Live Activity Done (widget.toggles, source live_activity)", () => {
   });
 });
 
+describe("Live Activity: time's up button and a launch in the background", () => {
+  it("\"5 more minutes\" (extend) at time's up runs the timer again from the tap; a starter keeps going as a 20-minute timer", async () => {
+    const end = START.getTime() + 10 * MIN;
+    mockCommands = {
+      raw: commands([{ seq: 1, sessionId: "saved", action: "extend", at: end + MIN }]),
+      processedSeq: 0,
+    };
+    jest.setSystemTime(end + 2 * MIN);
+    const { result } = await renderStore({ focusSession: session() });
+    expect(result.current.state.focusSession).toMatchObject({
+      status: "running",
+      endAt: end + MIN + 5 * MIN,
+      durationMs: 15 * MIN,
+    });
+    expect(events("live_activity_action")).toEqual([["live_activity_action", { action: "extend" }]]);
+    expect(events("focus_session_ended")).toEqual([["focus_session_ended", { outcome: "extended", minutes: 10 }]]);
+  });
+
+  it("a starter's time's-up button is Keep going: a 20-minute timer from the tap", async () => {
+    const end = START.getTime() + 5 * MIN;
+    mockCommands = {
+      raw: commands([{ seq: 1, sessionId: "saved", action: "extend", at: end + MIN }]),
+      processedSeq: 0,
+    };
+    jest.setSystemTime(end + 2 * MIN);
+    const { result } = await renderStore({
+      focusSession: session({ kind: "starter", durationMs: 5 * MIN, endAt: end }),
+    });
+    expect(result.current.state.focusSession).toMatchObject({
+      kind: "timer",
+      status: "running",
+      durationMs: 20 * MIN,
+      endAt: end + MIN + 20 * MIN,
+    });
+  });
+
+  it("a background launch (a Live Activity button) doesn't count as opening the app, nor act on links, until it's active", async () => {
+    const current = AppState.currentState;
+    (AppState as { currentState: unknown }).currentState = "background";
+    try {
+      const { result } = await renderStore();
+      await act(async () => queueFocusStart({ kind: "timer", source: "widget" }));
+      await flush();
+      expect(events("app_opened")).toEqual([]);
+      expect(result.current.state.focusSession).toBeNull();
+
+      (AppState as { currentState: unknown }).currentState = "active";
+      await foreground();
+      await flush();
+      expect(events("app_opened")).toHaveLength(1);
+      expect(result.current.state.focusSession).toMatchObject({ taskId: "t0" });
+    } finally {
+      (AppState as { currentState: unknown }).currentState = current;
+    }
+  });
+
+  it("a tap on the Live Activity opens its session's focus screen, or just Today once that session is gone", async () => {
+    const { result } = await renderStore({ focusSession: session() });
+    expect(redirectSystemPath({ path: "dailytasks://focus?session=saved", initial: false })).toBe("/");
+    await flush();
+    expect(result.current.focusPrompt).toMatchObject({ taskId: "t0", source: "live_activity" });
+    await act(async () => result.current.clearFocusPrompt());
+
+    redirectSystemPath({ path: "dailytasks://focus?session=gone", initial: false });
+    await flush();
+    expect(result.current.focusPrompt).toBeNull();
+  });
+});
+
 // --- "Start my next task" (widget, Siri) ---------------------------------------
 
 describe("start my next task: links and the App Group request", () => {
-  it("the router takes dailytasks://focus/start links (showing Today) and leaves every other link alone", () => {
+  it("the router takes dailytasks://focus links (showing Today; there's no such route) and leaves every other link alone", () => {
     expect(
       redirectSystemPath({
         path: "dailytasks://focus/start?task=next&source=siri&kind=starter",
@@ -717,7 +814,7 @@ describe("start my next task: links and the App Group request", () => {
         path: "dailytasks://focus/start?task=t9",
         initial: false,
       }),
-    ).toBe("dailytasks://focus/start?task=t9");
+    ).toBe("/");
   });
 
   it("a widget link starts the next open task with the last length used; a link that came before the store was ready waits for it", async () => {
@@ -860,6 +957,26 @@ describe("start my next task: links and the App Group request", () => {
     expect(first).toBeTruthy();
   });
 
+  it("a request id counts once, however many times it arrives (link, App Group, a later foreground)", async () => {
+    const { result } = await renderStore();
+    const link = "dailytasks://focus/start?task=next&source=widget&id=w1";
+    redirectSystemPath({ path: link, initial: false });
+    await flush();
+    const first = result.current.state.focusSession;
+    expect(first).toMatchObject({ taskId: "t0" });
+    // Stopped, then the same request turns up again (the App Group copy).
+    await act(async () => result.current.stopFocusSession("stopped"));
+    mockStartRequest = {
+      raw: JSON.stringify({ id: "w1", kind: "timer", source: "widget", at: START.getTime() }),
+      handledId: null,
+    };
+    redirectSystemPath({ path: link, initial: false });
+    await foreground();
+    await flush();
+    expect(result.current.state.focusSession).toBeNull();
+    expect(events("focus_session_started")).toHaveLength(1);
+  });
+
   it("one Siri run arriving both ways (the link and the App Group request) starts one session", async () => {
     mockStartRequest = {
       raw: JSON.stringify({
@@ -881,12 +998,10 @@ describe("start my next task: links and the App Group request", () => {
     ]);
   });
 
-  // KNOWN BUG (PR #73): two handleFocusStarts runs overlap (the foreground takes
-  // the App Group request, the link takes the queued one; both await
-  // loadLastTimer and plan on the same stateRef), so the task is started twice:
-  // focus_session_started is tracked twice and the first session is replaced.
-  // Marked failing so the suite stays green; drop `.failing` once fixed.
-  it.failing(
+  // Was a bug in PR #73: two runs overlapped (the foreground took the App Group
+  // request, the link the queued one) and both started the task. Runs are now
+  // serialised and each plans on the latest session.
+  it(
     "Siri while the app is in the background: the foreground and the link arriving together start one session",
     async () => {
       const { result } = await renderStore();

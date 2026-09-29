@@ -43,6 +43,7 @@ import { UpdateBanner } from "@/components/daily-tasks/update-banner";
 import { WeekRow } from "@/components/daily-tasks/week-row";
 import { useAppUpdate } from "@/hooks/use-app-update";
 import { useHour } from "@/hooks/use-hour";
+import { useAppActive } from "@/hooks/use-app-active";
 import {
   aiFailureMessage,
   breakDownFailureMessage,
@@ -432,7 +433,7 @@ export default function HomeScreen() {
   const [focusCustom, setFocusCustom] = useState(false);
   const openFocus = (
     taskId: string,
-    source: "coach" | "row" | "now_bar" | "widget" | "siri",
+    source: "coach" | "row" | "now_bar" | "widget" | "siri" | "live_activity",
     custom = false,
   ) => {
     setFocusCustom(custom);
@@ -448,8 +449,9 @@ export default function HomeScreen() {
   useEffect(() => {
     setFocusTaskId(null);
   }, [today]);
-  // "Start my next task" (widget, Siri) while another task's timer is on: its
-  // focus screen, which says a start there stops the other (never replaced silently).
+  // A task's focus screen from outside (1.3): "start my next task" (widget,
+  // Siri) while another task's timer is on (the screen says a start there
+  // stops the other; never replaced silently), or a tap on the Live Activity.
   useEffect(() => {
     if (!focusPrompt) return;
     clearFocusPrompt();
@@ -475,7 +477,9 @@ export default function HomeScreen() {
   const focusSessionRef = useRef(focusSession);
   focusSessionRef.current = focusSession;
   const sessionTask = focusSession ? (state.tasks.find((task) => task.id === focusSession.taskId) ?? null) : null;
-  useFocusSessionCues(focusSession, ready);
+  // Not in a background launch (a Live Activity button): nothing to say to anyone.
+  const appActive = useAppActive();
+  useFocusSessionCues(focusSession, ready && appActive);
   // The last length used: first in a task's timer menu. Best-effort.
   const [lastTimer, setLastTimer] = useState<number | null>(null);
   useEffect(() => {
@@ -623,7 +627,8 @@ export default function HomeScreen() {
     previousCompleted.current = completedCount;
 
     // Once per day: un-checking and re-checking the third task doesn't replay it.
-    if (!transition || celebratedDay.current === today) return;
+    // Never in a background launch (a Done on the Live Activity): nobody's looking.
+    if (!transition || !appActive || celebratedDay.current === today) return;
     celebratedDay.current = today;
 
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
@@ -641,7 +646,7 @@ export default function HomeScreen() {
     ) {
       markReviewDue();
     }
-  }, [ready, completedCount, total, today, state.history, state.lastReviewPromptAt, markReviewDue]);
+  }, [ready, appActive, completedCount, total, today, state.history, state.lastReviewPromptAt, markReviewDue]);
 
   // Stable identity: the overlay restarts its auto-dismiss timer whenever
   // onDismiss changes.

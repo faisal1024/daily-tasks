@@ -58,6 +58,11 @@ describe("analytics", () => {
     expect(sanitizeProps({ count: 2, skipped: 1, source: "ai" })).toEqual({ count: 2, skipped: 1, source: "ai" });
   });
 
+  it("keeps live_activity_action's action and task_completed's live_activity source (1.3)", () => {
+    expect(sanitizeProps({ action: "pause" })).toEqual({ action: "pause" });
+    expect(sanitizeProps({ count: 1, source: "live_activity" })).toEqual({ count: 1, source: "live_activity" });
+  });
+
   it("sends an anonymous batch: install id, no person profile, no IP", async () => {
     track("paywall_viewed", { source: "break_down", text: "secret task" });
     await flush();

@@ -276,6 +276,8 @@ struct TaskRow: View {
   let interactive: Bool
   /// The next open task: bold and slightly larger.
   var isNext = false
+  /// Its timer is on (1.3): a small timer glyph after the words.
+  var timed = false
   var lineLimit = 1
   @Environment(\.palette) private var palette
 
@@ -311,6 +313,12 @@ struct TaskRow: View {
         .lineLimit(lineLimit)
         .minimumScaleFactor(0.85)
         .privacySensitive()
+      if timed {
+        Image(systemName: "timer")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(palette.secondary)
+          .accessibilityHidden(true)
+      }
       Spacer(minLength: 0)
     }
     // A comfortable tap target only where the row is a button; read-only rows
@@ -330,7 +338,16 @@ struct StartButton: View {
 
   var body: some View {
     Button(intent: StartFromWidgetIntent()) {
-      StartGlyph()
+      // "▶ Start": a 36pt capsule, clear of the ring and the task below.
+      Label("Start", systemImage: "play.fill")
+        .font(.system(size: 13, weight: .bold, design: .rounded))
+        .labelStyle(CompactLabel())
+        .foregroundStyle(palette.primary)
+        .padding(.horizontal, 12)
+        .frame(minHeight: 36)
+        .background(Capsule().fill(palette.track))
+        .contentShape(Capsule())
+        .widgetAccentable()
     }
     .buttonStyle(.plain)
     .accessibilityLabel("Start a timer")
@@ -380,7 +397,7 @@ extension FocusSessionMirror {
 }
 
 /// The session's time: a live countdown while it runs, the time left while
-/// paused, a bell at time's up.
+/// paused, nothing at time's up (the caption says it).
 struct SessionTime: View {
   let session: FocusSessionMirror
   let date: Date
@@ -393,9 +410,8 @@ struct SessionTime: View {
         Text(timerInterval: countdown, countsDown: true)
       } else if session.status == "paused" {
         Text(formatRemaining(ms: session.pausedRemainingMs ?? 0))
-      } else {
-        Image(systemName: "bell.fill")
       }
+      // Time's up: the line below says so (with its bell).
     }
     .font(.system(size: fontSize, weight: .bold, design: .rounded))
     .monospacedDigit()
@@ -565,8 +581,10 @@ struct MediumView: View {
           // one, with Start beside it.
           let nextId = session?.taskId ?? snapshot.nextOpen?.id
           ForEach(snapshot.tasks) { task in
-            HStack(spacing: 6) {
-              TaskRow(task: task, date: snapshot.date, interactive: snapshot.plus, isNext: task.id == nextId)
+            HStack(spacing: 10) {
+              TaskRow(
+                task: task, date: snapshot.date, interactive: snapshot.plus, isNext: task.id == nextId,
+                timed: session?.taskId == task.id)
               if session == nil && task.id == nextId {
                 StartLink()
               }

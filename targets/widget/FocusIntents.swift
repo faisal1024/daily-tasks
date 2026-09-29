@@ -53,6 +53,24 @@ struct FocusResumeIntent: LiveActivityIntent {
   }
 }
 
+/// Time's up: 5 more minutes on a timer, "Keep going" on a starter.
+@available(iOS 17.0, *)
+struct FocusExtendIntent: LiveActivityIntent {
+  static let title: LocalizedStringResource = "Keep the timer going"
+  static let description = IntentDescription("Adds 5 more minutes, or keeps a 5-minute starter going.")
+  static let isDiscoverable = false
+
+  @Parameter(title: "Session") var sessionId: String
+
+  init() {}
+  init(sessionId: String) { self.sessionId = sessionId }
+
+  func perform() async throws -> some IntentResult {
+    await FocusActions.extend(sessionId: sessionId)
+    return .result()
+  }
+}
+
 @available(iOS 17.0, *)
 struct FocusDoneIntent: LiveActivityIntent {
   static let title: LocalizedStringResource = "Mark the task done"
@@ -80,14 +98,15 @@ struct FocusDoneIntent: LiveActivityIntent {
 
 /// Leaves the request in the App Group (the app picks it up once it's up,
 /// even from a cold start) and, in the app, opens the deep link so a running
-/// app acts on it at once. Both paths are idempotent in the app.
+/// app acts on it at once. Both carry the same id: the app acts once.
 @available(iOS 16.0, *)
 enum FocusStart {
   @MainActor
   static func open(kind: String, source: String) async {
-    FocusGroup.requestStart(kind: kind, source: source)
+    // The link carries the request's id: the app acts on the pair once.
+    let id = FocusGroup.requestStart(kind: kind, source: source)
     #if canImport(FocusActivity)
-      if let url = FocusGroup.startURL(kind: kind, source: source) {
+      if let url = FocusGroup.startURL(kind: kind, source: source, id: id) {
         _ = await UIApplication.shared.open(url)
       }
     #endif

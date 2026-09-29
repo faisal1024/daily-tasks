@@ -39,17 +39,24 @@ import {
   type FocusSessionOutcome,
   type FocusSessionSource,
 } from "./focus-session";
-import { applyFocusCommands, lastCommandSeq, parseFocusCommands, type FocusCommand } from "./focus-commands";
+import {
+  applyFocusCommands,
+  lastCommandSeq,
+  parseFocusCommands,
+  type FocusCommand,
+  type FocusCommandAction,
+} from "./focus-commands";
 import {
   DEFAULT_LINK_MINUTES,
   parseFocusStartRequest,
   planFocusStart,
   subscribeFocusStarts,
+  takeFocusOpen,
   takeFocusStarts,
   type FocusStartRequest,
-  type FocusStartSource,
 } from "./focus-link";
 import { loadLastTimer } from "./focus-timer-storage";
+import { isAppActive, useAppActive } from "@/hooks/use-app-active";
 import { syncLiveActivity } from "./live-activity";
 import {
   classifyAiFailure,
@@ -257,6 +264,35 @@ function countCompleted(state: AppState): number {
   return state.todayCompletions.filter((id) =>
     state.tasks.some((task) => task.id === id),
   ).length;
+}
+
+/**
+ * Ticks from outside the app, once they're applied (1.3): task_completed with
+ * where it came from, and live_activity_action for a Done on the Live
+ * Activity. Only taps that change something count (the last one per task).
+ */
+function trackAppliedTaps(before: AppState, toggles: WidgetToggle[]): void {
+  const day = before.lastOpenedDate;
+  const flipped = new Set(tasksToFlip(before, toggles, day));
+  const last = new Map<TaskId, WidgetToggle>();
+  for (const toggle of toggles) if (toggle.date === day) last.set(toggle.id, toggle);
+  let count = countCompleted(before);
+  for (const [id, toggle] of last) {
+    if (!flipped.has(id) || !toggle.done) continue;
+    count += 1;
+    const source = toggle.source === "live_activity" ? "live_activity" : "widget";
+    track("task_completed", { count, source });
+    if (source === "live_activity") track("live_activity_action", { action: "done" });
+  }
+}
+
+/** The Live Activity's Pause / Resume / 5 more minutes, once applied. */
+function trackCommands(before: FocusSession | null, applied: FocusCommandAction[]): void {
+  for (const action of applied) {
+    track("live_activity_action", { action });
+    // Like the app's own "5 more minutes" / "Keep going": that countdown ended.
+    if (action === "extend" && before) track("focus_session_ended", { outcome: "extended", minutes: sessionMinutes(before) });
+  }
 }
 
 /** A "perfect day" is having at least one task and completing all of them. */
@@ -1039,11 +1075,12 @@ interface StoreContextValue {
   /** Stop and clear it (Stop timer, Stop here, Not now, or on to a break-down). */
   stopFocusSession: (outcome: Extract<FocusSessionOutcome, "stopped" | "broken_down">) => void;
   /**
-   * "Start my next task" (widget, Siri) while another task's timer is on: Today
-   * opens that task's focus screen, which says starting would stop the other
-   * (1.3). Cleared with clearFocusPrompt once shown.
+   * Today opens this task's focus screen (1.3): "start my next task" (widget,
+   * Siri) while another task's timer is on (the screen says starting would
+   * stop the other), or a tap on the Live Activity. Cleared with
+   * clearFocusPrompt once shown.
    */
-  focusPrompt: { taskId: TaskId; source: FocusStartSource; nonce: number } | null;
+  focusPrompt: { taskId: TaskId; source: "widget" | "siri" | "live_activity"; nonce: number } | null;
   clearFocusPrompt: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
@@ -1069,18 +1106,18 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // them processed would lose them (iOS often reports "active" during launch,
   // before loadState() resolves). The launch path syncs right after hydrate.
   const hydratedRef = useRef(false);
-  const syncWidgetTaps = useCallback(() => {
+  // `base` is the state the taps apply to when it isn't rendered yet (launch).
+  const syncWidgetTaps = useCallback((base?: AppState) => {
     if (!hydratedRef.current) return;
     const { raw, processedSeq } = readWidgetToggles();
     const toggles = parseWidgetToggles(raw, processedSeq);
     if (toggles.length === 0) return;
+    const before = base ?? stateRef.current;
     dispatch({ type: "applyWidgetToggles", toggles });
     // Everything read is marked handled, including taps the reducer ignores
     // (another day, a deleted task): those can never apply.
     markWidgetTogglesProcessed(lastSeq(toggles, processedSeq));
-    toggles
-      .filter((toggle) => toggle.source === "live_activity")
-      .forEach(() => track("live_activity_action", { action: "done" }));
+    trackAppliedTaps(before, toggles);
     invalidateWidgetSnapshot();
     setWidgetNonce((n) => n + 1);
   }, []);
@@ -1094,12 +1131,15 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     const commands = parseFocusCommands(raw, processedSeq);
     if (commands.length === 0) return;
     const now = Date.now();
-    const { applied } = applyFocusCommands(stateRef.current.focusSession, commands, now);
+    const before = stateRef.current.focusSession;
+    const { applied } = applyFocusCommands(before, commands, now);
     dispatch({ type: "applyFocusCommands", commands, now });
     markFocusCommandsProcessed(lastCommandSeq(commands, processedSeq));
-    // The activity wrote the mirror itself: rewrite it from the app's state.
+    // The activity wrote the mirror itself: rewrite it from the app's state,
+    // even when nothing here changed (a stale tap must be undone there).
     invalidateFocusSession();
-    applied.forEach((action) => track("live_activity_action", { action }));
+    setFocusMirrorNonce((n) => n + 1);
+    trackCommands(before, applied);
   }, []);
 
   // The day the store's tasks belong to, readable from stable callbacks.
@@ -1132,6 +1172,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // Latest state for stable callbacks (e.g. is a task still on screen?).
   const stateRef = useRef(state);
   stateRef.current = state;
+  // The focus session as of the last start, before React has rendered it: two
+  // starts in a row (a link and Siri's request) must see the first.
+  const focusSessionRef = useRef(state.focusSession);
+  focusSessionRef.current = state.focusSession;
+  const [focusMirrorNonce, setFocusMirrorNonce] = useState(0);
+  const appActive = useAppActive();
   const plus = usePlus();
   // Confirmed access: what the automatic AI fetch waits for.
   const plusConfirmed = hasPlusAccess({
@@ -1190,14 +1236,14 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       if (commands.length > 0) {
         markFocusCommandsProcessed(lastCommandSeq(commands, commandsSeq));
         invalidateFocusSession();
-        commanded.applied.forEach((action) => track("live_activity_action", { action }));
+        trackCommands(saved.focusSession ?? null, commanded.applied);
       }
       const hydrated = commanded.session
         ? { ...saved, focusSession: restoreSession(commanded.session, now) }
         : { ...saved, focusSession: null };
       dispatch({ type: "hydrate", state: hydrated });
       hydratedRef.current = true;
-      syncWidgetTaps();
+      syncWidgetTaps(hydrated);
       // A clock a day behind the saved day keeps the saved day (see storeDayFor):
       // stamping the earlier date would overwrite that day's real history.
       const launchDay = storeDayFor(hydrated.lastOpenedDate, baseToday);
@@ -1272,7 +1318,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!ready) return;
     writeFocusSession(focusSession);
-  }, [ready, focusSession]);
+    // focusMirrorNonce: rewrite after the Live Activity's taps (see syncFocusCommands).
+  }, [ready, focusSession, focusMirrorNonce]);
 
   // Its end notification: scheduled while it runs (again on resume or
   // extend, replacing the last), cancelled on pause and once it's gone. An
@@ -1396,11 +1443,13 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
 
   // One "app_opened" per day this app is used (drives D1/D7/D30 retention).
   const openedTracked = useRef<string | null>(null);
+  // Only once it's on screen: a Live Activity button or Siri can launch the
+  // app in the background, and that isn't the user opening it.
   useEffect(() => {
-    if (!ready || plusPending || openedTracked.current === today) return;
+    if (!ready || !appActive || plusPending || openedTracked.current === today) return;
     openedTracked.current = today;
     track("app_opened", { plus: plusConfirmed });
-  }, [ready, today, plusPending, plusConfirmed]);
+  }, [ready, appActive, today, plusPending, plusConfirmed]);
 
   const refreshNotificationPermission = useCallback(async () => {
     const status = await getNotificationPermissionStatus();
@@ -1852,9 +1901,13 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     ) => {
       const today = ensureDay();
       const current = stateRef.current;
-      if (!current.tasks.some((task) => task.id === taskId) || current.todayCompletions.includes(taskId)) return;
-      dispatch({
-        type: "startFocusSession",
+      const task = current.tasks.find((item) => item.id === taskId);
+      if (!task || current.todayCompletions.includes(taskId)) return;
+      // Its timer is already on (running or paused): never restarted.
+      const on = focusSessionRef.current;
+      if (on && on.taskId === taskId && on.status !== "ended") return;
+      const action = {
+        type: "startFocusSession" as const,
         id: makeId(),
         taskId,
         kind: options.kind,
@@ -1862,7 +1915,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         stepText: options.stepText ?? null,
         today,
         now: Date.now(),
-      });
+      };
+      dispatch(action);
+      focusSessionRef.current = startSession({ ...action, taskText: task.text, date: today });
       track("focus_session_started", {
         kind: options.kind,
         minutes: clampSessionMinutes(options.minutes),
@@ -1940,44 +1995,65 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
 
   // "Start my next task" from the widget or Siri (1.3; see focus-link.ts):
   // links queued by the router, and the request Siri leaves in the App Group
-  // (a cold start can miss the link). Once ready, on each link, and whenever
-  // the app becomes active. Idempotent: it never restarts that task's timer,
-  // and never silently replaces another task's (Today asks instead).
+  // (a cold start can miss the link); and a tap on the Live Activity, which
+  // opens its session's focus screen. Once ready and on screen (never in a
+  // background launch), on each link, and whenever the app becomes active.
+  // Runs one at a time, each planning on the latest session. Idempotent: one
+  // request id counts once, it never restarts that task's timer, and never
+  // silently replaces another task's (Today asks instead).
   const [focusPrompt, setFocusPrompt] = useState<StoreContextValue["focusPrompt"]>(null);
   const clearFocusPrompt = useCallback(() => setFocusPrompt(null), []);
-  const handleFocusStarts = useRef<() => Promise<void>>(async () => {});
-  handleFocusStarts.current = async () => {
-    if (!readyRef.current) return;
+  const handledStartIds = useRef(new Set<string>());
+  const focusStartsChain = useRef<Promise<void>>(Promise.resolve());
+  const runFocusStarts = useRef<() => Promise<void>>(async () => {});
+  runFocusStarts.current = async () => {
+    if (!readyRef.current || !isAppActive()) return;
+    const open = takeFocusOpen();
     const requests: FocusStartRequest[] = takeFocusStarts();
     const { raw, handledId } = readFocusStartRequest();
     const stored = parseFocusStartRequest(raw, handledId, Date.now());
     if (stored) {
       markFocusStartRequestHandled(stored.id);
-      requests.push({ kind: stored.kind, source: stored.source });
+      requests.push(stored);
     }
+    const fresh = requests.filter((request) => !request.id || !handledStartIds.current.has(request.id));
+    fresh.forEach((request) => request.id && handledStartIds.current.add(request.id));
     // One run of Siri can arrive both ways: only the latest request counts.
-    const request = requests[requests.length - 1];
-    if (!request) return;
+    const request = fresh[fresh.length - 1];
+    if (!request && !open) return;
     navigateToToday();
+    if (!request) {
+      const session = focusSessionRef.current;
+      // Its focus screen, or just Today if that session has gone.
+      if (open && session && session.id === open.sessionId) {
+        setFocusPrompt({ taskId: session.taskId, source: "live_activity", nonce: Date.now() });
+      }
+      return;
+    }
     const minutes =
       request.kind === "starter" ? STARTER_MINUTES : ((await loadLastTimer()) ?? DEFAULT_LINK_MINUTES);
-    const current = stateRef.current;
-    const plan = planFocusStart(current);
+    // After the wait: plan on the session as it is now (another start may have run).
+    const plan = planFocusStart({ ...stateRef.current, focusSession: focusSessionRef.current });
     if (plan.type === "start") {
       startFocusSession(plan.taskId, { kind: request.kind, minutes, source: request.source });
     } else if (plan.type === "confirm") {
       setFocusPrompt({ taskId: plan.taskId, source: request.source, nonce: Date.now() });
     }
   };
-  useEffect(() => subscribeFocusStarts(() => void handleFocusStarts.current()), []);
+  const handleFocusStarts = useCallback(() => {
+    const run = focusStartsChain.current.then(() => runFocusStarts.current()).catch(() => {});
+    focusStartsChain.current = run;
+    return run;
+  }, []);
+  useEffect(() => subscribeFocusStarts(() => void handleFocusStarts()), [handleFocusStarts]);
   useEffect(() => {
-    if (!ready) return;
-    void handleFocusStarts.current();
+    if (!ready || !appActive) return;
+    void handleFocusStarts();
     const sub = RNAppState.addEventListener("change", (status) => {
-      if (status === "active") void handleFocusStarts.current();
+      if (status === "active") void handleFocusStarts();
     });
     return () => sub.remove();
-  }, [ready]);
+  }, [ready, appActive, handleFocusStarts]);
 
   const journeyLevel = levelForXp(state.journey.xp);
   const journeyProgress = levelProgress(state.journey.xp);

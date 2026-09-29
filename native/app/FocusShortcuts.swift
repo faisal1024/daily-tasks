@@ -16,6 +16,8 @@ struct FocusShortcuts: AppShortcutsProvider {
         "Start my next task in \(.applicationName)",
         "Start my next task with \(.applicationName)",
         "Focus on my next task in \(.applicationName)",
+        "Start a timer in \(.applicationName)",
+        "Start focusing in \(.applicationName)",
       ],
       shortTitle: "Start my next task",
       systemImageName: "timer"

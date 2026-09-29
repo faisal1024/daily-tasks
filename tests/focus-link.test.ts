@@ -1,7 +1,13 @@
 // "Start my next task" from the widget and Siri (1.3, PR F).
 import { describe, expect, it } from "vitest";
 
-import { parseFocusStartLink, parseFocusStartRequest, planFocusStart } from "../lib/daily-tasks/focus-link";
+import {
+  isFocusLink,
+  parseFocusOpenLink,
+  parseFocusStartLink,
+  parseFocusStartRequest,
+  planFocusStart,
+} from "../lib/daily-tasks/focus-link";
 import { startSession } from "../lib/daily-tasks/focus-session";
 
 describe("parseFocusStartLink", () => {
@@ -21,6 +27,21 @@ describe("parseFocusStartLink", () => {
     expect(parseFocusStartLink("/focus/start/extra")).toBeNull();
     expect(parseFocusStartLink("dailytasks://focus/start?task=t_123")).toBeNull();
     expect(parseFocusStartLink(null)).toBeNull();
+  });
+});
+
+describe("the id and the Live Activity's tap", () => {
+  it("carries a native request's id; reads focus?session=", () => {
+    expect(parseFocusStartLink("dailytasks://focus/start?task=next&source=siri&id=A-1")).toEqual({
+      kind: "timer",
+      source: "siri",
+      id: "A-1",
+    });
+    expect(parseFocusOpenLink("dailytasks://focus?session=s_1")).toEqual({ sessionId: "s_1" });
+    expect(parseFocusOpenLink("dailytasks://focus")).toBeNull();
+    expect(parseFocusOpenLink("dailytasks://focus/start?session=s_1")).toBeNull();
+    expect(isFocusLink("dailytasks://focus/whatever")).toBe(true);
+    expect(isFocusLink("dailytasks://settings")).toBe(false);
   });
 });
 

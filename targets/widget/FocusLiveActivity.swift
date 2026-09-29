@@ -5,14 +5,18 @@ import WidgetKit
 
 // The focus session's Live Activity and Dynamic Island (1.3). The app starts,
 // updates and ends it (modules/focus-activity); the countdown and its ring
-// tick on their own (`timerInterval`), with no updates. Done and Pause/Resume
-// act without opening the app (FocusIntents.swift). Calm: the widget's
-// indigo, no red, and "Time's up" is never shown as done.
+// tick on their own (`timerInterval`), with no updates. The buttons act
+// without opening the app (FocusIntents.swift); a tap anywhere else opens the
+// session's focus screen. Calm: the widget's colours, no red, and "Time's up"
+// is never shown as done.
+//
+// Lock screen: ring | caption + task (2 lines) | big time, buttons below,
+// kept within 160pt with a 2-line task at larger text sizes.
 
-/// The widget's daytime indigo, for the lock screen's background.
-private let activityTint = Color(hex: 0x4A40D0)
 /// On the dark Dynamic Island: a lighter indigo that reads on black.
 private let islandAccent = Color(hex: 0x9B94FF)
+/// Text on an islandAccent button.
+private let islandInk = Color(hex: 0x17143A)
 
 extension FocusActivityAttributes.ContentState {
   var focusText: String { stepText ?? taskText }
@@ -47,16 +51,23 @@ extension FocusActivityAttributes.ContentState {
   /// "4:12", "1:05:00": the paused time left, rounded up like the app.
   var pausedLeft: String { formatRemaining(ms: pausedRemainingMs ?? 0) }
 
-  /// "Time's up on "Walk"." / "5 minutes in. Keep going?" (the app's check-in).
-  var timesUpTitle: String {
-    if kind == "starter" { return "\(capitalized(durationWords(minutes))) in. Keep going?" }
-    return "Time's up on \u{201C}\(focusText)\u{201D}."
+  /// The line above the task.
+  func caption(_ phase: FocusPhase) -> String {
+    switch phase {
+    case .running: return kind == "starter" && minutes == 5 ? "Just start. You can stop after 5." : "Focusing"
+    case .paused: return "Paused"
+    // The app's check-in: a starter asks to keep going.
+    case .timesUp: return kind == "starter" ? "\(capitalized(durationWords(minutes))) in" : "Time's up"
+    case .done: return "Done"
+    case .stopped: return "Timer stopped"
+    }
   }
 
-  /// A starter's line while its first 5 minutes run.
-  var runningLine: String {
-    kind == "starter" && minutes == 5 ? "Just start. You can stop after 5." : "Focusing"
-  }
+  /// The time's-up button, as the app's check-in has it.
+  var extendTitle: String { kind == "starter" ? "Keep going" : "5 more minutes" }
+
+  /// A countdown of an hour or more needs the smaller compact font.
+  var isLong: Bool { durationMs >= 3_600_000 }
 }
 
 enum FocusPhase { case running, paused, timesUp, done, stopped }
@@ -132,34 +143,53 @@ struct FocusRing: View {
   }
 }
 
-/// The big time: a live countdown, "Paused · 4:12 left", or nothing.
+/// The big time on the right: a live countdown, or the time left while
+/// paused ("4:12" over "left"; the caption says Paused).
 struct FocusTime: View {
   let state: FocusActivityAttributes.ContentState
   let phase: FocusPhase
-  var font: Font
+  var size: CGFloat
+  var color: Color = .white
 
   var body: some View {
     switch phase {
     case .running:
       if let countdown = state.countdown {
         Text(timerInterval: countdown, countsDown: true)
-          .font(font)
+          .font(.system(size: size, weight: .bold, design: .rounded))
           .monospacedDigit()
+          .multilineTextAlignment(.trailing)
+          .lineLimit(1)
+          .minimumScaleFactor(0.7)
+          .frame(maxWidth: size * 3.8, alignment: .trailing)
+          .foregroundStyle(color)
       }
     case .paused:
-      Text("Paused · \(state.pausedLeft) left")
-        .font(font)
-        .monospacedDigit()
+      VStack(alignment: .trailing, spacing: -2) {
+        Text(state.pausedLeft)
+          .font(.system(size: size, weight: .bold, design: .rounded))
+          .monospacedDigit()
+          .lineLimit(1)
+          .minimumScaleFactor(0.7)
+        Text("left").font(.caption.weight(.semibold)).opacity(0.8)
+      }
+      .foregroundStyle(color.opacity(0.85))
     default:
       EmptyView()
     }
   }
 }
 
-/// Pause/Resume and Done. Buttons act in place (LiveActivityIntent).
+/// The buttons, which act in place (LiveActivityIntent): Pause/Resume and
+/// Done while it runs; at time's up, 5 more minutes (Keep going for a
+/// starter) and Done. Done is never the loud one.
 struct FocusButtons: View {
   let attributes: FocusActivityAttributes
+  let state: FocusActivityAttributes.ContentState
   let phase: FocusPhase
+  /// The solid button's fill and text.
+  var solidFill: Color
+  var solidInk: Color
 
   var body: some View {
     HStack(spacing: 10) {
@@ -168,13 +198,18 @@ struct FocusButtons: View {
         pill(FocusPauseIntent(sessionId: attributes.sessionId), "Pause", "pause.fill", solid: false)
       case .paused:
         pill(FocusResumeIntent(sessionId: attributes.sessionId), "Resume", "play.fill", solid: false)
+      case .timesUp:
+        pill(FocusExtendIntent(sessionId: attributes.sessionId), state.extendTitle, "goforward.plus", solid: true)
       default:
         EmptyView()
       }
       if phase == .running || phase == .paused || phase == .timesUp {
         pill(
           FocusDoneIntent(sessionId: attributes.sessionId, taskId: attributes.taskId, date: attributes.date),
-          "Done", "checkmark", solid: true)
+          "Done", "checkmark", solid: false
+        )
+        .accessibilityLabel("Mark done")
+        .accessibilityHint("Ticks off \(state.focusText)")
       }
     }
   }
@@ -183,9 +218,11 @@ struct FocusButtons: View {
     Button(intent: intent) {
       Label(title, systemImage: symbol)
         .font(.system(size: 15, weight: .semibold, design: .rounded))
-        .frame(maxWidth: .infinity, minHeight: 36)
-        .foregroundStyle(solid ? activityTint : .white)
-        .background(Capsule().fill(solid ? Color.white : Color.white.opacity(0.2)))
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .frame(maxWidth: .infinity, minHeight: 34)
+        .foregroundStyle(solid ? solidInk : .white)
+        .background(Capsule().fill(solid ? solidFill : Color.white.opacity(0.2)))
     }
     .buttonStyle(.plain)
   }
@@ -195,47 +232,35 @@ struct FocusButtons: View {
 
 struct FocusLockScreenView: View {
   let context: ActivityViewContext<FocusActivityAttributes>
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     let state = context.state
     let phase = state.phase(at: Date(), isStale: context.isStale)
-    VStack(alignment: .leading, spacing: 12) {
-      HStack(alignment: .center, spacing: 14) {
-        FocusRing(state: state, phase: phase, size: 52, lineWidth: 6)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(caption(state, phase))
+    // The widget's time-of-day colours; its evening ones in dark mode (and StandBy).
+    let tint = (colorScheme == .dark ? DayPhase.evening : DayPhase(date: Date())).colors[0]
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .center, spacing: 12) {
+        FocusRing(state: state, phase: phase, size: 44, lineWidth: 5)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(state.caption(phase))
             .font(.caption.weight(.semibold))
             .foregroundStyle(.white.opacity(0.85))
             .lineLimit(1)
-          Text(title(state, phase))
-            .font(.system(size: 17, weight: .bold, design: .rounded))
+          Text(state.focusText)
+            .font(.system(size: 16, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
             .lineLimit(2)
-            .privacySensitive()
-          FocusTime(state: state, phase: phase, font: .system(size: 22, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
         }
-        Spacer(minLength: 0)
+        Spacer(minLength: 6)
+        FocusTime(state: state, phase: phase, size: 26)
       }
-      FocusButtons(attributes: context.attributes, phase: phase)
+      FocusButtons(attributes: context.attributes, state: state, phase: phase, solidFill: .white, solidInk: tint)
     }
-    .padding(16)
-    .activityBackgroundTint(activityTint)
+    .padding(14)
+    .activityBackgroundTint(tint)
     .activitySystemActionForegroundColor(.white)
-  }
-
-  private func caption(_ state: FocusActivityAttributes.ContentState, _ phase: FocusPhase) -> String {
-    switch phase {
-    case .running: return state.runningLine
-    case .paused: return "Paused"
-    case .timesUp: return "Time's up"
-    case .done: return "Done"
-    case .stopped: return "Timer stopped"
-    }
-  }
-
-  private func title(_ state: FocusActivityAttributes.ContentState, _ phase: FocusPhase) -> String {
-    phase == .timesUp ? state.timesUpTitle : state.focusText
+    .widgetURL(FocusGroup.openURL(sessionId: context.attributes.sessionId))
   }
 }
 
@@ -254,35 +279,26 @@ struct FocusLiveActivity: Widget {
             .padding(.leading, 4)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          if phase == .running, let countdown = state.countdown {
-            Text(timerInterval: countdown, countsDown: true)
-              .font(.system(size: 24, weight: .bold, design: .rounded))
-              .monospacedDigit()
-              .multilineTextAlignment(.trailing)
-              .frame(maxWidth: 96, alignment: .trailing)
-              .foregroundStyle(islandAccent)
-          } else if phase == .paused {
-            Text(state.pausedLeft)
-              .font(.system(size: 24, weight: .bold, design: .rounded))
-              .monospacedDigit()
-              .foregroundStyle(.white.opacity(0.7))
-          }
+          FocusTime(state: state, phase: phase, size: 24, color: islandAccent)
+            .padding(.trailing, 4)
         }
         DynamicIslandExpandedRegion(.center) {
           VStack(alignment: .leading, spacing: 1) {
-            Text(islandCaption(phase))
+            Text(state.caption(phase))
               .font(.caption2.weight(.semibold))
               .foregroundStyle(.white.opacity(0.7))
-            Text(phase == .timesUp ? state.timesUpTitle : state.focusText)
+              .lineLimit(1)
+            Text(state.focusText)
               .font(.system(size: 15, weight: .semibold, design: .rounded))
               .lineLimit(1)
-              .privacySensitive()
           }
           .frame(maxWidth: .infinity, alignment: .leading)
         }
         DynamicIslandExpandedRegion(.bottom) {
-          FocusButtons(attributes: context.attributes, phase: phase)
-            .padding(.top, 4)
+          FocusButtons(
+            attributes: context.attributes, state: state, phase: phase, solidFill: islandAccent, solidInk: islandInk
+          )
+          .padding(.top, 4)
         }
       } compactLeading: {
         FocusRing(state: state, phase: phase, size: 22, lineWidth: 3, color: islandAccent)
@@ -291,39 +307,30 @@ struct FocusLiveActivity: Widget {
         case .running:
           if let countdown = state.countdown {
             Text(timerInterval: countdown, countsDown: true)
-              .font(.system(size: 14, weight: .semibold, design: .rounded))
+              .font(.system(size: state.isLong ? 12 : 14, weight: .semibold, design: .rounded))
               .monospacedDigit()
               .multilineTextAlignment(.trailing)
-              .frame(maxWidth: 48)
+              .frame(maxWidth: 54)
               .foregroundStyle(islandAccent)
           }
         case .paused:
           Text(state.pausedLeft)
-            .font(.system(size: 14, weight: .semibold, design: .rounded))
+            .font(.system(size: state.isLong ? 12 : 14, weight: .semibold, design: .rounded))
             .monospacedDigit()
+            .frame(maxWidth: 54)
             .foregroundStyle(.white.opacity(0.7))
         case .timesUp:
-          Text("Time's up").font(.caption.weight(.semibold)).foregroundStyle(islandAccent)
+          Image(systemName: "bell.fill").foregroundStyle(islandAccent)
         case .done:
-          Text("Done").font(.caption.weight(.semibold)).foregroundStyle(islandAccent)
+          Image(systemName: "checkmark").foregroundStyle(islandAccent)
         case .stopped:
           EmptyView()
         }
       } minimal: {
         FocusRing(state: state, phase: phase, size: 22, lineWidth: 3, color: islandAccent)
       }
-      .widgetURL(URL(string: "dailytasks://"))
+      .widgetURL(FocusGroup.openURL(sessionId: context.attributes.sessionId))
       .keylineTint(islandAccent)
-    }
-  }
-
-  private func islandCaption(_ phase: FocusPhase) -> String {
-    switch phase {
-    case .running: return "Focusing"
-    case .paused: return "Paused"
-    case .timesUp: return "Time's up"
-    case .done: return "Done"
-    case .stopped: return "Timer stopped"
     }
   }
 }

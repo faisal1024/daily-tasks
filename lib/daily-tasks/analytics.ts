@@ -61,6 +61,7 @@ const ALLOWED_PROPS = [
   "timer",
   "kind",
   "minutes",
+  "action",
 ] as const;
 type AllowedProp = (typeof ALLOWED_PROPS)[number];
 
