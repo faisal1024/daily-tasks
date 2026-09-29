@@ -1554,6 +1554,39 @@ describe("Today: morning draft and evening close", () => {
     expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch"], ["Stretch", "Call mum", "Hydrate"]);
   });
 
+  it("uses only the ticked draft tasks, saves the rest, says so, and tracks count/skipped/source", async () => {
+    mockStore = makeStore({
+      tasks: [],
+      tomorrowDraft: {
+        forDate: TODAY,
+        tasks: ["Stretch", "Call mum", "Hydrate"],
+        note: "",
+        because: "Because today worked well, tomorrow builds on it.",
+        source: "ai",
+      },
+    });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("tomorrow-draft")).toHaveTextContent(/Because yesterday worked well, today builds on it\./);
+    await fireEvent.press(screen.getByRole("checkbox", { name: "Call mum" }));
+    expect(screen.getByTestId("tomorrow-draft-use")).toHaveTextContent("Add 2");
+    await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
+    expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch", "Hydrate"], ["Stretch", "Call mum", "Hydrate"]);
+    expect(mockTrack).toHaveBeenCalledWith("tomorrow_draft_used", { count: 2, skipped: 1, source: "ai" });
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Added 2\. 1 saved for later\./);
+  });
+
+  it("using every drafted task shows no saved-for-later toast", async () => {
+    mockStore = makeStore({
+      tasks: [],
+      tomorrowDraft: { forDate: TODAY, tasks: ["Stretch", "Hydrate"], note: "", because: "", source: "local" },
+    });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
+    expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch", "Hydrate"], ["Stretch", "Hydrate"]);
+    expect(mockTrack).toHaveBeenCalledWith("tomorrow_draft_used", { count: 2, skipped: 0, source: "local" });
+    expect(screen.queryByTestId("today-toast")).toBeNull();
+  });
+
   it("offers only draft tasks that weren't carried over, finished or dropped yesterday", async () => {
     const YESTERDAY = "2026-09-25";
     const rec = (id: string, text: string, completed: boolean, outcome: "carried" | "dropped" | null) => ({

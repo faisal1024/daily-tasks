@@ -9,6 +9,7 @@ import {
   draftToShow,
   isDayClosed,
   localEveningClose,
+  morningPerspective,
   parseEveningResponse,
   showEveningCheckIn,
   type EveningClose,
@@ -19,6 +20,7 @@ import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
 import { DEFAULT_NOTIFICATIONS, type TomorrowDraft } from "../lib/daily-tasks/types";
 import {
   buildEveningPrompt,
+  EVENING_SYSTEM_PROMPT,
   isValidEvening,
   sanitizeEvening,
   validateEveningPayload,
@@ -271,3 +273,50 @@ describe("draftForNotification", () => {
   });
 });
 
+
+// PR #69: the evening's because line, re-read on the morning card.
+describe("morningPerspective", () => {
+  it("swaps today → yesterday and tomorrow → today in one sentence", () => {
+    expect(morningPerspective("Because today worked well, tomorrow builds on it.")).toBe(
+      "Because yesterday worked well, today builds on it.",
+    );
+  });
+
+  it("carries possessives along, straight and curly apostrophes", () => {
+    expect(morningPerspective("Today was hard, so tomorrow's lighter.")).toBe("Yesterday was hard, so today's lighter.");
+    expect(morningPerspective("Keep tomorrow\u2019s list short.")).toBe("Keep today\u2019s list short.");
+    expect(morningPerspective("Build on today's win.")).toBe("Build on yesterday's win.");
+  });
+
+  it("turns tonight into last night, and part-of-day phrases into this morning / tonight / yesterday …", () => {
+    expect(morningPerspective("Tonight, rest.")).toBe("Last night, rest.");
+    expect(morningPerspective("Tomorrow morning starts with a walk.")).toBe("This morning starts with a walk.");
+    expect(morningPerspective("Read tomorrow evening.")).toBe("Read this evening.");
+    expect(morningPerspective("Call mum tomorrow night.")).toBe("Call mum tonight.");
+    expect(morningPerspective("This morning went well.")).toBe("Yesterday morning went well.");
+  });
+
+  it("preserves case: lower, Capitalised, ALL CAPS", () => {
+    expect(morningPerspective("today")).toBe("yesterday");
+    expect(morningPerspective("Today")).toBe("Yesterday");
+    expect(morningPerspective("TODAY")).toBe("YESTERDAY");
+    expect(morningPerspective("TOMORROW MORNING")).toBe("THIS MORNING");
+  });
+
+  it("never swaps a word twice (tomorrow → today stays today)", () => {
+    expect(morningPerspective("tomorrow")).toBe("today");
+    expect(morningPerspective("Tomorrow, today, tonight.")).toBe("Today, yesterday, last night.");
+  });
+
+  it("leaves unrelated words, and the words inside other words, untouched", () => {
+    const text = "Todays todayish notoday yesterday tomorrows plan: nothing new on top.";
+    expect(morningPerspective(text)).toBe(text);
+    expect(morningPerspective("Picking up where yesterday left off.")).toBe("Picking up where yesterday left off.");
+    expect(morningPerspective("")).toBe("");
+  });
+
+  it("the evening prompts ask for 'today'/'tomorrow' in the because line", () => {
+    expect(EVENING_SYSTEM_PROMPT).toMatch(/because line, name the days only as 'today'.*'tomorrow'/);
+    expect(buildEveningPrompt(input())).toContain("In the because line, say 'today' and 'tomorrow'");
+  });
+});
