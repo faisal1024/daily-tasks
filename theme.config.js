@@ -5,6 +5,9 @@ const themeColors = {
   primary: { light: '#5B52E8', dark: '#8B82FF' },
   // Text and icons on a primary fill (dark text on the lighter dark-mode primary).
   onPrimary: { light: '#FFFFFF', dark: '#161420' },
+  // Text and icons on a primary *tint* (primary at ~12% over the surface):
+  // plain primary is under 4.5:1 there, this ink is AA in both modes.
+  primaryInk: { light: '#4A40D0', dark: '#9B94FF' },
   accent: { light: '#FF7A6B', dark: '#FF8F80' },
   background: { light: '#FBFAFF', dark: '#161420' },
   surface: { light: '#F3F1FC', dark: '#221F30' },

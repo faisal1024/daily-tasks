@@ -1,6 +1,8 @@
 // The end check-in (1.3): when a focus session reaches zero it asks what's
-// next instead of stopping dead. A timer: Done / 5 more minutes / Stuck?
-// Break it down (and Not now). A starter: Keep going / Done / Stop here.
+// next instead of stopping dead. A timer: 5 more minutes / Done / Stuck?
+// Break it down (and Stop here). A starter: Keep going / Done / Stop here.
+// Extend is always on the left and Done on the right, as on the Live
+// Activity, the Dynamic Island and the notification.
 // Shown under the task's row on Today and on the focus screen; it never ticks anything itself.
 // On the focus screen the footer's Done is the one solid button, so the
 // check-in's buttons are tinted there.
@@ -28,7 +30,8 @@ export interface FocusSessionControls {
 
 /**
  * The timer's pill buttons (check-in, focus screen): a solid primary fill
- * (text in colors.onPrimary), a primary tint, or the plain surface.
+ * (text in colors.onPrimary), a primary tint (text in colors.primaryInk,
+ * AA on the tint), or the plain surface.
  */
 export function focusPillStyle(colors: ThemeColorPalette, fill: "primary" | "tint" | "surface", minHeight = 44) {
   return {
@@ -76,7 +79,7 @@ export function FocusCheckIn({
     >
       <Text
         className="text-sm font-bold"
-        style={{ color: fill === "primary" ? colors.onPrimary : colors.primary }}
+        style={{ color: fill === "primary" ? colors.onPrimary : colors.primaryInk }}
         numberOfLines={1}
         adjustsFontSizeToFit
         maxFontSizeMultiplier={1.4}
@@ -113,9 +116,10 @@ export function FocusCheckIn({
         showDone ? pill("tint", "Done", controls.done, "focus-check-in-done", "Marks this task done") : null,
       ]
     : [
+        pill("tint", "5 more minutes", controls.extend, "focus-check-in-extend", "Adds 5 minutes to the timer"),
         showDone ? pill("primary", "Done", controls.done, "focus-check-in-done", "Marks this task done") : null,
-        pill("tint", "5 more minutes", controls.extend, "focus-check-in-extend"),
       ];
+  const breakDown = !starter && controls.breakDown ? controls.breakDown : null;
 
   return (
     <View className="gap-2 self-stretch" testID="focus-check-in">
@@ -125,13 +129,16 @@ export function FocusCheckIn({
         </Text>
       ) : null}
       <View className="flex-row gap-2">{primaryRow}</View>
-      {/* Wraps at large text sizes rather than squeezing. */}
-      <View className="flex-row items-center justify-between" style={{ flexWrap: "wrap", columnGap: 12 }}>
-        {!starter && controls.breakDown ? (
-          link("Stuck? Break it down", controls.breakDown, "focus-check-in-break-down", "Splits this task into a few tiny steps")
-        ) : (
-          <View />
-        )}
+      {/* Wraps at large text sizes rather than squeezing. Alone, Stop here
+          sits under the first button (left), not off at the far edge. */}
+      <View
+        className="flex-row items-center"
+        style={{ flexWrap: "wrap", columnGap: 12, justifyContent: breakDown ? "space-between" : "flex-start" }}
+        testID="focus-check-in-links"
+      >
+        {breakDown
+          ? link("Stuck? Break it down", breakDown, "focus-check-in-break-down", "Splits this task into a few tiny steps")
+          : null}
         {link("Stop here", controls.stop, "focus-check-in-stop", "Clears the timer")}
       </View>
     </View>

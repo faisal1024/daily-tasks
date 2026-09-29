@@ -75,6 +75,22 @@ describe("AddTaskRow", () => {
     await fireEvent(input, "submitEditing");
     expect(onAdd).toHaveBeenCalledWith("Walk");
   });
+
+  // U1 (1.3 polish): fast typing dropped characters. The field is uncontrolled
+  // and Return adds the field's own latest text, even when the last keys'
+  // onChangeText hasn't landed yet; the blur that follows doesn't add it twice.
+  it("adds the field's latest text on Return, once, without a controlled value", async () => {
+    const onAdd = jest.fn();
+    await render(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} />);
+    await fireEvent.press(screen.getByText("Add a task"));
+    const input = screen.getByPlaceholderText("What's one thing for today?");
+    expect(input.props.value).toBeUndefined();
+    await fireEvent.changeText(input, "Call the dent");
+    await fireEvent(input, "submitEditing", { nativeEvent: { text: "Call the dentist" } });
+    await fireEvent(input, "blur");
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(onAdd).toHaveBeenCalledWith("Call the dentist");
+  });
 });
 
 describe("StatusLine", () => {

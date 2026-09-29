@@ -12,6 +12,7 @@ import {
   keepGoing,
   MAX_SESSION_MS,
   notificationBody,
+  notificationTitle,
   pause,
   remainingMs,
   resume,
@@ -100,7 +101,7 @@ describe("focus session: pause, resume, extend", () => {
   it("a starter's 5 more minutes stays a starter (its check-in keeps Keep going), but loses the 'Just start' line", () => {
     const extended = extend(settle(starter(), T0 + 5 * MIN), T0 + 5 * MIN);
     expect(extended.kind).toBe("starter");
-    expect(starterLine(starter())).toBe("Just start. You can stop after 5.");
+    expect(starterLine(starter())).toBe("Just start. You can stop after 5 minutes.");
     expect(starterLine(extended)).toBeNull();
     expect(checkInTitle(extended)).toBe("10 minutes in. Keep going?");
   });
@@ -119,11 +120,15 @@ describe("focus session: pause, resume, extend", () => {
     });
   });
 
-  it("the check-in and notification copy name the step for a step starter, the task for a timer", () => {
-    expect(checkInTitle(timer())).toBe('Time\'s up on "Walk".');
-    expect(notificationBody(timer())).toBe('Time\'s up on "Walk".');
+  it("the check-in names the step or task (curly quotes); the notification's title is the task, its body the question", () => {
+    expect(checkInTitle(timer())).toBe("Time's up on “Walk”.");
+    expect(notificationTitle(timer())).toBe("Walk");
+    expect(notificationBody(timer())).toBe("Time's up. Done, or 5 more minutes?");
     expect(checkInTitle(starter({ stepText: "Find the lead" }))).toBe("5 minutes in. Keep going?");
-    expect(notificationBody(starter({ stepText: "Find the lead" }))).toBe('5 minutes in on "Find the lead". Keep going?');
+    expect(notificationBody(starter({ stepText: "Find the lead" }))).toBe("5 minutes in. Keep going?");
+    const long = timer(10, { taskText: "x".repeat(80) });
+    expect(notificationTitle(long)).toHaveLength(60);
+    expect(notificationTitle(long).endsWith("…")).toBe(true);
   });
 });
 

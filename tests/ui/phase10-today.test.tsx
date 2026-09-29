@@ -1,6 +1,6 @@
 // Phase 10a components: TaskRow (one row of Today's card) and the
 // one-decision RolloverModal.
-import { ActionSheetIOS, Alert, Platform, StyleSheet, useColorScheme } from "react-native";
+import { ActionSheetIOS, Alert, Appearance, Platform, StyleSheet } from "react-native";
 import { act, fireEvent, screen, within } from "@testing-library/react-native";
 
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
@@ -198,8 +198,8 @@ describe("TaskRow", () => {
 
   it("swipe actions draw their label and icon in onError / onPrimary, not white (dark mode)", async () => {
     // Dark is where these differ from white: dark text on the lighter fills.
-    // react-native's jest setup mocks useColorScheme as a jest.fn returning "light".
-    jest.mocked(useColorScheme).mockReturnValue("dark");
+    // The theme follows the system appearance (Appearance, read live).
+    const scheme = jest.spyOn(Appearance, "getColorScheme").mockReturnValue("dark");
     try {
       await renderRow();
       const actions = within(screen.getByTestId("row-actions-id-Walk"));
@@ -227,7 +227,7 @@ describe("TaskRow", () => {
         icon: ThemeColors.onPrimary.dark,
       });
     } finally {
-      jest.mocked(useColorScheme).mockReturnValue("light");
+      scheme.mockRestore();
     }
   });
 

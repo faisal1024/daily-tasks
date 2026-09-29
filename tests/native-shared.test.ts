@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseFocusCommands } from "../lib/daily-tasks/focus-commands";
 import { parseFocusStartLink, parseFocusStartRequest } from "../lib/daily-tasks/focus-link";
-import { startSession } from "../lib/daily-tasks/focus-session";
+import { notificationBody, startSession } from "../lib/daily-tasks/focus-session";
 
 const root = join(__dirname, "..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -35,6 +35,24 @@ describe("shared Swift sources", () => {
     expect(swift).toContain('"group.com.faisalislam.dailytasks"');
     expect(swift).toContain('"three-today:focus-timer"');
     expect(read("lib/daily-tasks/notifications.ts")).toContain('"three-today:focus-timer"');
+  });
+
+  // U4: a starter's Keep going on the lock screen re-schedules its "Time's
+  // up" as a timer's, natively: the same words and category as the app's.
+  it("the native timer notification body and category match the app's", () => {
+    const swift = read("targets/widget/FocusActivityShared.swift");
+    const timer = startSession({
+      id: "s",
+      taskId: "t",
+      taskText: "Walk",
+      kind: "timer",
+      minutes: 10,
+      date: "2026-09-26",
+      now: 0,
+    });
+    expect(swift).toContain(`static let timerNotificationBody = "${notificationBody(timer)}"`);
+    expect(swift).toContain('static let timerCategoryId = "three-today:focus-session"');
+    expect(read("lib/daily-tasks/notifications.ts")).toContain('FOCUS_CATEGORY_ID = "three-today:focus-session"');
   });
 
   // Each App Group key, by what it's for: the Swift constant (FocusGroup in

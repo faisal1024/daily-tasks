@@ -45,6 +45,7 @@ let mockLaunchResponse: FocusNotificationResponse | null = null;
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusSessionNotification: jest.fn(async () => {}),
   cancelFocusTimerNotification: jest.fn(async () => {}),
+  dismissFocusTimerNotification: jest.fn(async () => {}),
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
   requestNotificationPermission: jest.fn(async () => "granted"),
   syncNotifications: jest.fn(async () => {}),
@@ -188,8 +189,10 @@ describe("store: starting a focus session", () => {
     expect(schedule).toHaveBeenCalledWith({
       sessionId: current.id,
       taskId: "t0",
+      kind: "timer",
       at: new Date(START.getTime() + 10 * MIN),
-      body: 'Time\'s up on "Walk".',
+      title: "Walk",
+      body: "Time's up. Done, or 5 more minutes?",
     });
     expect(tracked).toHaveBeenCalledWith("focus_session_started", { kind: "timer", minutes: 10, source: "row" });
   });
@@ -318,7 +321,12 @@ describe("store: pause, resume, extend, stop and the end notification", () => {
     await act(async () => result.current.keepGoingFocusSession());
     expect(result.current.state.focusSession).toMatchObject({ kind: "timer", durationMs: 20 * MIN, status: "running" });
     expect(schedule).toHaveBeenLastCalledWith(
-      expect.objectContaining({ at: new Date(Date.now() + 20 * MIN), body: 'Time\'s up on "Walk".' }),
+      expect.objectContaining({
+        at: new Date(Date.now() + 20 * MIN),
+        kind: "timer",
+        title: "Walk",
+        body: "Time's up. Done, or 5 more minutes?",
+      }),
     );
     expect(endedEvents()).toEqual([["focus_session_ended", { outcome: "extended", minutes: 5 }]]);
   });
@@ -397,14 +405,46 @@ describe("store: the end notification's buttons", () => {
     expect(schedule).toHaveBeenLastCalledWith(expect.objectContaining({ at: new Date(Date.now() + 5 * MIN) }));
   });
 
-  it("a tap for an old session (another id) is ignored; a plain open changes nothing", async () => {
+  it("a tap for an old session (another id) is ignored; a plain open changes nothing in the session", async () => {
     const { result, id } = await endedSession();
     await act(async () => mockResponder!({ action: "done", sessionId: "old" }));
     await act(async () => mockResponder!({ action: "extend", sessionId: "old" }));
+    await act(async () => mockResponder!({ action: "open", sessionId: "old" }));
+    expect(result.current.focusPrompt).toBeNull();
     await act(async () => mockResponder!({ action: "open", sessionId: id }));
     expect(result.current.state.todayCompletions).toEqual([]);
     expect(result.current.state.focusSession).toMatchObject({ id, status: "ended", durationMs: 10 * MIN });
   });
+
+  it("a plain tap with the check-in due opens that session's focus screen (source notification)", async () => {
+    const { result, id } = await endedSession();
+    await act(async () => mockResponder!({ action: "open", sessionId: id }));
+    expect(result.current.focusPrompt).toMatchObject({ taskId: "t0", source: "notification" });
+  });
+
+  // R1 (1.3 polish): a starter's notification offers Keep going (as its
+  // check-in), and an old one's "5 more minutes" on a starter means the same.
+  it.each(["keepGoing", "extend"] as const)(
+    "a starter's %s from the notification keeps going as a 20-minute timer",
+    async (action) => {
+      const hook = await renderStore();
+      await act(async () => hook.result.current.startFocusSession("t0", { kind: "starter", minutes: 5, source: "coach" }));
+      await act(async () => {
+        jest.advanceTimersByTime(5 * MIN + 100);
+      });
+      const id = hook.result.current.state.focusSession!.id;
+      await act(async () => mockResponder!({ action, sessionId: id }));
+      expect(hook.result.current.state.focusSession).toMatchObject({
+        id,
+        kind: "timer",
+        status: "running",
+        durationMs: 20 * MIN,
+      });
+      // Replayed, it doesn't restart the timer it became.
+      await act(async () => mockResponder!({ action: "keepGoing", sessionId: id }));
+      expect(hook.result.current.state.focusSession).toMatchObject({ durationMs: 20 * MIN });
+    },
+  );
 
   it("any tap on it (a button, the notification itself, an old one) goes to Today", async () => {
     const { id } = await endedSession();

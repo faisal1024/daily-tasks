@@ -91,7 +91,8 @@ const TEXT_INSET = 42;
  * opens the row's menu (Edit, Not today, Break it down, Delete, as allowed);
  * swiping left shows Not today / Delete; VoiceOver gets the same actions.
  * While the focus session is on this task, tapping the words opens the focus
- * screen instead and a long press opens the menu.
+ * screen instead and a long press opens the menu, led by the timer's own
+ * choices (Open focus, Pause/Resume timer, Stop timer).
  */
 export function TaskRow({
   task,
@@ -178,36 +179,6 @@ export function TaskRow({
     else onDelete();
   };
 
-  const openMenu = () => {
-    if (actions.length === 0) return;
-    const labels = actions.map((action) => TASK_ROW_ACTION_LABELS[action]);
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title: task.text,
-          options: [...labels, "Cancel"],
-          cancelButtonIndex: labels.length,
-          destructiveButtonIndex: actions.indexOf("delete") >= 0 ? actions.indexOf("delete") : undefined,
-        },
-        (picked) => {
-          if (picked < actions.length) run(actions[picked]);
-        },
-      );
-      return;
-    }
-    // Android shows at most three buttons: page through with "More…".
-    const page = (list: TaskRowAction[]) => {
-      const button = (action: TaskRowAction) => ({
-        text: TASK_ROW_ACTION_LABELS[action],
-        style: action === "delete" ? ("destructive" as const) : ("default" as const),
-        onPress: () => run(action),
-      });
-      const shown = list.length <= 2 ? list.map(button) : [button(list[0]), { text: "More…", onPress: () => page(list.slice(1)) }];
-      Alert.alert(task.text, undefined, [...shown, { text: "Cancel", style: "cancel" as const }]);
-    };
-    page(actions);
-  };
-
   const canStartTimer = Boolean(onTimer) && !completed && !editing && !session;
   const startTimer = () => onTimer?.(timerRef.current ? findNodeHandle(timerRef.current) : null);
   // The timed task: its words open the focus screen (the detail view).
@@ -215,6 +186,56 @@ export function TaskRow({
   // One clock for the timed row's pill, line and check-in.
   const clock = useRowSessionClock(session);
   const timed = clock && controls && !completed && !editing ? { clock, controls } : null;
+
+  // The row's menu (a tap on the words, or a long press while it's timed).
+  // The timed task's own timer choices come first: Open focus, Pause or
+  // Resume timer (not at time's up: the check-in answers that), Stop timer.
+  const menuItems: { label: string; onPress: () => void; destructive?: boolean }[] = [
+    ...(timed && opensFocus ? [{ label: "Open focus", onPress: () => onOpenTimer?.("words") }] : []),
+    ...(timed && timed.clock.phase === "running"
+      ? [{ label: "Pause timer", onPress: () => timed.controls.pause() }]
+      : timed && timed.clock.phase === "paused"
+        ? [{ label: "Resume timer", onPress: () => timed.controls.resume() }]
+        : []),
+    ...(timed ? [{ label: "Stop timer", onPress: () => timed.controls.stop() }] : []),
+    ...actions.map((action) => ({
+      label: TASK_ROW_ACTION_LABELS[action],
+      onPress: () => run(action),
+      destructive: action === "delete",
+    })),
+  ];
+
+  const openMenu = () => {
+    if (menuItems.length === 0) return;
+    const labels = menuItems.map((item) => item.label);
+    if (Platform.OS === "ios") {
+      const destructive = menuItems.findIndex((item) => item.destructive);
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: task.text,
+          options: [...labels, "Cancel"],
+          cancelButtonIndex: labels.length,
+          destructiveButtonIndex: destructive >= 0 ? destructive : undefined,
+          tintColor: colors.primary,
+        },
+        (picked) => {
+          if (picked < menuItems.length) menuItems[picked].onPress();
+        },
+      );
+      return;
+    }
+    // Android shows at most three buttons: page through with "More…".
+    const page = (list: typeof menuItems) => {
+      const button = (item: (typeof menuItems)[number]) => ({
+        text: item.label,
+        style: item.destructive ? ("destructive" as const) : ("default" as const),
+        onPress: item.onPress,
+      });
+      const shown = list.length <= 2 ? list.map(button) : [button(list[0]), { text: "More…", onPress: () => page(list.slice(1)) }];
+      Alert.alert(task.text, undefined, [...shown, { text: "Cancel", style: "cancel" as const }]);
+    };
+    page(menuItems);
+  };
 
   const onA11yAction = (event: AccessibilityActionEvent) => {
     if (event.nativeEvent.actionName === START_TIMER_ACTION) {
@@ -284,6 +305,8 @@ export function TaskRow({
           backgroundColor: colors.surface,
           paddingHorizontal: 16,
           paddingVertical: hero ? 16 : completed ? 10 : 14,
+          // The check-in's last line is a 44pt link: its own air is enough.
+          ...(timed && timed.clock.phase === "ended" ? { paddingBottom: 8 } : {}),
         }}
         testID={`task-row-${task.id}`}
       >
@@ -350,7 +373,7 @@ export function TaskRow({
               <Pressable
                 onPress={opensFocus ? () => onOpenTimer?.("words") : openMenu}
                 onLongPress={openMenu}
-                disabled={actions.length === 0 && !opensFocus}
+                disabled={menuItems.length === 0 && !opensFocus}
                 hitSlop={4}
                 testID={`task-words-${task.id}`}
                 // The checkbox already announces this task, its state and actions.
@@ -375,9 +398,13 @@ export function TaskRow({
             {timed ? <RowSessionLine clock={timed.clock} /> : null}
 
             {task.carriedOver && !completed && !editing ? (
-              <Text className="text-xs" style={{ color: colors.warning }}>
-                Carried over
-              </Text>
+              // Quiet, not a warning: muted (AA) with a small "carried" arrow.
+              <View className="flex-row items-center gap-1" testID={`task-carried-${task.id}`}>
+                <Ionicons name="arrow-redo-outline" size={12} color={colors.muted} />
+                <Text className="text-xs" style={{ color: colors.muted }}>
+                  Carried over
+                </Text>
+              </View>
             ) : null}
 
             {!editing && !completed && hasSteps ? (
@@ -405,7 +432,8 @@ export function TaskRow({
                     </Text>
                   </Pressable>
                 ))}
-                {onClearSteps ? (
+                {/* Not on the timed row: it stays calm (the focus screen has the steps). */}
+                {onClearSteps && !session ? (
                   <Pressable
                     onPress={onClearSteps}
                     accessibilityRole="button"

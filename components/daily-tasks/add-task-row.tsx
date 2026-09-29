@@ -4,7 +4,9 @@ import {
   Text,
   TextInput,
   View,
+  type NativeSyntheticEvent,
   type TextInput as TextInputType,
+  type TextInputSubmitEditingEventData,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -25,7 +27,10 @@ export function AddTaskRow({
 }: AddTaskRowProps) {
   const colors = useColors();
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState("");
+  // Uncontrolled (1.3 polish): a controlled `value` re-rendered on every key
+  // could drop characters typed fast, and a submit could read a stale state.
+  // The field owns its text; this ref only mirrors it for submit and blur.
+  const textRef = useRef("");
   const ref = useRef<TextInputType | null>(null);
 
   useEffect(() => {
@@ -38,20 +43,23 @@ export function AddTaskRow({
   useEffect(() => {
     if (disabled) {
       setEditing(false);
-      setText("");
+      textRef.current = "";
     }
   }, [disabled]);
 
   if (remainingSlots <= 0) return null;
 
-  const submit = () => {
+  // Return passes the field's own text (the latest, whatever has rendered);
+  // blur reads the ref. Submit then blur adds it once: the ref is emptied.
+  const submit = (event?: NativeSyntheticEvent<TextInputSubmitEditingEventData>) => {
+    const latest = typeof event?.nativeEvent?.text === "string" ? event.nativeEvent.text : textRef.current;
+    textRef.current = "";
     if (disabled) {
       setEditing(false);
       return;
     }
-    const trimmed = text.trim();
+    const trimmed = latest.trim();
     if (trimmed) onAdd(trimmed);
-    setText("");
     setEditing(false);
   };
 
@@ -116,10 +124,12 @@ export function AddTaskRow({
       {circle}
       <TextInput
         ref={ref}
-        value={text}
-        onChangeText={setText}
+        defaultValue=""
+        onChangeText={(value) => {
+          textRef.current = value;
+        }}
         onSubmitEditing={submit}
-        onBlur={submit}
+        onBlur={() => submit()}
         placeholder="What's one thing for today?"
         placeholderTextColor={colors.muted}
         returnKeyType="done"

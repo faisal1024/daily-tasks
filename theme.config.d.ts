@@ -1,6 +1,7 @@
 export const themeColors: {
   primary: { light: string; dark: string };
   onPrimary: { light: string; dark: string };
+  primaryInk: { light: string; dark: string };
   accent: { light: string; dark: string };
   background: { light: string; dark: string };
   surface: { light: string; dark: string };

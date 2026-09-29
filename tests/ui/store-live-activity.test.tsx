@@ -21,6 +21,7 @@ import {
   FINAL_DISMISS_SECONDS,
   syncLiveActivity,
 } from "@/lib/daily-tasks/live-activity";
+import { dismissFocusTimerNotification } from "@/lib/daily-tasks/notifications";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import {
   __resetStorageForTests,
@@ -103,6 +104,7 @@ const loadNative = loadFocusActivity as jest.Mock;
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusSessionNotification: jest.fn(async () => {}),
   cancelFocusTimerNotification: jest.fn(async () => {}),
+  dismissFocusTimerNotification: jest.fn(async () => {}),
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
   requestNotificationPermission: jest.fn(async () => "granted"),
   syncNotifications: jest.fn(async () => {}),
@@ -687,6 +689,8 @@ describe("Live Activity Done (widget.toggles, source live_activity)", () => {
       ["live_activity_action", { action: "done" }],
     ]);
     expect(mockToggles.processedSeq).toBe(1);
+    // U4: the "Time's up" that went off doesn't linger.
+    expect(dismissFocusTimerNotification).toHaveBeenCalled();
     // Nothing started again for the cleared session.
     expect(native.start).toHaveBeenCalledTimes(1);
     expect(native.update).not.toHaveBeenCalledWith(
@@ -743,6 +747,8 @@ describe("Live Activity: time's up button and a launch in the background", () =>
     });
     expect(events("live_activity_action")).toEqual([["live_activity_action", { action: "extend" }]]);
     expect(events("focus_session_ended")).toEqual([["focus_session_ended", { outcome: "extended", minutes: 10 }]]);
+    // U4: answered on the lock screen, the old "Time's up" is cleared.
+    expect(dismissFocusTimerNotification).toHaveBeenCalled();
   });
 
   it("a starter's time's-up button is Keep going: a 20-minute timer from the tap", async () => {

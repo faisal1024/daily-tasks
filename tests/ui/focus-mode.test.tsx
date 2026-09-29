@@ -23,6 +23,7 @@ import { renderWithProviders } from "./render";
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusSessionNotification: jest.fn(async () => {}),
   cancelFocusTimerNotification: jest.fn(async () => {}),
+  dismissFocusTimerNotification: jest.fn(async () => {}),
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
   requestNotificationPermission: jest.fn(async () => "granted"),
   syncNotifications: jest.fn(async () => {}),
@@ -175,7 +176,7 @@ describe("FocusMode", () => {
     expect(screen.queryByTestId("focus-check-in")).toBeNull();
 
     await advance(1000);
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Walk the dog".');
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Walk the dog”.");
     expect(screen.queryByTestId("focus-timer-remaining")).toBeNull();
     expect(screen.getByTestId("focus-timer-times-up")).toHaveTextContent("Time's up");
     expect(screen.getByLabelText("Time's up")).toBeOnTheScreen();
@@ -198,7 +199,7 @@ describe("FocusMode", () => {
     await advance(9 * MIN);
     expect(said()).toHaveLength(1);
     await advance(2 * MIN);
-    expect(said()).toEqual(["Timer started, 10 minutes", 'Time\'s up on "Walk the dog".']);
+    expect(said()).toEqual(["Timer started, 10 minutes", "Time's up on “Walk the dog”."]);
   });
 
   it("Stop timer goes back to the picker; 5 more minutes runs it again; Stop here clears it", async () => {
@@ -234,7 +235,7 @@ describe("FocusMode", () => {
     await pick("10 minute timer");
     expect(schedule).toHaveBeenCalledTimes(1);
     expect(schedule).toHaveBeenLastCalledWith(
-      expect.objectContaining({ at: new Date(START.getTime() + 10 * MIN), body: 'Time\'s up on "Walk the dog".' }),
+      expect.objectContaining({ at: new Date(START.getTime() + 10 * MIN), body: "Time's up. Done, or 5 more minutes?" }),
     );
     expect(cancel).not.toHaveBeenCalled();
 

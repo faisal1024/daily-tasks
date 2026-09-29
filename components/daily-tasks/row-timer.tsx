@@ -1,8 +1,9 @@
 // The day's one timer, on its task's row (1.3, "one timer, on the task"):
 // the pill (ring with ⏸/▶ and the time left; tap to pause or resume), the
 // muted line under the task's words, and at zero the check-in under the row.
-import { Pressable, Text, useWindowDimensions, View } from "react-native";
+import { PixelRatio, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 
 import { FocusCheckIn, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { ProgressRing } from "@/components/daily-tasks/progress-ring";
@@ -40,6 +41,8 @@ export function useRowSessionClock(session: FocusSession | null): RowSessionCloc
 }
 
 const PILL_HEIGHT = 30;
+/** The pill's least width at the default text size; it grows with Dynamic Type (to 1.3×). */
+const PILL_MIN_WIDTH = 44;
 /** Below this window width the pill is the ring alone (the words need the room). */
 const NARROW_WIDTH = 360;
 /** Tabular digits at text-sm, for a width that doesn't reflow as it ticks. */
@@ -79,15 +82,16 @@ export function RowTimerPill({
   const ringOnly = ended || width < NARROW_WIDTH;
   const pill = {
     height: PILL_HEIGHT,
-    minWidth: 44,
+    minWidth: Math.round(PILL_MIN_WIDTH * Math.min(PixelRatio.getFontScale(), 1.3)),
     // In line with the ▶ it replaces.
     marginRight: -8,
     paddingLeft: 4,
     paddingRight: ringOnly ? 4 : 10,
     borderRadius: PILL_HEIGHT / 2,
     // An outline on the row's own surface (no fill), so the time's contrast
-    // is the surface's; paused, it goes quiet with the ring.
-    borderWidth: 1,
+    // is the surface's; paused, it goes quiet with the ring. At time's up
+    // it's just the ring and bell (no outline).
+    borderWidth: ended ? 0 : 1,
     borderColor: paused ? colors.muted : colors.primary,
     flexDirection: "row" as const,
     alignItems: "center" as const,
@@ -117,6 +121,7 @@ export function RowTimerPill({
   // Whole minutes, so VoiceOver isn't told every second.
   const label = `${paused ? "Resume" : "Pause"} timer: ${taskText}, ${durationWords(Math.ceil(left / MINUTE_MS))} left`;
   const toggle = () => {
+    if (Platform.OS !== "web") Haptics.selectionAsync().catch(() => {});
     if (paused) {
       controls.resume();
       announcePolitely("Resumed");
@@ -135,9 +140,10 @@ export function RowTimerPill({
       style={({ pressed }) => ({ ...pill, opacity: pressed ? 0.7 : 1 })}
       testID={`task-timer-running-${session.taskId}`}
     >
-      {/* Paused: the ring goes quiet and the glyph offers ▶. */}
+      {/* The ring drains (what's left), like Clock and the Live Activity.
+          Paused: it goes quiet and the glyph offers ▶. */}
       <ProgressRing
-        completed={session.durationMs - left}
+        completed={left}
         total={session.durationMs}
         color={paused ? colors.muted : colors.primary}
         size={22}
@@ -170,15 +176,14 @@ export function RowTimerPill({
 
 /**
  * The muted lines under the timed task's words: the step it's on (a starter
- * after "Stuck?", kept at time's up) and, until then, "Paused." and a
- * 5-minute starter's "Just start" line.
+ * after "Stuck?", kept at time's up) and, until then, a 5-minute starter's
+ * "Just start" line, or just "Paused." while paused.
  */
 export function RowSessionLine({ clock }: { clock: RowSessionClock }) {
   const colors = useColors();
   const { session, phase } = clock;
   const step = session.stepText ? `Now: ${session.stepText}` : null;
-  const status =
-    phase === "ended" ? null : [phase === "paused" ? "Paused." : null, starterLine(session)].filter(Boolean).join(" ");
+  const status = phase === "ended" ? null : phase === "paused" ? "Paused." : starterLine(session);
   if (!step && !status) return null;
   return (
     <View testID={`task-session-line-${session.taskId}`}>

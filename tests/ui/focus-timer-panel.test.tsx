@@ -202,7 +202,7 @@ describe("FocusTimerPanel: another task's timer", () => {
         otherTimerText="Read"
       />,
     );
-    expect(screen.getByTestId("focus-timer-replaces")).toHaveTextContent('This stops the timer on "Read".');
+    expect(screen.getByTestId("focus-timer-replaces")).toHaveTextContent("This stops the timer on “Read”.");
   });
 });
 
@@ -344,7 +344,7 @@ describe("FocusTimerPanel: running", () => {
     await advance(2 * MIN);
     expect(remaining()).toHaveTextContent("5:00");
     await advance(5 * MIN);
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Write".');
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
   });
 
   it("Stop timer while running goes back to the picker (nothing picked)", async () => {
@@ -365,7 +365,7 @@ describe("FocusTimerPanel: running", () => {
     expect(appStateListeners).toHaveLength(1);
     jest.setSystemTime(START.getTime() + 12 * MIN);
     await foreground();
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Write".');
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
   });
 
   it("Pause tapped after it ran out (between ticks) ends it instead of pausing at 0:00", async () => {
@@ -384,7 +384,7 @@ describe("FocusTimerPanel: finishing", () => {
     await press("5 minute timer");
     await advance(5 * MIN);
     expect(screen.getByTestId("focus-timer-times-up")).toHaveTextContent("Time's up");
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Write".');
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop timer" })).toBeNull();
 
