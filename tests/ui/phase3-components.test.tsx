@@ -264,13 +264,13 @@ describe("IdeasSheet: saved from your brain dump", () => {
   it("hides the section when nothing is parked", async () => {
     await render(<IdeasSheet {...props()} />);
     expect(screen.queryByTestId("parked-ideas")).toBeNull();
-    expect(screen.queryByText("Saved from your brain dump")).toBeNull();
+    expect(screen.queryByText("Saved for later")).toBeNull();
   });
 
   it("lists parked items with add and remove", async () => {
     const p = props();
     await render(<IdeasSheet {...p} parked={parked} />);
-    expect(screen.getByText("Saved from your brain dump")).toBeOnTheScreen();
+    expect(screen.getByText("Saved for later")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Add Water plants" }));
     expect(p.onAddParked).toHaveBeenCalledWith("p2");
     await fireEvent.press(screen.getByRole("button", { name: "Remove Buy shoes from saved" }));

@@ -51,6 +51,7 @@ const ALLOWED_PROPS = [
   "outcome",
   "trial",
   "count",
+  "skipped",
   "feature",
   "active",
   "plus",

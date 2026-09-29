@@ -54,6 +54,10 @@ describe("analytics", () => {
     ).toEqual({ source: "brain_dump", count: 3, plus: false });
   });
 
+  it("keeps tomorrow_draft_used's skipped count (PR #69)", () => {
+    expect(sanitizeProps({ count: 2, skipped: 1, source: "ai" })).toEqual({ count: 2, skipped: 1, source: "ai" });
+  });
+
   it("sends an anonymous batch: install id, no person profile, no IP", async () => {
     track("paywall_viewed", { source: "break_down", text: "secret task" });
     await flush();
