@@ -647,8 +647,8 @@ export default function HomeScreen() {
     ideasOpen ||
     brainDumpOpen ||
     focusTaskId !== null ||
-    // No rating ask over a running timer.
-    focusSession?.status === "running" ||
+    // No rating ask over a running timer or its check-in (a paused one is fine).
+    (focusSession !== null && focusSession.status !== "paused") ||
     showCelebration;
   useEffect(() => {
     if (!ready) return;
@@ -1140,11 +1140,17 @@ export default function HomeScreen() {
                     // One tap: a 5-minute starter (no length to choose); it
                     // shows in the Now bar and the row. Once it's on, the
                     // button opens focus mode instead (never a restart).
+                    // A timer on another task: no button (the note stays a
+                    // quiet line; the Now bar has that timer).
                     timerRunning={focusSession?.taskId === coachTask.id}
-                    onStart={() => {
-                      if (focusSession?.taskId === coachTask.id) openFocus(coachTask.id, "coach");
-                      else startStarter(coachTask.id, "coach");
-                    }}
+                    onStart={
+                      focusSession && focusSession.taskId !== coachTask.id
+                        ? undefined
+                        : () => {
+                            if (focusSession) openFocus(coachTask.id, "coach");
+                            else startStarter(coachTask.id, "coach");
+                          }
+                    }
                   />
                 )}
                 {/* A finished day swaps these for the done card's quiet "Pull one more".

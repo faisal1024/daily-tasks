@@ -611,7 +611,7 @@ describe("rating on a later app open", () => {
     expect(mockStore.markReviewPrompted).toHaveBeenCalledTimes(1);
   });
 
-  it("holds the ask while a focus session is running, and asks once it's at its check-in (1.3)", async () => {
+  it("holds the ask while a focus session is running or checking in, and asks once it's paused (1.3)", async () => {
     const now = Date.now();
     const session = {
       id: "s1",
@@ -631,10 +631,21 @@ describe("rating on a later app open", () => {
     await toForeground();
     expect(requestAppReview).not.toHaveBeenCalled();
 
+    // At its check-in: still held.
     mockStore = makeStore({
       tasks: tasks("Walk"),
       reviewDueAt: mockStore.state.reviewDueAt,
       focusSession: { ...session, status: "ended" as const },
+    });
+    await view.rerender(<HomeScreen />);
+    await toForeground();
+    expect(requestAppReview).not.toHaveBeenCalled();
+
+    // Paused: it can ask.
+    mockStore = makeStore({
+      tasks: tasks("Walk"),
+      reviewDueAt: mockStore.state.reviewDueAt,
+      focusSession: { ...session, status: "paused" as const, endAt: null, pausedRemainingMs: 5 * 60_000 },
     });
     await view.rerender(<HomeScreen />);
     await toForeground();
@@ -2503,14 +2514,13 @@ describe("Focus mode from the coach's note (1.2; a 5-minute starter since 1.3)",
     expect(focusEvents()).toEqual([["focus_opened", { source: "coach" }]]);
   });
 
-  it("a timer on another task doesn't make it Open: Start starts one on the note's task", async () => {
+  it("a timer on another task: the note has no button (no Start, no Open), just its line", async () => {
     at(9);
     mockStore = makeStore({ tasks: THREE, ...SET, ...starterOn(THREE[1]) });
     await render(<HomeScreen />);
-    expect(coachButton()).toHaveTextContent("Start");
-    await fireEvent.press(coachButton());
-    expect(mockStore.startFocusSession).toHaveBeenCalledWith("t0", expect.objectContaining({ kind: "starter" }));
-    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    expect(screen.getByTestId("coach-note")).toBeOnTheScreen();
+    expect(screen.queryByTestId("coach-note-start-button")).toBeNull();
+    expect(mockStore.startFocusSession).not.toHaveBeenCalled();
   });
 
   it("after a tick the note moves on to momentum, and focus mode opens on the next open task with its start line", async () => {

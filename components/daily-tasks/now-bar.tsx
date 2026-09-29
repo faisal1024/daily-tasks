@@ -147,9 +147,7 @@ export function NowBar({
           color={paused ? colors.muted : colors.primary}
           size={RING}
           strokeWidth={4}
-        >
-          {null}
-        </ProgressRing>
+        />
         <View className="flex-1">
           <Text className="text-base font-semibold text-foreground" numberOfLines={1} testID="now-bar-task">
             {text}
