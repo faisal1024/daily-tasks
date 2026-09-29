@@ -611,6 +611,32 @@ describe("rating on a later app open", () => {
     expect(mockStore.markReviewPrompted).toHaveBeenCalledTimes(1);
   });
 
+  it("holds the ask while a focus session exists (running or at its check-in), then asks once it's gone (1.3)", async () => {
+    const now = Date.now();
+    const session = {
+      id: "s1",
+      taskId: "t0",
+      taskText: "Walk",
+      stepText: null,
+      date: TODAY,
+      kind: "timer" as const,
+      durationMs: 10 * 60_000,
+      startedAt: now - 10 * 60_000,
+      endAt: now - 1,
+      pausedRemainingMs: null,
+      status: "ended" as const,
+    };
+    const view = await openWithDue(2 * HOUR, { focusSession: session });
+    await settle();
+    await toForeground();
+    expect(requestAppReview).not.toHaveBeenCalled();
+
+    mockStore = makeStore({ tasks: tasks("Walk"), reviewDueAt: mockStore.state.reviewDueAt, focusSession: null });
+    await view.rerender(<HomeScreen />);
+    await toForeground();
+    expect(requestAppReview).toHaveBeenCalledTimes(1);
+  });
+
   it("waits while it's been under an hour, then asks on a later foreground", async () => {
     await openWithDue(30 * 60 * 1000);
     await settle();
@@ -2567,5 +2593,226 @@ describe("Focus mode from the coach's note (1.2)", () => {
     expect(screen.queryByTestId("focus-mode")).toBeNull();
     // Nothing was ticked by the close itself.
     expect(mockStore.toggleTask).not.toHaveBeenCalled();
+  });
+});
+
+// --- 1.3: the timer on your tasks (PR #72) -----------------------------------
+
+describe("Timer on your tasks (1.3)", () => {
+  const MIN = 60_000;
+  const NOW = MORNING.getTime();
+  const focusEvents = () => mockTrack.mock.calls.filter((c) => String(c[0]).startsWith("focus_"));
+  const press = (name: string) => fireEvent.press(screen.getByRole("button", { name }));
+
+  function running(overrides: Partial<NonNullable<AppState["focusSession"]>> = {}): NonNullable<AppState["focusSession"]> {
+    return {
+      id: "s1",
+      taskId: "t0",
+      taskText: "Walk",
+      stepText: null,
+      date: TODAY,
+      kind: "timer",
+      durationMs: 10 * MIN,
+      startedAt: NOW - 3 * MIN,
+      endAt: NOW + 7 * MIN,
+      pausedRemainingMs: null,
+      status: "running",
+      ...overrides,
+    };
+  }
+  const paused = () => running({ status: "paused", endAt: null, pausedRemainingMs: 6 * MIN });
+  const ended = (overrides: Partial<NonNullable<AppState["focusSession"]>> = {}) =>
+    running({ status: "ended", endAt: NOW - 1000, ...overrides });
+
+  let sheet: jest.SpyInstance;
+  beforeEach(() => {
+    sheet = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+  });
+  afterEach(() => sheet.mockRestore());
+
+  it("a row's ▶ opens the timer sheet (last-used length first) and a length starts a session on that task", async () => {
+    await AsyncStorage.setItem("daily-tasks/focus-last-minutes", "20");
+    mockStore = makeStore({ tasks: tasks("Walk", "Read") });
+    await render(<HomeScreen />);
+    await act(async () => {});
+    await press("Timer: Read");
+    expect(sheet).toHaveBeenCalledTimes(1);
+    const [options, pick] = sheet.mock.calls[0] as [
+      { title: string; options: string[]; cancelButtonIndex: number },
+      (index: number) => void,
+    ];
+    expect(options).toEqual({
+      title: "Timer: Read",
+      options: ["20 min", "5 min", "10 min", "Custom…", "Cancel"],
+      cancelButtonIndex: 4,
+    });
+    // Cancel does nothing.
+    await act(async () => pick(4));
+    expect(mockStore.startFocusSession).not.toHaveBeenCalled();
+    await act(async () => pick(1));
+    expect(mockStore.startFocusSession).toHaveBeenCalledWith("t1", { kind: "timer", minutes: 5, source: "row" });
+    expect(await AsyncStorage.getItem("daily-tasks/focus-last-minutes")).toBe("5");
+    // The next sheet lists 5 first.
+    await press("Timer: Walk");
+    expect((sheet.mock.calls[1][0] as { options: string[] }).options.slice(0, 3)).toEqual(["5 min", "10 min", "20 min"]);
+  });
+
+  it("Custom… opens the focus screen on the task with its length picker open", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read") });
+    await render(<HomeScreen />);
+    await press("Timer: Walk");
+    const pick = sheet.mock.calls[0][1] as (index: number) => void;
+    await act(async () => pick(3));
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Walk");
+    expect(screen.getByRole("button", { name: "Custom timer" })).toBeSelected();
+    expect(mockStore.startFocusSession).not.toHaveBeenCalled();
+    expect(focusEvents()).toEqual([["focus_opened", { source: "row" }]]);
+  });
+
+  it("the running row shows its ring and time left instead of ▶; tapping it opens the focus screen", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
+    await render(<HomeScreen />);
+    expect(screen.queryByRole("button", { name: "Timer: Walk" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Timer: Read" })).toBeOnTheScreen();
+    const rowTimer = screen.getByTestId("task-timer-running-t0");
+    expect(rowTimer.props.accessibilityLabel).toBe("Timer: Walk, 7 minutes left");
+    expect(screen.getByTestId("task-timer-left-t0")).toHaveTextContent("7:00");
+    await fireEvent.press(rowTimer);
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    expect(screen.getByTestId("focus-timer-remaining")).toHaveTextContent("7:00");
+    expect(focusEvents()).toEqual([["focus_opened", { source: "row" }]]);
+  });
+
+  it("the Now bar shows the task and time left, and Pause pauses", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("now-bar-task")).toHaveTextContent("Walk");
+    expect(screen.getByTestId("now-bar-time")).toHaveTextContent("7:00 left");
+    await press("Pause timer");
+    expect(mockStore.pauseFocusSession).toHaveBeenCalledTimes(1);
+    expect(mockStore.resumeFocusSession).not.toHaveBeenCalled();
+  });
+
+  it("the Now bar says Paused with the frozen time, and Resume resumes", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: paused() });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("now-bar-time")).toHaveTextContent("Paused · 6:00 left");
+    await act(async () => {
+      jest.setSystemTime(NOW + 30 * MIN);
+    });
+    expect(screen.getByTestId("now-bar-time")).toHaveTextContent("Paused · 6:00 left");
+    await press("Resume timer");
+    expect(mockStore.resumeFocusSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("tapping the Now bar opens the focus screen; Close keeps the timer, Stop timer ends it", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("now-bar-open"));
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    expect(focusEvents()).toEqual([["focus_opened", { source: "now_bar" }]]);
+    await press("Close");
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    expect(mockStore.stopFocusSession).not.toHaveBeenCalled();
+    expect(screen.getByTestId("now-bar")).toBeOnTheScreen();
+
+    await fireEvent.press(screen.getByTestId("now-bar-open"));
+    await press("Stop timer");
+    expect(mockStore.stopFocusSession).toHaveBeenCalledWith("stopped");
+  });
+
+  it("at zero the Now bar says Time's up with the check-in: Done ticks the task, 5 more extends, Not now clears", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: ended() });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("now-bar-title")).toHaveTextContent('Time\'s up on "Walk".');
+    const checkIn = within(screen.getByTestId("now-bar"));
+    await fireEvent.press(checkIn.getByRole("button", { name: "5 more minutes" }));
+    expect(mockStore.extendFocusSession).toHaveBeenCalledTimes(1);
+    await fireEvent.press(checkIn.getByRole("button", { name: "Not now" }));
+    expect(mockStore.stopFocusSession).toHaveBeenCalledWith("stopped");
+    await fireEvent.press(checkIn.getByRole("button", { name: "Done" }));
+    expect(mockStore.toggleTask).toHaveBeenCalledWith("t0");
+    // No proxy: no Stuck? link.
+    expect(checkIn.queryByRole("button", { name: "Stuck? Break it down" })).toBeNull();
+  });
+
+  it("Stuck? (Plus) ends the session as broken down, breaks the task down, then offers a 5-minute starter on the first step", async () => {
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    (requestBreakDown as jest.Mock).mockResolvedValue(["  Find the lead  ", "Put shoes on"]);
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: ended() });
+    await render(<HomeScreen />);
+    await press("Stuck? Break it down");
+    await act(async () => {});
+    expect(mockStore.stopFocusSession).toHaveBeenCalledWith("broken_down");
+    expect(requestBreakDown).toHaveBeenCalledWith(expect.objectContaining({ task: "Walk" }));
+    expect(mockStore.setTaskSteps).toHaveBeenCalledWith("t0", ["  Find the lead  ", "Put shoes on"], "Walk");
+    const offer = alert.mock.calls.find((call) => call[0] === "Start with the first step?");
+    expect(offer?.[1]).toBe('"Find the lead". Just 5 minutes.');
+    const buttons = offer![2] as { text: string; onPress?: () => void }[];
+    await act(async () => buttons.find((b) => b.text === "Start 5 minutes")?.onPress?.());
+    expect(mockStore.startFocusSession).toHaveBeenCalledWith("t0", {
+      kind: "starter",
+      minutes: 5,
+      source: "focus",
+      stepText: "Find the lead",
+    });
+    alert.mockRestore();
+  });
+
+  it("Stuck? on the free plan opens the paywall instead of the AI", async () => {
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    mockStore = { ...makeStore({ tasks: tasks("Walk", "Read"), focusSession: ended() }), hasPlus: false };
+    await render(<HomeScreen />);
+    await press("Stuck? Break it down");
+    expect(mockOpenPaywall).toHaveBeenCalledWith("break_down");
+    expect(requestBreakDown).not.toHaveBeenCalled();
+    expect(mockStore.stopFocusSession).toHaveBeenCalledWith("broken_down");
+  });
+
+  it("a task that already has steps gets no Stuck? link", async () => {
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    const withSteps = tasks("Walk", "Read").map((t, i) =>
+      i === 0 ? { ...t, steps: [{ id: "s", text: "Find the lead", done: false }] } : t,
+    );
+    mockStore = makeStore({ tasks: withSteps, focusSession: ended() });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("focus-check-in")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Stuck? Break it down" })).toBeNull();
+  });
+
+  it("a starter's check-in: Keep going (a 20-minute timer), Done, Stop here", async () => {
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read"),
+      focusSession: ended({ kind: "starter", durationMs: 5 * MIN, startedAt: NOW - 5 * MIN }),
+    });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("now-bar-title")).toHaveTextContent("5 minutes in. Keep going?");
+    const keep = screen.getByRole("button", { name: "Keep going" });
+    expect(keep.props.accessibilityHint).toBe("Starts a 20 minutes timer");
+    expect(screen.queryByRole("button", { name: "5 more minutes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
+    await fireEvent.press(keep);
+    expect(mockStore.keepGoingFocusSession).toHaveBeenCalledTimes(1);
+    await press("Stop here");
+    expect(mockStore.stopFocusSession).toHaveBeenCalledWith("stopped");
+    await press("Done");
+    expect(mockStore.toggleTask).toHaveBeenCalledWith("t0");
+  });
+
+  it("a running starter says 'Just start' in the Now bar", async () => {
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read"),
+      focusSession: running({ kind: "starter", durationMs: 5 * MIN, startedAt: NOW, endAt: NOW + 5 * MIN }),
+    });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("now-bar-starter")).toHaveTextContent("Just start. You can stop after 5.");
+  });
+
+  it("no Now bar without a session", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read") });
+    await render(<HomeScreen />);
+    expect(screen.queryByTestId("now-bar")).toBeNull();
   });
 });

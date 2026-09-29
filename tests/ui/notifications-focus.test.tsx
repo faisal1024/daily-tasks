@@ -13,6 +13,9 @@ jest.mock("expo-notifications", () => ({
   scheduleNotificationAsync: jest.fn(async () => "id"),
   setNotificationHandler: jest.fn(),
   setNotificationCategoryAsync: jest.fn(async () => null),
+  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  getLastNotificationResponse: jest.fn(() => null),
+  clearLastNotificationResponse: jest.fn(),
   SchedulableTriggerInputTypes: { DAILY: "daily", DATE: "date", TIME_INTERVAL: "timeInterval" },
 }));
 
@@ -113,5 +116,69 @@ describe("focus timer notification", () => {
     await cancelAllNotifications();
     expect(mocked.cancelScheduledNotificationAsync).toHaveBeenCalledTimes(1);
     expect(mocked.cancelScheduledNotificationAsync).toHaveBeenCalledWith("daily-tasks:2026-09-26:nudge:0900");
+  });
+});
+
+describe("focus notification responses (1.3)", () => {
+  function response(actionIdentifier: string, overrides: { identifier?: string; data?: unknown; date?: number } = {}) {
+    return {
+      actionIdentifier,
+      notification: {
+        date: overrides.date ?? 1000,
+        request: {
+          identifier: overrides.identifier ?? "three-today:focus-timer",
+          content: { data: "data" in overrides ? overrides.data : { focusSessionId: "s1", taskId: "t0" } },
+        },
+      },
+    } as unknown as Notifications.NotificationResponse;
+  }
+
+  it("parses Done, 5 more minutes and a plain tap; anything else (another notification, no session) is null", () => {
+    const { parseFocusResponse } = load();
+    expect(parseFocusResponse(response("focus-done"))).toEqual({ action: "done", sessionId: "s1" });
+    expect(parseFocusResponse(response("focus-extend"))).toEqual({ action: "extend", sessionId: "s1" });
+    expect(parseFocusResponse(response("expo.modules.notifications.actions.DEFAULT"))).toEqual({
+      action: "open",
+      sessionId: "s1",
+    });
+    expect(parseFocusResponse(response("focus-done", { identifier: "daily-tasks:2026-09-26:nudge:0900" }))).toBeNull();
+    expect(parseFocusResponse(response("focus-done", { data: {} }))).toBeNull();
+    expect(parseFocusResponse(null)).toBeNull();
+  });
+
+  it("hands over the tap that launched the app once, clears it, and ignores the same tap arriving again", () => {
+    const launch = response("focus-done");
+    mocked.getLastNotificationResponse.mockReturnValue(launch);
+    const { subscribeFocusResponses } = load();
+    const listener = jest.fn();
+    const unsubscribe = subscribeFocusResponses(listener);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith({ action: "done", sessionId: "s1" });
+    expect(mocked.clearLastNotificationResponse).toHaveBeenCalledTimes(1);
+
+    // The same tap also reaches the live listener: passed on only once.
+    const live = mocked.addNotificationResponseReceivedListener.mock.calls[0][0];
+    live(launch);
+    expect(listener).toHaveBeenCalledTimes(1);
+    // A new tap (a later notification) is passed on; other notifications aren't.
+    live(response("focus-extend", { date: 2000 }));
+    live(response("focus-done", { identifier: "daily-tasks:2026-09-26:nudge:0900", date: 3000 }));
+    expect(listener.mock.calls).toEqual([
+      [{ action: "done", sessionId: "s1" }],
+      [{ action: "extend", sessionId: "s1" }],
+    ]);
+
+    unsubscribe();
+    const subscription = mocked.addNotificationResponseReceivedListener.mock.results[0].value as { remove: jest.Mock };
+    expect(subscription.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("with no launch tap, nothing is handed over until one arrives", () => {
+    mocked.getLastNotificationResponse.mockReturnValue(null);
+    const { subscribeFocusResponses } = load();
+    const listener = jest.fn();
+    subscribeFocusResponses(listener);
+    expect(listener).not.toHaveBeenCalled();
+    expect(mocked.clearLastNotificationResponse).not.toHaveBeenCalled();
   });
 });
