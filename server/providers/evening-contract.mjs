@@ -24,6 +24,10 @@ export const EVENING_SYSTEM_PROMPT =
   "what keeps slipping, what helps), rewritten to stay under 500 characters. " +
   "Tomorrow's draft should carry over what still matters, shrink tasks that " +
   "keep slipping, and match how the day felt. " +
+  "In the because line, name the days only as 'today' (the day that's " +
+  "ending) and 'tomorrow' (the day being drafted), never 'this morning', " +
+  "'tonight' or 'the next day': it's shown again the next morning with those " +
+  "two words swapped, so it must read naturally either way. " +
   SAFETY;
 
 export const EVENING_TOOL_NAME = "emit_evening_close";
@@ -101,6 +105,7 @@ export function buildEveningPrompt(payload) {
     "If the day was hard or missed, draft fewer or smaller tasks; one is fine.",
     "Never list in the note what they didn't do.",
     "Only draft tasks related to today's tasks or their goal.",
+    "In the because line, say 'today' and 'tomorrow' for the days (not 'this morning' or 'the next day').",
   ].join("\n");
 }
 

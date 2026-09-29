@@ -82,6 +82,43 @@ export function localEveningClose(input: EveningInput): EveningClose {
   return { note: LOCAL_NOTES[input.result], because, tomorrow, memory: null, source: "local" };
 }
 
+// Evening words → the morning after. Longer phrases first so "tomorrow
+// morning" becomes "this morning", not "today morning".
+const MORNING_SWAPS: [RegExp, string][] = [
+  [/^tomorrow (morning|afternoon|evening)$/i, "this $1"],
+  [/^tomorrow night$/i, "tonight"],
+  [/^this (morning|afternoon|evening)$/i, "yesterday $1"],
+  [/^tonight$/i, "last night"],
+  [/^today$/i, "yesterday"],
+  [/^tomorrow$/i, "today"],
+];
+const MORNING_WORDS =
+  /\b(?:tomorrow (?:morning|afternoon|evening|night)|this (?:morning|afternoon|evening)|tonight|today|tomorrow)\b/gi;
+
+/** Match the source's case: ALL CAPS, Capitalised, or lower. */
+function matchCase(source: string, replacement: string): string {
+  if (source.length > 1 && source === source.toUpperCase()) return replacement.toUpperCase();
+  if (source[0] === source[0].toUpperCase()) return replacement[0].toUpperCase() + replacement.slice(1);
+  return replacement;
+}
+
+/**
+ * Evening text, read the next morning: written at the close ("Because today
+ * worked well, tomorrow builds on it"), shown on the morning card ("Because
+ * yesterday worked well, today builds on it"). One pass over the text, so a
+ * swapped word is never swapped again (tomorrow → today stays today).
+ * Possessives come along ("tomorrow's" → "today's"). Only for the morning
+ * card: the evening result shows the text as written.
+ */
+export function morningPerspective(text: string): string {
+  return text.replace(MORNING_WORDS, (found) => {
+    for (const [pattern, replacement] of MORNING_SWAPS) {
+      if (pattern.test(found)) return matchCase(found, found.replace(pattern, replacement).toLowerCase());
+    }
+    return found;
+  });
+}
+
 /** Normalise the proxy's evening response; throws if nothing usable. */
 export function parseEveningResponse(data: unknown): EveningClose {
   const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};

@@ -1545,9 +1545,10 @@ describe("Today: morning draft and evening close", () => {
   it("uses last night's draft, only as many tasks as there's room for", async () => {
     mockStore = makeStore({
       tasks: tasks("Walk", "Read"),
-      tomorrowDraft: { forDate: TODAY, tasks: ["Stretch", "Call mum", "Hydrate"], note: "", because: "Lighter today.", source: "local" },
+      tomorrowDraft: { forDate: TODAY, tasks: ["Stretch", "Call mum", "Hydrate"], note: "", because: "Lighter tomorrow.", source: "local" },
     });
     await render(<HomeScreen />);
+    // Written last night ("tomorrow"), read this morning ("today").
     expect(screen.getByTestId("tomorrow-draft")).toHaveTextContent(/Lighter today\./);
     await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
     expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch"], ["Stretch", "Call mum", "Hydrate"]);

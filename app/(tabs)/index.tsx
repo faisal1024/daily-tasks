@@ -935,10 +935,18 @@ export default function HomeScreen() {
                   <TomorrowDraftCard
                     draft={draft}
                     remainingSlots={remainingSlots}
-                    onUse={() => {
+                    onUse={(picked) => {
+                      // The card only offers what fits; trim again in case room just changed.
+                      const accepted = picked.slice(0, remainingSlots);
+                      if (accepted.length === 0) return;
                       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
-                      applyTomorrowDraft(draft.tasks.slice(0, remainingSlots), draft.tasks);
-                      track("tomorrow_draft_used", { count: Math.min(draft.tasks.length, remainingSlots), source: draft.source });
+                      // Everything else the card offered is saved for later, not lost.
+                      applyTomorrowDraft(accepted, draft.tasks);
+                      const skipped = draft.tasks.length - accepted.length;
+                      track("tomorrow_draft_used", { count: accepted.length, skipped, source: draft.source });
+                      if (skipped > 0) {
+                        showToast(`Added ${accepted.length}. ${skipped} saved for later.`);
+                      }
                     }}
                     onChange={() => setBrainDumpOpen(true)}
                     onDismiss={dismissTomorrowDraft}

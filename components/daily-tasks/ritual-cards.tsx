@@ -1,8 +1,10 @@
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
+import { morningPerspective } from "@/lib/daily-tasks/evening";
 import type { TomorrowDraft } from "@/lib/daily-tasks/types";
 
 /**
@@ -60,7 +62,11 @@ export function MorningHero({
   );
 }
 
-/** Last night's draft of today's three: use it in one tap, or change it. */
+/**
+ * Last night's draft of today's three: tick the ones to use (the first that
+ * fit are ticked), use them in one tap, or change it. Unticked ones are saved
+ * for later, and any empty slots are filled the usual way afterwards.
+ */
 export function TomorrowDraftCard({
   draft,
   remainingSlots,
@@ -70,12 +76,47 @@ export function TomorrowDraftCard({
 }: {
   draft: TomorrowDraft;
   remainingSlots: number;
-  onUse: () => void;
+  /** The ticked tasks, in the draft's order. */
+  onUse: (tasks: string[]) => void;
   onChange: () => void;
   onDismiss: () => void;
 }) {
   const colors = useColors();
-  const tasks = draft.tasks.slice(0, Math.max(0, remainingSlots));
+  const room = Math.max(0, remainingSlots);
+  const [selected, setSelected] = useState<string[]>(() => draft.tasks.slice(0, room));
+
+  // A new draft (or a different set offered): start from the first that fit.
+  // Only then: an edit elsewhere on Today mustn't wipe what the user ticked.
+  const draftKey = `${draft.forDate}:${draft.tasks.join("\n")}`;
+  useEffect(() => {
+    setSelected(draft.tasks.slice(0, room));
+    // Keyed on the draft only (see above); room is handled just below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+  // Room shrank (a task was added): keep the user's picks, trimmed to fit.
+  useEffect(() => {
+    setSelected((current) => (current.length > room ? current.slice(0, room) : current));
+  }, [room]);
+
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  // In the draft's order, whatever order they were ticked in.
+  const picked = draft.tasks.filter((text) => selectedSet.has(text));
+  const count = picked.length;
+  const fits = Math.min(draft.tasks.length, room);
+  const allTicked = count > 0 && count === fits;
+  const skipped = draft.tasks.length - count;
+  const because = draft.because ? morningPerspective(draft.because) : "";
+
+  const toggle = (text: string) => {
+    setSelected((current) => {
+      if (current.includes(text)) return current.filter((item) => item !== text);
+      if (current.length >= room) return current;
+      return [...current, text];
+    });
+  };
+
+  const useLabel = allTicked ? (count === 1 ? "Use this" : "Use these") : `Add ${count}`;
+
   return (
     <View
       className="rounded-3xl border p-5 gap-3"
@@ -85,11 +126,11 @@ export function TomorrowDraftCard({
       <View className="flex-row items-start gap-2">
         <View className="flex-1 gap-1">
           <Text accessibilityRole="header" style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontWeight: "700", fontSize: 20 }}>
-            {tasks.length >= 3 ? "Your three for today" : "Ready for today"}
+            {fits >= 3 ? "Your three for today" : "Ready for today"}
           </Text>
-          {draft.because ? (
+          {because ? (
             <Text className="text-sm" style={{ color: colors.muted }}>
-              {draft.because}
+              {because}
             </Text>
           ) : null}
         </View>
@@ -103,27 +144,81 @@ export function TomorrowDraftCard({
           <Ionicons name="close" size={20} color={colors.muted} />
         </Pressable>
       </View>
-      <View className="gap-2">
-        {tasks.map((text) => (
-          <View key={text} className="flex-row items-center gap-2">
-            <Ionicons name="ellipse-outline" size={16} color={colors.primary} accessibilityElementsHidden />
-            <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "600" }}>
-              {text}
-            </Text>
-          </View>
-        ))}
+      <View
+        className="rounded-2xl border overflow-hidden"
+        style={{ borderColor: colors.border, backgroundColor: colors.background }}
+      >
+        {draft.tasks.map((text, index) => {
+          const on = selectedSet.has(text);
+          const full = !on && count >= room;
+          return (
+            <View key={text}>
+              {index > 0 ? <View style={{ height: 1, backgroundColor: colors.border, marginLeft: 52 }} /> : null}
+              <Pressable
+                onPress={() => toggle(text)}
+                disabled={full}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: on, disabled: full }}
+                accessibilityLabel={text}
+                accessibilityHint={full ? "Today is full. Untick another one first." : undefined}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                  minHeight: 44,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  opacity: full ? 0.5 : 1,
+                }}
+                testID="tomorrow-draft-task"
+              >
+                <Ionicons
+                  name={on ? "checkmark-circle" : "ellipse-outline"}
+                  size={24}
+                  color={on ? colors.primary : colors.muted}
+                  accessibilityElementsHidden
+                />
+                <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "600" }}>
+                  {text}
+                </Text>
+              </Pressable>
+            </View>
+          );
+        })}
       </View>
+      {count === 0 ? (
+        <Text className="text-sm" style={{ color: colors.muted }} testID="tomorrow-draft-hint">
+          Tick the ones you want, or tap Change to start over.
+        </Text>
+      ) : skipped > 0 ? (
+        <Text className="text-sm" style={{ color: colors.muted }} testID="tomorrow-draft-hint">
+          {skipped === 1 ? "The unticked one is saved for later." : "Unticked ones are saved for later."}
+        </Text>
+      ) : null}
       <View className="flex-row gap-3 mt-1">
         <Pressable
-          onPress={onUse}
+          onPress={() => onUse(picked)}
+          disabled={count === 0}
           accessibilityRole="button"
-          accessibilityLabel={tasks.length === 1 ? "Use this task" : `Use these ${tasks.length} tasks`}
+          accessibilityState={{ disabled: count === 0 }}
+          accessibilityLabel={
+            count === 0
+              ? "Use these"
+              : allTicked
+                ? count === 1
+                  ? "Use this task"
+                  : `Use these ${count} tasks`
+                : count === 1
+                  ? "Add 1 task"
+                  : `Add ${count} tasks`
+          }
+          accessibilityHint={count === 0 ? "Tick at least one task first" : undefined}
           className="flex-1 rounded-2xl py-3 items-center"
-          style={{ backgroundColor: colors.primary }}
+          style={{ backgroundColor: colors.primary, opacity: count === 0 ? 0.5 : 1 }}
           testID="tomorrow-draft-use"
         >
           <Text style={{ color: colors.onPrimary, fontWeight: "700", fontSize: 16 }}>
-            {tasks.length === 1 ? "Use this" : "Use these"}
+            {count === 0 ? "Use these" : useLabel}
           </Text>
         </Pressable>
         <Pressable
