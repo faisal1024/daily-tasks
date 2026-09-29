@@ -70,7 +70,7 @@ public struct FocusActivityAttributes: ActivityAttributes {
     /// "timer" | "starter"
     public var kind: String
     /// "running" | "paused" | "ended" (time's up), and for the final content
-    /// only, "done" | "stopped".
+    /// only, "done" | "stopped" | "break".
     public var status: String
     /// When it ends; nil while paused. The countdown began at endAt - duration.
     public var endAt: Date?
@@ -155,10 +155,10 @@ public enum FocusGroup {
   public static let togglesProcessedKey = "widget.processedSeq"
   /// The app's end notification (lib/daily-tasks/notifications.ts).
   static let notificationId = "three-today:focus-timer"
-  /// Its categories (the buttons): a timer's 5 more minutes / Done.
+  /// Its categories (the buttons): a timer's 5 more minutes / Mark done.
   static let timerCategoryId = "three-today:focus-session"
   /// A timer's body (lib/daily-tasks/focus-session.ts notificationBody).
-  static let timerNotificationBody = "Time's up. Done, or 5 more minutes?"
+  static let timerNotificationBody = "Time's up. 5 more minutes, or mark it done?"
   static let heldNotificationKey = "focus.heldNotification"
   static let heldNotificationSessionKey = "focus.heldNotificationSession"
   /// Queues are kept short even if the app isn't opened for a long time.
@@ -313,7 +313,7 @@ public enum FocusGroup {
 
 @available(iOS 16.2, *)
 public enum FocusActions {
-  /// How long the final "Done" / "Timer stopped" stays before it goes.
+  /// How long the final "Done" / "Timer stopped" / "Timer ended" stays before it goes.
   public static let finalDismissSeconds: TimeInterval = 8
 
   /// This app's activities that are still showing (not already ended).
@@ -333,7 +333,7 @@ public enum FocusActions {
   }
 
   /// End activities (all, or one session's). With a final status the activity
-  /// says so ("done" / "stopped") for `dismissAfter` seconds; otherwise it goes now.
+  /// says so ("done" / "stopped" / "break") for `dismissAfter` seconds; otherwise it goes now.
   public static func end(sessionId: String?, finalStatus: String?, dismissAfter: TimeInterval) async {
     for activity in liveActivities(for: sessionId) {
       var content: ActivityContent<FocusActivityAttributes.ContentState>? = nil
@@ -436,11 +436,37 @@ public enum FocusActions {
     FocusGroup.reloadWidget()
   }
 
+  /// Take a break (a starter's Stop for now) at time's up: the session ends
+  /// and its task stays open. The mirror goes (the widget stops showing the
+  /// timer), the app is told through `focus.commands` (it clears the session,
+  /// reported as a break, when it next becomes active), the "Time's up" goes
+  /// from Notification Center, and the activity ends with a short "Timer ended".
+  public static func takeBreak(sessionId: String) async {
+    let now = Date()
+    let ended: Bool = withLock {
+      guard let session = FocusGroup.loadSession(), session.id == sessionId, session.date == FocusGroup.todayKey(now),
+        session.hasEnded(at: now)
+      else { return false }
+      FocusGroup.appendCommand("break", sessionId: sessionId, at: FocusGroup.nowMs(now))
+      // As the app writes "no session".
+      FocusGroup.defaults?.set("null", forKey: FocusGroup.sessionKey)
+      return true
+    }
+    guard ended else { return await reflectApp(sessionId: sessionId) }
+    let center = UNUserNotificationCenter.current()
+    center.removePendingNotificationRequests(withIdentifiers: [FocusGroup.notificationId])
+    center.removeDeliveredNotifications(withIdentifiers: [FocusGroup.notificationId])
+    FocusGroup.defaults?.removeObject(forKey: FocusGroup.heldNotificationKey)
+    FocusGroup.defaults?.removeObject(forKey: FocusGroup.heldNotificationSessionKey)
+    await end(sessionId: sessionId, finalStatus: "break", dismissAfter: finalDismissSeconds)
+    FocusGroup.reloadWidget()
+  }
+
   static let extendMs: Double = 5 * 60_000
   static let keepGoingMs: Double = 20 * 60_000
   static let maxSessionMs: Double = 24 * 60 * 60_000
 
-  /// Done from the Live Activity: queues the tick like the widget does (the
+  /// Mark done from the Live Activity: queues the tick like the widget does (the
   /// app applies it, with its usual celebration and analytics, when it next
   /// becomes active), then ends the activity with a short "Done".
   public static func done(sessionId: String, taskId: String, date: String) async {

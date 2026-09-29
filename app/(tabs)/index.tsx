@@ -81,7 +81,7 @@ import {
   showsCoachNote,
 } from "@/lib/daily-tasks/coach-note";
 import { addDays, fromDateKey, greetingFor, greetingText } from "@/lib/daily-tasks/date";
-import { STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
+import { sessionEndedAnnouncement, STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
 import { durationWords, timerMenuLengths } from "@/lib/daily-tasks/focus-timer";
 import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-storage";
 import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
@@ -462,7 +462,9 @@ export default function HomeScreen() {
     // Only when a new prompt arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusPrompt]);
-  // "Done: <task>" after Done in focus mode (see onDone below).
+  // What's said after the focus screen or the check-in acts (announceLater):
+  // "Done: <task>" after ✓ Mark task done, "Timer ended. <task> is still
+  // open." after Take a break.
   const focusDoneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -887,20 +889,32 @@ export default function HomeScreen() {
       celebratedDay.current !== today &&
       isPerfectDayTransition({ previousCompleted: completedCount, completed: completedCount + 1, total });
     if (celebrates) return;
+    announceLater(`Done: ${text}`);
+  };
+  // Said a moment later, so a closing sheet doesn't cut it off.
+  const announceLater = (message: string) => {
     if (focusDoneTimer.current) clearTimeout(focusDoneTimer.current);
     focusDoneTimer.current = setTimeout(() => {
       focusDoneTimer.current = null;
-      AccessibilityInfo.announceForAccessibility(`Done: ${text}`);
+      AccessibilityInfo.announceForAccessibility(message);
     }, FOCUS_DONE_ANNOUNCE_DELAY_MS);
+  };
+  // Ending the session by hand never ticks the task: say so.
+  const endSession = (outcome: "stopped" | "break") => {
+    const text = sessionTask?.text;
+    stopFocusSession(outcome);
+    if (text) announceLater(sessionEndedAnnouncement(outcome, text));
   };
 
   // What the row's timer pill, the focus screen and the check-in can do to the session.
-  // Done ticks through the normal path, so the haptic, celebration and
-  // win-back all happen (and the store clears the session).
+  // Only "Mark task done" ticks, through the normal path, so the haptic,
+  // celebration and win-back all happen (and the store clears the session).
+  // Stop timer and Take a break end the session and leave the task open.
   const sessionControls: FocusSessionControls = {
     pause: pauseFocusSession,
     resume: resumeFocusSession,
-    stop: () => stopFocusSession("stopped"),
+    stop: () => endSession("stopped"),
+    takeBreak: () => endSession("break"),
     extend: extendFocusSession,
     keepGoing: keepGoingFocusSession,
     done: () => {

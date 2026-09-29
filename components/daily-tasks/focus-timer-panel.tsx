@@ -59,7 +59,7 @@ interface FocusTimerPanelProps {
   onReveal?: () => void;
   /**
    * The custom wheel opened or closed: while it's open its Start is the
-   * screen's one solid button (the footer's Done goes tinted).
+   * screen's one solid button (the footer's Back to Today goes tinted).
    */
   onCustomOpenChange?: (open: boolean) => void;
 }
@@ -143,7 +143,7 @@ export function FocusTimerPanel({
   if (lastCustom !== null && !chips.includes(lastCustom)) chips.push(lastCustom);
   chips.sort((a, b) => a - b);
 
-  // Solid primary stays for the footer's Done: the timer's actions are tinted
+  // Solid primary stays for the footer's Back to Today: the timer's actions are tinted
   // (primaryInk text). With the custom wheel open, its Start is the solid one.
   const pill = (fill: "primary" | "tint" | "surface") => ({
     ...focusPillStyle(colors, fill, 48),

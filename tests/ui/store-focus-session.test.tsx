@@ -192,7 +192,7 @@ describe("store: starting a focus session", () => {
       kind: "timer",
       at: new Date(START.getTime() + 10 * MIN),
       title: "Walk",
-      body: "Time's up. Done, or 5 more minutes?",
+      body: "Time's up. 5 more minutes, or mark it done?",
     });
     expect(tracked).toHaveBeenCalledWith("focus_session_started", { kind: "timer", minutes: 10, source: "row" });
   });
@@ -237,7 +237,7 @@ describe("store: the end notification's words and buttons by kind", () => {
     await act(async () => hook.result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
     const { title, body, kind } = schedule.mock.calls.at(-1)![0] as { title: string; body: string; kind: string };
     expect(kind).toBe("timer");
-    expect(body).toBe("Time's up. Done, or 5 more minutes?");
+    expect(body).toBe("Time's up. 5 more minutes, or mark it done?");
     expect(title).toHaveLength(60);
     expect(title).toBe(`${long.slice(0, 59).trimEnd()}…`);
   });
@@ -377,7 +377,7 @@ describe("store: pause, resume, extend, stop and the end notification", () => {
         at: new Date(Date.now() + 20 * MIN),
         kind: "timer",
         title: "Walk",
-        body: "Time's up. Done, or 5 more minutes?",
+        body: "Time's up. 5 more minutes, or mark it done?",
       }),
     );
     expect(endedEvents()).toEqual([["focus_session_ended", { outcome: "extended", minutes: 5 }]]);
@@ -385,6 +385,18 @@ describe("store: pause, resume, extend, stop and the end notification", () => {
 });
 
 describe("store: what clears the session", () => {
+  it("Take a break at time's up clears it (reported break), cancels the notification and leaves the task open", async () => {
+    const { result } = await renderStore();
+    await act(async () => result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
+    jest.setSystemTime(START.getTime() + 10 * MIN + 100);
+    await act(async () => result.current.stopFocusSession("break"));
+    await flush();
+    expect(result.current.state.focusSession).toBeNull();
+    expect(result.current.isCompleted("t0")).toBe(false);
+    expect(result.current.state.todayCompletions).not.toContain("t0");
+    expect(endedEvents()).toEqual([["focus_session_ended", { outcome: "break", minutes: 10 }]]);
+  });
+
   it("ticking its task in the app clears it (reported done) and cancels the notification", async () => {
     const { result } = await renderStore();
     await act(async () => result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));

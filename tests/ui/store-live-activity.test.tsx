@@ -539,6 +539,52 @@ describe("Live Activity buttons: the focus.commands queue", () => {
     ]);
   });
 
+  // PR #76: Take a break on the lock screen at time's up.
+  it("at launch, a lock-screen Take a break clears the session: reported as a break, the task still open", async () => {
+    mockCommands = {
+      raw: commands([{ seq: 4, sessionId: "saved", action: "break", at: START.getTime() + 11 * MIN }]),
+      processedSeq: 3,
+    };
+    jest.setSystemTime(START.getTime() + 12 * MIN);
+    const { result } = await renderStore({ focusSession: session() });
+    await flush();
+    expect(result.current.state.focusSession).toBeNull();
+    expect(result.current.isCompleted("t0")).toBe(false);
+    expect(markFocusCommandsProcessed).toHaveBeenCalledWith(4);
+    expect(events("live_activity_action")).toEqual([["live_activity_action", { action: "break" }]]);
+    expect(events("focus_session_ended")).toEqual([["focus_session_ended", { outcome: "break", minutes: 10 }]]);
+  });
+
+  it("on foreground, a lock-screen Take a break clears the session once (a break, not cleared) and the task stays open", async () => {
+    const { result } = await renderStore();
+    await act(async () => result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
+    const id = result.current.state.focusSession!.id;
+    jest.setSystemTime(START.getTime() + 10 * MIN + 500);
+    await flush();
+    mockCommands = {
+      raw: commands([{ seq: 1, sessionId: id, action: "break", at: START.getTime() + 10 * MIN + 400 }]),
+      processedSeq: 0,
+    };
+    await foreground();
+    await flush();
+    expect(result.current.state.focusSession).toBeNull();
+    expect(result.current.isCompleted("t0")).toBe(false);
+    expect(events("live_activity_action")).toEqual([["live_activity_action", { action: "break" }]]);
+    expect(events("focus_session_ended")).toEqual([["focus_session_ended", { outcome: "break", minutes: 10 }]]);
+  });
+
+  it("Take a break in the app ends the Live Activity with a short Timer ended (break)", async () => {
+    const { result } = await renderStore();
+    await act(async () => result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
+    await flush();
+    const id = result.current.state.focusSession!.id;
+    jest.setSystemTime(START.getTime() + 10 * MIN + 500);
+    await flush();
+    await act(async () => result.current.stopFocusSession("break"));
+    await flush();
+    expect(native.end).toHaveBeenLastCalledWith(id, "break", FINAL_DISMISS_SECONDS);
+  });
+
   it("on foreground: commands already processed, for another session, or malformed are skipped; the newest seq is still recorded", async () => {
     const { result } = await renderStore();
     await act(async () =>

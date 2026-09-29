@@ -11,7 +11,7 @@ export interface FocusActivityModule {
   /** The session mirror's JSON (widget-bridge's `focus.session` shape). */
   start(json: string): Promise<boolean>;
   update(json: string): Promise<boolean>;
-  end(sessionId: string | null, finalStatus: "done" | "stopped" | null, dismissAfterSeconds: number): Promise<void>;
+  end(sessionId: string | null, finalStatus: "done" | "stopped" | "break" | null, dismissAfterSeconds: number): Promise<void>;
 }
 
 export function loadFocusActivity(): FocusActivityModule | null {

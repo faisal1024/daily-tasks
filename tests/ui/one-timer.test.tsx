@@ -217,7 +217,7 @@ describe("One timer, on the task (real store)", () => {
     expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Walk");
   });
 
-  it("time's up: bell in the pill (no tick), check-in under the row, said and felt once; 5 more restarts the pill, Done ticks the task and clears it", async () => {
+  it("time's up: bell in the pill (no tick), check-in under the row, said and felt once; 5 more restarts the pill, ✓ Mark task done ticks the task and clears it", async () => {
     await openToday(session());
     await advance(7 * MIN + 1000);
     expect(screen.getByTestId("task-timer-times-up-t0")).toHaveTextContent(glyph("notifications-outline"));
@@ -227,7 +227,7 @@ describe("One timer, on the task (real store)", () => {
     const checkIn = within(within(screen.getByTestId("today-tasks")).getByTestId("task-check-in-t0"));
     expect(checkIn.getByTestId("task-check-in-title")).toHaveTextContent("Time's up.");
     expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
-    expect(said().filter((s) => s === "Time's up on “Walk”.")).toHaveLength(1);
+    expect(said().filter((s) => s === "Time's up on “Walk”. 5 more minutes, or take a break.")).toHaveLength(1);
     await advance(MIN);
     expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
 
@@ -238,17 +238,20 @@ describe("One timer, on the task (real store)", () => {
 
     await advance(5 * MIN + 1000);
     expect(Haptics.notificationAsync).toHaveBeenCalledTimes(2);
-    await fireEvent.press(within(screen.getByTestId("task-check-in-t0")).getByRole("button", { name: "Done" }));
+    await fireEvent.press(within(screen.getByTestId("task-check-in-t0")).getByRole("button", { name: "Mark task done" }));
     for (let i = 0; i < 3; i++) await act(async () => {});
     expect(screen.getByRole("checkbox", { name: "Task 1: Walk" })).toBeChecked();
     expect(screen.queryByTestId("task-timer-running-t0")).toBeNull();
     expect(screen.queryByTestId("task-check-in-t0")).toBeNull();
   });
 
-  it("time's up: Stop here clears the session and the row gets its ▶ back", async () => {
+  it("time's up: Take a break clears the session (reported as a break), the task stays open and the row gets its ▶ back", async () => {
     await openToday(session({ status: "ended", endAt: NOW - 1000 }));
-    await fireEvent.press(within(screen.getByTestId("task-check-in-t0")).getByRole("button", { name: "Stop here" }));
+    const takeBreak = within(screen.getByTestId("task-check-in-t0")).getByRole("button", { name: "Take a break" });
+    expect(takeBreak.props.accessibilityHint).toBe("Ends the timer. The task stays open.");
+    await fireEvent.press(takeBreak);
     await act(async () => {});
+    expect(track).toHaveBeenCalledWith("focus_session_ended", expect.objectContaining({ outcome: "break" }));
     expect(screen.queryByTestId("task-timer-running-t0")).toBeNull();
     expect(screen.queryByTestId("task-check-in-t0")).toBeNull();
     expect(screen.getByRole("button", { name: "Start a timer: Walk" })).toBeOnTheScreen();
@@ -269,8 +272,10 @@ describe("One timer, on the task (real store)", () => {
     const checkIn = within(screen.getByTestId("task-check-in-t0"));
     expect(checkIn.getByTestId("task-check-in-title")).toHaveTextContent("5 minutes in. Keep going?");
     expect(checkIn.queryByRole("button", { name: "5 more minutes" })).toBeNull();
-    expect(checkIn.getByRole("button", { name: "Done" })).toBeOnTheScreen();
-    expect(checkIn.getByRole("button", { name: "Stop here" })).toBeOnTheScreen();
+    expect(checkIn.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(checkIn.getByRole("button", { name: "Stop for now" })).toBeOnTheScreen();
+    expect(checkIn.queryByRole("button", { name: "Take a break" })).toBeNull();
+    expect(checkIn.getByRole("button", { name: "Mark task done" })).toBeOnTheScreen();
     await fireEvent.press(checkIn.getByRole("button", { name: "Keep going" }));
     await act(async () => {});
     expect(screen.queryByTestId("task-check-in-t0")).toBeNull();
@@ -278,6 +283,29 @@ describe("One timer, on the task (real store)", () => {
     expect(pill().props.accessibilityLabel).toBe("Pause timer: Walk, 20 minutes left");
     // No longer a 5-minute starter: its "Just start" line is gone.
     expect(screen.queryByText(/Just start/)).toBeNull();
+  });
+
+  // PR #76: a starter's Take a break ends it, and the task stays open (it
+  // was only the first five minutes).
+  it("a starter reaching 5 on its row: Stop for now clears it (break, 5 min), the task stays open, nothing completed", async () => {
+    await openToday(
+      session({ kind: "starter", stepText: "Find the lead", durationMs: 5 * MIN, startedAt: NOW, endAt: NOW + 5 * MIN }),
+    );
+    await advance(5 * MIN + 1000);
+    (track as jest.Mock).mockClear();
+    const checkIn = within(screen.getByTestId("task-check-in-t0"));
+    await fireEvent.press(checkIn.getByRole("button", { name: "Stop for now" }));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const calls = (track as jest.Mock).mock.calls;
+    expect(calls.filter((c) => c[0] === "focus_session_ended")).toEqual([
+      ["focus_session_ended", { outcome: "break", minutes: 5 }],
+    ]);
+    expect(calls.filter((c) => c[0] === "focus_completed" || c[0] === "task_completed")).toEqual([]);
+    expect(screen.queryByTestId("task-check-in-t0")).toBeNull();
+    expect(screen.queryByTestId("task-timer-running-t0")).toBeNull();
+    expect(screen.queryByTestId("task-session-line-t0")).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Task 1: Walk" })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Start a timer: Walk" })).toBeOnTheScreen();
   });
   // R9 (1.3 polish): the timed task's long-press menu leads with its timer's
   // choices, and every sheet is tinted with the app's primary.
@@ -318,20 +346,19 @@ describe("One timer, on the task (real store)", () => {
     expect(said()).toContain("Saved for later. Timer stopped.");
   });
 
-  // R2 (1.3 polish): extend on the left, Done on the right, as on the Live
-  // Activity and the notification.
-  it("the timer's check-in: 5 more minutes (solid, the lead) then Done (tint); Stop here alone sits on the left", async () => {
+  // R2 (1.3 polish), revised: extend on the left (the solid lead), Take a
+  // break next to it, and the quiet "✓ Mark task done" link under them.
+  it("the timer's check-in: 5 more minutes (solid, the lead), Take a break (tint), then ✓ Mark task done; no Done or Stop here", async () => {
     await openToday(session({ status: "ended", endAt: NOW - 1000 }));
     const checkIn = within(screen.getByTestId("task-check-in-t0"));
     const buttons = checkIn.getAllByRole("button").map((button) => button.props.accessibilityLabel);
-    expect(buttons.indexOf("5 more minutes")).toBeLessThan(buttons.indexOf("Done"));
-    const done = StyleSheet.flatten(checkIn.getByRole("button", { name: "Done" }).props.style);
+    expect(buttons).toEqual(["5 more minutes", "Take a break", "Mark task done"]);
+    const takeBreak = StyleSheet.flatten(checkIn.getByRole("button", { name: "Take a break" }).props.style);
     const extend = StyleSheet.flatten(checkIn.getByRole("button", { name: "5 more minutes" }).props.style);
     // One emphasis rule at time's up: extend is the solid lead, as on the Live Activity.
     expect(extend.backgroundColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
-    expect(done.backgroundColor).toMatch(/1F$/);
-    // No break-down link here (the task has steps): Stop here isn't pushed right.
-    expect(StyleSheet.flatten(checkIn.getByTestId("focus-check-in-links").props.style).justifyContent).toBe("flex-start");
+    expect(takeBreak.backgroundColor).toMatch(/1F$/);
+    expect(checkIn.getByRole("button", { name: "Mark task done" }).props.accessibilityHint).toBe("Ticks off Walk");
     // Time's up: the pill is the ring and bell alone, no outline.
     expect(StyleSheet.flatten(pill().props.style).borderWidth).toBe(0);
   });
@@ -399,7 +426,7 @@ describe("One timer, on the task (real store)", () => {
     expect(padding()).toBeUndefined();
     await advance(7 * MIN + 1000);
     expect(padding()).toBe(8);
-    await fireEvent.press(within(screen.getByTestId("task-check-in-t0")).getByRole("button", { name: "Stop here" }));
+    await fireEvent.press(within(screen.getByTestId("task-check-in-t0")).getByRole("button", { name: "Take a break" }));
     for (let i = 0; i < 3; i++) await act(async () => {});
     expect(screen.queryByTestId("task-timer-running-t0")).toBeNull();
     expect(padding()).toBeUndefined();

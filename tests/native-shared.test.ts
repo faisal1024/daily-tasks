@@ -55,6 +55,59 @@ describe("shared Swift sources", () => {
     expect(read("lib/daily-tasks/notifications.ts")).toContain('FOCUS_CATEGORY_ID = "three-today:focus-session"');
   });
 
+  // Owner feedback: ending a timer isn't finishing the task, so the button
+  // that ticks it says so everywhere: "Mark done" on the Live Activity, the
+  // Dynamic Island (the same FocusButtons) and both notification categories.
+  it("the Live Activity and the notifications call the ticking button Mark done (never a bare Done)", () => {
+    const activity = read("targets/widget/FocusLiveActivity.swift");
+    expect(activity).toContain('"Mark done", solid: false');
+    expect(activity).toContain('.accessibilityLabel("Mark task done")');
+    expect(activity).toContain('.accessibilityHint("Ticks off \\(state.taskText)")');
+    expect(activity).not.toMatch(/"Done", "checkmark"/);
+    const notifications = read("lib/daily-tasks/notifications.ts");
+    expect(notifications.match(/identifier: FOCUS_ACTION_DONE, buttonTitle: "Mark done"/g)).toHaveLength(2);
+    expect(notifications).not.toContain('buttonTitle: "Done"');
+  });
+
+  // PR #76 review: no one-tap tick on the lock screen while the timer runs.
+  // Running: Pause; paused: Resume; time's up: extend (solid), Take a break,
+  // Mark done, in that order.
+  it("the Live Activity's buttons by state: only Pause / Resume mid-session; extend, break and Mark done at time's up", () => {
+    const activity = read("targets/widget/FocusLiveActivity.swift");
+    const buttons = activity.slice(activity.indexOf("struct FocusButtons"), activity.indexOf("// MARK: - Lock screen"));
+    const section = (from: string, to: string) => buttons.slice(buttons.indexOf(from), buttons.indexOf(to));
+    const running = section("case .running:", "case .paused:");
+    const paused = section("case .paused:", "case .timesUp:");
+    const timesUp = section("case .timesUp:", "default:");
+    expect(running).toContain("FocusPauseIntent");
+    expect(paused).toContain("FocusResumeIntent");
+    for (const mid of [running, paused]) {
+      expect(mid).not.toContain("FocusDoneIntent");
+      expect(mid).not.toContain("FocusBreakIntent");
+    }
+    const order = ["FocusExtendIntent", "FocusBreakIntent", "FocusDoneIntent"].map((name) => timesUp.indexOf(name));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(timesUp).toContain("state.extendTitle, solid: true");
+    expect(timesUp).toContain("state.breakTitle, solid: false");
+    // Nothing outside the switch adds a button in every state.
+    expect(buttons.split("FocusDoneIntent(").length - 1).toBe(1);
+    // The words match the app's check-in.
+    expect(activity).toContain('var breakTitle: String { kind == "starter" ? "Stop for now" : "Take a break" }');
+    expect(read("lib/daily-tasks/focus-session.ts")).toContain('session.kind === "starter" ? "Stop for now" : "Take a break"');
+    expect(activity).toContain('status == "break" ? "Timer ended" : "Timer stopped"');
+  });
+
+  it("Take a break on the lock screen queues a break command the app understands", () => {
+    const intents = read("targets/widget/FocusIntents.swift");
+    expect(intents).toMatch(/struct FocusBreakIntent: LiveActivityIntent[\s\S]*?FocusActions\.takeBreak\(sessionId: sessionId\)/);
+    const shared = read("targets/widget/FocusActivityShared.swift");
+    expect(shared).toContain('FocusGroup.appendCommand("break", sessionId: sessionId');
+    expect(shared).toContain('await end(sessionId: sessionId, finalStatus: "break", dismissAfter: finalDismissSeconds)');
+    const [command] = parseFocusCommands(JSON.stringify([{ seq: 1, sessionId: "s", action: "break", at: 1 }]), 0);
+    expect(command?.action).toBe("break");
+  });
+
   // Each App Group key, by what it's for: the Swift constant (FocusGroup in
   // FocusActivityShared.swift, Shared.swift for the widget's own) and the
   // TS constant in widget-bridge.ts must hold the same string.

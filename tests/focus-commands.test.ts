@@ -14,10 +14,11 @@ describe("parseFocusCommands", () => {
       { seq: 1, sessionId: "s1", action: "pause", at: T0 + 1 },
       { seq: 2, sessionId: "s1", action: "pause", at: T0 + 2 },
       { seq: 4, sessionId: "s1", action: "explode", at: T0 },
+      { seq: 6, sessionId: "s1", action: "break", at: T0 + 6 },
       { seq: 5, sessionId: 7, action: "pause", at: T0 },
       null,
     ]);
-    expect(parseFocusCommands(raw, 1).map((c) => c.seq)).toEqual([2, 3]);
+    expect(parseFocusCommands(raw, 1).map((c) => c.seq)).toEqual([2, 3, 6]);
     expect(parseFocusCommands("not json", 0)).toEqual([]);
     expect(parseFocusCommands(JSON.stringify({}), 0)).toEqual([]);
     expect(parseFocusCommands(null, 0)).toEqual([]);
@@ -80,6 +81,32 @@ describe("applyFocusCommands", () => {
     const late = applyFocusCommands(session, [{ seq: 1, sessionId: "s1", action: "pause", at: T0 + 21 * 60_000 }], T0 + 22 * 60_000);
     expect(late.session?.status).toBe("ended");
     expect(late.applied).toEqual([]);
+  });
+
+  // PR #76: the lock screen's Take a break (Stop for now on a starter).
+  it("break acts only at time's up: it clears the session (the task is the app's to keep open)", () => {
+    const end = T0 + 20 * 60_000;
+    const early = applyFocusCommands(session, [{ seq: 1, sessionId: "s1", action: "break", at: T0 + 60_000 }], T0 + 60_000);
+    expect(early.session).toBe(session);
+    expect(early.applied).toEqual([]);
+    const done = applyFocusCommands(session, [{ seq: 1, sessionId: "s1", action: "break", at: end + 1000 }], end + 2000);
+    expect(done.session).toBeNull();
+    expect(done.applied).toEqual(["break"]);
+    // Anything after it (for the gone session) is dropped; a replay changes nothing.
+    const after = applyFocusCommands(
+      session,
+      [
+        { seq: 1, sessionId: "s1", action: "break", at: end + 1000 },
+        { seq: 2, sessionId: "s1", action: "extend", at: end + 2000 },
+      ],
+      end + 3000,
+    );
+    expect(after.session).toBeNull();
+    expect(after.applied).toEqual(["break"]);
+    expect(applyFocusCommands(null, [{ seq: 1, sessionId: "s1", action: "break", at: end + 1000 }], end + 2000).applied).toEqual([]);
+    // Another session's break is ignored.
+    const other = applyFocusCommands(session, [{ seq: 1, sessionId: "old", action: "break", at: end + 1000 }], end + 2000);
+    expect(other.session).toBe(session);
   });
 
   it("a tap time in the future counts as now", () => {

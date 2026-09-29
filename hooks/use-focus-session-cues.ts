@@ -5,7 +5,7 @@ import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 
 import { announcePolitely } from "@/lib/daily-tasks/announce";
-import { checkInTitle, sessionMinutes, type FocusSession } from "@/lib/daily-tasks/focus-session";
+import { checkInAnnouncement, sessionMinutes, type FocusSession } from "@/lib/daily-tasks/focus-session";
 import { durationWords } from "@/lib/daily-tasks/focus-timer";
 
 /** A session this new was just started here (not one restored at launch). */
@@ -47,7 +47,8 @@ export function useFocusSessionCues(session: FocusSession | null, ready: boolean
     if (Platform.OS !== "web") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     }
-    announcePolitely(checkInTitle(session));
+    // The line and its choices ("… 5 more minutes, or take a break.").
+    announcePolitely(checkInAnnouncement(session));
     // Only when it ends.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, countdown, ready]);

@@ -7,7 +7,7 @@
 // surviving Close) is in focus-mode.test.tsx.
 import { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AppState, Platform, StyleSheet } from "react-native";
+import { AppState, Dimensions, Platform, StyleSheet } from "react-native";
 import { act, fireEvent, screen, within } from "@testing-library/react-native";
 
 import { FocusCheckIn, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
@@ -72,6 +72,7 @@ function useLocalSession(onStart: (minutes: number) => void) {
     pause: () => update(pause),
     resume: () => update(resume),
     stop: () => setSession(null),
+    takeBreak: () => setSession(null),
     extend: () => update((s, now) => extend(s, now)),
     keepGoing: () => update((s, now) => keepGoing(s, now)),
     done: jest.fn(),
@@ -92,12 +93,12 @@ function PanelHarness({ onStart }: { onStart: (minutes: number) => void }) {
       session={session}
       onStart={start}
       controls={controls}
-      checkIn={session ? <FocusCheckIn session={session} controls={controls} showDone={false} /> : null}
+      checkIn={session ? <FocusCheckIn session={session} controls={controls} /> : null}
     />
   );
 }
 
-function ModeHarness({ onDone }: { onDone: (timer: number) => void }) {
+function ModeHarness({ onDone, onClose = jest.fn() }: { onDone: (timer: number) => void; onClose?: () => void }) {
   const { session, controls, start } = useLocalSession(() => {});
   return (
     <FocusMode
@@ -105,7 +106,7 @@ function ModeHarness({ onDone }: { onDone: (timer: number) => void }) {
       session={session}
       onToggleStep={jest.fn()}
       onDone={onDone}
-      onClose={jest.fn()}
+      onClose={onClose}
       onStartTimer={start}
       controls={controls}
     />
@@ -198,7 +199,7 @@ describe("FocusTimerPanel: another task's timer", () => {
       <FocusTimerPanel
         session={null}
         onStart={jest.fn()}
-        controls={{ pause: jest.fn(), resume: jest.fn(), stop: jest.fn(), extend: jest.fn(), keepGoing: jest.fn(), done: jest.fn() }}
+        controls={{ pause: jest.fn(), resume: jest.fn(), stop: jest.fn(), takeBreak: jest.fn(), extend: jest.fn(), keepGoing: jest.fn(), done: jest.fn() }}
         checkIn={null}
         otherTimerText="Read"
       />,
@@ -380,13 +381,18 @@ describe("FocusTimerPanel: running", () => {
 });
 
 describe("FocusTimerPanel: finishing", () => {
-  it("Time's up in a full ring (no tick) and the check-in: 5 more minutes and Stop here (no Done: the screen has one)", async () => {
+  it("Time's up in a full ring (no tick) and the check-in: 5 more minutes, Take a break and ✓ Mark task done (no Done)", async () => {
     await renderPanel();
     await press("5 minute timer");
     await advance(5 * MIN);
     expect(screen.getByTestId("focus-timer-times-up")).toHaveTextContent("Time's up");
     expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop here" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Take a break" }).props.accessibilityHint).toBe(
+      "Ends the timer. The task stays open.",
+    );
+    expect(screen.getByRole("button", { name: "Mark task done" }).props.accessibilityHint).toBe("Ticks off Write");
     expect(screen.queryByRole("button", { name: "Stop timer" })).toBeNull();
 
     // 5 more minutes: runs again for just the extra, on a ring of the new length.
@@ -394,7 +400,7 @@ describe("FocusTimerPanel: finishing", () => {
     expect(remaining()).toHaveTextContent("5:00");
     expect(screen.getByTestId("focus-timer-ring").props.accessibilityLabel).toMatch(/^5 minutes left of 10 minutes/);
     await advance(5 * MIN);
-    await press("Stop here");
+    await press("Take a break");
     expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
   });
@@ -411,7 +417,7 @@ describe("FocusTimerPanel: finishing", () => {
   });
 });
 
-describe("FocusMode: the timer reported on Done", () => {
+describe("FocusMode: the timer reported on Mark task done", () => {
   it("is the session's length, including 5 more minutes", async () => {
     const onDone = jest.fn();
     await render(<ModeHarness onDone={onDone} />);
@@ -421,26 +427,80 @@ describe("FocusMode: the timer reported on Done", () => {
     await press("5 minute timer");
     await advance(5 * MIN);
     await press("5 more minutes");
-    await press("Done");
+    await press("Mark task done");
     expect(onDone).toHaveBeenCalledWith(10);
   });
 
-  it("is 0 after Stop timer; while a timer runs Close reads Back to Today (it keeps going)", async () => {
+  it("is 0 after Stop timer; Back to Today's hint says a running timer keeps going", async () => {
     const onDone = jest.fn();
     await render(<ModeHarness onDone={onDone} />);
     await act(async () => {});
     const close = () => screen.getByTestId("focus-close");
-    expect(close()).toHaveTextContent("Close");
+    expect(close()).toHaveTextContent("Back to Today");
     expect(close().props.accessibilityHint).toBe("Closes focus mode");
     await press("20 minute timer");
     expect(close()).toHaveTextContent("Back to Today");
     expect(close().props.accessibilityLabel).toBe("Back to Today");
     expect(close().props.accessibilityHint).toBe("The timer keeps going");
     await press("Stop timer");
-    expect(close()).toHaveTextContent("Close");
     expect(close().props.accessibilityHint).toBe("Closes focus mode");
-    await press("Done");
+    await press("Mark task done");
     expect(onDone).toHaveBeenCalledWith(0);
+  });
+
+  // Owner feedback: one way off the page at a time, and nothing ends the
+  // task unless it says "Mark task done".
+  it("exactly one exit button at a time: Back to Today (no session, running, paused), Take a break at time's up", async () => {
+    const onDone = jest.fn();
+    const onClose = jest.fn();
+    await render(<ModeHarness onDone={onDone} onClose={onClose} />);
+    await act(async () => {});
+    const exits = () =>
+      ["Back to Today", "Close", "Done", "Take a break", "Stop here"].flatMap((name) =>
+        screen.queryAllByRole("button", { name }),
+      );
+    const doneLinks = () => screen.queryAllByRole("button", { name: "Mark task done" });
+    expect(exits().map((node) => node.props.accessibilityLabel)).toEqual(["Back to Today"]);
+    expect(doneLinks()).toHaveLength(1);
+    await press("5 minute timer");
+    expect(exits().map((node) => node.props.accessibilityLabel)).toEqual(["Back to Today"]);
+    expect(doneLinks()).toHaveLength(1);
+    await press("Pause");
+    expect(exits().map((node) => node.props.accessibilityLabel)).toEqual(["Back to Today"]);
+    await press("Resume");
+    await advance(5 * MIN);
+    // Time's up: Take a break replaces Back to Today; the check-in's link is the one Mark task done.
+    expect(exits().map((node) => node.props.accessibilityLabel)).toEqual(["Take a break"]);
+    expect(screen.queryByTestId("focus-close")).toBeNull();
+    expect(doneLinks()).toHaveLength(1);
+    expect(screen.getByTestId("focus-check-in-done")).toBeOnTheScreen();
+    // The lead (5 more minutes) is the one solid button.
+    expect(StyleSheet.flatten(screen.getByTestId("focus-check-in-extend").props.style).backgroundColor).toBe(
+      ThemeColors.primary.light,
+    );
+    expect(StyleSheet.flatten(screen.getByTestId("focus-check-in-break").props.style).backgroundColor).toBe(
+      `${ThemeColors.primary.light}1F`,
+    );
+
+    // Take a break: the session ends, the task isn't ticked, the screen closes.
+    await press("Take a break");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onDone).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
+  });
+
+  it("at time's up the check-in's ✓ Mark task done reports the session's length (once, even on a double tap)", async () => {
+    const onDone = jest.fn();
+    const onClose = jest.fn();
+    await render(<ModeHarness onDone={onDone} onClose={onClose} />);
+    await act(async () => {});
+    await press("10 minute timer");
+    await advance(10 * MIN);
+    await fireEvent.press(screen.getByTestId("focus-check-in-done"));
+    await fireEvent.press(screen.getByTestId("focus-check-in-done"));
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledWith(10);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
 
@@ -461,7 +521,7 @@ describe("FocusTimerPanel: the end-time icon", () => {
 });
 
 // 1.3 polish (PR #75): the one solid button, the Pause hint, the starter's
-// line while paused, and where Stop here sits.
+// line while paused, and the check-in's link row (PR #76).
 describe("FocusTimerPanel: 1.3 polish", () => {
   const fill = (testID: string) => StyleSheet.flatten(screen.getByTestId(testID).props.style).backgroundColor;
   const tint = `${ThemeColors.primary.light}1F`;
@@ -469,33 +529,36 @@ describe("FocusTimerPanel: 1.3 polish", () => {
     pause: jest.fn(),
     resume: jest.fn(),
     stop: jest.fn(),
+    takeBreak: jest.fn(),
     extend: jest.fn(),
     keepGoing: jest.fn(),
     done: jest.fn(),
   });
 
   // R10: while the custom wheel shows, its Start is the one solid button:
-  // the footer's Done and the selected Custom chip step back to a tint.
-  it("custom wheel open: Start is solid, the footer Done and the Custom chip are tinted; closing it restores Done", async () => {
+  // the footer's Back to Today and the selected Custom chip step back to a tint.
+  it("custom wheel open: Start is solid, Back to Today and the Custom chip are tinted; closing it restores Back to Today", async () => {
     Platform.OS = "ios";
     await render(<ModeHarness onDone={jest.fn()} />);
     await act(async () => {});
-    expect(fill("focus-done")).toBe(ThemeColors.primary.light);
+    expect(fill("focus-close")).toBe(ThemeColors.primary.light);
     await press("Custom timer");
     await act(async () => {});
     expect(fill("focus-timer-start")).toBe(ThemeColors.primary.light);
     expect(within(screen.getByTestId("focus-timer-start")).getByText("Start")).toHaveStyle({ color: ThemeColors.onPrimary.light });
-    expect(fill("focus-done")).toBe(tint);
-    expect(within(screen.getByTestId("focus-done")).getByText("Done")).toHaveStyle({ color: ThemeColors.primaryInk.light });
+    expect(fill("focus-close")).toBe(tint);
+    expect(within(screen.getByTestId("focus-close")).getByText("Back to Today")).toHaveStyle({
+      color: ThemeColors.primaryInk.light,
+    });
     expect(fill("focus-timer-custom")).toBe(tint);
     await press("Cancel");
     await act(async () => {});
-    expect(fill("focus-done")).toBe(ThemeColors.primary.light);
-    // Starting from the wheel closes it: Done is solid again.
+    expect(fill("focus-close")).toBe(ThemeColors.primary.light);
+    // Starting from the wheel closes it: Back to Today is solid again.
     await press("Custom timer");
     await press("Start");
     await act(async () => {});
-    expect(fill("focus-done")).toBe(ThemeColors.primary.light);
+    expect(fill("focus-close")).toBe(ThemeColors.primary.light);
   });
 
   // R19
@@ -527,16 +590,45 @@ describe("FocusTimerPanel: 1.3 polish", () => {
     expect(screen.getByTestId("focus-starter-line")).toBeOnTheScreen();
   });
 
-  // R8: Stop here sits under the first button when it's alone; with the
-  // break-down link the two spread across the row.
-  it("the check-in's links: Stop here alone is left-aligned; with Stuck? Break it down they spread", async () => {
+  // PR #76 review: the tick grows with the text size, to 1.4× (as the check-in's buttons cap it).
+  it("the ✓ on Mark task done scales with the font scale, capped at 1.4×", async () => {
     const ended = { ...startSession({ id: "s", taskId: TASK.id, taskText: TASK.text, date: "2026-09-26", kind: "timer", minutes: 5, now: Date.now() - 6 * MIN }), status: "ended" as const };
-    const justify = () => StyleSheet.flatten(screen.getByTestId("focus-check-in-links").props.style).justifyContent;
-    const view = await render(<FocusCheckIn session={ended} controls={noControls()} showDone />);
+    const original = Dimensions.get("window");
+    const setFontScale = (fontScale: number) =>
+      act(async () => {
+        Dimensions.set({ window: { ...original, fontScale }, screen: { ...original, fontScale } });
+      });
+    const size = () => StyleSheet.flatten(screen.getByTestId("focus-check-in-done-icon").props.style).fontSize;
+    try {
+      await setFontScale(1);
+      await render(<FocusCheckIn session={ended} controls={noControls()} />);
+      expect(size()).toBe(16);
+      await setFontScale(1.2);
+      expect(size()).toBe(19);
+      await setFontScale(3);
+      expect(size()).toBe(22);
+    } finally {
+      await setFontScale(original.fontScale);
+    }
+  });
+
+  // R8, revised: the links sit left-aligned under the buttons, as
+  // "Stuck? Break it down · ✓ Mark task done" (just the latter without a break-down).
+  it("the check-in's links: ✓ Mark task done alone, or after Stuck? Break it down and a dot", async () => {
+    const ended = { ...startSession({ id: "s", taskId: TASK.id, taskText: TASK.text, date: "2026-09-26", kind: "timer", minutes: 5, now: Date.now() - 6 * MIN }), status: "ended" as const };
+    const links = () => screen.getByTestId("focus-check-in-links");
+    const view = await render(<FocusCheckIn session={ended} controls={noControls()} />);
     expect(screen.queryByTestId("focus-check-in-break-down")).toBeNull();
-    expect(justify()).toBe("flex-start");
-    await view.rerender(<FocusCheckIn session={ended} controls={{ ...noControls(), breakDown: jest.fn() }} showDone />);
-    expect(screen.getByTestId("focus-check-in-break-down")).toBeOnTheScreen();
-    expect(justify()).toBe("space-between");
+    expect(screen.queryByTestId("focus-check-in-links-dot", { includeHiddenElements: true })).toBeNull();
+    expect(links()).toHaveTextContent(/^\W*Mark task done$/);
+    const controls = { ...noControls(), breakDown: jest.fn() };
+    await view.rerender(<FocusCheckIn session={ended} controls={controls} />);
+    expect(links()).toHaveTextContent(/^Stuck\? Break it down\s*·\W*Mark task done$/);
+    expect(screen.getByTestId("focus-check-in-links-dot", { includeHiddenElements: true }).props.accessibilityElementsHidden).toBe(true);
+    await fireEvent.press(screen.getByRole("button", { name: "Mark task done" }));
+    expect(controls.done).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByRole("button", { name: "Take a break" }));
+    expect(controls.takeBreak).toHaveBeenCalledTimes(1);
+    expect(controls.stop).not.toHaveBeenCalled();
   });
 });

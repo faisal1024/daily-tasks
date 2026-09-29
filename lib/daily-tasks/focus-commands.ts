@@ -1,4 +1,4 @@
-// Pause/Resume from the Live Activity (1.3, PR F). Its buttons run without the
+// Pause/Resume, 5 more minutes and Take a break from the Live Activity (1.3, PR F). Its buttons run without the
 // app: they update the activity and the App Group mirror, and queue a command
 // in `focus.commands` (FocusActivityShared.swift). The app applies the queue
 // before anything else looks at the session (at launch, and whenever it becomes
@@ -8,9 +8,12 @@ import { extend, keepGoing, pause, resume, sessionPhase, type FocusSession } fro
 
 /**
  * "extend" is the time's-up button: 5 more minutes on a timer, "Keep going"
- * (a 20-minute timer) on a starter, as the app's check-in offers.
+ * (a 20-minute timer) on a starter, as the app's check-in offers. "break" is
+ * the check-in's Take a break (Stop for now on a starter): it ends the
+ * session and the task stays open. Both only act at time's up.
  */
-export type FocusCommandAction = "pause" | "resume" | "extend";
+export type FocusCommandAction = "pause" | "resume" | "extend" | "break";
+const ACTIONS: readonly FocusCommandAction[] = ["pause", "resume", "extend", "break"];
 
 /** One queued tap. `at` is when it was made (epoch ms). */
 export interface FocusCommand {
@@ -40,7 +43,7 @@ export function parseFocusCommands(raw: string | null, processedSeq: number): Fo
       return (
         Number.isInteger(command.seq) &&
         typeof command.sessionId === "string" &&
-        (command.action === "pause" || command.action === "resume" || command.action === "extend") &&
+        ACTIONS.includes(command.action as FocusCommandAction) &&
         typeof command.at === "number" &&
         Number.isFinite(command.at)
       );
@@ -60,8 +63,8 @@ export function lastCommandSeq(commands: FocusCommand[], processedSeq: number): 
  * Only commands for this session count: one for an older session (the app
  * moved on meanwhile) is dropped. Pausing a paused session or resuming a
  * running one changes nothing, so replaying the queue is harmless. A tap time
- * in the future (the clock moved) counts as now. "extend" only acts at time's
- * up (as its button only shows then). `applied` lists what each one did: a
+ * in the future (the clock moved) counts as now. "extend" and "break" only act
+ * at time's up (as their buttons only show then); a break clears the session. `applied` lists what each one did: a
  * pause that found the time already up ended it instead, which isn't a pause.
  */
 export function applyFocusCommands(
@@ -78,17 +81,19 @@ export function applyFocusCommands(
     if (next === current) continue;
     current = next;
     const did =
-      (command.action === "pause" && next.status === "paused") ||
-      (command.action === "resume" && next.status === "running") ||
-      command.action === "extend";
+      (command.action === "pause" && next?.status === "paused") ||
+      (command.action === "resume" && next?.status === "running") ||
+      command.action === "extend" ||
+      command.action === "break";
     if (did) applied.push(command.action);
   }
   return { session: current, applied };
 }
 
-function step(session: FocusSession, action: FocusCommandAction, at: number): FocusSession {
+function step(session: FocusSession, action: FocusCommandAction, at: number): FocusSession | null {
   if (action === "pause") return pause(session, at);
   if (action === "resume") return resume(session, at);
   if (sessionPhase(session, at) !== "ended") return session;
+  if (action === "break") return null;
   return session.kind === "starter" ? keepGoing(session, at) : extend(session, at);
 }

@@ -42,7 +42,8 @@ export const MAX_SESSION_MS = 24 * 60 * MINUTE_MS;
 /** Where a session was started (analytics). "check_in": the starter offered after "Stuck?". */
 export type FocusSessionSource = "row" | "coach" | "widget" | "siri" | "focus" | "check_in";
 /** How a session (or one of its countdowns) ended (analytics). */
-export type FocusSessionOutcome = "done" | "extended" | "stopped" | "cleared" | "broken_down";
+/** "break": Take a break at time's up (the session ends, the task stays open). */
+export type FocusSessionOutcome = "done" | "extended" | "stopped" | "break" | "cleared" | "broken_down";
 
 /** A new session's length in whole minutes: at least 1, at most a day. */
 export function clampSessionMinutes(minutes: number): number {
@@ -205,6 +206,34 @@ export function checkInTitle(session: FocusSession): string {
   return `Time's up on “${sessionFocusText(session)}”.`;
 }
 
+/**
+ * The check-in's quiet way out (time's up): "Take a break" on a timer, "Stop
+ * for now" on a starter. Either ends the session; the task stays open.
+ */
+export function checkInBreakLabel(session: FocusSession): string {
+  return session.kind === "starter" ? "Stop for now" : "Take a break";
+}
+
+/**
+ * What VoiceOver says at time's up: the check-in's line and its two choices,
+ * e.g. "Time's up on “Walk”. 5 more minutes, or take a break." A starter:
+ * "5 minutes in. Keep going, or stop for now."
+ */
+export function checkInAnnouncement(session: FocusSession): string {
+  if (session.kind === "starter") {
+    return `${capitalize(durationWords(sessionMinutes(session)))} in. Keep going, or stop for now.`;
+  }
+  return `${checkInTitle(session)} 5 more minutes, or take a break.`;
+}
+
+/**
+ * Said after the session is ended by hand (Take a break, Stop timer): the
+ * task wasn't ticked. "Timer ended. Walk is still open."
+ */
+export function sessionEndedAnnouncement(stopped: "break" | "stopped", taskText: string): string {
+  return `${stopped === "break" ? "Timer ended" : "Timer stopped"}. ${taskText} is still open.`;
+}
+
 /** The end notification's title: the task's words, cut to about 60 characters. */
 export const NOTIFICATION_TITLE_MAX = 60;
 export function notificationTitle(session: FocusSession): string {
@@ -216,12 +245,12 @@ export function notificationTitle(session: FocusSession): string {
 
 /**
  * The end notification's body (the title names the task): a timer asks
- * "Done, or 5 more minutes?", a starter "5 minutes in. Keep going?" (its
- * buttons: Done / 5 more minutes, or Keep going / Done).
+ * "5 more minutes, or mark it done?", a starter "5 minutes in. Keep going?"
+ * (its buttons: 5 more minutes / Mark done, or Keep going / Mark done).
  */
 export function notificationBody(session: FocusSession): string {
   if (session.kind === "starter") return checkInTitle(session);
-  return "Time's up. Done, or 5 more minutes?";
+  return "Time's up. 5 more minutes, or mark it done?";
 }
 
 /** A starter's line while it runs (only for the first 5 minutes' length). */

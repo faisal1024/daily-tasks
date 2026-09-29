@@ -5,6 +5,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  checkInAnnouncement,
+  checkInBreakLabel,
   checkInTitle,
   clear,
   end,
@@ -16,6 +18,7 @@ import {
   pause,
   remainingMs,
   resume,
+  sessionEndedAnnouncement,
   sessionForState,
   sessionPhase,
   settle,
@@ -120,10 +123,20 @@ describe("focus session: pause, resume, extend", () => {
     });
   });
 
+  // PR #76: the check-in's way out and what VoiceOver says.
+  it("the check-in's break label, its time's-up announcement, and what's said after a break or a stop", () => {
+    expect(checkInBreakLabel(timer())).toBe("Take a break");
+    expect(checkInBreakLabel(starter())).toBe("Stop for now");
+    expect(checkInAnnouncement(timer())).toBe("Time's up on “Walk”. 5 more minutes, or take a break.");
+    expect(checkInAnnouncement(starter())).toBe("5 minutes in. Keep going, or stop for now.");
+    expect(sessionEndedAnnouncement("break", "Walk")).toBe("Timer ended. Walk is still open.");
+    expect(sessionEndedAnnouncement("stopped", "Walk")).toBe("Timer stopped. Walk is still open.");
+  });
+
   it("the check-in names the step or task (curly quotes); the notification's title is the task, its body the question", () => {
     expect(checkInTitle(timer())).toBe("Time's up on “Walk”.");
     expect(notificationTitle(timer())).toBe("Walk");
-    expect(notificationBody(timer())).toBe("Time's up. Done, or 5 more minutes?");
+    expect(notificationBody(timer())).toBe("Time's up. 5 more minutes, or mark it done?");
     expect(checkInTitle(starter({ stepText: "Find the lead" }))).toBe("5 minutes in. Keep going?");
     expect(notificationBody(starter({ stepText: "Find the lead" }))).toBe("5 minutes in. Keep going?");
     const long = timer(10, { taskText: "x".repeat(80) });
