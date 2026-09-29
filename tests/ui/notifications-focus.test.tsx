@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 
 describe("focus timer notification", () => {
-  it("schedules one with the screen's copy, the default sound, time-sensitive, at the end time", async () => {
+  it("schedules one with the screen's copy, the default sound, at the end time", async () => {
     const { scheduleFocusTimerNotification, FOCUS_TIMER_NOTIFICATION_ID } = load();
     await scheduleFocusTimerNotification(AT, 10);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
@@ -46,7 +46,6 @@ describe("focus timer notification", () => {
         title: "Three Today",
         body: "That's 10 minutes. Keep going, or take a break.",
         sound: true,
-        interruptionLevel: "timeSensitive",
       },
       trigger: { type: "date", date: AT },
     });
