@@ -309,14 +309,26 @@ describe("morningPerspective", () => {
   });
 
   it("leaves unrelated words, and the words inside other words, untouched", () => {
-    const text = "Todays todayish notoday yesterday tomorrows plan: nothing new on top.";
+    const text = "Todays todayish notoday yesterdays tomorrows plan: nothing new on top.";
     expect(morningPerspective(text)).toBe(text);
-    expect(morningPerspective("Picking up where yesterday left off.")).toBe("Picking up where yesterday left off.");
     expect(morningPerspective("")).toBe("");
+  });
+
+  it("moves 'yesterday' back a day and 'the day after tomorrow' to tomorrow", () => {
+    expect(morningPerspective("Better than yesterday, so tomorrow is steady.")).toBe(
+      "Better than the day before, so today is steady.",
+    );
+    expect(morningPerspective("Yesterday was busy.")).toBe("The day before was busy.");
+    expect(morningPerspective("The day after tomorrow is the big one.")).toBe("Tomorrow is the big one.");
   });
 
   it("the evening prompts ask for 'today'/'tomorrow' in the because line", () => {
     expect(EVENING_SYSTEM_PROMPT).toMatch(/because line, name the days only as 'today'.*'tomorrow'/);
     expect(buildEveningPrompt(input())).toContain("In the because line, say 'today' and 'tomorrow'");
+    // "yesterday" would read two days back the next morning; tasks carry no relative days.
+    expect(EVENING_SYSTEM_PROMPT).toMatch(/never 'yesterday'/);
+    expect(buildEveningPrompt(input())).toMatch(/not 'yesterday'/);
+    expect(EVENING_SYSTEM_PROMPT).toMatch(/draft tasks without relative days/);
+    expect(buildEveningPrompt(input())).toContain("Write the draft tasks without relative days: name the thing itself.");
   });
 });

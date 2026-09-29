@@ -1,4 +1,5 @@
 import { fromDateKey, storeDayFor } from "./date";
+import { unparkTexts } from "./task-extras";
 import { MAX_TASKS } from "./types";
 import type {
   AppState,
@@ -256,9 +257,11 @@ export function resolvePendingRollover(
     }),
   };
 
+  // What's carried in (or already here) leaves Saved for later: one place only.
+  const unparked = unparkTexts(state, [...carriedTasks, ...alreadyThere].map((task) => task.text));
   return syncTodayHistory(
     {
-      ...state,
+      ...unparked,
       tasks: nextTasks,
       pendingRollover: null,
       history: {

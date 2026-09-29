@@ -83,36 +83,49 @@ export function TomorrowDraftCard({
 }) {
   const colors = useColors();
   const room = Math.max(0, remainingSlots);
-  const [selected, setSelected] = useState<string[]>(() => draft.tasks.slice(0, room));
-
-  // A new draft (or a different set offered): start from the first that fit.
-  // Only then: an edit elsewhere on Today mustn't wipe what the user ticked.
-  const draftKey = `${draft.forDate}:${draft.tasks.join("\n")}`;
+  // null until the user ticks or unticks something: until then the ticks
+  // follow the first that fit (so more room ticks more). The card is keyed on
+  // the draft's day, so a new draft starts untouched.
+  const [touched, setTouched] = useState<string[] | null>(null);
+  // After a toggle, room shrinking or the offered list changing only trims
+  // (in draft order); nothing comes back ticked by itself.
   useEffect(() => {
-    setSelected(draft.tasks.slice(0, room));
-    // Keyed on the draft only (see above); room is handled just below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftKey]);
-  // Room shrank (a task was added): keep the user's picks, trimmed to fit.
-  useEffect(() => {
-    setSelected((current) => (current.length > room ? current.slice(0, room) : current));
-  }, [room]);
+    setTouched((current) => {
+      if (!current) return current;
+      const kept = draft.tasks.filter((text) => current.includes(text)).slice(0, room);
+      return kept.length === current.length ? current : kept;
+    });
+  }, [draft.tasks, room]);
 
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-  // In the draft's order, whatever order they were ticked in.
-  const picked = draft.tasks.filter((text) => selectedSet.has(text));
+  // In the draft's order, whatever order they were ticked in; only what's offered.
+  const picked = useMemo(
+    () => (touched === null ? draft.tasks.slice(0, room) : draft.tasks.filter((text) => touched.includes(text)).slice(0, room)),
+    [draft.tasks, room, touched],
+  );
+  const selectedSet = new Set(picked);
   const count = picked.length;
   const fits = Math.min(draft.tasks.length, room);
   const allTicked = count > 0 && count === fits;
   const skipped = draft.tasks.length - count;
   const because = draft.because ? morningPerspective(draft.because) : "";
+  // More drafted than there's room for: say so, and let them pick.
+  const roomLine =
+    draft.tasks.length > room ? (room === 1 ? "Room for one more today. Pick which." : `Room for ${room} more today. Pick which.`) : null;
+  const savedLine =
+    count === 0
+      ? "Tick the ones you want, or tap Change to start over."
+      : skipped > 0
+        ? `${skipped === 1 ? "The unticked one is saved for later." : "Unticked ones are saved for later."}${count < room ? " Fill the rest after." : ""}`
+        : null;
 
   const toggle = (text: string) => {
-    setSelected((current) => {
-      if (current.includes(text)) return current.filter((item) => item !== text);
-      if (current.length >= room) return current;
-      return [...current, text];
-    });
+    let next: string[];
+    if (selectedSet.has(text)) next = picked.filter((item) => item !== text);
+    // One slot: picking another swaps it in (like a radio button).
+    else if (room === 1) next = [text];
+    else if (count >= room) return;
+    else next = draft.tasks.filter((item) => item === text || selectedSet.has(item));
+    setTouched(next);
   };
 
   const useLabel = allTicked ? (count === 1 ? "Use this" : "Use these") : `Add ${count}`;
@@ -150,9 +163,10 @@ export function TomorrowDraftCard({
       >
         {draft.tasks.map((text, index) => {
           const on = selectedSet.has(text);
-          const full = !on && count >= room;
+          // With one slot, any row can be picked (it swaps); otherwise a full day greys the rest.
+          const full = !on && room > 1 && count >= room;
           return (
-            <View key={text}>
+            <View key={`${index}:${text}`}>
               {index > 0 ? <View style={{ height: 1, backgroundColor: colors.border, marginLeft: 52 }} /> : null}
               <Pressable
                 onPress={() => toggle(text)}
@@ -160,7 +174,7 @@ export function TomorrowDraftCard({
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: on, disabled: full }}
                 accessibilityLabel={text}
-                accessibilityHint={full ? "Today is full. Untick another one first." : undefined}
+                accessibilityHint={full ? "Untick another one first." : !on && room === 1 ? roomLine ?? undefined : undefined}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -186,13 +200,14 @@ export function TomorrowDraftCard({
           );
         })}
       </View>
-      {count === 0 ? (
-        <Text className="text-sm" style={{ color: colors.muted }} testID="tomorrow-draft-hint">
-          Tick the ones you want, or tap Change to start over.
+      {roomLine ? (
+        <Text className="text-sm" style={{ color: colors.muted }} testID="tomorrow-draft-room">
+          {roomLine}
         </Text>
-      ) : skipped > 0 ? (
+      ) : null}
+      {savedLine ? (
         <Text className="text-sm" style={{ color: colors.muted }} testID="tomorrow-draft-hint">
-          {skipped === 1 ? "The unticked one is saved for later." : "Unticked ones are saved for later."}
+          {savedLine}
         </Text>
       ) : null}
       <View className="flex-row gap-3 mt-1">

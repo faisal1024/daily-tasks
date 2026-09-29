@@ -933,6 +933,8 @@ export default function HomeScreen() {
 
                 {draft && (
                   <TomorrowDraftCard
+                    // A new night's draft starts fresh; the same one keeps the user's ticks.
+                    key={draft.forDate}
                     draft={draft}
                     remainingSlots={remainingSlots}
                     onUse={(picked) => {
@@ -944,9 +946,10 @@ export default function HomeScreen() {
                       applyTomorrowDraft(accepted, draft.tasks);
                       const skipped = draft.tasks.length - accepted.length;
                       track("tomorrow_draft_used", { count: accepted.length, skipped, source: draft.source });
-                      if (skipped > 0) {
-                        showToast(`Added ${accepted.length}. ${skipped} saved for later.`);
-                      }
+                      const added = `Added ${accepted.length} ${accepted.length === 1 ? "task" : "tasks"}.`;
+                      const message = skipped > 0 ? `${added} ${skipped} saved for later.` : added;
+                      AccessibilityInfo.announceForAccessibility(message);
+                      if (skipped > 0) showToast(message);
                     }}
                     onChange={() => setBrainDumpOpen(true)}
                     onDismiss={dismissTomorrowDraft}

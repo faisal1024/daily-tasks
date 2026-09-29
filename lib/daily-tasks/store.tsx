@@ -30,6 +30,7 @@ import {
   clearTaskSteps,
   parkTasks,
   removeParkedTask,
+  unparkTexts,
   setTaskSteps,
   toggleTaskStep,
 } from "./task-extras";
@@ -294,8 +295,15 @@ function reduce(state: AppState, action: Action): AppState {
       // dropped were filtered out of it and must not come back as saved.
       const leftovers = action.shown.filter((text) => !action.tasks.includes(text));
       const next = reducer(state, { type: "addTasks", texts: action.tasks, today: action.today });
+      // Ticked ones now on Today leave Saved for later (no copy in both).
+      const added = next.tasks.slice(state.tasks.length).map((task) => task.text);
+      const unparked = unparkTexts(next, added);
+      // Ticked ones addTasks couldn't take (day set, room changed) are kept too.
+      const addedKeys = new Set(added.map((text) => text.trim().toLowerCase()));
+      const notAdded = action.tasks.filter((text) => !addedKeys.has(text.trim().toLowerCase()));
       // What didn't fit is saved for later rather than lost.
-      const withLeftovers = leftovers.length > 0 ? parkTasks(next, leftovers, action.at) : next;
+      const toPark = [...notAdded, ...leftovers];
+      const withLeftovers = toPark.length > 0 ? parkTasks(unparked, toPark, action.at) : unparked;
       return { ...withLeftovers, tomorrowDraft: null };
     }
     case "setAgendaEnabled":

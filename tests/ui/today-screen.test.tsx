@@ -872,7 +872,7 @@ describe("Ideas sheet: parked items and Set these three", () => {
     mockStore = makeStore({ tasks: tasks("Walk"), parkedTasks });
     await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("need-ideas"));
-    expect(screen.getByText("Saved from your brain dump")).toBeOnTheScreen();
+    expect(screen.getByText("Saved for later")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Add Water plants" }));
     expect(mockStore.addParkedTask).toHaveBeenCalledWith("p2");
     await fireEvent.press(screen.getByRole("button", { name: "Remove Buy shoes from saved" }));
@@ -1510,8 +1510,9 @@ describe("Today: unlock and saved ideas", () => {
     await rerender(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("need-ideas"));
     expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
-    expect(screen.queryByText("Saved for later")).toBeNull();
+    // The normal view's title; "Saved for later" is only its section label now.
     expect(screen.getByText("Ideas for today")).toBeOnTheScreen();
+    expect(screen.getAllByText("Saved for later")).toHaveLength(1);
   });
 
   it("keeps the saved-for-later link on a set day, even with a free slot", async () => {
@@ -1565,6 +1566,7 @@ describe("Today: morning draft and evening close", () => {
         source: "ai",
       },
     });
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     await render(<HomeScreen />);
     expect(screen.getByTestId("tomorrow-draft")).toHaveTextContent(/Because yesterday worked well, today builds on it\./);
     await fireEvent.press(screen.getByRole("checkbox", { name: "Call mum" }));
@@ -1572,7 +1574,10 @@ describe("Today: morning draft and evening close", () => {
     await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
     expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch", "Hydrate"], ["Stretch", "Call mum", "Hydrate"]);
     expect(mockTrack).toHaveBeenCalledWith("tomorrow_draft_used", { count: 2, skipped: 1, source: "ai" });
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Added 2\. 1 saved for later\./);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Added 2 tasks\. 1 saved for later\./);
+    // VoiceOver hears the same line.
+    expect(announce).toHaveBeenCalledWith("Added 2 tasks. 1 saved for later.");
+    announce.mockRestore();
   });
 
   it("using every drafted task shows no saved-for-later toast", async () => {
@@ -1580,8 +1585,12 @@ describe("Today: morning draft and evening close", () => {
       tasks: [],
       tomorrowDraft: { forDate: TODAY, tasks: ["Stretch", "Hydrate"], note: "", because: "", source: "local" },
     });
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
+    // No toast, but VoiceOver still hears what happened.
+    expect(announce).toHaveBeenCalledWith("Added 2 tasks.");
+    announce.mockRestore();
     expect(mockStore.applyTomorrowDraft).toHaveBeenCalledWith(["Stretch", "Hydrate"], ["Stretch", "Hydrate"]);
     expect(mockTrack).toHaveBeenCalledWith("tomorrow_draft_used", { count: 2, skipped: 0, source: "local" });
     expect(screen.queryByTestId("today-toast")).toBeNull();

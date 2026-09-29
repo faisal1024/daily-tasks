@@ -44,7 +44,7 @@ describe("TomorrowDraftCard", () => {
     expect(checked("Read")).toBe(false);
     expect(useButton()).toHaveTextContent("Add 2");
     expect(useButton().props.accessibilityLabel).toBe("Add 2 tasks");
-    expect(hint()).toHaveTextContent("The unticked one is saved for later.");
+    expect(hint()).toHaveTextContent("The unticked one is saved for later. Fill the rest after.");
     // Re-tick then untick a different one: order is the draft's, not the tap order.
     await fireEvent.press(row("Read"));
     await fireEvent.press(row("Walk"));
@@ -52,27 +52,30 @@ describe("TomorrowDraftCard", () => {
     expect(onUse).toHaveBeenCalledWith(["Read", "Stretch"]);
   });
 
-  it("with one slot, ticks the first, greys out the rest; unticking frees them and a new tick is the one used", async () => {
+  it("with one slot, ticks the first and a tap on another swaps it in (radio)", async () => {
     const { onUse } = await renderCard(draftOf(["Walk", "Read", "Stretch"]), 1);
     expect(checked("Walk")).toBe(true);
-    expect(disabled("Read")).toBe(true);
-    expect(disabled("Stretch")).toBe(true);
-    expect(row("Read").props.accessibilityHint).toMatch(/Today is full\. Untick another one first\./);
+    // Nothing greyed out: any row can be the one.
+    expect(disabled("Read")).toBe(false);
+    expect(row("Read").props.accessibilityHint).toBe("Room for one more today. Pick which.");
+    expect(screen.getByTestId("tomorrow-draft-room")).toHaveTextContent("Room for one more today. Pick which.");
     expect(useButton()).toHaveTextContent("Use this");
     expect(hint()).toHaveTextContent("Unticked ones are saved for later.");
 
-    // Tapping a greyed-out row does nothing.
-    await fireEvent.press(row("Stretch"));
-    expect(checked("Stretch")).toBe(false);
-
-    await fireEvent.press(row("Walk"));
-    expect(disabled("Read")).toBe(false);
-    expect(disabled("Stretch")).toBe(false);
     await fireEvent.press(row("Stretch"));
     expect(checked("Stretch")).toBe(true);
-    expect(disabled("Walk")).toBe(true);
+    expect(checked("Walk")).toBe(false);
     await fireEvent.press(useButton());
     expect(onUse).toHaveBeenCalledWith(["Stretch"]);
+  });
+
+  it("with two slots of three, greys the third once two are ticked and says why", async () => {
+    await renderCard(draftOf(["Walk", "Read", "Stretch"]), 2);
+    expect(disabled("Stretch")).toBe(true);
+    expect(row("Stretch").props.accessibilityHint).toBe("Untick another one first.");
+    expect(screen.getByTestId("tomorrow-draft-room")).toHaveTextContent("Room for 2 more today. Pick which.");
+    await fireEvent.press(row("Walk"));
+    expect(disabled("Stretch")).toBe(false);
   });
 
   it("with nothing ticked, the button is disabled, says why, and pressing it doesn't use anything", async () => {
@@ -86,24 +89,34 @@ describe("TomorrowDraftCard", () => {
     expect(onUse).not.toHaveBeenCalled();
   });
 
-  it("trims the ticks when room shrinks while the card is open (keeping the user's picks otherwise)", async () => {
+  it("after a toggle, room shrinking only trims (draft order) and growing ticks nothing back", async () => {
     const draft = draftOf(["Walk", "Read", "Stretch"]);
     const { onUse, props, rerender } = await renderCard(draft, 3);
     await fireEvent.press(row("Walk")); // Read + Stretch ticked
     await rerender(<TomorrowDraftCard {...props} remainingSlots={1} />);
     expect(checked("Read")).toBe(true);
     expect(checked("Stretch")).toBe(false);
-    expect(disabled("Stretch")).toBe(true);
+    await rerender(<TomorrowDraftCard {...props} remainingSlots={3} />);
+    expect(checked("Stretch")).toBe(false);
+    expect(checked("Walk")).toBe(false);
     await fireEvent.press(useButton());
     expect(onUse).toHaveBeenCalledWith(["Read"]);
   });
 
-  it("re-seeds the ticks when a new draft arrives", async () => {
-    const { props, rerender } = await renderCard(draftOf(["Walk", "Read"]), 2);
-    await fireEvent.press(row("Walk"));
-    await rerender(<TomorrowDraftCard {...props} draft={draftOf(["Walk", "Swim"])} />);
-    expect(checked("Walk")).toBe(true);
-    expect(checked("Swim")).toBe(true);
+  it("before any toggle, the ticks follow the room (more room ticks more)", async () => {
+    const { props, rerender } = await renderCard(draftOf(["Walk", "Read", "Stretch"]), 1);
+    expect(checked("Read")).toBe(false);
+    await rerender(<TomorrowDraftCard {...props} remainingSlots={3} />);
+    expect(["Walk", "Read", "Stretch"].every(checked)).toBe(true);
+  });
+
+  it("when the offered list shrinks, keeps the user's picks that are still offered", async () => {
+    const { props, rerender } = await renderCard(draftOf(["Walk", "Read", "Stretch"]), 3);
+    await fireEvent.press(row("Read")); // Walk + Stretch ticked, Read not
+    // Walk got finished elsewhere: the draft now offers Read and Stretch.
+    await rerender(<TomorrowDraftCard {...props} draft={draftOf(["Read", "Stretch"])} />);
+    expect(checked("Read")).toBe(false);
+    expect(checked("Stretch")).toBe(true);
   });
 
   it("shows the because line from the morning's side", async () => {

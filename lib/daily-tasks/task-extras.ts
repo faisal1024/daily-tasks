@@ -31,6 +31,21 @@ export function parkTasks(state: AppState, texts: string[], now: string): AppSta
   return { ...state, parkedTasks };
 }
 
+// Case- and space-insensitive, like the draft's and rollover's matching.
+const looseKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * Take tasks that just landed on Today out of Saved for later, so the same
+ * task isn't in both places (e.g. parked from last night's draft, then
+ * carried in from yesterday's leftovers).
+ */
+export function unparkTexts(state: AppState, texts: string[]): AppState {
+  if (texts.length === 0 || state.parkedTasks.length === 0) return state;
+  const landed = new Set(texts.map(looseKey));
+  const parkedTasks = state.parkedTasks.filter((p) => !landed.has(looseKey(p.text)));
+  return parkedTasks.length === state.parkedTasks.length ? state : { ...state, parkedTasks };
+}
+
 export function removeParkedTask(state: AppState, id: string): AppState {
   if (!state.parkedTasks.some((p) => p.id === id)) return state;
   return { ...state, parkedTasks: state.parkedTasks.filter((p) => p.id !== id) };
