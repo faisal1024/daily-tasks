@@ -5,7 +5,7 @@
 // background or killed.
 import { durationWords } from "./focus-timer";
 
-const MINUTE_MS = 60_000;
+export const MINUTE_MS = 60_000;
 
 /** A starter is the 5-minute "just start"; a timer is a length the user chose. */
 export type FocusSessionKind = "timer" | "starter";
@@ -39,10 +39,16 @@ export const KEEP_GOING_MINUTES = 20;
 /** However often it's extended, a session is at most a day long. */
 export const MAX_SESSION_MS = 24 * 60 * MINUTE_MS;
 
-/** Where a session was started (analytics). */
-export type FocusSessionSource = "row" | "coach" | "widget" | "siri" | "focus";
+/** Where a session was started (analytics). "check_in": the starter offered after "Stuck?". */
+export type FocusSessionSource = "row" | "coach" | "widget" | "siri" | "focus" | "check_in";
 /** How a session (or one of its countdowns) ended (analytics). */
 export type FocusSessionOutcome = "done" | "extended" | "stopped" | "cleared" | "broken_down";
+
+/** A new session's length in whole minutes: at least 1, at most a day. */
+export function clampSessionMinutes(minutes: number): number {
+  if (!Number.isFinite(minutes)) return 1;
+  return Math.min(MAX_SESSION_MS / MINUTE_MS, Math.max(1, Math.round(minutes)));
+}
 
 export function startSession(input: {
   id: string;
@@ -54,7 +60,7 @@ export function startSession(input: {
   minutes: number;
   now: number;
 }): FocusSession {
-  const durationMs = Math.min(MAX_SESSION_MS, Math.max(MINUTE_MS, Math.round(input.minutes) * MINUTE_MS));
+  const durationMs = clampSessionMinutes(input.minutes) * MINUTE_MS;
   return {
     id: input.id,
     taskId: input.taskId,
@@ -135,7 +141,7 @@ export function extend(session: FocusSession, now: number, minutes = EXTEND_MINU
 
 /** A starter's "Keep going": a fresh timer (20 minutes by default) on the same task. */
 export function keepGoing(session: FocusSession, now: number, minutes = KEEP_GOING_MINUTES): FocusSession {
-  const durationMs = Math.min(MAX_SESSION_MS, Math.max(MINUTE_MS, Math.round(minutes) * MINUTE_MS));
+  const durationMs = clampSessionMinutes(minutes) * MINUTE_MS;
   return {
     ...session,
     kind: "timer",
@@ -145,6 +151,20 @@ export function keepGoing(session: FocusSession, now: number, minutes = KEEP_GOI
     pausedRemainingMs: null,
     status: "running",
   };
+}
+
+/**
+ * A saved session as the app finds it at launch: an end further off than its
+ * length (the clock moved back while it was closed) is pulled in, and one that
+ * ran out while the app was closed is already ended, so nothing is scheduled
+ * for the past and nothing is announced as if it just happened.
+ */
+export function restoreSession(session: FocusSession, now: number): FocusSession {
+  const clamped =
+    session.status === "running" && session.endAt !== null && session.endAt > now + session.durationMs
+      ? { ...session, endAt: now + session.durationMs }
+      : session;
+  return settle(clamped, now);
 }
 
 /**

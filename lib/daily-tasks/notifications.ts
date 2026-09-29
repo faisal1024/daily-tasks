@@ -154,7 +154,16 @@ function queueFocus(step: () => Promise<void>): Promise<void> {
   return run;
 }
 
-/** Registers the Done / 5 more minutes buttons once (before the first schedule). */
+/**
+ * Registers the Done / 5 more minutes buttons: at every launch (so a
+ * notification from before an update still gets them), and before a
+ * schedule if that didn't take. Best-effort.
+ */
+export function registerFocusCategory(): Promise<void> {
+  if (Platform.OS === "web") return Promise.resolve();
+  return ensureFocusCategory().catch(() => {});
+}
+
 async function ensureFocusCategory(): Promise<void> {
   if (categoryReady || typeof Notifications.setNotificationCategoryAsync !== "function") return;
   await Notifications.setNotificationCategoryAsync(FOCUS_CATEGORY_ID, [

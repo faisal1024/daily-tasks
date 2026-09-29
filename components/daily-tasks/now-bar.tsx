@@ -12,6 +12,7 @@ import { useColors } from "@/hooks/use-colors";
 import { useFocusClock } from "@/hooks/use-focus-clock";
 import {
   checkInTitle,
+  MINUTE_MS,
   remainingMs,
   sessionFocusText,
   sessionMinutes,
@@ -21,7 +22,6 @@ import {
 } from "@/lib/daily-tasks/focus-session";
 import { durationWords, formatRemaining } from "@/lib/daily-tasks/focus-timer";
 
-const MINUTE_MS = 60_000;
 const RING = 36;
 /** A session this new was just started here (not one restored at launch). */
 const JUST_STARTED_MS = 5_000;
@@ -33,19 +33,20 @@ const JUST_STARTED_MS = 5_000;
  * after "5 more minutes"); never for one restored at launch. The end is the
  * store's (it marks the session ended right on time).
  */
-export function useFocusSessionCues(session: FocusSession | null): void {
+export function useFocusSessionCues(session: FocusSession | null, ready: boolean): void {
   const lastId = useRef(session?.id ?? null);
   useEffect(() => {
     const id = session?.id ?? null;
     if (id === lastId.current) return;
     lastId.current = id;
-    if (!session || session.status !== "running" || Date.now() - session.startedAt > JUST_STARTED_MS) return;
+    // Until saved state has loaded, whatever arrives is restored, not new.
+    if (!ready || !session || session.status !== "running" || Date.now() - session.startedAt > JUST_STARTED_MS) return;
     announcePolitely(
       session.kind === "starter" ? "5-minute starter started" : `Timer started, ${durationWords(sessionMinutes(session))}`,
     );
     // Only for a new session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.id]);
+  }, [session?.id, ready]);
 
   const status = session?.status ?? null;
   const countdown = session ? `${session.id}|${session.durationMs}` : null;
@@ -53,7 +54,9 @@ export function useFocusSessionCues(session: FocusSession | null): void {
   useEffect(() => {
     const before = seen.current;
     seen.current = { countdown, status };
-    if (!session || status !== "ended" || before.status === "ended") return;
+    // The first loaded session is where "seen" starts: one that ended while
+    // the app was closed isn't announced as if it just did.
+    if (!ready || !session || status !== "ended" || before.status === "ended") return;
     // Only a countdown seen running (or paused) while the app was open.
     if (before.countdown !== countdown) return;
     if (Platform.OS !== "web") {
@@ -62,7 +65,7 @@ export function useFocusSessionCues(session: FocusSession | null): void {
     announcePolitely(checkInTitle(session));
     // Only when it ends.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, countdown]);
+  }, [status, countdown, ready]);
 }
 
 export function NowBar({
@@ -96,14 +99,24 @@ export function NowBar({
         <Pressable
           onPress={onOpen}
           accessibilityRole="button"
-          accessibilityLabel={`${checkInTitle(session)} Opens focus`}
+          accessibilityLabel={checkInTitle(session)}
+          accessibilityHint="Opens focus"
           style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 }}
           testID="now-bar-open"
         >
-          <Ionicons name="checkmark-circle" size={22} color={colors.success} />
-          <Text className="flex-1 text-base font-semibold text-foreground" numberOfLines={2} testID="now-bar-title">
-            {checkInTitle(session)}
-          </Text>
+          {/* Time's up, not done: a bell, never a green tick. */}
+          <Ionicons name="notifications-outline" size={22} color={colors.primary} testID="now-bar-times-up-icon" />
+          <View className="flex-1">
+            <Text className="text-base font-semibold text-foreground" numberOfLines={2} testID="now-bar-title">
+              {checkInTitle(session)}
+            </Text>
+            {/* A starter's line doesn't name the task: it's said here. */}
+            {session.kind === "starter" ? (
+              <Text className="text-sm" style={{ color: colors.muted }} numberOfLines={1} testID="now-bar-subtitle">
+                {text}
+              </Text>
+            ) : null}
+          </View>
         </Pressable>
         <FocusCheckIn session={session} controls={controls} showTitle={false} />
       </View>
@@ -135,7 +148,7 @@ export function NowBar({
           size={RING}
           strokeWidth={4}
         >
-          <Ionicons name={paused ? "pause" : "play"} size={13} color={paused ? colors.muted : colors.primary} />
+          {null}
         </ProgressRing>
         <View className="flex-1">
           <Text className="text-base font-semibold text-foreground" numberOfLines={1} testID="now-bar-task">

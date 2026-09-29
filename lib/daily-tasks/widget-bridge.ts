@@ -22,6 +22,7 @@ export const FOCUS_SESSION_VERSION = 1;
 let storage: WidgetStorageModule | null | undefined;
 let lastWritten: string | null = null;
 let lastSessionWritten: string | null = null;
+let lastSessionRev = 0;
 
 function getStorage(): WidgetStorageModule | null {
   if (storage !== undefined) return storage;
@@ -80,18 +81,23 @@ export function markWidgetTogglesProcessed(seq: number): void {
 
 /**
  * Mirror the focus session to the App Group (skipped when unchanged): the
- * session's own fields plus `v`, or JSON `null` when there's none. Times are
- * epoch milliseconds. Nothing reloads the widget yet: nothing native reads it
- * until the Live Activity and widget Start (PR F).
+ * session's own fields plus `v` and `rev`, or JSON `null` when there's none.
+ * Times are epoch milliseconds. `rev` goes up with every write (it's at least
+ * the time of the write, so it keeps going up across launches): native code
+ * can tell a newer state from an older one. Nothing reloads the widget yet:
+ * nothing native reads it until the Live Activity and widget Start (PR F).
  */
 export function writeFocusSession(session: FocusSession | null): void {
   const store = getStorage();
   if (!store) return;
-  const raw = session ? JSON.stringify({ v: FOCUS_SESSION_VERSION, ...session }) : "null";
-  if (raw === lastSessionWritten) return;
+  const content = session ? JSON.stringify(session) : "null";
+  if (content === lastSessionWritten) return;
+  const rev = Math.max(lastSessionRev + 1, Date.now());
+  const raw = session ? JSON.stringify({ v: FOCUS_SESSION_VERSION, rev, ...session }) : "null";
   try {
     store.setString(FOCUS_SESSION_KEY, raw, APP_GROUP);
-    lastSessionWritten = raw;
+    lastSessionWritten = content;
+    lastSessionRev = rev;
   } catch {
     // Native readers keep the previous one; the next change writes again.
   }
@@ -102,4 +108,5 @@ export function __resetWidgetBridgeForTests(): void {
   storage = undefined;
   lastWritten = null;
   lastSessionWritten = null;
+  lastSessionRev = 0;
 }

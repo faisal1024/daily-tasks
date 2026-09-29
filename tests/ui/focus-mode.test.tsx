@@ -7,6 +7,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppState } from "react-native";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
+import { useFocusSessionCues } from "@/components/daily-tasks/now-bar";
+import { Colors } from "@/constants/theme";
+import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
+import { buildInitialState } from "@/lib/daily-tasks/storage";
 import {
   cancelFocusTimerNotification,
   scheduleFocusSessionNotification,
@@ -14,6 +18,7 @@ import {
 import type { Task } from "@/lib/daily-tasks/types";
 
 import { renderFocusOnStore, spyOnAnnouncements, type FocusHarnessProps } from "./focus-harness";
+import { renderWithProviders } from "./render";
 
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusSessionNotification: jest.fn(async () => {}),
@@ -21,8 +26,10 @@ jest.mock("@/lib/daily-tasks/notifications", () => ({
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
   requestNotificationPermission: jest.fn(async () => "granted"),
   syncNotifications: jest.fn(async () => {}),
+  registerFocusCategory: jest.fn(async () => {}),
   subscribeFocusResponses: jest.fn(() => () => {}),
 }));
+jest.mock("@/lib/daily-tasks/navigation", () => ({ navigateToToday: jest.fn() }));
 const schedule = scheduleFocusSessionNotification as jest.Mock;
 const cancel = cancelFocusTimerNotification as jest.Mock;
 
@@ -64,6 +71,13 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
+/** Today's cues on the real store, without a screen. */
+function Cues() {
+  const store = useDailyTasks();
+  useFocusSessionCues(store.state.focusSession, store.ready);
+  return null;
+}
+
 async function renderFocus(props: FocusHarnessProps = {}, task: Task = TASK) {
   const handlers = { onToggleStep: jest.fn(), onDone: jest.fn(), onClose: jest.fn() };
   const { view, rerender } = await renderFocusOnStore([task], {
@@ -71,6 +85,8 @@ async function renderFocus(props: FocusHarnessProps = {}, task: Task = TASK) {
     ...handlers,
     ...props,
   });
+  // The store's launch reconcile cancels once (no session yet); count from here.
+  cancel.mockClear();
   return { ...handlers, view, rerender };
 }
 
@@ -151,7 +167,7 @@ describe("FocusMode", () => {
     expect(remaining()).toHaveTextContent("10:00");
   });
 
-  it("at zero: one success haptic, a check in the ring, the check-in (said), and it stays open", async () => {
+  it("at zero: one success haptic, a full ring saying Time's up (never a tick), the check-in (said), and it stays open", async () => {
     const { onClose, onDone } = await renderFocus();
     await pick("10 minute timer");
     await advance(10 * MIN - 1000);
@@ -161,10 +177,10 @@ describe("FocusMode", () => {
     await advance(1000);
     expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Walk the dog".');
     expect(screen.queryByTestId("focus-timer-remaining")).toBeNull();
-    expect(screen.getByTestId("focus-timer-check")).toBeOnTheScreen();
-    expect(screen.getByLabelText("Timer finished")).toBeOnTheScreen();
+    expect(screen.getByTestId("focus-timer-times-up")).toHaveTextContent("Time's up");
+    expect(screen.getByLabelText("Time's up")).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "5 more minutes" })).toBeOnTheScreen();
-    expect(screen.getByRole("button", { name: "Not now" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Stop here" }).props.accessibilityHint).toBe("Clears the timer");
     // The footer's Done is the only Done.
     expect(screen.getAllByRole("button", { name: "Done" })).toHaveLength(1);
     await advance(5 * MIN);
@@ -185,7 +201,7 @@ describe("FocusMode", () => {
     expect(said()).toEqual(["Timer started, 10 minutes", 'Time\'s up on "Walk the dog".']);
   });
 
-  it("Stop timer goes back to the picker; 5 more minutes runs it again; Not now clears it", async () => {
+  it("Stop timer goes back to the picker; 5 more minutes runs it again; Stop here clears it", async () => {
     await renderFocus();
     await pick("20 minute timer");
     await advance(3 * MIN);
@@ -204,7 +220,7 @@ describe("FocusMode", () => {
     expect(screen.queryByTestId("focus-check-in")).toBeNull();
 
     await advance(5 * MIN + 100);
-    await pick("Not now");
+    await pick("Stop here");
     expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
     expect(screen.getByRole("button", { name: "10 minute timer" })).not.toBeSelected();
     // Nothing fires later: no third haptic, no check-in.
@@ -238,12 +254,13 @@ describe("FocusMode", () => {
     expect(schedule).toHaveBeenLastCalledWith(expect.objectContaining({ at: new Date(extendedAt + 5 * MIN) }));
   });
 
-  it("Close calls only onClose and keeps the timer; Done calls onDone once with the timer, even on a double tap", async () => {
+  it("Back to Today (while a timer runs) calls only onClose and keeps the timer; Done calls onDone once with the timer, even on a double tap", async () => {
     const { onClose, onDone, onToggleStep } = await renderFocus();
     await pick("20 minute timer");
-    const close = screen.getByRole("button", { name: "Close" });
-    expect(close.props.accessibilityHint).toBe("Closes focus mode. The timer keeps going.");
-    await pick("Close");
+    const close = screen.getByRole("button", { name: "Back to Today" });
+    expect(close).toHaveTextContent("Back to Today");
+    expect(close.props.accessibilityHint).toBe("The timer keeps going");
+    await pick("Back to Today");
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onDone).not.toHaveBeenCalled();
     expect(onToggleStep).not.toHaveBeenCalled();
@@ -276,5 +293,60 @@ describe("FocusMode", () => {
     await advance(2 * MIN);
     await rerender({ open: true });
     expect(remaining()).toHaveTextContent("7:59");
+  });
+
+  it("at zero, the check-in's 5 more minutes is tinted: the footer's Done is the only solid button", async () => {
+    await renderFocus();
+    await pick("5 minute timer");
+    await advance(5 * MIN + 100);
+    const extend = screen.getByTestId("focus-check-in-extend");
+    const flat = (node: { props: Record<string, unknown> }) => Object.assign({}, ...[node.props.style].flat());
+    const style = flat(extend);
+    expect(style.backgroundColor).not.toBe(Colors.light.primary);
+    const done = screen.getByTestId("focus-done");
+    const doneStyle = flat(done);
+    expect(doneStyle.backgroundColor).toBe(Colors.light.primary);
+  });
+
+  it("opened for Custom…, the length wheel shows once the screen is up (so its first-spin fix runs on screen)", async () => {
+    await renderFocus({ initialCustom: true });
+    expect(screen.queryByTestId("focus-timer-limit")).toBeNull();
+    await act(async () => fireEvent(screen.getByTestId("focus-modal"), "show"));
+    expect(screen.getByTestId("focus-timer-limit")).toHaveTextContent("Up to 3 hours");
+    expect(screen.getByRole("button", { name: "Custom timer" })).toBeSelected();
+  });
+
+  it("a timer that ran out while the app was closed isn't announced or felt at launch", async () => {
+    await AsyncStorage.setItem(
+      "daily-tasks/state/v1",
+      JSON.stringify({
+        ...buildInitialState(START),
+        hasSeenOnboarding: true,
+        tasks: [TASK],
+        focusSession: {
+          id: "old",
+          taskId: TASK.id,
+          taskText: TASK.text,
+          stepText: null,
+          date: "2026-09-26",
+          kind: "timer",
+          durationMs: 10 * MIN,
+          startedAt: START.getTime() - 20 * MIN,
+          endAt: START.getTime() - 10 * MIN,
+          pausedRemainingMs: null,
+          status: "running",
+        },
+      }),
+    );
+    await renderWithProviders(
+      <DailyTasksProvider>
+        <Cues />
+      </DailyTasksProvider>,
+    );
+    for (let i = 0; i < 6; i++) await act(async () => {});
+    await advance(2000);
+    expect(Haptics.notificationAsync).not.toHaveBeenCalled();
+    expect(said()).toEqual([]);
+    expect(schedule).not.toHaveBeenCalled();
   });
 });

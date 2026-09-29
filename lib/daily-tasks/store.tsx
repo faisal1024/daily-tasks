@@ -14,6 +14,7 @@ import { storeDayFor, todayKey } from "./date";
 import {
   cancelFocusTimerNotification,
   getNotificationPermissionStatus,
+  registerFocusCategory,
   requestNotificationPermission,
   scheduleFocusSessionNotification,
   subscribeFocusResponses,
@@ -21,10 +22,12 @@ import {
   type FocusNotificationResponse,
 } from "./notifications";
 import {
+  clampSessionMinutes,
   extend as extendSession,
   keepGoing as keepGoingSession,
   notificationBody,
   pause as pauseSession,
+  restoreSession,
   resume as resumeSession,
   sessionForState,
   sessionMinutes,
@@ -112,6 +115,7 @@ import { claimCoachRequest, markCoachNoteLogged, mergeCoachNotes } from "./coach
 import { draftForNotification, draftForTomorrow } from "./evening";
 import { readTodayAgenda } from "./agenda";
 import { readSupporterGrant, writeSupporterGrant } from "./supporter-grant";
+import { navigateToToday } from "./navigation";
 import { requestSupporterGrant, setProxyGrandfathered } from "./ai-client";
 import {
   invalidateWidgetSnapshot,
@@ -1126,7 +1130,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       ]);
       const baseToday = todayKey();
       if (cancelled) return;
-      const hydrated = stored ?? buildInitialState();
+      const saved = stored ?? buildInitialState();
+      // A timer that ran out while the app was closed is already ended (see restoreSession).
+      const hydrated = saved.focusSession
+        ? { ...saved, focusSession: restoreSession(saved.focusSession, Date.now()) }
+        : saved;
       dispatch({ type: "hydrate", state: hydrated });
       hydratedRef.current = true;
       syncWidgetTaps();
@@ -1209,31 +1217,42 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // Its end notification: scheduled while it runs (again on resume or
   // extend, replacing the last), cancelled on pause and once it's gone. An
   // ended one is left as it is: it's gone off, and its buttons still work.
+  // Never for the past (it's about to end: the app says it), nor past the
+  // next midnight (the session clears then).
   const focusEndKey =
     focusSession && focusSession.status === "running" && focusSession.endAt !== null
       ? `${focusSession.id}|${focusSession.endAt}|${notificationBody(focusSession)}`
       : null;
   const focusStatus = focusSession?.status ?? null;
-  const focusNotified = useRef(false);
+  // True at launch: the first pass reconciles, so a notification left from a
+  // session that's gone (e.g. its task was ticked in the widget) is cancelled.
+  const focusNotified = useRef(true);
   useEffect(() => {
     if (!ready) return;
     const session = stateRef.current.focusSession;
-    if (focusEndKey && session && session.endAt !== null) {
+    const endAt = focusEndKey ? (session?.endAt ?? null) : null;
+    const now = Date.now();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0);
+    if (session && endAt !== null && endAt <= midnight.getTime()) {
+      // Whatever is scheduled already goes off when it's this close.
       focusNotified.current = true;
+      if (endAt <= now + 1000) return;
       void scheduleFocusSessionNotification({
         sessionId: session.id,
         taskId: session.taskId,
-        at: new Date(session.endAt),
+        at: new Date(endAt),
         body: notificationBody(session),
       });
       return;
     }
     if (focusStatus === "ended") {
-      // Cleared once it's answered (in the app, or by an old launch's session).
+      // Gone off: cleared once it's answered.
       focusNotified.current = true;
       return;
     }
-    // Paused or gone. Nothing to cancel if nothing was scheduled since launch.
+    // Paused, gone, or ending after midnight. Nothing to cancel if nothing was
+    // scheduled since the launch's first pass.
     if (!focusNotified.current) return;
     focusNotified.current = false;
     void cancelFocusTimerNotification();
@@ -1250,7 +1269,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     const arm = () => {
       const wait = focusEndAt - Date.now();
       if (wait <= 0) settleNow();
-      else timer = setTimeout(arm, wait + 20);
+      // setTimeout can't wait longer than about 24.8 days.
+      else timer = setTimeout(arm, Math.min(wait + 20, 2 ** 31 - 1));
     };
     arm();
     const sub = RNAppState.addEventListener("change", (status) => {
@@ -1739,7 +1759,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         today,
         now: Date.now(),
       });
-      track("focus_session_started", { kind: options.kind, minutes: options.minutes, source: options.source });
+      track("focus_session_started", {
+        kind: options.kind,
+        minutes: clampSessionMinutes(options.minutes),
+        source: options.source,
+      });
     },
     [ensureDay],
   );
@@ -1753,7 +1777,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // extended, and the session goes on.
   const extendFocusSession = useCallback(() => {
     const session = stateRef.current.focusSession;
-    if (!session) return;
+    // Only when it changes anything (not at the day-long cap).
+    if (!session || extendSession(session, Date.now()) === session) return;
     track("focus_session_ended", { outcome: "extended", minutes: sessionMinutes(session) });
     dispatch({ type: "extendFocusSession", now: Date.now() });
   }, []);
@@ -1778,6 +1803,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const pendingFocusResponses = useRef<FocusNotificationResponse[]>([]);
   const handleFocusResponse = useRef<(response: FocusNotificationResponse) => void>(() => {});
   handleFocusResponse.current = (response) => {
+    // Any tap on it shows Today, where the Now bar and check-in are.
+    navigateToToday();
     const current = stateRef.current;
     const session = current.focusSession;
     if (!session || session.id !== response.sessionId) return;
@@ -1789,6 +1816,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     toggleTask(session.taskId);
     track("task_completed", { count: countCompleted(current) + 1, source: "notification" });
   };
+  useEffect(() => {
+    void registerFocusCategory();
+  }, []);
   useEffect(
     () =>
       subscribeFocusResponses((response) => {

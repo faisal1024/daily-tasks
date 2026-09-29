@@ -191,6 +191,21 @@ describe("FocusTimerPanel: choosing a length", () => {
   });
 });
 
+describe("FocusTimerPanel: another task's timer", () => {
+  it("says above the lengths that starting here stops it", async () => {
+    await render(
+      <FocusTimerPanel
+        session={null}
+        onStart={jest.fn()}
+        controls={{ pause: jest.fn(), resume: jest.fn(), stop: jest.fn(), extend: jest.fn(), keepGoing: jest.fn(), done: jest.fn() }}
+        checkIn={null}
+        otherTimerText="Read"
+      />,
+    );
+    expect(screen.getByTestId("focus-timer-replaces")).toHaveTextContent('This stops the timer on "Read".');
+  });
+});
+
 describe("FocusTimerPanel: custom length", () => {
   it("iOS: the countdown wheel sets the length; Start runs it, saves it, and it becomes a chip", async () => {
     Platform.OS = "ios";
@@ -364,11 +379,11 @@ describe("FocusTimerPanel: running", () => {
 });
 
 describe("FocusTimerPanel: finishing", () => {
-  it("a check in the ring and the check-in: 5 more minutes and Not now (no Done: the screen has one)", async () => {
+  it("Time's up in a full ring (no tick) and the check-in: 5 more minutes and Stop here (no Done: the screen has one)", async () => {
     await renderPanel();
     await press("5 minute timer");
     await advance(5 * MIN);
-    expect(screen.getByTestId("focus-timer-check")).toBeOnTheScreen();
+    expect(screen.getByTestId("focus-timer-times-up")).toHaveTextContent("Time's up");
     expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Write".');
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop timer" })).toBeNull();
@@ -378,7 +393,7 @@ describe("FocusTimerPanel: finishing", () => {
     expect(remaining()).toHaveTextContent("5:00");
     expect(screen.getByTestId("focus-timer-ring").props.accessibilityLabel).toMatch(/^5 minutes left of 10 minutes/);
     await advance(5 * MIN);
-    await press("Not now");
+    await press("Stop here");
     expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
   });
@@ -409,15 +424,19 @@ describe("FocusMode: the timer reported on Done", () => {
     expect(onDone).toHaveBeenCalledWith(10);
   });
 
-  it("is 0 after Stop timer, and Close's hint says a running timer keeps going", async () => {
+  it("is 0 after Stop timer; while a timer runs Close reads Back to Today (it keeps going)", async () => {
     const onDone = jest.fn();
     await render(<ModeHarness onDone={onDone} />);
     await act(async () => {});
-    const close = () => screen.getByRole("button", { name: "Close" });
+    const close = () => screen.getByTestId("focus-close");
+    expect(close()).toHaveTextContent("Close");
     expect(close().props.accessibilityHint).toBe("Closes focus mode");
     await press("20 minute timer");
-    expect(close().props.accessibilityHint).toBe("Closes focus mode. The timer keeps going.");
+    expect(close()).toHaveTextContent("Back to Today");
+    expect(close().props.accessibilityLabel).toBe("Back to Today");
+    expect(close().props.accessibilityHint).toBe("The timer keeps going");
     await press("Stop timer");
+    expect(close()).toHaveTextContent("Close");
     expect(close().props.accessibilityHint).toBe("Closes focus mode");
     await press("Done");
     expect(onDone).toHaveBeenCalledWith(0);

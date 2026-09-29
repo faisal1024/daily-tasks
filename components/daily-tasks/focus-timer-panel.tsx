@@ -10,7 +10,11 @@ import { Platform, Pressable, Text, View, useWindowDimensions } from "react-nati
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 
-import { announcePolitely, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
+import {
+  announcePolitely,
+  focusPillStyle,
+  type FocusSessionControls,
+} from "@/components/daily-tasks/focus-check-in";
 import { MinutesStepper } from "@/components/daily-tasks/minutes-stepper";
 import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { Fonts } from "@/constants/theme";
@@ -18,6 +22,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import { useFocusClock } from "@/hooks/use-focus-clock";
 import {
+  MINUTE_MS,
   remainingMs,
   sessionMinutes,
   sessionPhase,
@@ -36,7 +41,6 @@ import {
 import { loadLastCustomTimer, saveLastCustomTimer } from "@/lib/daily-tasks/focus-timer-storage";
 import { getNotificationPermissionStatus } from "@/lib/daily-tasks/notifications";
 
-const MINUTE_MS = 60_000;
 const MAX_RING = 232;
 
 interface FocusTimerPanelProps {
@@ -47,17 +51,33 @@ interface FocusTimerPanelProps {
   controls: FocusSessionControls;
   /** The check-in, shown once the session reaches zero. */
   checkIn: ReactNode;
-  /** Opens with the custom wheel showing (Custom… from a task's timer menu). */
-  initialCustom?: boolean;
+  /**
+   * Shows the custom wheel (Custom… from a task's timer menu). Set once the
+   * screen is on screen: the wheel's first-spin fix needs it mounted there.
+   */
+  openCustom?: boolean;
+  /** Another task's timer, which a start here would stop. */
+  otherTimerText?: string | null;
   /** Custom opened or a run started: bring the panel into view. */
   onReveal?: () => void;
 }
 
-export function FocusTimerPanel({ session, onStart, controls, checkIn, initialCustom = false, onReveal }: FocusTimerPanelProps) {
+export function FocusTimerPanel({
+  session,
+  onStart,
+  controls,
+  checkIn,
+  openCustom = false,
+  otherTimerText = null,
+  onReveal,
+}: FocusTimerPanelProps) {
   const colors = useColors();
   const { width, height } = useWindowDimensions();
   const scheme = useColorScheme() === "dark" ? "dark" : "light";
-  const [customOpen, setCustomOpen] = useState(initialCustom);
+  const [customOpen, setCustomOpen] = useState(false);
+  useEffect(() => {
+    if (openCustom) setCustomOpen(true);
+  }, [openCustom]);
   const [customMinutes, setCustomMinutes] = useState(FOCUS_TIMER_DEFAULT_CUSTOM_MINUTES);
   const [lastCustom, setLastCustom] = useState<number | null>(null);
   const [canNotify, setCanNotify] = useState(false);
@@ -113,18 +133,7 @@ export function FocusTimerPanel({ session, onStart, controls, checkIn, initialCu
   chips.sort((a, b) => a - b);
 
   // Solid primary stays for the footer's Done: the timer's actions are tinted.
-  const pill = (fill: "tint" | "surface") => ({
-    flex: 1,
-    minHeight: 48,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
-    borderRadius: 999,
-    ...(fill === "tint"
-      ? { backgroundColor: `${colors.primary}1F` }
-      : { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }),
-  });
+  const pill = (fill: "tint" | "surface") => ({ ...focusPillStyle(colors, fill, 48), paddingHorizontal: 16, paddingVertical: 10 });
 
   const header = (
     <Text className="self-start text-sm font-semibold" style={{ color: colors.muted }} accessibilityRole="header">
@@ -136,6 +145,11 @@ export function FocusTimerPanel({ session, onStart, controls, checkIn, initialCu
     return (
       <View className="gap-3 self-stretch" testID="focus-timer">
         {header}
+        {otherTimerText ? (
+          <Text className="text-sm" style={{ color: colors.muted }} testID="focus-timer-replaces">
+            {`This stops the timer on "${otherTimerText}".`}
+          </Text>
+        ) : null}
         <View className="flex-row flex-wrap gap-2" testID="focus-timer-options">
           {chips.map((minutes) => (
             <Chip
@@ -215,7 +229,7 @@ export function FocusTimerPanel({ session, onStart, controls, checkIn, initialCu
   const line = starterLine(session);
   // Whole minutes (and a fixed end time), so VoiceOver isn't told every second.
   const ringLabel = finished
-    ? "Timer finished"
+    ? "Time's up"
     : paused
       ? `Timer paused, ${durationWords(minutesLeft)} left of ${durationWords(minutes)}`
       : `${durationWords(minutesLeft)} left of ${durationWords(minutes)}, ends ${endsAt}`;
@@ -227,17 +241,20 @@ export function FocusTimerPanel({ session, onStart, controls, checkIn, initialCu
         <ProgressRing
           completed={session.durationMs - left}
           total={session.durationMs}
-          color={finished ? colors.success : colors.primary}
+          color={colors.primary}
           size={ringSize}
           strokeWidth={10}
         >
           {finished ? (
-            <Ionicons
-              name="checkmark"
-              size={Math.round(ringSize * 0.24)}
-              color={colors.success}
-              testID="focus-timer-check"
-            />
+            // Time's up, not done: a full ring and words, never a green tick.
+            <Text
+              style={{ color: colors.muted, fontFamily: Fonts.rounded, fontSize: Math.round(clockFontSize * 0.7), fontWeight: "700" }}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              testID="focus-timer-times-up"
+            >
+              Time&apos;s up
+            </Text>
           ) : (
             <View className="items-center px-6" style={{ maxWidth: ringSize - 32 }}>
               <Text

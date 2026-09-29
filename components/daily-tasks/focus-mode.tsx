@@ -2,7 +2,7 @@
 // timer. Since 1.3 it's the detail view of the focus session: the timer is
 // the store's, so closing this doesn't stop it. Done ticks the task through
 // Today's normal toggle path.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -34,6 +34,8 @@ interface FocusModeProps {
   controls: FocusSessionControls;
   /** Opens with the custom length wheel showing. */
   initialCustom?: boolean;
+  /** The task another session is on (a start here stops it), if any. */
+  otherTimerText?: string | null;
 }
 
 /**
@@ -50,12 +52,16 @@ export function FocusMode({
   onStartTimer,
   controls,
   initialCustom = false,
+  otherTimerText = null,
 }: FocusModeProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const animation = useSheetAnimation();
   const fullScreen = Platform.OS === "ios" && !Platform.isPad;
   const timerActive = session !== null && session.status !== "ended";
+  // The custom wheel waits until the sheet has finished sliding in: its
+  // first-spin fix (see CountdownWheel) only works once it's on screen.
+  const [shown, setShown] = useState(false);
 
   // Custom opening or a timer starting scrolls the timer (last) into view.
   const scrollRef = useRef<ScrollView>(null);
@@ -91,6 +97,8 @@ export function FocusMode({
       onRequestClose={onClose}
       animationType={animation}
       presentationStyle={fullScreen ? "fullScreen" : "pageSheet"}
+      onShow={() => setShown(true)}
+      testID="focus-modal"
     >
       <View
         style={{ flex: 1, backgroundColor: colors.background }}
@@ -163,7 +171,8 @@ export function FocusMode({
             session={session}
             onStart={onStartTimer}
             controls={controls}
-            initialCustom={initialCustom}
+            openCustom={initialCustom && shown}
+            otherTimerText={session ? null : otherTimerText}
             onReveal={revealTimer}
             checkIn={
               session ? <FocusCheckIn session={session} controls={controls} showDone={false} /> : null
@@ -199,13 +208,13 @@ export function FocusMode({
           <Pressable
             onPress={onClose}
             accessibilityRole="button"
-            accessibilityLabel="Close"
-            accessibilityHint={timerActive ? "Closes focus mode. The timer keeps going." : "Closes focus mode"}
+            accessibilityLabel={timerActive ? "Back to Today" : "Close"}
+            accessibilityHint={timerActive ? "The timer keeps going" : "Closes focus mode"}
             style={{ minHeight: 44, alignItems: "center", justifyContent: "center" }}
             testID="focus-close"
           >
             <Text className="text-base font-semibold" style={{ color: colors.muted }}>
-              Close
+              {timerActive ? "Back to Today" : "Close"}
             </Text>
           </Pressable>
         </View>

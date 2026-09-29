@@ -19,6 +19,7 @@ import {
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
 import { DEFAULT_AUTO_LOCK, type AppState as DailyState, type Task } from "@/lib/daily-tasks/types";
+import { navigateToToday } from "@/lib/daily-tasks/navigation";
 import { writeFocusSession } from "@/lib/daily-tasks/widget-bridge";
 
 let mockQueue: { raw: string | null; processedSeq: number } = { raw: null, processedSeq: 0 };
@@ -41,6 +42,7 @@ jest.mock("@/lib/daily-tasks/notifications", () => ({
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
   requestNotificationPermission: jest.fn(async () => "granted"),
   syncNotifications: jest.fn(async () => {}),
+  registerFocusCategory: jest.fn(async () => {}),
   subscribeFocusResponses: jest.fn((listener: (response: FocusNotificationResponse) => void) => {
     mockResponder = listener;
     if (mockLaunchResponse) listener(mockLaunchResponse);
@@ -49,6 +51,8 @@ jest.mock("@/lib/daily-tasks/notifications", () => ({
     };
   }),
 }));
+
+jest.mock("@/lib/daily-tasks/navigation", () => ({ navigateToToday: jest.fn() }));
 
 jest.mock("@/lib/daily-tasks/analytics", () => ({
   ...jest.requireActual("@/lib/daily-tasks/analytics"),
@@ -102,7 +106,11 @@ async function flush(times = 6) {
   for (let i = 0; i < times; i++) await act(async () => {});
 }
 
-async function renderStore(saved: Partial<DailyState> = {}, savedFor: Date = START) {
+async function renderStore(
+  saved: Partial<DailyState> = {},
+  savedFor: Date = START,
+  { keepLaunchCancel = false }: { keepLaunchCancel?: boolean } = {},
+) {
   await AsyncStorage.setItem(
     "daily-tasks/state/v1",
     JSON.stringify({
@@ -116,6 +124,9 @@ async function renderStore(saved: Partial<DailyState> = {}, savedFor: Date = STA
   const hook = await renderHook(() => useDailyTasks(), { wrapper });
   await flush();
   expect(hook.result.current.ready).toBe(true);
+  // The launch's reconcile cancels once when there's no running session (see
+  // "at launch" below); other tests count from here.
+  if (!keepLaunchCancel) cancel.mockClear();
   return hook;
 }
 
@@ -389,6 +400,14 @@ describe("store: the end notification's buttons", () => {
     expect(result.current.state.focusSession).toMatchObject({ id, status: "ended", durationMs: 10 * MIN });
   });
 
+  it("any tap on it (a button, the notification itself, an old one) goes to Today", async () => {
+    const { id } = await endedSession();
+    await act(async () => mockResponder!({ action: "open", sessionId: id }));
+    expect(navigateToToday).toHaveBeenCalledTimes(1);
+    await act(async () => mockResponder!({ action: "done", sessionId: "old" }));
+    expect(navigateToToday).toHaveBeenCalledTimes(2);
+  });
+
   it("the tap that launched the app is held until saved state loads, then handled once", async () => {
     mockLaunchResponse = { action: "done", sessionId: "saved" };
     jest.setSystemTime(START.getTime() + 20 * MIN);
@@ -399,5 +418,46 @@ describe("store: the end notification's buttons", () => {
     expect(result.current.state.focusSession).toBeNull();
     const completions = tracked.mock.calls.filter((call) => call[0] === "task_completed");
     expect(completions).toEqual([["task_completed", { count: 1, source: "notification" }]]);
+  });
+});
+
+describe("store: at launch (reconcile)", () => {
+  it("a session cleared while loading (its task ticked in the widget) has its stale end notification cancelled", async () => {
+    const { result } = await renderStore({ focusSession: session(), todayCompletions: ["t0"] }, START, {
+      keepLaunchCancel: true,
+    });
+    expect(result.current.state.focusSession).toBeNull();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it("a running session that ran out while the app was closed is ended at load: nothing scheduled for the past", async () => {
+    const { result } = await renderStore(
+      { focusSession: session({ startedAt: START.getTime() - 20 * MIN, endAt: START.getTime() - 10 * MIN }) },
+      START,
+      { keepLaunchCancel: true },
+    );
+    expect(result.current.state.focusSession).toMatchObject({ status: "ended" });
+    expect(schedule).not.toHaveBeenCalled();
+    // Left to go off / stay with its buttons.
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("one ending within a second isn't scheduled; one still running is scheduled for its end", async () => {
+    await renderStore({ focusSession: session({ endAt: START.getTime() + 500 }) });
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it("an end further off than its length (the clock moved back) is pulled in to now + length", async () => {
+    const { result } = await renderStore({ focusSession: session({ endAt: START.getTime() + 60 * MIN }) });
+    expect(result.current.state.focusSession).toMatchObject({ endAt: START.getTime() + 10 * MIN });
+    expect(schedule).toHaveBeenCalledWith(expect.objectContaining({ at: new Date(START.getTime() + 10 * MIN) }));
+  });
+
+  it("an end past the next midnight isn't scheduled (the session clears at midnight)", async () => {
+    const late = new Date(2026, 8, 26, 23, 55);
+    jest.setSystemTime(late);
+    await renderStore({ focusSession: session({ startedAt: late.getTime(), endAt: late.getTime() + 10 * MIN }) }, late);
+    expect(schedule).not.toHaveBeenCalled();
   });
 });

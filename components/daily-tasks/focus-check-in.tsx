@@ -2,11 +2,13 @@
 // next instead of stopping dead. A timer: Done / 5 more minutes / Stuck?
 // Break it down (and Not now). A starter: Keep going / Done / Stop here.
 // Shown in the Now bar and on the focus screen; it never ticks anything itself.
+// On the focus screen the footer's Done is the one solid button, so the
+// check-in's buttons are tinted there.
 import { AccessibilityInfo, Platform, Pressable, Text, View } from "react-native";
 
+import type { ThemeColorPalette } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { checkInTitle, KEEP_GOING_MINUTES, type FocusSession } from "@/lib/daily-tasks/focus-session";
-import { durationWords } from "@/lib/daily-tasks/focus-timer";
 
 /** What the timer views can do to the session (Today wires them to the store). */
 export interface FocusSessionControls {
@@ -33,6 +35,27 @@ export function announcePolitely(text: string): void {
   AccessibilityInfo.announceForAccessibility(text);
 }
 
+/**
+ * The timer's pill buttons (check-in, focus screen): a solid primary fill
+ * (text in colors.onPrimary), a primary tint, or the plain surface.
+ */
+export function focusPillStyle(colors: ThemeColorPalette, fill: "primary" | "tint" | "surface", minHeight = 44) {
+  return {
+    flex: 1,
+    minHeight,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    borderRadius: 999,
+    ...(fill === "primary"
+      ? { backgroundColor: colors.primary }
+      : fill === "tint"
+        ? { backgroundColor: `${colors.primary}1F` }
+        : { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }),
+  };
+}
+
 export function FocusCheckIn({
   session,
   controls,
@@ -41,12 +64,14 @@ export function FocusCheckIn({
 }: {
   session: FocusSession;
   controls: FocusSessionControls;
-  /** The focus screen has its own Done below. */
+  /** The focus screen has its own Done below (and it's the one solid button). */
   showDone?: boolean;
   showTitle?: boolean;
 }) {
   const colors = useColors();
   const starter = session.kind === "starter";
+  // The lead choice is solid only where there's no other solid Done.
+  const lead = showDone ? "primary" : "tint";
 
   const pill = (fill: "primary" | "tint", label: string, onPress: () => void, testID: string, hint?: string) => (
     <Pressable
@@ -55,17 +80,7 @@ export function FocusCheckIn({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
-      style={({ pressed }) => ({
-        flex: 1,
-        minHeight: 44,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        alignItems: "center",
-        justifyContent: "center",
-        borderRadius: 999,
-        backgroundColor: fill === "primary" ? colors.primary : `${colors.primary}1F`,
-        opacity: pressed ? 0.85 : 1,
-      })}
+      style={({ pressed }) => ({ ...focusPillStyle(colors, fill), opacity: pressed ? 0.85 : 1 })}
       testID={testID}
     >
       <Text
@@ -86,10 +101,10 @@ export function FocusCheckIn({
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
-      style={{ minHeight: 44, justifyContent: "center" }}
+      style={{ minHeight: 44, justifyContent: "center", flexShrink: 1 }}
       testID={testID}
     >
-      <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
+      <Text className="text-sm font-semibold" style={{ color: colors.muted, flexShrink: 1 }}>
         {label}
       </Text>
     </Pressable>
@@ -98,17 +113,17 @@ export function FocusCheckIn({
   const primaryRow = starter
     ? [
         pill(
-          "primary",
+          lead,
           "Keep going",
           controls.keepGoing,
           "focus-check-in-keep-going",
-          `Starts a ${durationWords(KEEP_GOING_MINUTES)} timer`,
+          `Starts a ${KEEP_GOING_MINUTES}-minute timer`,
         ),
         showDone ? pill("tint", "Done", controls.done, "focus-check-in-done", "Marks this task done") : null,
       ]
     : [
         showDone ? pill("primary", "Done", controls.done, "focus-check-in-done", "Marks this task done") : null,
-        pill(showDone ? "tint" : "primary", "5 more minutes", controls.extend, "focus-check-in-extend"),
+        pill("tint", "5 more minutes", controls.extend, "focus-check-in-extend"),
       ];
 
   return (
@@ -119,13 +134,14 @@ export function FocusCheckIn({
         </Text>
       ) : null}
       <View className="flex-row gap-2">{primaryRow}</View>
-      <View className="flex-row items-center justify-between gap-3">
-        {!starter && controls.breakDown
-          ? link("Stuck? Break it down", controls.breakDown, "focus-check-in-break-down", "Splits this task into a few tiny steps")
-          : <View />}
-        {starter
-          ? link("Stop here", controls.stop, "focus-check-in-stop", "Clears the timer")
-          : link("Not now", controls.stop, "focus-check-in-not-now", "Clears the timer")}
+      {/* Wraps at large text sizes rather than squeezing. */}
+      <View className="flex-row items-center justify-between" style={{ flexWrap: "wrap", columnGap: 12 }}>
+        {!starter && controls.breakDown ? (
+          link("Stuck? Break it down", controls.breakDown, "focus-check-in-break-down", "Splits this task into a few tiny steps")
+        ) : (
+          <View />
+        )}
+        {link("Stop here", controls.stop, "focus-check-in-stop", "Clears the timer")}
       </View>
     </View>
   );

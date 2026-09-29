@@ -3,6 +3,7 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  findNodeHandle,
   Platform,
   Pressable,
   Text,
@@ -26,7 +27,7 @@ import Animated, {
 import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { useColors } from "@/hooks/use-colors";
 import { useFocusClock } from "@/hooks/use-focus-clock";
-import { remainingMs, sessionPhase, type FocusSession } from "@/lib/daily-tasks/focus-session";
+import { MINUTE_MS, remainingMs, sessionPhase, type FocusSession } from "@/lib/daily-tasks/focus-session";
 import { durationWords, formatRemaining } from "@/lib/daily-tasks/focus-timer";
 import {
   TASK_ROW_ACTION_LABELS,
@@ -54,8 +55,11 @@ interface TaskRowProps {
   breakDownNeedsPlus?: boolean;
   onToggleStep?: (stepId: string) => void;
   onClearSteps?: () => void;
-  /** An open row's ▶: choose a timer length (1.3). */
-  onTimer?: () => void;
+  /**
+   * An open row's timer button: choose a length (1.3). `anchor` is the
+   * button's node, for the action sheet's popover on iPad.
+   */
+  onTimer?: (anchor: number | null) => void;
   /** The focus session, when it's on this task: its ring and time left replace ▶. */
   session?: FocusSession | null;
   /** Tapping the running timer: opens the focus screen. */
@@ -63,7 +67,8 @@ interface TaskRowProps {
 }
 
 const ACTION_WIDTH = 84;
-const MINUTE_MS = 60_000;
+/** The checkbox's VoiceOver action for the timer button. */
+const START_TIMER_ACTION = "startTimer";
 
 /**
  * One row of Today's card. Only the circle finishes a task. Tapping the words
@@ -96,6 +101,7 @@ export function TaskRow({
   const [draft, setDraft] = useState(task.text);
   const inputRef = useRef<TextInputType | null>(null);
   const swipeRef = useRef<SwipeableMethods | null>(null);
+  const timerRef = useRef<View | null>(null);
   const committed = useRef(false);
 
   const hasSteps = Boolean(task.steps && task.steps.length > 0);
@@ -183,7 +189,14 @@ export function TaskRow({
     page(actions);
   };
 
+  const canStartTimer = Boolean(onTimer) && !completed && !editing && !session;
+  const startTimer = () => onTimer?.(timerRef.current ? findNodeHandle(timerRef.current) : null);
+
   const onA11yAction = (event: AccessibilityActionEvent) => {
+    if (event.nativeEvent.actionName === START_TIMER_ACTION) {
+      if (canStartTimer) startTimer();
+      return;
+    }
     const name = event.nativeEvent.actionName as TaskRowAction;
     if (actions.includes(name)) run(name);
   };
@@ -265,7 +278,10 @@ export function TaskRow({
               accessibilityState={{ checked: completed }}
               accessibilityLabel={`${hero ? "Up next. " : ""}Task ${index + 1}: ${task.text}`}
               accessibilityHint={completed ? "Marks it not done" : "Marks it done"}
-              accessibilityActions={actions.map((action) => ({ name: action, label: TASK_ROW_ACTION_LABELS[action] }))}
+              accessibilityActions={[
+                ...actions.map((action) => ({ name: action, label: TASK_ROW_ACTION_LABELS[action] })),
+                ...(canStartTimer ? [{ name: START_TIMER_ACTION, label: "Start timer" }] : []),
+              ]}
               onAccessibilityAction={onA11yAction}
               onPress={() => {
                 // Finish an edit before ticking, so the field doesn't stay open.
@@ -438,11 +454,12 @@ export function TaskRow({
               never grows the row. Its 44pt target comes from the hit slop. */}
           {!completed && !editing && session ? (
             <RowTimer session={session} taskText={task.text} onPress={onOpenTimer} />
-          ) : !completed && !editing && onTimer ? (
+          ) : canStartTimer ? (
             <Pressable
-              onPress={onTimer}
+              ref={timerRef}
+              onPress={startTimer}
               accessibilityRole="button"
-              accessibilityLabel={`Timer: ${task.text}`}
+              accessibilityLabel={`Start a timer: ${task.text}`}
               accessibilityHint="Choose a length and start a timer"
               hitSlop={{ top: 7, bottom: 7 }}
               style={({ pressed }) => ({
@@ -455,7 +472,7 @@ export function TaskRow({
               })}
               testID={`task-timer-${task.id}`}
             >
-              <Ionicons name="play-circle-outline" size={24} color={colors.muted} />
+              <Ionicons name="timer-outline" size={23} color={colors.muted} />
             </Pressable>
           ) : null}
         </View>
@@ -473,7 +490,7 @@ function RowTimer({ session, taskText, onPress }: { session: FocusSession; taskT
   // Whole minutes, so VoiceOver isn't told every second.
   const label =
     phase === "ended"
-      ? `Timer finished: ${taskText}`
+      ? `Time's up: ${taskText}`
       : `Timer${phase === "paused" ? " paused" : ""}: ${taskText}, ${durationWords(Math.ceil(left / MINUTE_MS))} left`;
   return (
     <Pressable
@@ -488,12 +505,15 @@ function RowTimer({ session, taskText, onPress }: { session: FocusSession; taskT
       <ProgressRing
         completed={session.durationMs - left}
         total={session.durationMs}
-        color={phase === "ended" ? colors.success : phase === "paused" ? colors.muted : colors.primary}
+        color={phase === "paused" ? colors.muted : colors.primary}
         size={22}
         strokeWidth={3}
       >
         {phase === "paused" ? <Ionicons name="pause" size={10} color={colors.muted} /> : null}
-        {phase === "ended" ? <Ionicons name="checkmark" size={12} color={colors.success} /> : null}
+        {/* Time's up, not done: a bell on the full ring, never a green tick. */}
+        {phase === "ended" ? (
+          <Ionicons name="notifications-outline" size={11} color={colors.primary} testID={`task-timer-times-up-${session.taskId}`} />
+        ) : null}
       </ProgressRing>
       {phase !== "ended" ? (
         <Text

@@ -27,7 +27,7 @@ export interface FocusHarnessProps {
 /** FocusMode on the first open task, wired to the store like Today wires it. */
 function FocusHarness({ startLine = null, initialCustom, onToggleStep, onDone, onClose, open = true }: FocusHarnessProps) {
   const store = useDailyTasks();
-  useFocusSessionCues(store.state.focusSession);
+  useFocusSessionCues(store.state.focusSession, store.ready);
   const task = store.state.tasks.find((item) => !store.isCompleted(item.id));
   if (!store.ready || !task || !open) return null;
   const session = store.state.focusSession?.taskId === task.id ? store.state.focusSession : null;

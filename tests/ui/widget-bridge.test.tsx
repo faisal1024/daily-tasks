@@ -111,17 +111,21 @@ describe("widget bridge: the focus session (1.3)", () => {
     status: "running",
   };
 
-  it("mirrors it as {v: 1, ...session}, then JSON null once it's gone, skipping unchanged writes and not reloading the widget", () => {
+  it("mirrors it as {v: 1, rev, ...session}, then JSON null once it's gone, skipping unchanged writes and not reloading the widget", () => {
     writeFocusSession(SESSION);
     expect(mockNative.setString).toHaveBeenCalledTimes(1);
     expect(mockNative.setString).toHaveBeenCalledWith("focus.session", expect.any(String), GROUP);
-    expect(JSON.parse(mockNative.setString.mock.calls[0][1])).toEqual({ v: 1, ...SESSION });
+    const first = JSON.parse(mockNative.setString.mock.calls[0][1]);
+    expect(first).toEqual({ v: 1, rev: expect.any(Number), ...SESSION });
 
     writeFocusSession({ ...SESSION });
     expect(mockNative.setString).toHaveBeenCalledTimes(1);
 
     writeFocusSession({ ...SESSION, status: "paused", endAt: null, pausedRemainingMs: 300_000 });
-    expect(JSON.parse(mockNative.setString.mock.calls[1][1])).toMatchObject({ v: 1, status: "paused", endAt: null });
+    const second = JSON.parse(mockNative.setString.mock.calls[1][1]);
+    expect(second).toMatchObject({ v: 1, status: "paused", endAt: null });
+    // Newer writes have a higher rev.
+    expect(second.rev).toBeGreaterThan(first.rev);
 
     writeFocusSession(null);
     expect(mockNative.setString).toHaveBeenLastCalledWith("focus.session", "null", GROUP);
@@ -135,7 +139,7 @@ describe("widget bridge: the focus session (1.3)", () => {
     writeFocusSession(SESSION);
     writeFocusSession(SESSION);
     expect(mockNative.setString).toHaveBeenCalledTimes(2);
-    expect(mockStrings.get("focus.session")).toBe(JSON.stringify({ v: 1, ...SESSION }));
+    expect(JSON.parse(mockStrings.get("focus.session") ?? "null")).toEqual({ v: 1, rev: expect.any(Number), ...SESSION });
   });
 
   it("does nothing without the native module", () => {
