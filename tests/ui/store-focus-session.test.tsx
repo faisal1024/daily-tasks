@@ -218,6 +218,31 @@ describe("store: starting a focus session", () => {
   });
 });
 
+// R14 (1.3 polish): the end notification's title is the task's words, its
+// body the question, and its buttons follow the session's kind.
+describe("store: the end notification's words and buttons by kind", () => {
+  it("a starter on a step: title is the task (not the step), body 'N minutes in. Keep going?', kind starter", async () => {
+    const hook = await renderStore();
+    await act(async () =>
+      hook.result.current.startFocusSession("t0", { kind: "starter", minutes: 5, source: "coach", stepText: "Find the lead" }),
+    );
+    expect(schedule).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "starter", title: "Walk", body: "5 minutes in. Keep going?" }),
+    );
+  });
+
+  it("a long task's title is cut to 60 characters with an ellipsis", async () => {
+    const long = "Write the quarterly report for the whole team and send it to everyone before lunch";
+    const hook = await renderStore({ tasks: [{ ...TASKS[0], text: long }, TASKS[1], TASKS[2]] });
+    await act(async () => hook.result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
+    const { title, body, kind } = schedule.mock.calls.at(-1)![0] as { title: string; body: string; kind: string };
+    expect(kind).toBe("timer");
+    expect(body).toBe("Time's up. Done, or 5 more minutes?");
+    expect(title).toHaveLength(60);
+    expect(title).toBe(`${long.slice(0, 59).trimEnd()}…`);
+  });
+});
+
 describe("store: a saved session on load", () => {
   it("keeps a valid one for today (and mirrors it) without rescheduling a new session", async () => {
     const { result } = await renderStore({ focusSession: session() });
@@ -445,6 +470,35 @@ describe("store: the end notification's buttons", () => {
       expect(hook.result.current.state.focusSession).toMatchObject({ durationMs: 20 * MIN });
     },
   );
+
+  // R1 (1.3 polish): Keep going is a starter's; on a timer it does nothing
+  // (only a timer's own 5 more minutes extends it).
+  it("a Keep going for a timer's session changes nothing and schedules nothing", async () => {
+    const { result, id } = await endedSession();
+    schedule.mockClear();
+    await act(async () => mockResponder!({ action: "keepGoing", sessionId: id }));
+    await flush();
+    expect(result.current.state.focusSession).toMatchObject({ id, kind: "timer", status: "ended", durationMs: 10 * MIN });
+    expect(schedule).not.toHaveBeenCalled();
+    expect(endedEvents()).toEqual([]);
+  });
+
+  // R20 (1.3 polish): only a due check-in opens the focus screen; a tap on
+  // the notification while the session runs or is paused just shows Today.
+  it("a plain tap while the session is running or paused asks for no focus screen", async () => {
+    const hook = await renderStore();
+    await act(async () => hook.result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
+    const id = hook.result.current.state.focusSession!.id;
+    await act(async () => mockResponder!({ action: "open", sessionId: id }));
+    expect(hook.result.current.focusPrompt).toBeNull();
+    await act(async () => hook.result.current.pauseFocusSession());
+    await act(async () => {
+      jest.advanceTimersByTime(20 * MIN);
+    });
+    await act(async () => mockResponder!({ action: "open", sessionId: id }));
+    expect(hook.result.current.focusPrompt).toBeNull();
+    expect(navigateToToday).toHaveBeenCalledTimes(2);
+  });
 
   it("any tap on it (a button, the notification itself, an old one) goes to Today", async () => {
     const { id } = await endedSession();

@@ -2,6 +2,7 @@
 // one-decision RolloverModal.
 import { ActionSheetIOS, Alert, Appearance, Platform, StyleSheet } from "react-native";
 import { act, fireEvent, screen, within } from "@testing-library/react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { TaskRow } from "@/components/daily-tasks/task-row";
@@ -304,6 +305,21 @@ describe("TaskRow", () => {
   it("marks a carried-over task until it's done", async () => {
     await renderRow({ task: task("Walk", { carriedOver: true }) });
     expect(screen.getByText("Carried over")).toBeOnTheScreen();
+  });
+
+  // R11 (1.3 polish): quiet, not a warning: muted text with a 12pt arrow icon.
+  it("'Carried over' is muted (not the warning colour) with a small arrow icon", async () => {
+    await renderRow({ task: task("Walk", { carriedOver: true }) });
+    const carried = within(screen.getByTestId("task-carried-id-Walk"));
+    const label = carried.getByText("Carried over");
+    expect(StyleSheet.flatten(label.props.style).color).toBe(ThemeColors.muted.light);
+    expect(StyleSheet.flatten(label.props.style).color).not.toBe(ThemeColors.warning.light);
+    const icon = carried
+      .getAllByText(/./, { includeHiddenElements: true })
+      .find((node) => StyleSheet.flatten(node.props.style).fontFamily === "ionicons");
+    const arrow = String.fromCodePoint(Ionicons.glyphMap["arrow-redo-outline"] as number);
+    expect(icon).toHaveTextContent(arrow);
+    expect(StyleSheet.flatten(icon!.props.style)).toMatchObject({ color: ThemeColors.muted.light, fontSize: 12 });
   });
 
   describe("on Android", () => {

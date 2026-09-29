@@ -1,10 +1,12 @@
-import { AccessibilityInfo } from "react-native";
+import { AccessibilityInfo, StyleSheet } from "react-native";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
+import { CoachNote } from "@/components/daily-tasks/coach-note";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
+import { ThemeColors } from "@/constants/theme";
 import { THINKING_HINT_DELAY_MS, todayProgress, todayStatus } from "@/lib/daily-tasks/today-view";
 
 import { renderWithProviders as render } from "./render";
@@ -290,5 +292,27 @@ describe("IdeasSheet", () => {
     await render(<IdeasSheet {...props()} ideas={ideas.slice(0, 1)} />);
     expect(screen.getByText("Add it if it fits.")).toBeOnTheScreen();
     expect(screen.queryByText(/Add all/)).toBeNull();
+  });
+});
+
+// R6 (1.3 polish): the coach's Open (its task's timer is on) is tinted, not a
+// second solid button: the row already holds the timer.
+describe("CoachNote", () => {
+  const button = () => screen.getByTestId("coach-note-start-button");
+  const fill = () => StyleSheet.flatten(button().props.style).backgroundColor;
+  const ink = () => StyleSheet.flatten(screen.getByText(/^(Start|Open)$/).props.style).color;
+
+  it("Start is solid primary; Open (timer running) is the primary tint with primaryInk text", async () => {
+    const note = (timerRunning: boolean) => (
+      <CoachNote text="Find the lead." kind="start" source="local" taskText="Walk" onStart={jest.fn()} timerRunning={timerRunning} />
+    );
+    const view = await render(note(false));
+    expect(button()).toHaveTextContent("Start");
+    expect(fill()).toBe(ThemeColors.primary.light);
+    expect(ink()).toBe(ThemeColors.onPrimary.light);
+    await view.rerender(note(true));
+    expect(button()).toHaveTextContent("Open");
+    expect(fill()).toBe(`${ThemeColors.primary.light}1F`);
+    expect(ink()).toBe(ThemeColors.primaryInk.light);
   });
 });

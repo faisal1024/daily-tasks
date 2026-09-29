@@ -10,6 +10,7 @@ import { act, fireEvent, screen, within } from "@testing-library/react-native";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { track } from "@/lib/daily-tasks/analytics";
+import { subscribeFocusResponses, type FocusNotificationResponse } from "@/lib/daily-tasks/notifications";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import type { AppState, Task } from "@/lib/daily-tasks/types";
@@ -355,5 +356,66 @@ describe("One timer, on the task (real store)", () => {
     expect(filled()).toBeCloseTo(0.7, 3);
     await advance(2 * MIN);
     expect(filled()).toBeCloseTo(0.5, 3);
+  });
+
+  // R15 (1.3 polish): the pill's pause / resume is felt (a selection tick).
+  it("tapping the pill to pause or resume gives a selection haptic each time", async () => {
+    await openToday(session());
+    (Haptics.selectionAsync as jest.Mock).mockClear();
+    await fireEvent.press(pill());
+    await act(async () => {});
+    expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
+    await fireEvent.press(pill());
+    await act(async () => {});
+    expect(Haptics.selectionAsync).toHaveBeenCalledTimes(2);
+  });
+
+  // R4 (1.3 polish): paused, the row's line is just "Paused." (a starter's
+  // "Just start" line goes with it), and comes back on resume.
+  it("a paused starter's row line is only 'Paused.'; resumed, the starter line is back", async () => {
+    await openToday(session({ kind: "starter", durationMs: 5 * MIN, startedAt: NOW, endAt: NOW + 5 * MIN }));
+    const line = () => screen.getByTestId("task-session-line-t0");
+    expect(line()).toHaveTextContent("Just start. You can stop after 5 minutes.", { exact: true });
+    await fireEvent.press(pill());
+    await act(async () => {});
+    expect(line()).toHaveTextContent("Paused.", { exact: true });
+    await fireEvent.press(pill());
+    await act(async () => {});
+    expect(line()).toHaveTextContent("Just start. You can stop after 5 minutes.", { exact: true });
+  });
+
+  // R8 (1.3 polish): the timed row stays calm: no "Clear steps" (the focus
+  // screen has the steps), and its bottom padding tightens while the
+  // check-in shows.
+  it("the timed row hides Clear steps (back once the timer stops) and tightens its bottom padding at time's up", async () => {
+    await openToday(session());
+    expect(screen.getByText("Find the lead")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Clear steps" })).toBeNull();
+    const padding = () => StyleSheet.flatten(screen.getByTestId("task-row-t0").props.style).paddingBottom;
+    expect(padding()).toBeUndefined();
+    await advance(7 * MIN + 1000);
+    expect(padding()).toBe(8);
+    await fireEvent.press(within(screen.getByTestId("task-check-in-t0")).getByRole("button", { name: "Stop here" }));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(screen.queryByTestId("task-timer-running-t0")).toBeNull();
+    expect(padding()).toBeUndefined();
+    expect(screen.getByRole("button", { name: "Clear steps" })).toBeOnTheScreen();
+  });
+
+  // R20 (1.3 polish): a tap on the "Time's up" notification itself, with its
+  // check-in due, opens that session's focus screen.
+  it("a tap on the notification with the check-in due opens that task's focus screen (source notification)", async () => {
+    let respond: ((response: FocusNotificationResponse) => void) | null = null;
+    (subscribeFocusResponses as jest.Mock).mockImplementation((listener: (r: FocusNotificationResponse) => void) => {
+      respond = listener;
+      return () => {};
+    });
+    await openToday(session({ status: "ended", startedAt: NOW - 10 * MIN, endAt: NOW - 1000 }));
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    await act(async () => respond!({ action: "open", sessionId: "s1" }));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Walk");
+    expect(focusOpened()).toEqual([["focus_opened", { source: "notification" }]]);
   });
 });
