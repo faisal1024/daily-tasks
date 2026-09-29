@@ -126,8 +126,9 @@ export async function cancelAllNotifications(): Promise<void> {
   await cancelAllManaged();
 }
 
-// Focus mode's timer (1.2): one quiet notification for when it ends, in case
-// they're in another app. Its id is outside MANAGED_REMINDER_PREFIX, so the
+// Focus mode's timer (1.2): one notification for when it ends, in case
+// they're in another app. It plays the default sound, like Apple's Timer
+// (the reminders stay silent). Its id is outside MANAGED_REMINDER_PREFIX, so the
 // reminder syncs never cancel it; the handler above doesn't show it in-app
 // (focus mode says it there). Only with permission already granted: it never asks.
 export const FOCUS_TIMER_NOTIFICATION_ID = "three-today:focus-timer";
@@ -153,7 +154,7 @@ export function scheduleFocusTimerNotification(at: Date, minutes: number): Promi
     if ((await getNotificationPermissionStatus()) !== "granted" || generation !== focusGeneration) return;
     await Notifications.scheduleNotificationAsync({
       identifier: FOCUS_TIMER_NOTIFICATION_ID,
-      content: { title: "Three Today", body: timesUpText(minutes), sound: false },
+      content: { title: "Three Today", body: timesUpText(minutes), sound: true },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at },
     });
   });

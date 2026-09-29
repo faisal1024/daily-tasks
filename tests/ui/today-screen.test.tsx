@@ -2435,13 +2435,16 @@ describe("Focus mode from the coach's note (1.2)", () => {
     await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("coach-note-start-button"));
     expect(focusEvents()).toEqual([["focus_opened"]]);
-    await fireEvent.press(screen.getByRole("button", { name: "25 minute timer" }));
-    // The running one again: a no-op, no event.
-    await fireEvent.press(screen.getByRole("button", { name: "25 minute timer" }));
+    await fireEvent.press(screen.getByRole("button", { name: "20 minute timer" }));
+    // Picking a length alone starts nothing.
+    expect(focusEvents()).toEqual([["focus_opened"]]);
+    await fireEvent.press(screen.getByRole("button", { name: "Start" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
     await fireEvent.press(screen.getByRole("button", { name: "10 minute timer" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Start" }));
     expect(focusEvents()).toEqual([
       ["focus_opened"],
-      ["focus_timer_started", { timer: 25 }],
+      ["focus_timer_started", { timer: 20 }],
       ["focus_timer_started", { timer: 10 }],
     ]);
     await fireEvent.press(screen.getByRole("button", { name: "Not now" }));
@@ -2451,8 +2454,10 @@ describe("Focus mode from the coach's note (1.2)", () => {
 
     // A fresh open starts with no timer.
     await fireEvent.press(screen.getByTestId("coach-note-start-button"));
-    expect(screen.getByRole("button", { name: "No timer" })).toBeSelected();
+    expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
+    expect(screen.getByRole("button", { name: "10 minute timer" })).not.toBeSelected();
     await fireEvent.press(screen.getByRole("button", { name: "10 minute timer" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Start" }));
     await fireEvent.press(screen.getByRole("button", { name: "Done" }));
     expect(focusEvents().slice(3)).toEqual([
       ["focus_opened"],
