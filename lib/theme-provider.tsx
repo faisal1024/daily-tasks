@@ -1,29 +1,56 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { View, useColorScheme as useSystemColorScheme } from "react-native";
+import { Appearance, Platform, View } from "react-native";
 import { colorScheme as nativewindColorScheme, vars } from "nativewind";
 
 import { SchemeColors, type ColorScheme } from "@/constants/theme";
 
 type ThemeContextValue = {
   colorScheme: ColorScheme;
-  setColorScheme: (scheme: ColorScheme) => void;
+  /** Pins a scheme; "system" follows the system's Light/Dark again (the default). */
+  setColorScheme: (scheme: ColorScheme | "system") => void;
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const systemScheme = useSystemColorScheme() ?? "light";
-  const [colorScheme, setColorSchemeState] = useState<ColorScheme>(systemScheme);
+function readSystemScheme(): ColorScheme {
+  return Appearance.getColorScheme() === "dark" ? "dark" : "light";
+}
 
-  // Follow the system appearance live (switching Light/Dark in Control Centre
-  // or on a schedule updates the app without a relaunch).
+/**
+ * The system appearance, live: Light/Dark switched in Control Centre or on a
+ * schedule arrives while the app runs (Appearance's change events, which
+ * also cover a change made while the app was in the background). iOS may
+ * flip it briefly while the app is in the background (to snapshot both for
+ * the app switcher); it flips back the same way, so following every event
+ * ends on the right scheme.
+ */
+export function useSystemScheme(): ColorScheme {
+  const [scheme, setScheme] = useState<ColorScheme>(readSystemScheme);
   useEffect(() => {
-    setColorSchemeState(systemScheme);
-  }, [systemScheme]);
+    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
+      setScheme(colorScheme === "dark" ? "dark" : "light");
+    });
+    // Anything that changed between the first read and subscribing.
+    setScheme(readSystemScheme());
+    return () => subscription.remove();
+  }, []);
+  return scheme;
+}
 
-  const applyScheme = useCallback((scheme: ColorScheme) => {
-    // Only NativeWind is told; forcing Appearance would pin the app to the
-    // scheme it launched with and stop system changes from arriving.
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const systemScheme = useSystemScheme();
+  // null follows the system (the default); a scheme set here pins it.
+  const [override, setOverride] = useState<ColorScheme | null>(null);
+  const colorScheme = override ?? systemScheme;
+
+  const applyScheme = useCallback((scheme: ColorScheme, followSystem: boolean) => {
+    if (Platform.OS !== "web") {
+      // NativeWind's set() calls Appearance.setColorScheme, which pins the
+      // whole app (and stops system changes arriving). Following the system,
+      // it's told "system" (which unpins); only an explicit choice pins.
+      nativewindColorScheme.set(followSystem ? "system" : scheme);
+      return;
+    }
     nativewindColorScheme.set(scheme);
     if (typeof document !== "undefined") {
       const root = document.documentElement;
@@ -36,14 +63,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const setColorScheme = useCallback((scheme: ColorScheme) => {
-    setColorSchemeState(scheme);
-    applyScheme(scheme);
-  }, [applyScheme]);
+  const setColorScheme = useCallback((scheme: ColorScheme | "system") => {
+    setOverride(scheme === "system" ? null : scheme);
+  }, []);
 
   useEffect(() => {
-    applyScheme(colorScheme);
-  }, [applyScheme, colorScheme]);
+    applyScheme(colorScheme, override === null);
+  }, [applyScheme, colorScheme, override]);
 
   const themeVariables = useMemo(
     () =>

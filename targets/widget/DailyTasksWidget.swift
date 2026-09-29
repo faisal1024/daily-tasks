@@ -96,11 +96,12 @@ enum DayPhase {
   }
 
   /// Top-leading to bottom-trailing. Against every stop, white (primary text)
-  /// is at least 6:1, white 85% (secondary) at least 4.8:1 and white 70%
-  /// (faded: done tasks) at least 3.8:1. Dark mode darkens further.
+  /// is at least 5.6:1, white 85% (secondary) at least 4.5:1 and white 70%
+  /// (faded: done tasks) at least 3.6:1. Dark mode darkens further. The
+  /// morning is a deep terracotta into a dusty rose (1.3: no brick red).
   var colors: [Color] {
     switch self {
-    case .morning: return [Color(hex: 0xA8412E), Color(hex: 0x9E3A82)]
+    case .morning: return [Color(hex: 0xA04F32), Color(hex: 0x9E4A5C)]
     case .daytime: return [Color(hex: 0x5249D6), Color(hex: 0x4338C9)]
     case .evening: return [Color(hex: 0x2E2878), Color(hex: 0x17143A)]
     }
@@ -342,6 +343,9 @@ struct StartButton: View {
       Label("Start", systemImage: "play.fill")
         .font(.system(size: 13, weight: .bold, design: .rounded))
         .labelStyle(CompactLabel())
+        // One line, never "Star/t": it takes its own width.
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
         .foregroundStyle(palette.primary)
         .padding(.horizontal, 12)
         .frame(minHeight: 36)
@@ -425,7 +429,7 @@ struct SessionTime: View {
   }
 }
 
-/// "Now" / "Paused" / "Time's up" with the session's words (small widget).
+/// "Focusing" / "Paused" / "Time's up" with the session's words (small widget).
 struct SessionBlock: View {
   let session: FocusSessionMirror
   let date: Date
@@ -488,7 +492,7 @@ private struct CompactLabel: LabelStyle {
 }
 
 private func sessionCaption(_ session: FocusSessionMirror, _ date: Date) -> String {
-  if session.isRunning(at: date) { return "Now" }
+  if session.isRunning(at: date) { return "Focusing" }
   return session.status == "paused" ? "Paused" : "Time's up"
 }
 
@@ -498,7 +502,7 @@ private func sessionSymbol(_ session: FocusSessionMirror, _ date: Date) -> Strin
 }
 
 private func sessionSpoken(_ session: FocusSessionMirror, _ date: Date) -> String {
-  if session.isRunning(at: date) { return "Timer on \(session.focusText)" }
+  if session.isRunning(at: date) { return "Focusing on \(session.focusText)" }
   if session.status == "paused" {
     return "Timer paused on \(session.focusText), \(formatRemaining(ms: session.pausedRemainingMs ?? 0)) left"
   }
@@ -852,7 +856,7 @@ struct DailyTasksWidget: Widget {
       DailyTasksWidgetView(entry: entry)
     }
     .configurationDisplayName("Today's three")
-    .description("Today's three at a glance. With Plus, tick them off right here.")
+    .description("Today's three at a glance. Start a timer on the next one; with Plus, tick them off here.")
     .supportedFamilies([
       .systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline,
     ])

@@ -56,7 +56,9 @@ extension FocusActivityAttributes.ContentState {
   /// The line above the task.
   func caption(_ phase: FocusPhase) -> String {
     switch phase {
-    case .running: return kind == "starter" && minutes == 5 ? "Just start. You can stop after 5." : "Focusing"
+    // One short line (the app's longer "Just start. You can stop after 5
+    // minutes." was cut off here).
+    case .running: return kind == "starter" && minutes == 5 ? "Just 5 minutes" : "Focusing"
     case .paused: return "Paused"
     // The app's check-in: a starter asks to keep going.
     case .timesUp: return kind == "starter" ? "\(capitalized(durationWords(minutes))) in" : "Time's up"
@@ -103,13 +105,18 @@ private func capitalized(_ text: String) -> String { text.prefix(1).uppercased()
 // MARK: - Pieces
 
 /// The countdown ring: it drains on its own while running; frozen while
-/// paused; full with a bell at time's up; a check once done.
+/// paused (no glyph: the caption says Paused and Resume is right there; the
+/// frozen arc is at half opacity, so paused never looks like running);
+/// full with a bell at time's up; a check once done.
 struct FocusRing: View {
   let state: FocusActivityAttributes.ContentState
   let phase: FocusPhase
   var size: CGFloat
   var lineWidth: CGFloat
   var color: Color = .white
+  /// The bell at time's up. The compact island leaves it to the trailing side
+  /// (one bell, on the right).
+  var showsBell = true
 
   var body: some View {
     ZStack {
@@ -126,11 +133,12 @@ struct FocusRing: View {
             .frame(width: size, height: size)
         }
       case .paused:
-        arc(state.pausedFraction)
-        Image(systemName: "pause.fill").font(.system(size: size * 0.32, weight: .bold)).foregroundStyle(color)
+        arc(state.pausedFraction).opacity(0.5)
       case .timesUp:
         arc(1)
-        Image(systemName: "bell.fill").font(.system(size: size * 0.34, weight: .semibold)).foregroundStyle(color)
+        if showsBell {
+          Image(systemName: "bell.fill").font(.system(size: size * 0.34, weight: .semibold)).foregroundStyle(color)
+        }
       case .done:
         arc(1)
         Image(systemName: "checkmark").font(.system(size: size * 0.38, weight: .heavy)).foregroundStyle(color)
@@ -310,7 +318,7 @@ struct FocusLiveActivity: Widget {
           .padding(.top, 4)
         }
       } compactLeading: {
-        FocusRing(state: state, phase: phase, size: 22, lineWidth: 3, color: islandAccent)
+        FocusRing(state: state, phase: phase, size: 22, lineWidth: 3, color: islandAccent, showsBell: false)
       } compactTrailing: {
         switch phase {
         case .running:

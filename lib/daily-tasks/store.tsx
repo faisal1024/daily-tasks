@@ -13,6 +13,7 @@ import { Platform, AppState as RNAppState, type AppStateStatus } from "react-nat
 import { storeDayFor, todayKey } from "./date";
 import {
   cancelFocusTimerNotification,
+  dismissFocusTimerNotification,
   getNotificationPermissionStatus,
   registerFocusCategory,
   requestNotificationPermission,
@@ -26,11 +27,13 @@ import {
   extend as extendSession,
   keepGoing as keepGoingSession,
   notificationBody,
+  notificationTitle,
   pause as pauseSession,
   restoreSession,
   resume as resumeSession,
   sessionForState,
   sessionMinutes,
+  sessionPhase,
   settle as settleSession,
   startSession,
   STARTER_MINUTES,
@@ -284,6 +287,9 @@ function trackAppliedTaps(before: AppState, toggles: WidgetToggle[]): void {
     track("task_completed", { count, source });
     if (source === "live_activity") track("live_activity_action", { action: "done" });
   }
+  // A Done on the lock screen answers the "Time's up" that went off: it
+  // mustn't linger (the activity's intent clears it too, when it can).
+  if (toggles.some((toggle) => toggle.source === "live_activity" && toggle.done)) void dismissFocusTimerNotification();
 }
 
 /** The Live Activity's Pause / Resume / 5 more minutes, once applied. */
@@ -293,6 +299,9 @@ function trackCommands(before: FocusSession | null, applied: FocusCommandAction[
     // Like the app's own "5 more minutes" / "Keep going": that countdown ended.
     if (action === "extend" && before) track("focus_session_ended", { outcome: "extended", minutes: sessionMinutes(before) });
   }
+  // No dismiss here: the intent already removed the answered "Time's up",
+  // and by the time the app applies the tap the extended countdown may have
+  // ended too, with a fresh, unanswered one that must stay.
 }
 
 /** A "perfect day" is having at least one task and completing all of them. */
@@ -1066,21 +1075,26 @@ interface StoreContextValue {
     taskId: TaskId,
     options: { kind: FocusSessionKind; minutes: number; source: FocusSessionSource; stepText?: string | null },
   ) => void;
-  pauseFocusSession: () => void;
-  resumeFocusSession: () => void;
+  /**
+   * Pause / Resume: true when it changed anything. Only a running session
+   * pauses and only a paused one resumes (a menu opened before time's up
+   * can't pause an ended session); one that just ran out ends instead.
+   */
+  pauseFocusSession: () => boolean;
+  resumeFocusSession: () => boolean;
   /** "5 more minutes". */
   extendFocusSession: () => void;
   /** A starter's "Keep going": a 20-minute timer on the same task. */
   keepGoingFocusSession: () => void;
-  /** Stop and clear it (Stop timer, Stop here, Not now, or on to a break-down). */
+  /** Stop and clear it (Stop timer, Stop here, or on to a break-down). */
   stopFocusSession: (outcome: Extract<FocusSessionOutcome, "stopped" | "broken_down">) => void;
   /**
-   * Today opens this task's focus screen (1.3): "start my next task" (widget,
-   * Siri) while another task's timer is on (the screen says starting would
-   * stop the other), or a tap on the Live Activity. Cleared with
+   * A task's focus screen to open from outside: start my next task (widget,
+   * Siri) with another task's timer on, a tap on the Live Activity, or a tap
+   * on the end notification with its check-in due. Cleared with
    * clearFocusPrompt once shown.
    */
-  focusPrompt: { taskId: TaskId; source: "widget" | "siri" | "live_activity"; nonce: number } | null;
+  focusPrompt: { taskId: TaskId; source: "widget" | "siri" | "live_activity" | "notification"; nonce: number } | null;
   clearFocusPrompt: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
@@ -1328,7 +1342,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // next midnight (the session clears then).
   const focusEndKey =
     focusSession && focusSession.status === "running" && focusSession.endAt !== null
-      ? `${focusSession.id}|${focusSession.endAt}|${notificationBody(focusSession)}`
+      ? `${focusSession.id}|${focusSession.endAt}|${focusSession.kind}|${notificationTitle(focusSession)}|${notificationBody(focusSession)}`
       : null;
   const focusStatus = focusSession?.status ?? null;
   // True at launch: the first pass reconciles, so a notification left from a
@@ -1348,7 +1362,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       void scheduleFocusSessionNotification({
         sessionId: session.id,
         taskId: session.taskId,
+        kind: session.kind,
         at: new Date(endAt),
+        title: notificationTitle(session),
         body: notificationBody(session),
       });
       return;
@@ -1927,10 +1943,22 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     [ensureDay],
   );
   const pauseFocusSession = useCallback(() => {
-    dispatch({ type: "pauseFocusSession", now: Date.now() });
+    const session = stateRef.current.focusSession;
+    const now = Date.now();
+    // Only a running timer pauses (a stale menu on a paused one changes nothing).
+    if (!session || session.status !== "running" || pauseSession(session, now).status !== "paused") {
+      // Not running: nothing to pause (an ended one is settled as usual).
+      if (session?.status === "running") dispatch({ type: "pauseFocusSession", now });
+      return false;
+    }
+    dispatch({ type: "pauseFocusSession", now });
+    return true;
   }, []);
   const resumeFocusSession = useCallback(() => {
+    const session = stateRef.current.focusSession;
+    if (!session || session.status !== "paused") return false;
     dispatch({ type: "resumeFocusSession", now: Date.now() });
+    return true;
   }, []);
   // Each "5 more minutes" or "Keep going" ends one countdown: it's reported as
   // extended, and the session goes on.
@@ -1967,11 +1995,23 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     const current = stateRef.current;
     const session = current.focusSession;
     if (!session || session.id !== response.sessionId) return;
-    if (response.action === "extend") {
-      extendFocusSession();
+    if (response.action === "open") {
+      // A tap on the notification itself, with its check-in due: that
+      // session's focus screen (its check-in is there). Otherwise just Today.
+      if (sessionPhase(session, Date.now()) === "ended" && !current.todayCompletions.includes(session.taskId)) {
+        setFocusPrompt({ taskId: session.taskId, source: "notification", nonce: Date.now() });
+      }
       return;
     }
-    if (response.action !== "done" || current.todayCompletions.includes(session.taskId)) return;
+    if (response.action === "extend" || response.action === "keepGoing") {
+      // A starter's Keep going: a 20-minute timer, as its check-in. An old
+      // notification's "5 more minutes" on a starter (before 1.3's starter
+      // buttons) means the same, like the Live Activity's time's-up button.
+      if (session.kind === "starter") keepGoingFocusSession();
+      else if (response.action === "extend") extendFocusSession();
+      return;
+    }
+    if (current.todayCompletions.includes(session.taskId)) return;
     toggleTask(session.taskId);
     track("task_completed", { count: countCompleted(current) + 1, source: "notification" });
   };

@@ -12,7 +12,9 @@ import type { CoachNote as CoachNoteValue } from "@/lib/daily-tasks/coach-note";
  *
  * `onStart` shows a Start button (1.3: a 5-minute starter on `taskText`, the
  * next task). With `timerRunning` (that task's timer is on) it's Open instead:
- * it opens focus mode and never restarts the timer.
+ * it opens focus mode and never restarts the timer. Open is tinted (primary
+ * tint, primaryInk text): the task's row already holds the timer, so it
+ * doesn't need to shout.
  */
 export function CoachNote({
   text,
@@ -67,12 +69,12 @@ export function CoachNote({
             justifyContent: "center",
             paddingHorizontal: 14,
             borderRadius: 999,
-            backgroundColor: colors.primary,
+            backgroundColor: timerRunning ? `${colors.primary}1F` : colors.primary,
             opacity: pressed ? 0.8 : 1,
           })}
           testID="coach-note-start-button"
         >
-          <Text className="text-sm font-semibold" style={{ color: colors.onPrimary }}>
+          <Text className="text-sm font-semibold" style={{ color: timerRunning ? colors.primaryInk : colors.onPrimary }}>
             {timerRunning ? "Open" : "Start"}
           </Text>
         </Pressable>

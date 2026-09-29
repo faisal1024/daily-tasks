@@ -1,7 +1,8 @@
 // Phase 10a components: TaskRow (one row of Today's card) and the
 // one-decision RolloverModal.
-import { ActionSheetIOS, Alert, Platform, StyleSheet, useColorScheme } from "react-native";
+import { ActionSheetIOS, Alert, Appearance, Platform, StyleSheet } from "react-native";
 import { act, fireEvent, screen, within } from "@testing-library/react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { TaskRow } from "@/components/daily-tasks/task-row";
@@ -198,8 +199,8 @@ describe("TaskRow", () => {
 
   it("swipe actions draw their label and icon in onError / onPrimary, not white (dark mode)", async () => {
     // Dark is where these differ from white: dark text on the lighter fills.
-    // react-native's jest setup mocks useColorScheme as a jest.fn returning "light".
-    jest.mocked(useColorScheme).mockReturnValue("dark");
+    // The theme follows the system appearance (Appearance, read live).
+    const scheme = jest.spyOn(Appearance, "getColorScheme").mockReturnValue("dark");
     try {
       await renderRow();
       const actions = within(screen.getByTestId("row-actions-id-Walk"));
@@ -227,7 +228,7 @@ describe("TaskRow", () => {
         icon: ThemeColors.onPrimary.dark,
       });
     } finally {
-      jest.mocked(useColorScheme).mockReturnValue("light");
+      scheme.mockRestore();
     }
   });
 
@@ -304,6 +305,21 @@ describe("TaskRow", () => {
   it("marks a carried-over task until it's done", async () => {
     await renderRow({ task: task("Walk", { carriedOver: true }) });
     expect(screen.getByText("Carried over")).toBeOnTheScreen();
+  });
+
+  // R11 (1.3 polish): quiet, not a warning: muted text with a 12pt arrow icon.
+  it("'Carried over' is muted (not the warning colour) with a small arrow icon", async () => {
+    await renderRow({ task: task("Walk", { carriedOver: true }) });
+    const carried = within(screen.getByTestId("task-carried-id-Walk"));
+    const label = carried.getByText("Carried over");
+    expect(StyleSheet.flatten(label.props.style).color).toBe(ThemeColors.muted.light);
+    expect(StyleSheet.flatten(label.props.style).color).not.toBe(ThemeColors.warning.light);
+    const icon = carried
+      .getAllByText(/./, { includeHiddenElements: true })
+      .find((node) => StyleSheet.flatten(node.props.style).fontFamily === "ionicons");
+    const arrow = String.fromCodePoint(Ionicons.glyphMap["arrow-redo-outline"] as number);
+    expect(icon).toHaveTextContent(arrow);
+    expect(StyleSheet.flatten(icon!.props.style)).toMatchObject({ color: ThemeColors.muted.light, fontSize: 12 });
   });
 
   describe("on Android", () => {

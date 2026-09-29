@@ -10,6 +10,7 @@ import { act, fireEvent, screen, within } from "@testing-library/react-native";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { track } from "@/lib/daily-tasks/analytics";
+import { subscribeFocusResponses, type FocusNotificationResponse } from "@/lib/daily-tasks/notifications";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import type { AppState, Task } from "@/lib/daily-tasks/types";
@@ -20,6 +21,7 @@ import { renderWithProviders as render } from "./render";
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusSessionNotification: jest.fn(async () => {}),
   cancelFocusTimerNotification: jest.fn(async () => {}),
+  dismissFocusTimerNotification: jest.fn(async () => {}),
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
   requestNotificationPermission: jest.fn(async () => "granted"),
   syncNotifications: jest.fn(async () => {}),
@@ -225,7 +227,7 @@ describe("One timer, on the task (real store)", () => {
     const checkIn = within(within(screen.getByTestId("today-tasks")).getByTestId("task-check-in-t0"));
     expect(checkIn.getByTestId("task-check-in-title")).toHaveTextContent("Time's up.");
     expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
-    expect(said().filter((s) => s === 'Time\'s up on "Walk".')).toHaveLength(1);
+    expect(said().filter((s) => s === "Time's up on “Walk”.")).toHaveLength(1);
     await advance(MIN);
     expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
 
@@ -259,7 +261,7 @@ describe("One timer, on the task (real store)", () => {
     );
     const line = screen.getByTestId("task-session-line-t0");
     expect(line).toHaveTextContent(/Now: Find the lead/);
-    expect(line).toHaveTextContent(/Just start\. You can stop after 5\./);
+    expect(line).toHaveTextContent(/Just start\. You can stop after 5 minutes\./);
     await advance(5 * MIN + 1000);
     // At time's up the step stays; "Just start" goes.
     expect(screen.getByTestId("task-session-line-t0")).toHaveTextContent("Now: Find the lead");
@@ -276,5 +278,148 @@ describe("One timer, on the task (real store)", () => {
     expect(pill().props.accessibilityLabel).toBe("Pause timer: Walk, 20 minutes left");
     // No longer a 5-minute starter: its "Just start" line is gone.
     expect(screen.queryByText(/Just start/)).toBeNull();
+  });
+  // R9 (1.3 polish): the timed task's long-press menu leads with its timer's
+  // choices, and every sheet is tinted with the app's primary.
+  it("long press on the timed task: Open focus, Pause timer, Stop timer first, then the row's actions, tinted", async () => {
+    await openToday(session());
+    await fireEvent(words("t0"), "longPress");
+    const [options, pick] = sheet.mock.calls.at(-1) as [
+      { options: string[]; tintColor?: string; cancelButtonIndex: number },
+      (index: number) => void,
+    ];
+    expect(options.options.slice(0, 3)).toEqual(["Open focus", "Pause timer", "Stop timer"]);
+    expect(options.options).toContain("Not today");
+    expect(options.options.at(-1)).toBe("Cancel");
+    expect(options.tintColor).toMatch(/^#/);
+    await act(async () => pick(1));
+    await act(async () => {});
+    expect(pill().props.accessibilityValue).toEqual({ text: "Paused" });
+    // Like the pill: felt and said.
+    expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
+    expect(said()).toContain("Paused");
+    // Paused: the menu offers Resume timer instead.
+    await fireEvent(words("t0"), "longPress");
+    const [paused, pickPaused] = sheet.mock.calls.at(-1) as [{ options: string[] }, (index: number) => void];
+    expect(paused.options.slice(0, 3)).toEqual(["Open focus", "Resume timer", "Stop timer"]);
+    await act(async () => pickPaused(2));
+    await act(async () => {});
+    expect(screen.queryByTestId("task-timer-running-t0")).toBeNull();
+    expect(screen.getByRole("button", { name: "Start a timer: Walk" })).toBeOnTheScreen();
+  });
+
+  it("Not today on the timed task stops its timer and says so", async () => {
+    await openToday(session());
+    await fireEvent(words("t0"), "longPress");
+    const [options, pick] = sheet.mock.calls.at(-1) as [{ options: string[] }, (index: number) => void];
+    await act(async () => pick(options.options.indexOf("Not today")));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(screen.queryByTestId("task-timer-running-t0")).toBeNull();
+    expect(said()).toContain("Saved for later. Timer stopped.");
+  });
+
+  // R2 (1.3 polish): extend on the left, Done on the right, as on the Live
+  // Activity and the notification.
+  it("the timer's check-in: 5 more minutes (solid, the lead) then Done (tint); Stop here alone sits on the left", async () => {
+    await openToday(session({ status: "ended", endAt: NOW - 1000 }));
+    const checkIn = within(screen.getByTestId("task-check-in-t0"));
+    const buttons = checkIn.getAllByRole("button").map((button) => button.props.accessibilityLabel);
+    expect(buttons.indexOf("5 more minutes")).toBeLessThan(buttons.indexOf("Done"));
+    const done = StyleSheet.flatten(checkIn.getByRole("button", { name: "Done" }).props.style);
+    const extend = StyleSheet.flatten(checkIn.getByRole("button", { name: "5 more minutes" }).props.style);
+    // One emphasis rule at time's up: extend is the solid lead, as on the Live Activity.
+    expect(extend.backgroundColor).toMatch(/^#[0-9A-Fa-f]{6}$/);
+    expect(done.backgroundColor).toMatch(/1F$/);
+    // No break-down link here (the task has steps): Stop here isn't pushed right.
+    expect(StyleSheet.flatten(checkIn.getByTestId("focus-check-in-links").props.style).justifyContent).toBe("flex-start");
+    // Time's up: the pill is the ring and bell alone, no outline.
+    expect(StyleSheet.flatten(pill().props.style).borderWidth).toBe(0);
+  });
+
+  // R3 (1.3 polish): the ring shows what's left (it drains), like Clock and
+  // the Live Activity.
+  it("the pill's ring drains: it shows the time left, not the time gone", async () => {
+    await openToday(session());
+    // The filled arc's share: 1 - dashoffset / circumference.
+    type Node = { props: Record<string, unknown>; children: (Node | string)[] };
+    const arc = (node: Node): Node | null => {
+      if (node.props.strokeDashoffset !== undefined) return node;
+      for (const child of node.children) {
+        if (typeof child === "string") continue;
+        const found = arc(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    const filled = () => {
+      const node = arc(pill() as unknown as Node)!;
+      const dash = node.props.strokeDasharray;
+      const circumference = Number(Array.isArray(dash) ? dash[0] : String(dash).split(/[ ,]/)[0]);
+      return 1 - Number(node.props.strokeDashoffset) / circumference;
+    };
+    expect(filled()).toBeCloseTo(0.7, 3);
+    await advance(2 * MIN);
+    expect(filled()).toBeCloseTo(0.5, 3);
+  });
+
+  // R15 (1.3 polish): the pill's pause / resume is felt (a selection tick).
+  it("tapping the pill to pause or resume gives a selection haptic each time", async () => {
+    await openToday(session());
+    (Haptics.selectionAsync as jest.Mock).mockClear();
+    await fireEvent.press(pill());
+    await act(async () => {});
+    expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
+    await fireEvent.press(pill());
+    await act(async () => {});
+    expect(Haptics.selectionAsync).toHaveBeenCalledTimes(2);
+  });
+
+  // R4 (1.3 polish): paused, the row's line is just "Paused." (a starter's
+  // "Just start" line goes with it), and comes back on resume.
+  it("a paused starter's row line is only 'Paused.'; resumed, the starter line is back", async () => {
+    await openToday(session({ kind: "starter", durationMs: 5 * MIN, startedAt: NOW, endAt: NOW + 5 * MIN }));
+    const line = () => screen.getByTestId("task-session-line-t0");
+    expect(line()).toHaveTextContent("Just start. You can stop after 5 minutes.", { exact: true });
+    await fireEvent.press(pill());
+    await act(async () => {});
+    expect(line()).toHaveTextContent("Paused.", { exact: true });
+    await fireEvent.press(pill());
+    await act(async () => {});
+    expect(line()).toHaveTextContent("Just start. You can stop after 5 minutes.", { exact: true });
+  });
+
+  // R8 (1.3 polish): the timed row stays calm: no "Clear steps" (the focus
+  // screen has the steps), and its bottom padding tightens while the
+  // check-in shows.
+  it("the timed row hides Clear steps (back once the timer stops) and tightens its bottom padding at time's up", async () => {
+    await openToday(session());
+    expect(screen.getByText("Find the lead")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Clear steps" })).toBeNull();
+    const padding = () => StyleSheet.flatten(screen.getByTestId("task-row-t0").props.style).paddingBottom;
+    expect(padding()).toBeUndefined();
+    await advance(7 * MIN + 1000);
+    expect(padding()).toBe(8);
+    await fireEvent.press(within(screen.getByTestId("task-check-in-t0")).getByRole("button", { name: "Stop here" }));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(screen.queryByTestId("task-timer-running-t0")).toBeNull();
+    expect(padding()).toBeUndefined();
+    expect(screen.getByRole("button", { name: "Clear steps" })).toBeOnTheScreen();
+  });
+
+  // R20 (1.3 polish): a tap on the "Time's up" notification itself, with its
+  // check-in due, opens that session's focus screen.
+  it("a tap on the notification with the check-in due opens that task's focus screen (source notification)", async () => {
+    let respond: ((response: FocusNotificationResponse) => void) | null = null;
+    (subscribeFocusResponses as jest.Mock).mockImplementation((listener: (r: FocusNotificationResponse) => void) => {
+      respond = listener;
+      return () => {};
+    });
+    await openToday(session({ status: "ended", startedAt: NOW - 10 * MIN, endAt: NOW - 1000 }));
+    expect(screen.queryByTestId("focus-mode")).toBeNull();
+    await act(async () => respond!({ action: "open", sessionId: "s1" }));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
+    expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Walk");
+    expect(focusOpened()).toEqual([["focus_opened", { source: "notification" }]]);
   });
 });

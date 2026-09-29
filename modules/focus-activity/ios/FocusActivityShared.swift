@@ -155,6 +155,10 @@ public enum FocusGroup {
   public static let togglesProcessedKey = "widget.processedSeq"
   /// The app's end notification (lib/daily-tasks/notifications.ts).
   static let notificationId = "three-today:focus-timer"
+  /// Its categories (the buttons): a timer's 5 more minutes / Done.
+  static let timerCategoryId = "three-today:focus-session"
+  /// A timer's body (lib/daily-tasks/focus-session.ts notificationBody).
+  static let timerNotificationBody = "Time's up. Done, or 5 more minutes?"
   static let heldNotificationKey = "focus.heldNotification"
   static let heldNotificationSessionKey = "focus.heldNotificationSession"
   /// Queues are kept short even if the app isn't opened for a long time.
@@ -420,10 +424,13 @@ public enum FocusActions {
       return (session, wasStarter)
     }
     guard let result else { return await reflectApp(sessionId: sessionId) }
-    // A timer's notification says the same again at the new end; a starter's
-    // words change (the app schedules that one when it next opens).
-    if !result.wasStarter, let end = result.session.endDate {
-      await repeatDeliveredNotification(at: end)
+    // The "Time's up" that went off is answered: it goes from Notification
+    // Center, and says it again at the new end (a starter's Keep going is a
+    // timer now: its words and buttons become a timer's).
+    if let end = result.session.endDate {
+      await repeatDeliveredNotification(at: end, asTimer: result.wasStarter)
+    } else {
+      UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [FocusGroup.notificationId])
     }
     await show(result.session)
     FocusGroup.reloadWidget()
@@ -447,8 +454,10 @@ public enum FocusActions {
       FocusGroup.markDoneInSnapshot(taskId: taskId, date: date)
     }
     if FocusGroup.loadSession()?.id == sessionId {
-      // No "Time's up" for a task that's done.
+      // No "Time's up" for a task that's done: not one to come, nor one that
+      // already went off (it would linger with its "Keep going?").
       UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [FocusGroup.notificationId])
+      UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [FocusGroup.notificationId])
       FocusGroup.defaults?.removeObject(forKey: FocusGroup.heldNotificationKey)
       FocusGroup.defaults?.removeObject(forKey: FocusGroup.heldNotificationSessionKey)
     }
@@ -471,12 +480,24 @@ public enum FocusActions {
   // minutes repeats the one that went off. The app reschedules or cancels it
   // too when it next becomes active.
 
-  static func repeatDeliveredNotification(at end: Date) async {
+  static func repeatDeliveredNotification(at end: Date, asTimer: Bool = false) async {
     let center = UNUserNotificationCenter.current()
     let delivered = await center.deliveredNotifications()
-    guard let last = delivered.last(where: { $0.request.identifier == FocusGroup.notificationId }) else { return }
+    let last = delivered.last(where: { $0.request.identifier == FocusGroup.notificationId })
     center.removeDeliveredNotifications(withIdentifiers: [FocusGroup.notificationId])
-    await schedule(last.request.content, at: end)
+    // Nothing left pending for the old end either.
+    center.removePendingNotificationRequests(withIdentifiers: [FocusGroup.notificationId])
+    // None delivered (notifications off, or cleared by the user): nothing to
+    // repeat; the app schedules the new end's when it next opens.
+    guard let last else { return }
+    var content: UNNotificationContent = last.request.content
+    if asTimer, let timer = last.request.content.mutableCopy() as? UNMutableNotificationContent {
+      // The title (the task's words) and the data (the session) stay.
+      timer.body = FocusGroup.timerNotificationBody
+      timer.categoryIdentifier = FocusGroup.timerCategoryId
+      content = timer
+    }
+    await schedule(content, at: end)
   }
 
   static func schedule(_ content: UNNotificationContent, at end: Date) async {

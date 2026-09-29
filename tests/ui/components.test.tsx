@@ -1,10 +1,12 @@
-import { AccessibilityInfo } from "react-native";
+import { AccessibilityInfo, StyleSheet } from "react-native";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
+import { CoachNote } from "@/components/daily-tasks/coach-note";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
+import { ThemeColors } from "@/constants/theme";
 import { THINKING_HINT_DELAY_MS, todayProgress, todayStatus } from "@/lib/daily-tasks/today-view";
 
 import { renderWithProviders as render } from "./render";
@@ -73,6 +75,36 @@ describe("AddTaskRow", () => {
     const input = screen.getByPlaceholderText("What's one thing for today?");
     await fireEvent.changeText(input, "  Walk  ");
     await fireEvent(input, "submitEditing");
+    expect(onAdd).toHaveBeenCalledWith("Walk");
+  });
+
+  // U1 (1.3 polish): fast typing dropped characters. The field is uncontrolled
+  // and Return adds the field's own latest text, even when the last keys'
+  // onChangeText hasn't landed yet; the blur that follows doesn't add it twice.
+  it("adds the field's latest text on Return, once, without a controlled value", async () => {
+    const onAdd = jest.fn();
+    await render(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} />);
+    await fireEvent.press(screen.getByText("Add a task"));
+    const input = screen.getByPlaceholderText("What's one thing for today?");
+    expect(input.props.value).toBeUndefined();
+    await fireEvent.changeText(input, "Call the dent");
+    await fireEvent(input, "submitEditing", { nativeEvent: { text: "Call the dentist" } });
+    await fireEvent(input, "blur");
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(onAdd).toHaveBeenCalledWith("Call the dentist");
+  });
+
+  it("adds once when blur arrives before Return", async () => {
+    const onAdd = jest.fn();
+    await render(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} />);
+    await fireEvent.press(screen.getByText("Add a task"));
+    const input = screen.getByPlaceholderText("What's one thing for today?");
+    await fireEvent.changeText(input, "Walk");
+    await act(async () => {
+      input.props.onBlur?.();
+      input.props.onSubmitEditing?.({ nativeEvent: { text: "Walk" } });
+    });
+    expect(onAdd).toHaveBeenCalledTimes(1);
     expect(onAdd).toHaveBeenCalledWith("Walk");
   });
 });
@@ -274,5 +306,27 @@ describe("IdeasSheet", () => {
     await render(<IdeasSheet {...props()} ideas={ideas.slice(0, 1)} />);
     expect(screen.getByText("Add it if it fits.")).toBeOnTheScreen();
     expect(screen.queryByText(/Add all/)).toBeNull();
+  });
+});
+
+// R6 (1.3 polish): the coach's Open (its task's timer is on) is tinted, not a
+// second solid button: the row already holds the timer.
+describe("CoachNote", () => {
+  const button = () => screen.getByTestId("coach-note-start-button");
+  const fill = () => StyleSheet.flatten(button().props.style).backgroundColor;
+  const ink = () => StyleSheet.flatten(screen.getByText(/^(Start|Open)$/).props.style).color;
+
+  it("Start is solid primary; Open (timer running) is the primary tint with primaryInk text", async () => {
+    const note = (timerRunning: boolean) => (
+      <CoachNote text="Find the lead." kind="start" source="local" taskText="Walk" onStart={jest.fn()} timerRunning={timerRunning} />
+    );
+    const view = await render(note(false));
+    expect(button()).toHaveTextContent("Start");
+    expect(fill()).toBe(ThemeColors.primary.light);
+    expect(ink()).toBe(ThemeColors.onPrimary.light);
+    await view.rerender(note(true));
+    expect(button()).toHaveTextContent("Open");
+    expect(fill()).toBe(`${ThemeColors.primary.light}1F`);
+    expect(ink()).toBe(ThemeColors.primaryInk.light);
   });
 });

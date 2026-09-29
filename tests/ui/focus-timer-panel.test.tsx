@@ -7,12 +7,13 @@
 // surviving Close) is in focus-mode.test.tsx.
 import { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AppState, Platform } from "react-native";
-import { act, fireEvent, screen } from "@testing-library/react-native";
+import { AppState, Platform, StyleSheet } from "react-native";
+import { act, fireEvent, screen, within } from "@testing-library/react-native";
 
 import { FocusCheckIn, type FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { FocusTimerPanel } from "@/components/daily-tasks/focus-timer-panel";
+import { ThemeColors } from "@/constants/theme";
 import {
   extend,
   keepGoing,
@@ -202,7 +203,7 @@ describe("FocusTimerPanel: another task's timer", () => {
         otherTimerText="Read"
       />,
     );
-    expect(screen.getByTestId("focus-timer-replaces")).toHaveTextContent('This stops the timer on "Read".');
+    expect(screen.getByTestId("focus-timer-replaces")).toHaveTextContent("This stops the timer on “Read”.");
   });
 });
 
@@ -344,7 +345,7 @@ describe("FocusTimerPanel: running", () => {
     await advance(2 * MIN);
     expect(remaining()).toHaveTextContent("5:00");
     await advance(5 * MIN);
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Write".');
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
   });
 
   it("Stop timer while running goes back to the picker (nothing picked)", async () => {
@@ -365,7 +366,7 @@ describe("FocusTimerPanel: running", () => {
     expect(appStateListeners).toHaveLength(1);
     jest.setSystemTime(START.getTime() + 12 * MIN);
     await foreground();
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Write".');
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
   });
 
   it("Pause tapped after it ran out (between ticks) ends it instead of pausing at 0:00", async () => {
@@ -384,7 +385,7 @@ describe("FocusTimerPanel: finishing", () => {
     await press("5 minute timer");
     await advance(5 * MIN);
     expect(screen.getByTestId("focus-timer-times-up")).toHaveTextContent("Time's up");
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent('Time\'s up on "Write".');
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop timer" })).toBeNull();
 
@@ -456,5 +457,86 @@ describe("FocusTimerPanel: the end-time icon", () => {
     await press("5 minute timer");
     expect(screen.queryByTestId("focus-timer-icon-bell")).toBeNull();
     expect(screen.getByTestId("focus-timer-icon-clock")).toBeOnTheScreen();
+  });
+});
+
+// 1.3 polish (PR #75): the one solid button, the Pause hint, the starter's
+// line while paused, and where Stop here sits.
+describe("FocusTimerPanel: 1.3 polish", () => {
+  const fill = (testID: string) => StyleSheet.flatten(screen.getByTestId(testID).props.style).backgroundColor;
+  const tint = `${ThemeColors.primary.light}1F`;
+  const noControls = (): FocusSessionControls => ({
+    pause: jest.fn(),
+    resume: jest.fn(),
+    stop: jest.fn(),
+    extend: jest.fn(),
+    keepGoing: jest.fn(),
+    done: jest.fn(),
+  });
+
+  // R10: while the custom wheel shows, its Start is the one solid button:
+  // the footer's Done and the selected Custom chip step back to a tint.
+  it("custom wheel open: Start is solid, the footer Done and the Custom chip are tinted; closing it restores Done", async () => {
+    Platform.OS = "ios";
+    await render(<ModeHarness onDone={jest.fn()} />);
+    await act(async () => {});
+    expect(fill("focus-done")).toBe(ThemeColors.primary.light);
+    await press("Custom timer");
+    await act(async () => {});
+    expect(fill("focus-timer-start")).toBe(ThemeColors.primary.light);
+    expect(within(screen.getByTestId("focus-timer-start")).getByText("Start")).toHaveStyle({ color: ThemeColors.onPrimary.light });
+    expect(fill("focus-done")).toBe(tint);
+    expect(within(screen.getByTestId("focus-done")).getByText("Done")).toHaveStyle({ color: ThemeColors.primaryInk.light });
+    expect(fill("focus-timer-custom")).toBe(tint);
+    await press("Cancel");
+    await act(async () => {});
+    expect(fill("focus-done")).toBe(ThemeColors.primary.light);
+    // Starting from the wheel closes it: Done is solid again.
+    await press("Custom timer");
+    await press("Start");
+    await act(async () => {});
+    expect(fill("focus-done")).toBe(ThemeColors.primary.light);
+  });
+
+  // R19
+  it("Pause has the VoiceOver hint 'Pauses the timer'", async () => {
+    await renderPanel();
+    await press("10 minute timer");
+    expect(screen.getByRole("button", { name: "Pause" }).props.accessibilityHint).toBe("Pauses the timer");
+  });
+
+  // R4: the starter's "Just start" line only while it runs; paused, the ring says Paused.
+  it("a starter's line shows while it runs and is hidden while paused", async () => {
+    const running = startSession({
+      id: "s",
+      taskId: TASK.id,
+      taskText: TASK.text,
+      date: "2026-09-26",
+      kind: "starter",
+      minutes: 5,
+      now: Date.now(),
+    });
+    const panel = (session: FocusSession) => (
+      <FocusTimerPanel session={session} onStart={jest.fn()} controls={noControls()} checkIn={null} />
+    );
+    const view = await render(panel(running));
+    expect(screen.getByTestId("focus-starter-line")).toHaveTextContent("Just start. You can stop after 5 minutes.");
+    await view.rerender(panel(pause(running, Date.now() + MIN)));
+    expect(screen.queryByTestId("focus-starter-line")).toBeNull();
+    await view.rerender(panel(resume(pause(running, Date.now() + MIN), Date.now() + 2 * MIN)));
+    expect(screen.getByTestId("focus-starter-line")).toBeOnTheScreen();
+  });
+
+  // R8: Stop here sits under the first button when it's alone; with the
+  // break-down link the two spread across the row.
+  it("the check-in's links: Stop here alone is left-aligned; with Stuck? Break it down they spread", async () => {
+    const ended = { ...startSession({ id: "s", taskId: TASK.id, taskText: TASK.text, date: "2026-09-26", kind: "timer", minutes: 5, now: Date.now() - 6 * MIN }), status: "ended" as const };
+    const justify = () => StyleSheet.flatten(screen.getByTestId("focus-check-in-links").props.style).justifyContent;
+    const view = await render(<FocusCheckIn session={ended} controls={noControls()} showDone />);
+    expect(screen.queryByTestId("focus-check-in-break-down")).toBeNull();
+    expect(justify()).toBe("flex-start");
+    await view.rerender(<FocusCheckIn session={ended} controls={{ ...noControls(), breakDown: jest.fn() }} showDone />);
+    expect(screen.getByTestId("focus-check-in-break-down")).toBeOnTheScreen();
+    expect(justify()).toBe("space-between");
   });
 });

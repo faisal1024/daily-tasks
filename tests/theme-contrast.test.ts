@@ -56,6 +56,21 @@ describe("theme contrast", () => {
     expect(contrast(themeColors.onPrimary[scheme], themeColors.primary[scheme])).toBeGreaterThanOrEqual(4.5);
   });
 
+  // Tinted buttons and chips (the timer's pills, the coach's Open): primary at
+  // 0x1F alpha over the background or a surface, with primaryInk text.
+  it.each(["light", "dark"] as const)(
+    "primaryInk meets WCAG AA (4.5:1) on the %s primary tint over the background and surface",
+    (scheme) => {
+      const tint = `rgba(${parseColor(themeColors.primary[scheme]).slice(0, 3).join(",")},${0x1f / 255})`;
+      for (const base of [themeColors.background[scheme], themeColors.surface[scheme]]) {
+        const fill = over(tint, base);
+        expect(contrast(themeColors.primaryInk[scheme], fill), `${scheme} on ${fill}`).toBeGreaterThanOrEqual(4.5);
+      }
+      // Plain primary on that tint was under AA (why the ink exists).
+      expect(contrast(themeColors.primary[scheme], over(tint, themeColors.surface[scheme]))).toBeLessThan(4.5);
+    },
+  );
+
   it.each(["light", "dark"] as const)("onError meets WCAG AA (4.5:1) on the %s error", (scheme) => {
     expect(contrast(themeColors.onError[scheme], themeColors.error[scheme])).toBeGreaterThanOrEqual(4.5);
   });

@@ -433,7 +433,7 @@ export default function HomeScreen() {
   const [focusCustom, setFocusCustom] = useState(false);
   const openFocus = (
     taskId: string,
-    source: "coach" | "row" | "row_words" | "widget" | "siri" | "live_activity",
+    source: "coach" | "row" | "row_words" | "widget" | "siri" | "live_activity" | "notification",
     custom = false,
   ) => {
     setFocusCustom(custom);
@@ -451,7 +451,8 @@ export default function HomeScreen() {
   }, [today]);
   // A task's focus screen from outside (1.3): "start my next task" (widget,
   // Siri) while another task's timer is on (the screen says a start there
-  // stops the other; never replaced silently), or a tap on the Live Activity.
+  // stops the other; never replaced silently), a tap on the Live Activity,
+  // or a tap on the end notification with its check-in due.
   useEffect(() => {
     if (!focusPrompt) return;
     clearFocusPrompt();
@@ -506,9 +507,9 @@ export default function HomeScreen() {
   // when this would stop another task's timer.
   const openTimerMenu = (taskId: string, text: string, anchor: number | null) => {
     const lengths = timerMenuLengths(lastTimer);
-    const title = `Focus on "${text}"`;
+    const title = `Focus on “${text}”`;
     const replaces =
-      sessionTask && sessionTask.id !== taskId ? `This stops the timer on "${sessionTask.text}".` : undefined;
+      sessionTask && sessionTask.id !== taskId ? `This stops the timer on “${sessionTask.text}”.` : undefined;
     if (Platform.OS === "ios") {
       const labels = [...lengths.map((minutes) => capitalize(durationWords(minutes))), "Custom…"];
       ActionSheetIOS.showActionSheetWithOptions(
@@ -517,6 +518,7 @@ export default function HomeScreen() {
           message: replaces,
           options: [...labels, "Cancel"],
           cancelButtonIndex: labels.length,
+          tintColor: colors.primary,
           // iPad shows it as a popover from the button.
           ...(anchor !== null ? { anchor } : {}),
         },
@@ -737,7 +739,7 @@ export default function HomeScreen() {
   };
 
   const offerStarter = (taskId: string, step: string) => {
-    Alert.alert("Start with the first step?", `"${step}". Just 5 minutes.`, [
+    Alert.alert("Start with the first step?", `“${step}”. Just 5 minutes.`, [
       { text: "Not now", style: "cancel" },
       { text: "Start 5 minutes", onPress: () => startStarter(taskId, "check_in", step) },
     ]);
@@ -923,7 +925,7 @@ export default function HomeScreen() {
 
   const handleDelete = (id: string, text: string) => {
     if (state.todayLocked) return;
-    Alert.alert("Remove this task?", `Remove "${text}" from today?`, [
+    Alert.alert("Remove this task?", `Remove “${text}” from today?`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
@@ -938,12 +940,16 @@ export default function HomeScreen() {
 
   // "Not today": off today's list, into Saved for later (one store action,
   // so the task is never lost between the two steps).
+  // Its timer goes with it (the store clears a session whose task leaves
+  // today), and the note says so.
   const handleNotToday = (id: string) => {
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    const timed = focusSessionRef.current?.taskId === id;
     notToday(id);
     track("task_not_today", { source: state.todayLocked ? "set" : "open" });
-    showToast("Saved for later.");
-    AccessibilityInfo.announceForAccessibility("Saved for later.");
+    const note = timed ? "Saved for later. Timer stopped." : "Saved for later.";
+    showToast(note);
+    AccessibilityInfo.announceForAccessibility(note);
   };
 
   const handleAdd = (text: string) => {

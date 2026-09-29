@@ -57,6 +57,11 @@ interface FocusTimerPanelProps {
   otherTimerText?: string | null;
   /** Custom opened or a run started: bring the panel into view. */
   onReveal?: () => void;
+  /**
+   * The custom wheel opened or closed: while it's open its Start is the
+   * screen's one solid button (the footer's Done goes tinted).
+   */
+  onCustomOpenChange?: (open: boolean) => void;
 }
 
 export function FocusTimerPanel({
@@ -67,6 +72,7 @@ export function FocusTimerPanel({
   openCustom = false,
   otherTimerText = null,
   onReveal,
+  onCustomOpenChange,
 }: FocusTimerPanelProps) {
   const colors = useColors();
   const { width, height } = useWindowDimensions();
@@ -100,6 +106,14 @@ export function FocusTimerPanel({
     };
   }, []);
 
+  // The wheel is showing only with no session (a start closes it).
+  const wheelShowing = customOpen && !session;
+  useEffect(() => {
+    onCustomOpenChange?.(wheelShowing);
+    // Only when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wheelShowing]);
+
   // Custom opening (including on open) or a session starting brings it into view.
   const sessionId = session?.id ?? null;
   useEffect(() => {
@@ -129,9 +143,15 @@ export function FocusTimerPanel({
   if (lastCustom !== null && !chips.includes(lastCustom)) chips.push(lastCustom);
   chips.sort((a, b) => a - b);
 
-  // Solid primary stays for the footer's Done: the timer's actions are tinted.
-  const pill = (fill: "tint" | "surface") => ({ ...focusPillStyle(colors, fill, 48), paddingHorizontal: 16, paddingVertical: 10 });
+  // Solid primary stays for the footer's Done: the timer's actions are tinted
+  // (primaryInk text). With the custom wheel open, its Start is the solid one.
+  const pill = (fill: "primary" | "tint" | "surface") => ({
+    ...focusPillStyle(colors, fill, 48),
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  });
 
+  // Only while choosing a length: with a session the ring says what it is.
   const header = (
     <Text className="self-start text-sm font-semibold" style={{ color: colors.muted }} accessibilityRole="header">
       Timer
@@ -144,7 +164,7 @@ export function FocusTimerPanel({
         {header}
         {otherTimerText ? (
           <Text className="text-sm" style={{ color: colors.muted }} testID="focus-timer-replaces">
-            {`This stops the timer on "${otherTimerText}".`}
+            {`This stops the timer on “${otherTimerText}”.`}
           </Text>
         ) : null}
         <View className="flex-row flex-wrap gap-2" testID="focus-timer-options">
@@ -200,10 +220,10 @@ export function FocusTimerPanel({
                 accessibilityRole="button"
                 accessibilityLabel="Start"
                 accessibilityHint={`Starts a timer for ${durationWords(customMinutes)}`}
-                style={pill("tint")}
+                style={pill("primary")}
                 testID="focus-timer-start"
               >
-                <Text className="text-base font-bold" style={{ color: colors.primary }}>
+                <Text className="text-base font-bold" style={{ color: colors.onPrimary }}>
                   Start
                 </Text>
               </Pressable>
@@ -223,7 +243,8 @@ export function FocusTimerPanel({
   const clockFontSize = Math.round(ringSize * 0.19);
   const minutesLeft = Math.ceil(left / MINUTE_MS);
   const endsAt = phase === "running" && session.endAt !== null ? formatEndTime(new Date(session.endAt)) : null;
-  const line = starterLine(session);
+  // The starter's line only while it runs: paused, the ring says Paused.
+  const line = phase === "running" ? starterLine(session) : null;
   // Whole minutes (and a fixed end time), so VoiceOver isn't told every second.
   const ringLabel = finished
     ? "Time's up"
@@ -233,12 +254,13 @@ export function FocusTimerPanel({
 
   return (
     <View className="gap-4 items-center self-stretch" testID="focus-timer">
-      {header}
       <View accessible accessibilityRole="timer" accessibilityLabel={ringLabel} testID="focus-timer-ring">
+        {/* It drains (what's left), like Clock and the Live Activity. */}
         <ProgressRing
-          completed={session.durationMs - left}
+          completed={finished ? session.durationMs : left}
           total={session.durationMs}
-          color={colors.primary}
+          // Paused, it goes quiet (as the row's pill does).
+          color={paused ? colors.muted : colors.primary}
           size={ringSize}
           strokeWidth={10}
         >
@@ -319,11 +341,11 @@ export function FocusTimerPanel({
               }}
               accessibilityRole="button"
               accessibilityLabel="Resume"
-              accessibilityHint="Continues the timer"
+              accessibilityHint="Resumes the timer"
               style={pill("tint")}
               testID="focus-timer-resume"
             >
-              <Text className="text-base font-bold" style={{ color: colors.primary }}>
+              <Text className="text-base font-bold" style={{ color: colors.primaryInk }}>
                 Resume
               </Text>
             </Pressable>
@@ -335,10 +357,11 @@ export function FocusTimerPanel({
               }}
               accessibilityRole="button"
               accessibilityLabel="Pause"
+              accessibilityHint="Pauses the timer"
               style={pill("tint")}
               testID="focus-timer-pause"
             >
-              <Text className="text-base font-bold" style={{ color: colors.primary }}>
+              <Text className="text-base font-bold" style={{ color: colors.primaryInk }}>
                 Pause
               </Text>
             </Pressable>
@@ -445,12 +468,14 @@ function Chip({
         justifyContent: "center",
         borderRadius: 999,
         borderWidth: 1,
+        // Selected (Custom, while its wheel shows): tinted, so the wheel's
+        // Start stays the one solid button.
         borderColor: selected ? colors.primary : colors.border,
-        backgroundColor: selected ? colors.primary : colors.surface,
+        backgroundColor: selected ? `${colors.primary}1F` : colors.surface,
       }}
       testID={testID}
     >
-      <Text className="text-sm font-semibold" style={{ color: selected ? colors.onPrimary : colors.foreground }}>
+      <Text className="text-sm font-semibold" style={{ color: selected ? colors.primaryInk : colors.foreground }}>
         {label}
       </Text>
     </Pressable>

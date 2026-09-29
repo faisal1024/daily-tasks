@@ -135,11 +135,16 @@ export async function cancelAllNotifications(): Promise<void> {
 // reminder syncs never cancel it; the handler above doesn't show it in-app
 // (the task row's check-in says it there). Only with permission already granted: it never asks.
 export const FOCUS_TIMER_NOTIFICATION_ID = "three-today:focus-timer";
-// Its buttons: Done and "5 more minutes". Both open the app, so a tap is
-// handled even when the app wasn't running (a background action is lost then).
+// Its buttons, extend first (as the check-in, the Live Activity and the
+// Dynamic Island have them): a timer's "5 more minutes" and Done; a
+// 5-minute starter's "Keep going" (a 20-minute timer, as the check-in) and
+// Done. All open the app, so a tap is handled even when the app wasn't
+// running (a background action is lost then).
 export const FOCUS_CATEGORY_ID = "three-today:focus-session";
+export const FOCUS_STARTER_CATEGORY_ID = "three-today:focus-starter";
 export const FOCUS_ACTION_DONE = "focus-done";
 export const FOCUS_ACTION_EXTEND = "focus-extend";
+export const FOCUS_ACTION_KEEP_GOING = "focus-keep-going";
 
 // One at a time, like the reminder syncs. A schedule that another call has
 // already overtaken (a reschedule, a cancel) is skipped; the later call wins.
@@ -155,7 +160,7 @@ function queueFocus(step: () => Promise<void>): Promise<void> {
 }
 
 /**
- * Registers the Done / 5 more minutes buttons: at every launch (so a
+ * Registers both categories' buttons: at every launch (so a
  * notification from before an update still gets them), and before a
  * schedule if that didn't take. Best-effort.
  */
@@ -167,8 +172,12 @@ export function registerFocusCategory(): Promise<void> {
 async function ensureFocusCategory(): Promise<void> {
   if (categoryReady || typeof Notifications.setNotificationCategoryAsync !== "function") return;
   await Notifications.setNotificationCategoryAsync(FOCUS_CATEGORY_ID, [
-    { identifier: FOCUS_ACTION_DONE, buttonTitle: "Done", options: { opensAppToForeground: true } },
     { identifier: FOCUS_ACTION_EXTEND, buttonTitle: "5 more minutes", options: { opensAppToForeground: true } },
+    { identifier: FOCUS_ACTION_DONE, buttonTitle: "Done", options: { opensAppToForeground: true } },
+  ]);
+  await Notifications.setNotificationCategoryAsync(FOCUS_STARTER_CATEGORY_ID, [
+    { identifier: FOCUS_ACTION_KEEP_GOING, buttonTitle: "Keep going", options: { opensAppToForeground: true } },
+    { identifier: FOCUS_ACTION_DONE, buttonTitle: "Done", options: { opensAppToForeground: true } },
   ]);
   categoryReady = true;
 }
@@ -177,7 +186,11 @@ async function ensureFocusCategory(): Promise<void> {
 export interface FocusNotificationInput {
   sessionId: string;
   taskId: string;
+  /** Picks the buttons: a starter's Keep going / Done, a timer's 5 more minutes / Done. */
+  kind: "timer" | "starter";
   at: Date;
+  /** The task's words (see notificationTitle). */
+  title: string;
   body: string;
 }
 
@@ -186,7 +199,14 @@ export interface FocusNotificationInput {
  * session). One that already went off is cleared first, so an extended
  * session's old "Time's up" doesn't linger in Notification Center.
  */
-export function scheduleFocusSessionNotification({ sessionId, taskId, at, body }: FocusNotificationInput): Promise<void> {
+export function scheduleFocusSessionNotification({
+  sessionId,
+  taskId,
+  kind,
+  at,
+  title,
+  body,
+}: FocusNotificationInput): Promise<void> {
   if (Platform.OS === "web") return Promise.resolve();
   const generation = ++focusGeneration;
   return queueFocus(async () => {
@@ -198,10 +218,10 @@ export function scheduleFocusSessionNotification({ sessionId, taskId, at, body }
     await Notifications.scheduleNotificationAsync({
       identifier: FOCUS_TIMER_NOTIFICATION_ID,
       content: {
-        title: "Three Today",
+        title,
         body,
         sound: true,
-        categoryIdentifier: FOCUS_CATEGORY_ID,
+        categoryIdentifier: kind === "starter" ? FOCUS_STARTER_CATEGORY_ID : FOCUS_CATEGORY_ID,
         data: { focusSessionId: sessionId, taskId },
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at },
@@ -219,9 +239,22 @@ export function cancelFocusTimerNotification(): Promise<void> {
   });
 }
 
+/**
+ * Clears a "Time's up" that already went off (Notification Center, the lock
+ * screen), e.g. once it's been answered on the Live Activity. Queued with the
+ * schedules, so it never removes a newer one (only delivered ones go).
+ */
+export function dismissFocusTimerNotification(): Promise<void> {
+  if (Platform.OS === "web") return Promise.resolve();
+  return queueFocus(async () => {
+    await Notifications.dismissNotificationAsync(FOCUS_TIMER_NOTIFICATION_ID).catch(() => {});
+  });
+}
+
 /** A tap on the end notification: one of its buttons, or the notification itself. */
 export interface FocusNotificationResponse {
-  action: "done" | "extend" | "open";
+  /** extend: a timer's 5 more minutes; keepGoing: a starter's Keep going. */
+  action: "done" | "extend" | "keepGoing" | "open";
   sessionId: string;
 }
 
@@ -236,7 +269,9 @@ export function parseFocusResponse(response: Notifications.NotificationResponse 
       ? "done"
       : response?.actionIdentifier === FOCUS_ACTION_EXTEND
         ? "extend"
-        : "open";
+        : response?.actionIdentifier === FOCUS_ACTION_KEEP_GOING
+          ? "keepGoing"
+          : "open";
   return { action, sessionId };
 }
 

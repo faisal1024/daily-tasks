@@ -1,5 +1,6 @@
 // The focus session's end notification (1.2, per session since 1.3):
-// scheduled only with permission, with the Done / 5 more minutes category,
+// scheduled only with permission, with the 5 more minutes / Done category
+// (a starter's: Keep going / Done),
 // cancel wins over an earlier schedule, never shown in-app, and never touched
 // by the reminder syncs.
 import * as Notifications from "expo-notifications";
@@ -34,7 +35,14 @@ function load(): NotificationsModule {
 }
 
 const AT = new Date(2026, 8, 26, 9, 10);
-const INPUT = { sessionId: "s1", taskId: "t0", at: AT, body: 'Time\'s up on "Walk".' };
+const INPUT = {
+  sessionId: "s1",
+  taskId: "t0",
+  kind: "timer" as const,
+  at: AT,
+  title: "Walk",
+  body: "Time's up. Done, or 5 more minutes?",
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -45,16 +53,17 @@ describe("focus timer notification", () => {
   it("schedules one with the check-in's copy, the default sound, its category and session, at the end time", async () => {
     const { scheduleFocusSessionNotification, FOCUS_TIMER_NOTIFICATION_ID, FOCUS_CATEGORY_ID } = load();
     await scheduleFocusSessionNotification(INPUT);
+    // Extend on the left, Done on the right (as everywhere else).
     expect(mocked.setNotificationCategoryAsync).toHaveBeenCalledWith(FOCUS_CATEGORY_ID, [
-      { identifier: "focus-done", buttonTitle: "Done", options: { opensAppToForeground: true } },
       { identifier: "focus-extend", buttonTitle: "5 more minutes", options: { opensAppToForeground: true } },
+      { identifier: "focus-done", buttonTitle: "Done", options: { opensAppToForeground: true } },
     ]);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledWith({
       identifier: FOCUS_TIMER_NOTIFICATION_ID,
       content: {
-        title: "Three Today",
-        body: 'Time\'s up on "Walk".',
+        title: "Walk",
+        body: "Time's up. Done, or 5 more minutes?",
         sound: true,
         categoryIdentifier: FOCUS_CATEGORY_ID,
         data: { focusSessionId: "s1", taskId: "t0" },
@@ -63,6 +72,27 @@ describe("focus timer notification", () => {
     });
     // One that already went off (before an extend) is cleared first.
     expect(mocked.dismissNotificationAsync).toHaveBeenCalledWith(FOCUS_TIMER_NOTIFICATION_ID);
+  });
+
+  // R1 (1.3 polish): a starter's notification had the timer's "5 more
+  // minutes"; it has its own category now, Keep going / Done.
+  it("gives a starter's notification the Keep going / Done category", async () => {
+    const { scheduleFocusSessionNotification, FOCUS_STARTER_CATEGORY_ID } = load();
+    await scheduleFocusSessionNotification({ ...INPUT, kind: "starter", body: "5 minutes in. Keep going?" });
+    expect(FOCUS_STARTER_CATEGORY_ID).toBe("three-today:focus-starter");
+    expect(mocked.setNotificationCategoryAsync).toHaveBeenCalledWith(FOCUS_STARTER_CATEGORY_ID, [
+      { identifier: "focus-keep-going", buttonTitle: "Keep going", options: { opensAppToForeground: true } },
+      { identifier: "focus-done", buttonTitle: "Done", options: { opensAppToForeground: true } },
+    ]);
+    expect(mocked.scheduleNotificationAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          title: "Walk",
+          body: "5 minutes in. Keep going?",
+          categoryIdentifier: FOCUS_STARTER_CATEGORY_ID,
+        }),
+      }),
+    );
   });
 
   it("is skipped without permission, and never asks for it", async () => {
@@ -137,6 +167,7 @@ describe("focus notification responses (1.3)", () => {
     const { parseFocusResponse } = load();
     expect(parseFocusResponse(response("focus-done"))).toEqual({ action: "done", sessionId: "s1" });
     expect(parseFocusResponse(response("focus-extend"))).toEqual({ action: "extend", sessionId: "s1" });
+    expect(parseFocusResponse(response("focus-keep-going"))).toEqual({ action: "keepGoing", sessionId: "s1" });
     expect(parseFocusResponse(response("expo.modules.notifications.actions.DEFAULT"))).toEqual({
       action: "open",
       sessionId: "s1",

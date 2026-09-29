@@ -2510,7 +2510,7 @@ describe("Focus mode from the coach's note (1.2; a 5-minute starter since 1.3)",
     expect(mockStore.startFocusSession).not.toHaveBeenCalled();
     expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Walk the dog");
     expect(screen.getByTestId("focus-start-line")).toHaveTextContent("Find the lead by the door.");
-    expect(screen.getByTestId("focus-starter-line")).toHaveTextContent("Just start. You can stop after 5.");
+    expect(screen.getByTestId("focus-starter-line")).toHaveTextContent("Just start. You can stop after 5 minutes.");
     expect(focusEvents()).toEqual([["focus_opened", { source: "coach" }]]);
   });
 
@@ -2703,7 +2703,7 @@ describe("Timer on your tasks (1.3)", () => {
       (index: number) => void,
     ];
     expect(options).toMatchObject({
-      title: 'Focus on "Read"',
+      title: "Focus on “Read”",
       message: undefined,
       options: ["20 minutes", "5 minutes", "10 minutes", "Custom…", "Cancel"],
       cancelButtonIndex: 4,
@@ -2728,12 +2728,12 @@ describe("Timer on your tasks (1.3)", () => {
     await render(<HomeScreen />);
     await press("Start a timer: Read");
     expect(sheet.mock.calls[0][0]).toMatchObject({
-      title: 'Focus on "Read"',
-      message: 'This stops the timer on "Walk".',
+      title: "Focus on “Read”",
+      message: "This stops the timer on “Walk”.",
     });
     const pick = sheet.mock.calls[0][1] as (index: number) => void;
     await act(async () => pick(3));
-    expect(screen.getByTestId("focus-timer-replaces")).toHaveTextContent('This stops the timer on "Walk".');
+    expect(screen.getByTestId("focus-timer-replaces")).toHaveTextContent("This stops the timer on “Walk”.");
   });
 
   it("Android: the last used length, or Choose length… (the focus screen's lengths)", async () => {
@@ -2746,7 +2746,7 @@ describe("Timer on your tasks (1.3)", () => {
       await render(<HomeScreen />);
       await press("Start a timer: Read");
       const [title, message, buttons] = alert.mock.calls[0] as [string, string | undefined, { text: string; onPress?: () => void }[]];
-      expect(title).toBe('Focus on "Read"');
+      expect(title).toBe("Focus on “Read”");
       expect(message).toBeUndefined();
       expect(buttons.map((b) => b.text)).toEqual(["5 minutes", "Choose length…", "Cancel"]);
       await act(async () => buttons[0].onPress?.());
@@ -2902,7 +2902,7 @@ describe("Timer on your tasks (1.3)", () => {
     expect(requestBreakDown).toHaveBeenCalledWith(expect.objectContaining({ task: "Walk" }));
     expect(mockStore.setTaskSteps).toHaveBeenCalledWith("t0", ["  Find the lead  ", "Put shoes on"], "Walk");
     const offer = alert.mock.calls.find((call) => call[0] === "Start with the first step?");
-    expect(offer?.[1]).toBe('"Find the lead". Just 5 minutes.');
+    expect(offer?.[1]).toBe("“Find the lead”. Just 5 minutes.");
     const buttons = offer![2] as { text: string; onPress?: () => void }[];
     await act(async () => buttons.find((b) => b.text === "Start 5 minutes")?.onPress?.());
     expect(mockStore.startFocusSession).toHaveBeenCalledWith("t0", {
@@ -2963,7 +2963,7 @@ describe("Timer on your tasks (1.3)", () => {
       focusSession: running({ kind: "starter", durationMs: 5 * MIN, startedAt: NOW, endAt: NOW + 5 * MIN }),
     });
     await render(<HomeScreen />);
-    expect(screen.getByTestId("task-session-line-t0")).toHaveTextContent("Just start. You can stop after 5.");
+    expect(screen.getByTestId("task-session-line-t0")).toHaveTextContent("Just start. You can stop after 5 minutes.");
   });
 
   it("the hero row hides its Break it down · Not today line while it's timed (long press, check-in and focus have them)", async () => {
@@ -2997,7 +2997,7 @@ describe("Timer on your tasks (1.3)", () => {
     const view = await render(<HomeScreen />);
     expect(clearFocusPrompt).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("focus-task-text")).toHaveTextContent("Walk");
-    expect(screen.getByTestId("focus-timer-replaces")).toHaveTextContent('This stops the timer on "Read".');
+    expect(screen.getByTestId("focus-timer-replaces")).toHaveTextContent("This stops the timer on “Read”.");
     expect(mockStore.startFocusSession).not.toHaveBeenCalled();
     expect(mockStore.stopFocusSession).not.toHaveBeenCalled();
     expect(focusEvents()).toEqual([["focus_opened", { source: "widget" }]]);

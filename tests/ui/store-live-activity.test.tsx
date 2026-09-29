@@ -21,6 +21,7 @@ import {
   FINAL_DISMISS_SECONDS,
   syncLiveActivity,
 } from "@/lib/daily-tasks/live-activity";
+import { dismissFocusTimerNotification } from "@/lib/daily-tasks/notifications";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import {
   __resetStorageForTests,
@@ -103,6 +104,7 @@ const loadNative = loadFocusActivity as jest.Mock;
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusSessionNotification: jest.fn(async () => {}),
   cancelFocusTimerNotification: jest.fn(async () => {}),
+  dismissFocusTimerNotification: jest.fn(async () => {}),
   getNotificationPermissionStatus: jest.fn(async () => "granted"),
   requestNotificationPermission: jest.fn(async () => "granted"),
   syncNotifications: jest.fn(async () => {}),
@@ -687,6 +689,8 @@ describe("Live Activity Done (widget.toggles, source live_activity)", () => {
       ["live_activity_action", { action: "done" }],
     ]);
     expect(mockToggles.processedSeq).toBe(1);
+    // U4: the "Time's up" that went off doesn't linger.
+    expect(dismissFocusTimerNotification).toHaveBeenCalled();
     // Nothing started again for the cleared session.
     expect(native.start).toHaveBeenCalledTimes(1);
     expect(native.update).not.toHaveBeenCalledWith(
@@ -727,6 +731,42 @@ describe("Live Activity Done (widget.toggles, source live_activity)", () => {
   });
 });
 
+// U4 (1.3 polish): only an answer to the "Time's up" (Done or 5 more /
+// Keep going on the Live Activity) clears it from Notification Center.
+describe("Live Activity: clearing the delivered \"Time's up\"", () => {
+  it("pause and resume from the activity, a plain widget tick and an in-app Done don't dismiss it", async () => {
+    const { result } = await renderStore();
+    await act(async () => result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
+    const id = result.current.state.focusSession!.id;
+    mockCommands = {
+      raw: commands([
+        { seq: 1, sessionId: id, action: "pause", at: START.getTime() + MIN },
+        { seq: 2, sessionId: id, action: "resume", at: START.getTime() + 2 * MIN },
+      ]),
+      processedSeq: 0,
+    };
+    mockToggles = { raw: JSON.stringify([{ seq: 1, id: "t1", date: TODAY, done: true }]), processedSeq: 0 };
+    jest.setSystemTime(START.getTime() + 3 * MIN);
+    await foreground();
+    await flush();
+    expect(events("live_activity_action")).toHaveLength(2);
+    expect(result.current.state.todayCompletions).toEqual(["t1"]);
+    await act(async () => result.current.toggleTask("t0"));
+    await flush();
+    expect(result.current.state.focusSession).toBeNull();
+    expect(dismissFocusTimerNotification).not.toHaveBeenCalled();
+
+    // A Live Activity Done does.
+    mockToggles = {
+      raw: JSON.stringify([{ seq: 2, id: "t2", date: TODAY, done: true, source: "live_activity" }]),
+      processedSeq: 1,
+    };
+    await foreground();
+    await flush();
+    expect(dismissFocusTimerNotification).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("Live Activity: time's up button and a launch in the background", () => {
   it("\"5 more minutes\" (extend) at time's up runs the timer again from the tap; a starter keeps going as a 20-minute timer", async () => {
     const end = START.getTime() + 10 * MIN;
@@ -743,6 +783,9 @@ describe("Live Activity: time's up button and a launch in the background", () =>
     });
     expect(events("live_activity_action")).toEqual([["live_activity_action", { action: "extend" }]]);
     expect(events("focus_session_ended")).toEqual([["focus_session_ended", { outcome: "extended", minutes: 10 }]]);
+    // The intent itself removed the answered "Time's up" (natively); the
+    // app doesn't dismiss again, which could clear a fresh, unanswered one.
+    expect(dismissFocusTimerNotification).not.toHaveBeenCalled();
   });
 
   it("a starter's time's-up button is Keep going: a 20-minute timer from the tap", async () => {

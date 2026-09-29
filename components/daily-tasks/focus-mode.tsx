@@ -62,6 +62,9 @@ export function FocusMode({
   // The custom wheel waits until the sheet has finished sliding in: its
   // first-spin fix (see CountdownWheel) only works once it's on screen.
   const [shown, setShown] = useState(false);
+  // While the custom wheel shows, its Start is the one solid button and Done
+  // steps back to a tint.
+  const [customOpen, setCustomOpen] = useState(false);
 
   // Custom opening or a timer starting scrolls the timer (last) into view.
   const scrollRef = useRef<ScrollView>(null);
@@ -113,6 +116,9 @@ export function FocusMode({
             paddingTop: Platform.OS === "ios" && !fullScreen ? 32 : insets.top + 24,
             paddingBottom: 24,
             gap: 20,
+            // So a running timer's ring can sit in the middle of the space
+            // left, not high up with a gap under it.
+            flexGrow: 1,
           }}
         >
           <View className="gap-2">
@@ -167,17 +173,20 @@ export function FocusMode({
             </View>
           ) : null}
 
-          <FocusTimerPanel
-            session={session}
-            onStart={onStartTimer}
-            controls={controls}
-            openCustom={initialCustom && shown}
-            otherTimerText={session ? null : otherTimerText}
-            onReveal={revealTimer}
-            checkIn={
-              session ? <FocusCheckIn session={session} controls={controls} showDone={false} /> : null
-            }
-          />
+          <View style={session ? { flexGrow: 1, justifyContent: "center" } : undefined} testID="focus-timer-block">
+            <FocusTimerPanel
+              session={session}
+              onStart={onStartTimer}
+              controls={controls}
+              openCustom={initialCustom && shown}
+              otherTimerText={session ? null : otherTimerText}
+              onReveal={revealTimer}
+              onCustomOpenChange={setCustomOpen}
+              checkIn={
+                session ? <FocusCheckIn session={session} controls={controls} showDone={false} /> : null
+              }
+            />
+          </View>
         </ScrollView>
 
         <View className="px-6 pt-3 gap-2" style={{ paddingBottom: insets.bottom + 16 }}>
@@ -196,12 +205,12 @@ export function FocusMode({
               alignItems: "center",
               justifyContent: "center",
               borderRadius: 999,
-              backgroundColor: colors.primary,
+              backgroundColor: customOpen ? `${colors.primary}1F` : colors.primary,
               opacity: pressed ? 0.85 : 1,
             })}
             testID="focus-done"
           >
-            <Text className="text-base font-bold" style={{ color: colors.onPrimary }}>
+            <Text className="text-base font-bold" style={{ color: customOpen ? colors.primaryInk : colors.onPrimary }}>
               Done
             </Text>
           </Pressable>

@@ -168,7 +168,7 @@ describe("Progress: milestones are ticked by hand", () => {
     // Both unfinished ones: same empty circle, same neutral border, "Mark reached".
     for (const id of ["run_1", "run_3"]) {
       expect(within(screen.getByTestId(`milestone-reach-${id}`)).getByText("Mark reached")).toBeOnTheScreen();
-      expect(screen.getByTestId(`milestone-reach-${id}`)).toHaveAccessibleName(/^Mark ".+" as reached$/);
+      expect(screen.getByTestId(`milestone-reach-${id}`)).toHaveAccessibleName(/^Mark “.+” as reached$/);
     }
     // The icon is the card's first child (an icon-font glyph): the next
     // milestone's must match a later one's, not the reached one's.
