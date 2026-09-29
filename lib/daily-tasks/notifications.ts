@@ -20,10 +20,11 @@ function configureHandler() {
   if (handlerConfigured) return;
   handlerConfigured = true;
   Notifications.setNotificationHandler({
-    // Focus mode's timer end is said in-app already, so it isn't shown there.
+    // Focus mode's timer end is shown in-app already, so it isn't shown
+    // there; its sound still plays, so the end is heard (like Apple's Timer).
     handleNotification: async (notification) => {
-      const show = notification.request.identifier !== FOCUS_TIMER_NOTIFICATION_ID;
-      return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: false, shouldSetBadge: false };
+      const focus = notification.request.identifier === FOCUS_TIMER_NOTIFICATION_ID;
+      return { shouldShowBanner: !focus, shouldShowList: !focus, shouldPlaySound: focus, shouldSetBadge: false };
     },
   });
 }
@@ -127,8 +128,10 @@ export async function cancelAllNotifications(): Promise<void> {
 }
 
 // Focus mode's timer (1.2): one notification for when it ends, in case
-// they're in another app. It plays the default sound, like Apple's Timer
-// (the reminders stay silent). Its id is outside MANAGED_REMINDER_PREFIX, so the
+// they're in another app. Like Apple's Timer it plays the default
+// notification sound (which respects the silent switch; the reminders stay
+// silent) and is time-sensitive on iOS, so a Focus mode doesn't hold it back.
+// Android uses the default channel. Its id is outside MANAGED_REMINDER_PREFIX, so the
 // reminder syncs never cancel it; the handler above doesn't show it in-app
 // (focus mode says it there). Only with permission already granted: it never asks.
 export const FOCUS_TIMER_NOTIFICATION_ID = "three-today:focus-timer";
@@ -154,7 +157,12 @@ export function scheduleFocusTimerNotification(at: Date, minutes: number): Promi
     if ((await getNotificationPermissionStatus()) !== "granted" || generation !== focusGeneration) return;
     await Notifications.scheduleNotificationAsync({
       identifier: FOCUS_TIMER_NOTIFICATION_ID,
-      content: { title: "Three Today", body: timesUpText(minutes), sound: true },
+      content: {
+        title: "Three Today",
+        body: timesUpText(minutes),
+        sound: true,
+        interruptionLevel: "timeSensitive",
+      },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at },
     });
   });

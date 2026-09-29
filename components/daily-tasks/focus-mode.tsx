@@ -1,6 +1,6 @@
 // "Start" focus mode (1.2): one task, full screen, with its steps and an
 // optional timer. Done ticks it through Today's normal toggle path.
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,10 +9,7 @@ import { FocusTimerPanel } from "@/components/daily-tasks/focus-timer-panel";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
-import { timesUpText } from "@/lib/daily-tasks/focus-timer";
 import type { Task } from "@/lib/daily-tasks/types";
-
-export { timesUpText };
 
 interface FocusModeProps {
   task: Task;
@@ -47,6 +44,28 @@ export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTi
     lastTimer.current = minutes;
     onTimerStart?.(minutes);
   };
+  // A cancelled (or cleared) timer isn't reported on Done.
+  const timerCancelled = () => {
+    lastTimer.current = 0;
+  };
+  const [timerActive, setTimerActive] = useState(false);
+
+  // Custom opening or a timer starting scrolls the timer (last) into view.
+  const scrollRef = useRef<ScrollView>(null);
+  const revealFrame = useRef<number | null>(null);
+  const revealTimer = () => {
+    if (revealFrame.current !== null) cancelAnimationFrame(revealFrame.current);
+    revealFrame.current = requestAnimationFrame(() => {
+      revealFrame.current = null;
+      scrollRef.current?.scrollToEnd({ animated: true });
+    });
+  };
+  useEffect(
+    () => () => {
+      if (revealFrame.current !== null) cancelAnimationFrame(revealFrame.current);
+    },
+    [],
+  );
 
   // A double tap on Done must tick it only once.
   const doneRef = useRef(false);
@@ -72,6 +91,7 @@ export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTi
         testID="focus-mode"
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={{
             paddingHorizontal: 24,
             // A page sheet (iPad) sits below the status bar already.
@@ -132,7 +152,12 @@ export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTi
             </View>
           ) : null}
 
-          <FocusTimerPanel onStart={timerStarted} />
+          <FocusTimerPanel
+            onStart={timerStarted}
+            onCancel={timerCancelled}
+            onActiveChange={setTimerActive}
+            onReveal={revealTimer}
+          />
         </ScrollView>
 
         <View className="px-6 pt-3 gap-2" style={{ paddingBottom: insets.bottom + 16 }}>
@@ -164,7 +189,7 @@ export function FocusMode({ task, startLine, onToggleStep, onDone, onClose, onTi
             onPress={onClose}
             accessibilityRole="button"
             accessibilityLabel="Not now"
-            accessibilityHint="Closes focus mode"
+            accessibilityHint={timerActive ? "Closes focus mode and stops the timer." : "Closes focus mode"}
             style={{ minHeight: 44, alignItems: "center", justifyContent: "center" }}
             testID="focus-not-now"
           >

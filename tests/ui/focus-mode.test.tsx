@@ -1,11 +1,12 @@
 // Focus mode (1.2, PR C): the task, its start line and steps, the timer
-// (5/10/20 or custom, Start/Cancel; wall-clock based, one haptic at zero,
+// (5/10/20 start at once, or Custom with Start/Cancel; wall-clock based, one haptic at zero,
 // never closes), its end-of-timer notification, and closing.
 import * as Haptics from "expo-haptics";
 import { AccessibilityInfo, AppState } from "react-native";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
-import { FocusMode, timesUpText } from "@/components/daily-tasks/focus-mode";
+import { FocusMode } from "@/components/daily-tasks/focus-mode";
+import { timesUpText } from "@/lib/daily-tasks/focus-timer";
 import {
   cancelFocusTimerNotification,
   scheduleFocusTimerNotification,
@@ -17,6 +18,7 @@ import { renderWithProviders as render } from "./render";
 jest.mock("@/lib/daily-tasks/notifications", () => ({
   scheduleFocusTimerNotification: jest.fn(async () => {}),
   cancelFocusTimerNotification: jest.fn(async () => {}),
+  getNotificationPermissionStatus: jest.fn(async () => "granted"),
 }));
 const schedule = scheduleFocusTimerNotification as jest.Mock;
 const cancel = cancelFocusTimerNotification as jest.Mock;
@@ -105,12 +107,9 @@ describe("FocusMode", () => {
     expect(schedule).not.toHaveBeenCalled();
   });
 
-  it("10 min then Start shows 10:00, then 8:59 after 61 s, with a minute-level label and the end time", async () => {
+  it("10 min starts at once, shows 10:00, then 8:59 after 61 s, with a minute-level label and the end time", async () => {
     const { onTimerStart } = await renderFocus();
     await pick("10 minute timer");
-    expect(screen.getByRole("button", { name: "10 minute timer" })).toBeSelected();
-    expect(onTimerStart).not.toHaveBeenCalled();
-    await pick("Start");
     expect(onTimerStart).toHaveBeenCalledWith(10);
     expect(remaining()).toHaveTextContent("10:00");
     expect(screen.getByTestId("focus-timer-ends")).toHaveTextContent(
@@ -130,7 +129,6 @@ describe("FocusMode", () => {
   it("follows the wall clock after the background: 5 min later, AppState active shows 5:00 left", async () => {
     await renderFocus();
     await pick("10 minute timer");
-    await pick("Start");
     expect(appStateListeners).toHaveLength(1);
     // Backgrounded: the clock moves but no interval ticks run.
     jest.setSystemTime(START.getTime() + 5 * MIN);
@@ -142,18 +140,16 @@ describe("FocusMode", () => {
   it("never shows more than the full length when the clock moves back", async () => {
     await renderFocus();
     await pick("10 minute timer");
-    await pick("Start");
     jest.setSystemTime(START.getTime() - 5 * MIN);
     await act(async () => appStateListeners.forEach((listener) => listener("active")));
     expect(remaining()).toHaveTextContent("10:00");
   });
 
-  it("at zero: one light haptic, a check in the ring, the time's-up line (announced), and it stays open", async () => {
+  it("at zero: one success haptic, a check in the ring, the time's-up line (announced), and it stays open", async () => {
     const { onClose, onDone } = await renderFocus();
     await pick("10 minute timer");
-    await pick("Start");
     await advance(10 * MIN - 1000);
-    expect(Haptics.impactAsync).not.toHaveBeenCalled();
+    expect(Haptics.notificationAsync).not.toHaveBeenCalled();
     expect(screen.queryByTestId("focus-times-up")).toBeNull();
 
     await advance(1000);
@@ -163,10 +159,10 @@ describe("FocusMode", () => {
     expect(screen.getByTestId("focus-timer-check")).toBeOnTheScreen();
     expect(screen.getByLabelText("Timer finished")).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Restart" })).toBeOnTheScreen();
-    expect(screen.getByRole("button", { name: "Done with timer" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Clear timer" })).toBeOnTheScreen();
     await advance(5 * MIN);
-    expect(Haptics.impactAsync).toHaveBeenCalledTimes(1);
-    expect(Haptics.impactAsync).toHaveBeenCalledWith(Haptics.ImpactFeedbackStyle.Light);
+    expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
+    expect(Haptics.notificationAsync).toHaveBeenCalledWith(Haptics.NotificationFeedbackType.Success);
     expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
     expect(onClose).not.toHaveBeenCalled();
     expect(onDone).not.toHaveBeenCalled();
@@ -175,7 +171,6 @@ describe("FocusMode", () => {
   it("announces only on start (after a short delay) and at time's up, never each second or minute", async () => {
     await renderFocus();
     await pick("10 minute timer");
-    await pick("Start");
     expect(announce).not.toHaveBeenCalled();
     await advance(300);
     expect(announce.mock.calls).toEqual([["Timer started, 10 minutes"]]);
@@ -185,10 +180,9 @@ describe("FocusMode", () => {
     expect(announce.mock.calls).toEqual([["Timer started, 10 minutes"], [timesUpText(10)]]);
   });
 
-  it("Cancel goes back to the picker; Restart starts it again once finished; Done with timer clears it", async () => {
+  it("Cancel goes back to the picker; Restart starts it again once finished; Clear clears it", async () => {
     const { onTimerStart } = await renderFocus();
     await pick("20 minute timer");
-    await pick("Start");
     await advance(3 * MIN);
     expect(remaining()).toHaveTextContent("17:00");
     await pick("Cancel");
@@ -197,7 +191,6 @@ describe("FocusMode", () => {
     expect(appStateRemove).toHaveBeenCalled();
 
     await pick("10 minute timer");
-    await pick("Start");
     expect(remaining()).toHaveTextContent("10:00");
     expect(onTimerStart.mock.calls).toEqual([[20], [10]]);
 
@@ -209,19 +202,18 @@ describe("FocusMode", () => {
     expect(onTimerStart).toHaveBeenCalledTimes(3);
 
     await advance(10 * MIN);
-    await pick("Done with timer");
+    await pick("Clear timer");
     expect(screen.queryByTestId("focus-timer-ring")).toBeNull();
     expect(screen.getByRole("button", { name: "10 minute timer" })).not.toBeSelected();
     // Nothing fires later: no third haptic, no time's up.
     await advance(30 * MIN);
-    expect(Haptics.impactAsync).toHaveBeenCalledTimes(2);
+    expect(Haptics.notificationAsync).toHaveBeenCalledTimes(2);
     expect(screen.queryByTestId("focus-times-up")).toBeNull();
   });
 
   it("schedules the end notification on start, cancels on Cancel, reschedules on a new start, and cancels at zero", async () => {
     await renderFocus();
     await pick("10 minute timer");
-    await pick("Start");
     expect(schedule).toHaveBeenCalledTimes(1);
     expect(schedule).toHaveBeenLastCalledWith(new Date(START.getTime() + 10 * MIN), 10);
     expect(cancel).not.toHaveBeenCalled();
@@ -230,7 +222,6 @@ describe("FocusMode", () => {
     await pick("Cancel");
     expect(cancel).toHaveBeenCalledTimes(1);
     await pick("20 minute timer");
-    await pick("Start");
     expect(schedule).toHaveBeenLastCalledWith(new Date(START.getTime() + MIN + 20 * MIN), 20);
     expect(schedule).toHaveBeenCalledTimes(2);
 
@@ -248,7 +239,6 @@ describe("FocusMode", () => {
     expect(onToggleStep).not.toHaveBeenCalled();
 
     await pick("20 minute timer");
-    await pick("Start");
     await pick("Done");
     await pick("Done");
     expect(onDone).toHaveBeenCalledTimes(1);
@@ -267,7 +257,6 @@ describe("FocusMode", () => {
     const setSpy = jest.spyOn(global, "setInterval");
     const clearSpy = jest.spyOn(global, "clearInterval");
     await pick("10 minute timer");
-    await pick("Start");
     const ticks = setSpy.mock.results.filter((_r, i) => setSpy.mock.calls[i][1] === 1000).map((r) => r.value);
     expect(ticks).toHaveLength(1);
     expect(clearSpy).not.toHaveBeenCalledWith(ticks[0]);

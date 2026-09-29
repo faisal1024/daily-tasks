@@ -36,13 +36,18 @@ beforeEach(() => {
 });
 
 describe("focus timer notification", () => {
-  it("schedules one with the screen's copy, the default sound, at the end time", async () => {
+  it("schedules one with the screen's copy, the default sound, time-sensitive, at the end time", async () => {
     const { scheduleFocusTimerNotification, FOCUS_TIMER_NOTIFICATION_ID } = load();
     await scheduleFocusTimerNotification(AT, 10);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledWith({
       identifier: FOCUS_TIMER_NOTIFICATION_ID,
-      content: { title: "Three Today", body: "That's 10 minutes. Keep going, or take a break.", sound: true },
+      content: {
+        title: "Three Today",
+        body: "That's 10 minutes. Keep going, or take a break.",
+        sound: true,
+        interruptionLevel: "timeSensitive",
+      },
       trigger: { type: "date", date: AT },
     });
   });
@@ -71,7 +76,7 @@ describe("focus timer notification", () => {
     expect(mocked.dismissNotificationAsync).toHaveBeenCalledWith(FOCUS_TIMER_NOTIFICATION_ID);
   });
 
-  it("the handler hides only the focus notification in-app", async () => {
+  it("the handler hides only the focus notification in-app, and plays only its sound", async () => {
     const { scheduleFocusTimerNotification, FOCUS_TIMER_NOTIFICATION_ID } = load();
     await scheduleFocusTimerNotification(AT, 10);
     const handler = mocked.setNotificationHandler.mock.calls[0][0]!;
@@ -80,11 +85,12 @@ describe("focus timer notification", () => {
     await expect(handle(FOCUS_TIMER_NOTIFICATION_ID)).resolves.toMatchObject({
       shouldShowBanner: false,
       shouldShowList: false,
-      shouldPlaySound: false,
+      shouldPlaySound: true,
     });
     await expect(handle("daily-tasks:2026-09-26:nudge:0900")).resolves.toMatchObject({
       shouldShowBanner: true,
       shouldShowList: true,
+      shouldPlaySound: false,
     });
   });
 

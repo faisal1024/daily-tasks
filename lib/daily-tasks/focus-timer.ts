@@ -1,5 +1,6 @@
 // Focus mode's timer (1.2): its lengths and copy, shared by the screen and its
 // notification. Pure, so it's safe to import anywhere.
+import { formatTime } from "./date";
 
 /** The preset lengths, in minutes. */
 export const FOCUS_TIMER_PRESETS = [5, 10, 20] as const;
@@ -50,7 +51,7 @@ export function formatRemaining(ms: number): string {
 
 /** The clock time it ends, in the device's own format ("9:42 AM" / "09:42"). */
 export function formatEndTime(at: Date): string {
-  return at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return formatTime(at.getHours(), at.getMinutes());
 }
 
 /** Said when a focus timer ends, on screen and in the notification. */

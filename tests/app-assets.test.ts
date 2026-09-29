@@ -61,4 +61,10 @@ describe("app assets", () => {
     const missing = paths.filter((path) => !existsSync(resolve(ROOT, path)));
     expect(missing).toEqual([]);
   });
+
+  it("iOS entitlements keep the app group and allow the time-sensitive focus-timer notification", () => {
+    const config = readFileSync(resolve(ROOT, "app.config.ts"), "utf8");
+    expect(config).toContain('"com.apple.security.application-groups"');
+    expect(config).toMatch(/"com\.apple\.developer\.usernotifications\.time-sensitive":\s*true/);
+  });
 });

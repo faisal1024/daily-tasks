@@ -1,21 +1,28 @@
-// Focus mode's timer (1.2), modelled on Apple's Clock timer: pick a length
-// (5 / 10 / 20 min, the last custom one, or Custom on a duration wheel), then
-// Start; while it runs, Pause / Resume and Cancel. Optional: nothing runs
-// until Start.
+// Focus mode's timer (1.2), modelled on Apple's Clock timer. A length chip
+// (5 / 10 / 20 min, or the last custom one) starts it at once, like Apple's
+// Recents; Custom opens a duration wheel with Cancel and Start. While it
+// runs: Pause / Resume and Cancel. Optional: nothing runs until one is chosen.
 import { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, AppState, Platform, Pressable, Text, View } from "react-native";
+import {
+  AccessibilityInfo,
+  AppState,
+  Platform,
+  Pressable,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 
+import { MinutesStepper } from "@/components/daily-tasks/minutes-stepper";
 import { ProgressRing } from "@/components/daily-tasks/progress-ring";
 import { Fonts } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useColors } from "@/hooks/use-colors";
 import {
   FOCUS_TIMER_DEFAULT_CUSTOM_MINUTES,
-  FOCUS_TIMER_MAX_MINUTES,
-  FOCUS_TIMER_MIN_MINUTES,
   FOCUS_TIMER_PRESETS,
   clampTimerMinutes,
   durationShort,
@@ -27,17 +34,14 @@ import {
 import { loadLastCustomTimer, saveLastCustomTimer } from "@/lib/daily-tasks/focus-timer-storage";
 import {
   cancelFocusTimerNotification,
+  getNotificationPermissionStatus,
   scheduleFocusTimerNotification,
 } from "@/lib/daily-tasks/notifications";
 
 const MINUTE_MS = 60_000;
 /** Lets the tapped button's own label read out before the announcement. */
 const ANNOUNCE_DELAY_MS = 300;
-/** The fallback stepper's step (Android and the web have no duration wheel). */
-const STEPPER_STEP = 5;
-
-/** A picked length: a chip's minutes, or the Custom wheel. */
-type Choice = number | "custom" | null;
+const MAX_RING = 232;
 
 /**
  * A run. `endAt` while it's running (or finished), `pausedMs` (time left)
@@ -49,16 +53,15 @@ interface Run {
   pausedMs: number;
 }
 
-/** Today's date at h:mm, which is how the countdown wheel holds a length. */
-function wheelDate(minutes: number): Date {
-  const date = new Date();
-  date.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
-  return date;
-}
-
 interface FocusTimerPanelProps {
-  /** A timer started (Start or Restart), with its length in minutes. */
+  /** A timer started (a chip, Start or Restart), with its length in minutes. */
   onStart: (minutes: number) => void;
+  /** Cancel or Clear: the timer is gone. */
+  onCancel?: () => void;
+  /** Whether a timer is running or paused (not idle or finished). */
+  onActiveChange?: (active: boolean) => void;
+  /** Custom opened or a run started: bring the panel into view. */
+  onReveal?: () => void;
 }
 
 /**
@@ -67,16 +70,17 @@ interface FocusTimerPanelProps {
  * is scheduled only while it runs: cancelled on Pause, Cancel, finishing
  * in-app and unmount (focus mode closing), and scheduled again on Resume.
  */
-export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
+export function FocusTimerPanel({ onStart, onCancel, onActiveChange, onReveal }: FocusTimerPanelProps) {
   const colors = useColors();
+  const { width, height } = useWindowDimensions();
   const scheme = useColorScheme() === "dark" ? "dark" : "light";
-  const [choice, setChoice] = useState<Choice>(null);
+  const [customOpen, setCustomOpen] = useState(false);
   const [customMinutes, setCustomMinutes] = useState(FOCUS_TIMER_DEFAULT_CUSTOM_MINUTES);
   const [lastCustom, setLastCustom] = useState<number | null>(null);
-  // Remounts the wheel when a length had to be clamped, so it shows the clamp.
-  const [wheelKey, setWheelKey] = useState(0);
+  const [canNotify, setCanNotify] = useState(false);
   const [run, setRun] = useState<Run | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [revealCount, setRevealCount] = useState(0);
 
   // The last custom length, offered as a chip. Best-effort.
   const touchedCustom = useRef(false);
@@ -87,6 +91,12 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
       setLastCustom(minutes);
       if (!touchedCustom.current) setCustomMinutes(minutes);
     });
+    // The bell by the end time only when the end notification can go out.
+    Promise.resolve(getNotificationPermissionStatus())
+      .then((status) => {
+        if (live) setCanNotify(status === "granted");
+      })
+      .catch(() => {});
     return () => {
       live = false;
     };
@@ -103,6 +113,19 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
   const running = run !== null && run.endAt !== null && remainingMs > 0;
   const finished = run !== null && run.endAt !== null && remainingMs === 0;
   const runningEndAt = running ? run.endAt : null;
+  const active = running || paused;
+
+  useEffect(() => {
+    onActiveChange?.(active);
+    // Only when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  useEffect(() => {
+    if (revealCount > 0) onReveal?.();
+    // Only on a new reveal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealCount]);
 
   useEffect(() => {
     if (!running) return;
@@ -143,33 +166,37 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
     [],
   );
 
-  // Once per run: one light haptic and the line read out. Never closes.
+  // Once per run: one success haptic and the line read out. Never closes.
   useEffect(() => {
     if (!finished || !run) return;
     if (announceTimer.current) clearTimeout(announceTimer.current);
-    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
     AccessibilityInfo.announceForAccessibility(timesUpText(run.minutes));
     // Only when it finishes; the length can't change without a new run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finished]);
 
-  const chosenMinutes = choice === "custom" ? customMinutes : choice;
-
   const startRun = (minutes: number) => {
     const start = Date.now();
     setNow(start);
     setRun({ minutes, endAt: start + minutes * MINUTE_MS, pausedMs: 0 });
+    setCustomOpen(false);
+    setRevealCount((count) => count + 1);
     onStart(minutes);
     announceSoon(`Timer started, ${durationWords(minutes)}`);
   };
 
-  const start = () => {
-    if (chosenMinutes === null) return;
-    if (choice === "custom") {
-      setLastCustom(chosenMinutes);
-      void saveLastCustomTimer(chosenMinutes);
-    }
-    startRun(chosenMinutes);
+  const openCustom = () => {
+    setCustomOpen(true);
+    setRevealCount((count) => count + 1);
+  };
+
+  const startCustom = () => {
+    setLastCustom(customMinutes);
+    void saveLastCustomTimer(customMinutes);
+    startRun(customMinutes);
   };
 
   const pause = () => {
@@ -193,11 +220,13 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
     announceSoon("Resumed");
   };
 
-  // Cancel (and Done with timer) go back to the length picker, nothing picked.
+  // Cancel (and Clear) go back to the length chips.
   const reset = () => {
     if (announceTimer.current) clearTimeout(announceTimer.current);
+    const hadRun = run !== null;
     setRun(null);
-    setChoice(null);
+    setCustomOpen(false);
+    if (hadRun) onCancel?.();
   };
 
   const restart = () => {
@@ -206,15 +235,16 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
 
   const pickCustom = (minutes: number) => {
     touchedCustom.current = true;
-    const clamped = clampTimerMinutes(minutes);
-    if (clamped !== minutes) setWheelKey((key) => key + 1);
-    setCustomMinutes(clamped);
+    setCustomMinutes(clampTimerMinutes(minutes));
   };
 
-  // The last custom length, when it isn't one of the presets already.
+  // The last custom length joins the presets (in order) when it isn't one.
   const chips: number[] = [...FOCUS_TIMER_PRESETS];
   if (lastCustom !== null && !chips.includes(lastCustom)) chips.push(lastCustom);
+  chips.sort((a, b) => a - b);
 
+  const ringSize = Math.max(120, Math.min(MAX_RING, width - 48, Math.round(height * 0.3)));
+  const clockFontSize = Math.round(ringSize * 0.19);
   const minutesLeft = Math.ceil(remainingMs / MINUTE_MS);
   const endsAt = runningEndAt !== null ? formatEndTime(new Date(runningEndAt)) : null;
   // Whole minutes (and a fixed end time), so VoiceOver isn't told every second.
@@ -226,7 +256,8 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
         ? `Timer paused, ${durationWords(minutesLeft)} left of ${durationWords(run.minutes)}`
         : `${durationWords(minutesLeft)} left of ${durationWords(run.minutes)}, ends ${endsAt}`;
 
-  const pill = (fill: "primary" | "tint" | "surface") => ({
+  // Solid primary stays for the footer's Done: the timer's actions are tinted.
+  const pill = (fill: "tint" | "surface") => ({
     flex: 1,
     minHeight: 48,
     paddingHorizontal: 16,
@@ -234,86 +265,83 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
     alignItems: "center" as const,
     justifyContent: "center" as const,
     borderRadius: 999,
-    backgroundColor: fill === "primary" ? colors.primary : fill === "tint" ? `${colors.primary}1F` : colors.surface,
+    ...(fill === "tint"
+      ? { backgroundColor: `${colors.primary}1F` }
+      : { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }),
   });
+
+  const header = (
+    <Text className="self-start text-sm font-semibold" style={{ color: colors.muted }} accessibilityRole="header">
+      Timer
+    </Text>
+  );
 
   if (!run) {
     return (
       <View className="gap-3 self-stretch" testID="focus-timer">
-        <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
-          Timer
-        </Text>
+        {header}
         <View className="flex-row flex-wrap gap-2" testID="focus-timer-options">
-          {chips.map((minutes) => {
-            const selected = choice === minutes;
-            return (
-              <Chip
-                key={minutes}
-                label={durationShort(minutes)}
-                accessibilityLabel={minutes < 60 ? `${minutes} minute timer` : `${durationWords(minutes)} timer`}
-                selected={selected}
-                onPress={() => setChoice(minutes)}
-                testID={`focus-timer-${minutes}`}
-              />
-            );
-          })}
+          {chips.map((minutes) => (
+            <Chip
+              key={minutes}
+              label={durationShort(minutes)}
+              accessibilityLabel={minutes < 60 ? `${minutes} minute timer` : `${durationWords(minutes)} timer`}
+              accessibilityHint={`Starts a timer for ${durationWords(minutes)}`}
+              selected={false}
+              onPress={() => startRun(minutes)}
+              testID={`focus-timer-${minutes}`}
+            />
+          ))}
           <Chip
             label="Custom"
             accessibilityLabel="Custom timer"
             accessibilityHint="Choose your own length"
-            selected={choice === "custom"}
-            onPress={() => setChoice("custom")}
+            selected={customOpen}
+            onPress={openCustom}
             testID="focus-timer-custom"
           />
         </View>
 
-        {choice === "custom" ? (
-          Platform.OS === "ios" ? (
-            <View className="items-center">
-              <DateTimePicker
-                key={wheelKey}
-                value={wheelDate(customMinutes)}
-                mode="countdown"
-                display="spinner"
-                themeVariant={scheme}
+        {customOpen ? (
+          <>
+            {Platform.OS === "ios" ? (
+              <CountdownWheel
+                minutes={customMinutes}
+                onChange={pickCustom}
+                scheme={scheme}
                 accentColor={colors.primary}
-                accessibilityLabel={`Timer length, ${durationWords(customMinutes)}`}
-                onChange={(_event, date) => {
-                  if (date) pickCustom(date.getHours() * 60 + date.getMinutes());
-                }}
-                testID="focus-timer-wheel"
               />
+            ) : (
+              <MinutesStepper minutes={customMinutes} onChange={pickCustom} />
+            )}
+            <Text className="text-sm text-center" style={{ color: colors.muted }} testID="focus-timer-limit">
+              Up to 3 hours
+            </Text>
+            <View className="flex-row gap-3">
+              <Pressable
+                onPress={reset}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel"
+                accessibilityHint="Closes the custom length"
+                style={pill("surface")}
+                testID="focus-timer-cancel"
+              >
+                <Text className="text-base font-semibold text-foreground">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={startCustom}
+                accessibilityRole="button"
+                accessibilityLabel="Start"
+                accessibilityHint={`Starts a timer for ${durationWords(customMinutes)}`}
+                style={pill("tint")}
+                testID="focus-timer-start"
+              >
+                <Text className="text-base font-bold" style={{ color: colors.primary }}>
+                  Start
+                </Text>
+              </Pressable>
             </View>
-          ) : (
-            <MinutesStepper minutes={customMinutes} onChange={pickCustom} />
-          )
-        ) : null}
-
-        {chosenMinutes !== null ? (
-          <View className="flex-row gap-3">
-            <Pressable
-              onPress={reset}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel"
-              accessibilityHint="Clears the timer length"
-              style={pill("surface")}
-              testID="focus-timer-cancel"
-            >
-              <Text className="text-base font-semibold text-foreground">Cancel</Text>
-            </Pressable>
-            <Pressable
-              onPress={start}
-              accessibilityRole="button"
-              accessibilityLabel="Start"
-              accessibilityHint={`Starts a ${durationWords(chosenMinutes)} timer`}
-              style={pill("primary")}
-              testID="focus-timer-start"
-            >
-              <Text className="text-base font-bold" style={{ color: colors.onPrimary }}>
-                Start
-              </Text>
-            </Pressable>
-          </View>
+          </>
         ) : null}
       </View>
     );
@@ -321,26 +349,29 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
 
   return (
     <View className="gap-4 items-center self-stretch" testID="focus-timer">
-      <Text className="self-start text-sm font-semibold" style={{ color: colors.muted }}>
-        Timer
-      </Text>
-      <View accessible accessibilityLabel={ringLabel} testID="focus-timer-ring">
+      {header}
+      <View accessible accessibilityRole="timer" accessibilityLabel={ringLabel} testID="focus-timer-ring">
         <ProgressRing
           completed={durationMs - remainingMs}
           total={durationMs}
           color={finished ? colors.success : colors.primary}
-          size={232}
+          size={ringSize}
           strokeWidth={10}
         >
           {finished ? (
-            <Ionicons name="checkmark" size={56} color={colors.success} testID="focus-timer-check" />
+            <Ionicons
+              name="checkmark"
+              size={Math.round(ringSize * 0.24)}
+              color={colors.success}
+              testID="focus-timer-check"
+            />
           ) : (
-            <View className="items-center px-6" style={{ maxWidth: 200 }}>
+            <View className="items-center px-6" style={{ maxWidth: ringSize - 32 }}>
               <Text
                 style={{
                   color: paused ? colors.muted : colors.foreground,
                   fontFamily: Fonts.rounded,
-                  fontSize: 44,
+                  fontSize: clockFontSize,
                   fontWeight: "700",
                   fontVariant: ["tabular-nums"],
                 }}
@@ -351,7 +382,12 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
                 {formatRemaining(remainingMs)}
               </Text>
               <View className="flex-row items-center gap-1">
-                <Ionicons name={paused ? "pause" : "notifications"} size={14} color={colors.muted} />
+                <Ionicons
+                  name={paused ? "pause" : canNotify ? "notifications" : "time-outline"}
+                  size={14}
+                  color={colors.muted}
+                  testID={paused ? "focus-timer-icon-paused" : canNotify ? "focus-timer-icon-bell" : "focus-timer-icon-clock"}
+                />
                 <Text
                   className="text-sm"
                   style={{ color: colors.muted, fontVariant: ["tabular-nums"] }}
@@ -379,18 +415,18 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
           <Pressable
             onPress={reset}
             accessibilityRole="button"
-            accessibilityLabel="Done with timer"
+            accessibilityLabel="Clear timer"
             accessibilityHint="Goes back to choosing a length"
             style={pill("surface")}
             testID="focus-timer-clear"
           >
-            <Text className="text-base font-semibold text-foreground text-center">Done with timer</Text>
+            <Text className="text-base font-semibold text-foreground">Clear</Text>
           </Pressable>
           <Pressable
             onPress={restart}
             accessibilityRole="button"
             accessibilityLabel="Restart"
-            accessibilityHint={`Starts the ${durationWords(run.minutes)} timer again`}
+            accessibilityHint={`Starts the timer for ${durationWords(run.minutes)} again`}
             style={pill("tint")}
             testID="focus-timer-restart"
           >
@@ -416,10 +452,11 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
               onPress={resume}
               accessibilityRole="button"
               accessibilityLabel="Resume"
-              style={pill("primary")}
+              accessibilityHint="Continues the timer"
+              style={pill("tint")}
               testID="focus-timer-resume"
             >
-              <Text className="text-base font-bold" style={{ color: colors.onPrimary }}>
+              <Text className="text-base font-bold" style={{ color: colors.primary }}>
                 Resume
               </Text>
             </Pressable>
@@ -438,6 +475,70 @@ export function FocusTimerPanel({ onStart }: FocusTimerPanelProps) {
           )}
         </View>
       )}
+    </View>
+  );
+}
+
+/**
+ * A fixed day (not today), so a daylight-saving change can't shift the h:mm
+ * the countdown wheel shows. `second` is the nudge below; the wheel ignores it.
+ */
+function wheelDate(minutes: number, second = 0): Date {
+  return new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60, second);
+}
+
+/**
+ * The iOS countdown wheel (hours + minutes).
+ *
+ * UIKit quirk: in countdown mode UIDatePicker doesn't report the first spin
+ * (no valueChanged) unless its date is set again once it's on screen, and
+ * datetimepicker 8.4.4 (Fabric) has no workaround. So one frame after it
+ * mounts, and whenever a length had to be clamped, the value is nudged by a
+ * second and back: two prop changes, so native setDate runs with the picker
+ * on screen (and writes a clamped length back to the wheel). No remounting.
+ */
+function CountdownWheel({
+  minutes,
+  onChange,
+  scheme,
+  accentColor,
+}: {
+  minutes: number;
+  onChange: (minutes: number) => void;
+  scheme: "light" | "dark";
+  accentColor: string;
+}) {
+  const [nudge, setNudge] = useState(0);
+  const [nudges, setNudges] = useState(0);
+  useEffect(() => {
+    let second: number | null = null;
+    const first = requestAnimationFrame(() => {
+      setNudge(1);
+      second = requestAnimationFrame(() => setNudge(0));
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      if (second !== null) cancelAnimationFrame(second);
+    };
+  }, [nudges]);
+
+  return (
+    <View className="items-center">
+      <DateTimePicker
+        value={wheelDate(minutes, nudge)}
+        mode="countdown"
+        display="spinner"
+        themeVariant={scheme}
+        accentColor={accentColor}
+        accessibilityLabel={`Timer length, ${durationWords(minutes)}`}
+        onChange={(_event, date) => {
+          if (!date) return;
+          const raw = date.getHours() * 60 + date.getMinutes();
+          if (clampTimerMinutes(raw) !== raw) setNudges((count) => count + 1);
+          onChange(raw);
+        }}
+        testID="focus-timer-wheel"
+      />
     </View>
   );
 }
@@ -473,6 +574,8 @@ function Chip({
         alignItems: "center",
         justifyContent: "center",
         borderRadius: 999,
+        borderWidth: 1,
+        borderColor: selected ? colors.primary : colors.border,
         backgroundColor: selected ? colors.primary : colors.surface,
       }}
       testID={testID}
@@ -481,49 +584,5 @@ function Chip({
         {label}
       </Text>
     </Pressable>
-  );
-}
-
-/** Android and the web have no duration wheel: minutes in steps of 5 (1 to 180). */
-function MinutesStepper({ minutes, onChange }: { minutes: number; onChange: (minutes: number) => void }) {
-  const colors = useColors();
-  const down = minutes <= STEPPER_STEP ? FOCUS_TIMER_MIN_MINUTES : Math.ceil(minutes / STEPPER_STEP) * STEPPER_STEP - STEPPER_STEP;
-  const up = minutes < STEPPER_STEP ? STEPPER_STEP : Math.floor(minutes / STEPPER_STEP) * STEPPER_STEP + STEPPER_STEP;
-  const canDown = minutes > FOCUS_TIMER_MIN_MINUTES;
-  const canUp = minutes < FOCUS_TIMER_MAX_MINUTES;
-  const button = (icon: "remove" | "add", label: string, enabled: boolean, next: number, testID: string) => (
-    <Pressable
-      onPress={() => onChange(Math.min(FOCUS_TIMER_MAX_MINUTES, next))}
-      disabled={!enabled}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled: !enabled }}
-      style={{
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: colors.surface,
-        opacity: enabled ? 1 : 0.4,
-      }}
-      testID={testID}
-    >
-      <Ionicons name={icon} size={20} color={colors.foreground} />
-    </Pressable>
-  );
-  return (
-    <View className="flex-row items-center justify-between gap-3" testID="focus-timer-stepper">
-      {button("remove", "Shorter timer", canDown, down, "focus-timer-stepper-down")}
-      <Text
-        className="flex-1 text-center text-lg font-semibold text-foreground"
-        accessibilityLabel={`Timer length, ${durationWords(minutes)}`}
-        accessibilityLiveRegion="polite"
-        testID="focus-timer-stepper-value"
-      >
-        {durationShort(minutes)}
-      </Text>
-      {button("add", "Longer timer", canUp, up, "focus-timer-stepper-up")}
-    </View>
   );
 }
