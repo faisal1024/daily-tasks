@@ -4,7 +4,7 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import type { PlusTrial } from "./plus";
+import type { PlusTrial, RenewalPrice } from "./plus";
 
 export type { PlusTrial } from "./plus";
 
@@ -114,13 +114,30 @@ export function trialEndDay(endsAt: string, now: number): string {
   return end.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 }
 
+/** "Not for you? Cancel by Friday with Manage below." (the day before the end). */
+function cancelBy(endsAt: string, now: number): string {
+  const end = new Date(endsAt);
+  const dayBefore = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1, end.getHours(), end.getMinutes());
+  const day = trialEndDay(dayBefore.toISOString(), now);
+  return day === "today" ? "Not for you? Cancel today with Manage below." : `Not for you? Cancel by ${day} with Manage below.`;
+}
+
 export interface TrialNoteCopy {
   title: string;
   body: string;
 }
 
-/** The note's words. Counts only; a gentler line when Plus hasn't been used yet. */
-export function trialNoteCopy(usage: TrialUsage, trial: PlusTrial, now: number): TrialNoteCopy {
+/**
+ * The note's words. Counts only; a gentler line when Plus hasn't been used
+ * yet. `price`: what the subscribed product renews at, when known (the
+ * renewing line names it; without it, the line leaves the price out).
+ */
+export function trialNoteCopy(
+  usage: TrialUsage,
+  trial: PlusTrial,
+  now: number,
+  price: RenewalPrice | null = null,
+): TrialNoteCopy {
   const did: string[] = [];
   if (usage.brain_dump > 0) did.push(`sorted ${plural(usage.brain_dump, "brain dump", "brain dumps")}`);
   if (usage.break_down > 0) did.push(`broke down ${plural(usage.break_down, "task", "tasks")}`);
@@ -132,7 +149,9 @@ export function trialNoteCopy(usage: TrialUsage, trial: PlusTrial, now: number):
       : "Plus is here when you want it: sorting a brain dump, breaking down a stuck task, a coach's note.";
   const day = trialEndDay(trial.endsAt, now);
   const ends = trial.willRenew
-    ? `Your trial ends ${day}, then Plus continues as your subscription. If it's not for you, cancel at least a day before with Manage below.`
+    ? price
+      ? `Your trial ends ${day}, then Plus renews at ${price.priceString}/${price.period}. ${cancelBy(trial.endsAt, now)}`
+      : `Your trial ends ${day}, then Plus continues as your subscription. If it's not for you, cancel at least a day before with Manage below.`
     : `Your trial ends ${day} and won't renew. Your three tasks stay free after that.`;
   return { title: "Your Plus trial", body: `${what} ${ends}` };
 }

@@ -224,8 +224,8 @@ describe("IdeasSheet", () => {
     await render(<IdeasSheet {...p} remainingSlots={2} />);
     await fireEvent.press(screen.getByRole("button", { name: "Add Walk 20 minutes" }));
     expect(p.onAdd).toHaveBeenCalledWith("Walk 20 minutes");
-    expect(screen.getByText("Add the first 2")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "Add 2 of these ideas" }));
+    expect(screen.getByText("Add 2 ideas")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Add 2 ideas" }));
     expect(p.onAddAll).toHaveBeenCalledWith(["Walk 20 minutes", "Stretch calves"]);
   });
 
@@ -281,30 +281,27 @@ describe("IdeasSheet", () => {
     expect(screen.queryByRole("button", { name: "Get new ideas" })).toBeNull();
   });
 
-  it("bases the hint on ideas that can still be added: not already added, and no more than the free slots", async () => {
+  it("the hint counts today's open slots, not the ideas showing", async () => {
     const { rerender } = await render(<IdeasSheet {...props()} />);
-    expect(screen.getByText("Add any you like — one, two, or all three.")).toBeOnTheScreen();
+    expect(screen.getByText("Room for three more today.")).toBeOnTheScreen();
     // Three ideas, two free slots.
     await rerender(<IdeasSheet {...props()} remainingSlots={2} />);
-    expect(screen.getByText("Add one or both.")).toBeOnTheScreen();
-    // Three free slots, but one idea is already on the list.
-    await rerender(<IdeasSheet {...props()} addedTexts={new Set(["walk 20 minutes"])} />);
-    expect(screen.getByText("Add one or both.")).toBeOnTheScreen();
+    expect(screen.getByText("Room for two more today.")).toBeOnTheScreen();
     // One free slot.
     await rerender(<IdeasSheet {...props()} remainingSlots={1} />);
-    expect(screen.getByText("Add it if it fits.")).toBeOnTheScreen();
-    expect(screen.getByText("Add the first 1")).toBeOnTheScreen();
+    expect(screen.getByText("Room for one more today.")).toBeOnTheScreen();
+    expect(screen.getByText("Add 1 idea")).toBeOnTheScreen();
   });
 
   it("says 'Add all' when every remaining idea fits", async () => {
     await render(<IdeasSheet {...props()} remainingSlots={3} />);
     expect(screen.getByText("Add all")).toBeOnTheScreen();
-    expect(screen.queryByText(/Add the first/)).toBeNull();
+    expect(screen.queryByText(/Add \d idea/)).toBeNull();
   });
 
   it("uses count-aware copy for fewer than three ideas", async () => {
     await render(<IdeasSheet {...props()} ideas={ideas.slice(0, 1)} />);
-    expect(screen.getByText("Add it if it fits.")).toBeOnTheScreen();
+    expect(screen.getByText("Room for three more today.")).toBeOnTheScreen();
     expect(screen.queryByText(/Add all/)).toBeNull();
   });
 });

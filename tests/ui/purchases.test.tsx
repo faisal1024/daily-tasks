@@ -134,7 +134,7 @@ describe("purchases", () => {
     expect(await fetchPlusStatus()).toEqual({
       active: true,
       lapsedAt: null,
-      trial: { startedAt: null, endsAt: "2099-10-04T12:00:00Z", willRenew: true },
+      trial: { startedAt: null, endsAt: "2099-10-04T12:00:00Z", willRenew: true, productId: null },
     });
     const expired = { identifier: "plus", isActive: false, periodType: "NORMAL", expirationDate: "2020-01-01T00:00:00Z" };
     mockSdk.getCustomerInfo.mockResolvedValueOnce({ entitlements: { active: {}, all: { plus: expired } } });
@@ -452,6 +452,7 @@ describe("currentTrial (the day-5 note's trial)", () => {
       startedAt: "2026-10-01T09:00:00Z",
       endsAt: "2026-10-08T09:00:00Z",
       willRenew: true,
+      productId: null,
     });
     expect(currentTrial(info({ unsubscribeDetectedAt: "2026-10-02T09:00:00Z" }))?.willRenew).toBe(false);
     expect(currentTrial(info({ willRenew: false }))?.willRenew).toBe(false);

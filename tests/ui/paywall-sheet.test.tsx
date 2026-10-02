@@ -295,7 +295,7 @@ describe("PaywallSheet: the trial timeline and onboarding headline", () => {
     const props = setup();
     const { rerender } = await render(<PaywallSheet source="onboarding" taskCount={2} remindersAllowed {...props} />);
     await act(async () => {});
-    expect(screen.getByText("Today's set.")).toBeOnTheScreen();
+    expect(screen.getByText("You're set for today.")).toBeOnTheScreen();
     const timeline = screen.getByTestId("paywall-trial-timeline");
     expect(timeline.props.accessible).toBe(true);
     expect(timeline).toHaveProp(
@@ -334,7 +334,7 @@ describe("PaywallSheet: the trial timeline and onboarding headline", () => {
 
   it.each([
     [3, "Your three are set."],
-    [1, "Today's set."],
+    [1, "You're set for today."],
     [0, "A little extra help, when you want it"],
   ])("onboarding with %s tasks set: %s", async (taskCount, headline) => {
     await render(<PaywallSheet source="onboarding" taskCount={taskCount} {...setup()} />);

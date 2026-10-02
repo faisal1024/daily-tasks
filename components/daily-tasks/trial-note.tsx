@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/use-colors";
 import { track } from "@/lib/daily-tasks/analytics";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
-import { manageSubscriptions } from "@/lib/daily-tasks/purchases";
+import { fetchRenewalPrice, manageSubscriptions } from "@/lib/daily-tasks/purchases";
 import {
   loadPlusUses,
   loadTrialNoteRecord,
@@ -49,9 +49,14 @@ export function TrialNote({ today, active = true }: { today: string; active?: bo
         setShown(null);
         return;
       }
-      const usage = usageDuring(await loadPlusUses(), trial, now);
+      // The renewing line names the price when the store knows it.
+      const [uses, price] = await Promise.all([
+        loadPlusUses(),
+        trial.willRenew ? fetchRenewalPrice(trial.productId).catch(() => null) : Promise.resolve(null),
+      ]);
+      const usage = usageDuring(uses, trial, now);
       if (cancelled) return;
-      setShown({ key, copy: trialNoteCopy(usage, trial, now) });
+      setShown({ key, copy: trialNoteCopy(usage, trial, now, price) });
       // trial_note_shown once per trial (it may stay up across launches).
       if (record?.key !== key) {
         track("trial_note_shown", { count: usage.brain_dump + usage.break_down + usage.coach_note + usage.tomorrow_draft });

@@ -333,7 +333,7 @@ export function TaskRow({
             <Pressable
               accessibilityRole="checkbox"
               accessibilityState={{ checked: completed }}
-              accessibilityLabel={`${hero ? "Up next. " : ""}Task ${index + 1}: ${task.text}`}
+              accessibilityLabel={`${hero ? "Up next. " : ""}Task ${index + 1}: ${task.text}${task.routineId ? ", routine" : ""}`}
               accessibilityHint={completed ? "Marks it not done" : "Marks it done"}
               accessibilityActions={[
                 ...actions.map((action) => ({ name: action, label: TASK_ROW_ACTION_LABELS[action] })),
@@ -397,6 +397,13 @@ export function TaskRow({
                   numberOfLines={completed ? 1 : undefined}
                 >
                   {task.text}
+                  {task.routineId ? (
+                    // A small repeat glyph after the words, as in Ideas.
+                    <Text style={{ fontWeight: "400" }} testID={`task-routine-${task.id}`}>
+                      {" "}
+                      <Ionicons name="repeat" size={Math.round(textSize * 0.8)} color={colors.muted} />
+                    </Text>
+                  ) : null}
                 </Text>
               </Pressable>
             )}

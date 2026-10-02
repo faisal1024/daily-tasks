@@ -4,7 +4,7 @@
 // notification, and closing without stopping it. Run on the real store.
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AccessibilityInfo, AppState, ScrollView } from "react-native";
+import { AccessibilityInfo, AppState, Dimensions, ScrollView } from "react-native";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
 import { useFocusSessionCues } from "@/hooks/use-focus-session-cues";
@@ -101,6 +101,10 @@ const pick = (name: string) => fireEvent.press(screen.getByRole("button", { name
 
 describe("FocusMode", () => {
   it("shows the task, its start line and its steps; a step calls onToggleStep with its id", async () => {
+    // At the default text size (the jest window's fontScale is 2, an AX size,
+    // where the start line folds away).
+    const original = Dimensions.get("window");
+    Dimensions.set({ window: { ...original, fontScale: 1 }, screen: { ...original, fontScale: 1 } });
     const { onToggleStep } = await renderFocus();
     expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Focus: Walk the dog" })).toHaveTextContent("Walk the dog");
@@ -111,6 +115,7 @@ describe("FocusMode", () => {
     await fireEvent.press(screen.getByRole("checkbox", { name: "Step 1 of 2: Find the lead" }));
     expect(onToggleStep).toHaveBeenCalledTimes(1);
     expect(onToggleStep).toHaveBeenCalledWith("s1");
+    Dimensions.set({ window: original, screen: original });
   });
 
   it("says All steps done. once every step is ticked", async () => {
@@ -176,7 +181,7 @@ describe("FocusMode", () => {
     expect(screen.queryByTestId("focus-check-in")).toBeNull();
 
     await advance(1000);
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Walk the dog”.");
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("10 minutes on “Walk the dog”. How did it go?");
     expect(screen.queryByTestId("focus-timer-remaining")).toBeNull();
     expect(screen.getByTestId("focus-timer-times-up")).toHaveTextContent("Time's up");
     expect(screen.getByLabelText("Time's up")).toBeOnTheScreen();

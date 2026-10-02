@@ -236,9 +236,9 @@ describe("RoutinesSheet: the day picker", () => {
     expect(screen.getByLabelText("Routine")).toHaveProp("value", "😀".repeat(MAX_ROUTINE_TEXT));
   });
 
-  it("keeps the title to one line between Cancel and Save", async () => {
+  it("keeps the title to two lines (shrinking to fit) between Cancel and Save", async () => {
     await openEditor();
-    expect(screen.getByRole("header", { name: "New routine" })).toHaveProp("numberOfLines", 1);
+    expect(screen.getByRole("header", { name: "New routine" })).toHaveProp("numberOfLines", 2);
   });
 });
 

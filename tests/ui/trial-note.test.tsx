@@ -17,6 +17,7 @@ jest.mock("@/lib/daily-tasks/plus-context", () => ({
 }));
 jest.mock("@/lib/daily-tasks/purchases", () => ({
   manageSubscriptions: jest.fn(async () => {}),
+  fetchRenewalPrice: jest.fn(async () => null),
 }));
 jest.mock("@/lib/daily-tasks/analytics", () => ({
   ...jest.requireActual("@/lib/daily-tasks/analytics"),

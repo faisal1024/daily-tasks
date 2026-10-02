@@ -108,19 +108,24 @@ export function TomorrowDraftCard({
   const allTicked = count > 0 && count === fits;
   const skipped = draft.tasks.length - count;
   const because = draft.because ? morningPerspective(draft.because) : "";
-  // More drafted than there's room for: say so, and let them pick.
+  // One slot and a choice of rows: picking one swaps it in, so VoiceOver
+  // hears them as radio buttons; otherwise checkboxes.
+  const pickOne = room === 1 && draft.tasks.length > 1;
+  // More drafted than there's room for: say so (above the list), and let them pick.
   const roomLine =
     draft.tasks.length > room ? (room === 1 ? "Room for one more today. Pick which." : `Room for ${room} more today. Pick which.`) : null;
+  const otherWords = ["", "one", "two", "three"];
   const savedLine =
-    count === 0
+    pickOne && count === 1 && skipped > 0
+      ? skipped === 1
+        ? "The other one is saved for later."
+        : `The other ${otherWords[skipped] ?? skipped} are saved for later.`
+      : count === 0
       ? "Tick the ones you want, or tap Change to start over."
       : skipped > 0
         ? `${skipped === 1 ? "The unticked one is saved for later." : "Unticked ones are saved for later."}${count < room ? " Fill the rest after." : ""}`
         : null;
 
-  // One slot and a choice of rows: picking one swaps it in, so VoiceOver
-  // hears them as radio buttons; otherwise checkboxes.
-  const pickOne = room === 1 && draft.tasks.length > 1;
 
   const toggle = (text: string) => {
     let next: string[];
@@ -165,6 +170,11 @@ export function TomorrowDraftCard({
           <Ionicons name="close" size={20} color={colors.muted} />
         </Pressable>
       </View>
+      {roomLine ? (
+        <Text className="text-sm" style={{ color: colors.muted }} testID="tomorrow-draft-room">
+          {roomLine}
+        </Text>
+      ) : null}
       <View
         className="rounded-2xl border overflow-hidden"
         style={{ borderColor: colors.border, backgroundColor: colors.background }}
@@ -198,7 +208,8 @@ export function TomorrowDraftCard({
                 testID="tomorrow-draft-task"
               >
                 <Ionicons
-                  name={on ? "checkmark-circle" : "ellipse-outline"}
+                  // Pick one: radio buttons, so it reads as a choice, not a checklist.
+                  name={pickOne ? (on ? "radio-button-on" : "radio-button-off") : on ? "checkmark-circle" : "ellipse-outline"}
                   size={24}
                   color={on ? colors.primary : colors.muted}
                   accessibilityElementsHidden
@@ -211,11 +222,6 @@ export function TomorrowDraftCard({
           );
         })}
       </View>
-      {roomLine ? (
-        <Text className="text-sm" style={{ color: colors.muted }} testID="tomorrow-draft-room">
-          {roomLine}
-        </Text>
-      ) : null}
       {savedLine ? (
         <Text className="text-sm" style={{ color: colors.muted }} testID="tomorrow-draft-hint">
           {savedLine}

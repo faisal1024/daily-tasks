@@ -53,7 +53,7 @@ interface IdeasSheetProps {
   locked?: boolean;
   /** The user has routines (due today or not); without any, a quiet footer offers one. */
   hasRoutines?: boolean;
-  /** Opens the routines sheet (the footer's "Make it a routine"). */
+  /** Opens the routines sheet (the footer's "Make it a routine", Today's routines' Edit). */
   onManageRoutines?: () => void;
 }
 
@@ -145,6 +145,7 @@ export function IdeasSheet({
             <TodaysRoutines
               routines={shownRoutines}
               onAdd={onAddRoutine}
+              onEdit={onManageRoutines}
               blockedReason={
                 locked
                   ? "Today is set. Change it on Today to add one."
@@ -211,16 +212,23 @@ export function IdeasSheet({
             </View>
           )}
 
-          <Text className="text-base" style={{ color: colors.muted }}>
-            {savedOnly
-              ? "Your day is full. Free a slot to swap one of these in."
-              : full
-                ? "Today's three are picked. Nice."
-                : suggestionsHint(Math.min(available.length, remainingSlots))}
-          </Text>
-          {adaptationReason && !full && (
-            <Text className="text-xs" style={{ color: colors.muted }}>
-              {adaptationReason}
+          {/* The reason leads; the slot count under it is the smaller helper. */}
+          {adaptationReason && !full && !savedOnly ? (
+            <>
+              <Text className="text-base" style={{ color: colors.muted }} testID="ideas-reason">
+                {adaptationReason}
+              </Text>
+              <Text className="text-xs" style={{ color: colors.muted }} testID="ideas-hint">
+                {suggestionsHint(remainingSlots)}
+              </Text>
+            </>
+          ) : (
+            <Text className="text-base" style={{ color: colors.muted }} testID="ideas-hint">
+              {savedOnly
+                ? "Your day is full. Free a slot to swap one of these in."
+                : full
+                  ? "Today's three are picked. Nice."
+                  : suggestionsHint(remainingSlots)}
             </Text>
           )}
 
@@ -271,15 +279,16 @@ export function IdeasSheet({
               accessibilityRole="button"
               accessibilityLabel={
                 available.length > remainingSlots
-                  ? `Add ${remainingSlots} of these ideas`
+                  ? `Add ${remainingSlots} ${remainingSlots === 1 ? "idea" : "ideas"}`
                   : "Add all ideas"
               }
               className="rounded-2xl py-4 items-center"
               style={{ backgroundColor: colors.primary }}
             >
               <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: colors.onPrimary }}>
+                {/* Only the ideas below (never routines), so it says so. */}
                 {available.length > remainingSlots
-                  ? `Add the first ${remainingSlots}`
+                  ? `Add ${remainingSlots} ${remainingSlots === 1 ? "idea" : "ideas"}`
                   : "Add all"}
               </Text>
             </Pressable>
@@ -394,22 +403,37 @@ function TodaysRoutines({
   routines,
   onAdd,
   blockedReason,
+  onEdit,
 }: {
   routines: { id: string; text: string }[];
   onAdd?: (id: string) => void;
   blockedReason: string | null;
+  /** Opens the routines sheet. */
+  onEdit?: () => void;
 }) {
   const colors = useColors();
   const disabled = blockedReason !== null;
   return (
     <View className="gap-2" testID="todays-routines">
-      <Text
-        accessibilityRole="header"
-        className="text-sm font-semibold uppercase tracking-wide"
-        style={{ color: colors.muted }}
-      >
-        Today&apos;s routines
-      </Text>
+      <View className="flex-row items-center justify-between">
+        <Text accessibilityRole="header" className="text-sm font-semibold" style={{ color: colors.muted }}>
+          Today&apos;s routines
+        </Text>
+        {onEdit && (
+          <Pressable
+            onPress={onEdit}
+            accessibilityRole="button"
+            accessibilityLabel="Edit routines"
+            accessibilityHint="Opens routines"
+            hitSlop={12}
+            testID="todays-routines-edit"
+          >
+            <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+              Edit
+            </Text>
+          </Pressable>
+        )}
+      </View>
       {blockedReason && (
         <Text className="text-sm" style={{ color: colors.muted }} testID="todays-routines-blocked">
           {blockedReason}

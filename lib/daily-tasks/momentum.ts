@@ -263,7 +263,7 @@ function goalSuggestions(goalTitle: string): string[] {
   if (exact) return exact;
 
   return [
-    `Spend 15 minutes on ${goalTitle}`,
+    `Spend a little time on ${goalTitle}`,
     `Write the next step for ${goalTitle}`,
     `Make one small move toward ${goalTitle}`,
   ];

@@ -207,6 +207,16 @@ export function checkInTitle(session: FocusSession): string {
 }
 
 /**
+ * The line under the focus screen's ring at time's up. The ring already says
+ * "Time's up", so this doesn't: "20 minutes on “Walk”. How did it go?". A
+ * starter keeps its own line ("5 minutes in. Keep going?").
+ */
+export function checkInLine(session: FocusSession): string {
+  if (session.kind === "starter") return checkInTitle(session);
+  return `${capitalize(durationWords(sessionMinutes(session)))} on “${sessionFocusText(session)}”. How did it go?`;
+}
+
+/**
  * The check-in's quiet way out (time's up): "Take a break" on a timer, "Stop
  * for now" on a starter. Either ends the session; the task stays open.
  */

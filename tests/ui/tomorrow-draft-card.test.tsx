@@ -62,7 +62,7 @@ describe("TomorrowDraftCard", () => {
     expect(row("Walk").props.accessibilityHint).toBeUndefined();
     expect(screen.getByTestId("tomorrow-draft-room")).toHaveTextContent("Room for one more today. Pick which.");
     expect(useButton()).toHaveTextContent("Use this");
-    expect(hint()).toHaveTextContent("Unticked ones are saved for later.");
+    expect(hint()).toHaveTextContent("The other two are saved for later.");
 
     await fireEvent.press(row("Stretch"));
     expect(checked("Stretch")).toBe(true);

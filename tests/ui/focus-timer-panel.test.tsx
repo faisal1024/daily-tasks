@@ -241,22 +241,15 @@ describe("FocusTimerPanel: custom length", () => {
     expect(clampedLow).toBe(wheel);
     expect(clampedLow.props.value.getHours() * 60 + clampedLow.props.value.getMinutes()).toBe(1);
     await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(4, 0)));
-    await advance(100);
+    // Past the mount nudges.
+    await advance(300);
     expect(screen.getByTestId("focus-timer-wheel")).toBe(wheel);
-    // Again at the cap: the value is nudged (a second, then back, a frame
-    // apart) so native setDate puts the wheel back to 3:00.
-    const frames: FrameRequestCallback[] = [];
-    jest.spyOn(global, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
-      frames.push(cb);
-      return frames.length;
-    });
+    // Again at the cap: the value is nudged on a second (and left there) so
+    // native setDate puts the wheel back to 3:00.
     const wheelTime = () => (screen.getByTestId("focus-timer-wheel").props.value as Date).getTime();
-    await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(5, 0)));
     const before = wheelTime();
-    await act(async () => frames.shift()?.(0));
+    await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(5, 0)));
     expect(wheelTime()).toBe(before + 1000);
-    await act(async () => frames.shift()?.(0));
-    expect(wheelTime()).toBe(before);
     expect(screen.getByTestId("focus-timer-wheel")).toBe(wheel);
     const capped = screen.getByTestId("focus-timer-wheel").props.value as Date;
     expect(capped.getHours() * 60 + capped.getMinutes()).toBe(180);
@@ -265,7 +258,7 @@ describe("FocusTimerPanel: custom length", () => {
     expect(remaining()).toHaveTextContent("3:00:00");
   });
 
-  it("iOS: one frame after the wheel mounts its value is nudged a second and back (UIKit first-spin quirk)", async () => {
+  it("iOS: after the wheel mounts its value is nudged on a second, a frame later and again a moment later, never back (UIKit first-spin quirk)", async () => {
     Platform.OS = "ios";
     const frames: FrameRequestCallback[] = [];
     jest.spyOn(global, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
@@ -280,8 +273,9 @@ describe("FocusTimerPanel: custom length", () => {
     expect(new Date(mounted).getFullYear()).toBe(2000);
     await act(async () => frames.shift()?.(0));
     expect(wheelTime()).toBe(mounted + 1000);
-    await act(async () => frames.shift()?.(0));
-    expect(wheelTime()).toBe(mounted);
+    expect(frames).toHaveLength(0);
+    await advance(250);
+    expect(wheelTime()).toBe(mounted + 2000);
   });
 
   it("Android: a stepper instead of the wheel, in steps of 5 within 1–180", async () => {
@@ -346,7 +340,7 @@ describe("FocusTimerPanel: running", () => {
     await advance(2 * MIN);
     expect(remaining()).toHaveTextContent("5:00");
     await advance(5 * MIN);
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("10 minutes on “Write”. How did it go?");
   });
 
   it("Stop timer while running goes back to the picker (nothing picked)", async () => {
@@ -367,7 +361,7 @@ describe("FocusTimerPanel: running", () => {
     expect(appStateListeners).toHaveLength(1);
     jest.setSystemTime(START.getTime() + 12 * MIN);
     await foreground();
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("5 minutes on “Write”. How did it go?");
   });
 
   it("Pause tapped after it ran out (between ticks) ends it instead of pausing at 0:00", async () => {
@@ -386,7 +380,7 @@ describe("FocusTimerPanel: finishing", () => {
     await press("5 minute timer");
     await advance(5 * MIN);
     expect(screen.getByTestId("focus-timer-times-up")).toHaveTextContent("Time's up");
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("5 minutes on “Write”. How did it go?");
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop here" })).toBeNull();
     expect(screen.getByRole("button", { name: "Take a break" }).props.accessibilityHint).toBe(
