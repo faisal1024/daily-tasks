@@ -67,8 +67,10 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 
 `app_opened` (once per day), `onboarding_completed`, `task_completed`, `perfect_day`,
 `brain_dump_sorted`, `break_down_used`, `plus_gate_hit`, `paywall_viewed`,
-`paywall_closed`, `purchase_started`, `purchase_completed`, `purchase_failed`,
-`restore_completed`, `redeem_code_opened`, `path_edited`, `path_regenerated`,
+`paywall_closed`, `purchase_started`, `purchase_completed`, `purchase_failed`
+(failed or pending/Ask to Buy, with `outcome`), `purchase_cancelled` (the user backed
+out of Apple's purchase sheet; `plan`, `source`, `trial`), `restore_completed`,
+`redeem_code_opened`, `path_edited`, `path_regenerated`,
 `rating_prompt_requested` (the system rating prompt was requested; `source` is the happy
 moment that earned it: `focus_done`, `milestone`, `good_week` or `perfect_day`),
 `rate_row_tapped` and `feedback_row_tapped` (Settings › Feedback). Properties are limited to `source`, `plan`, `outcome`, `trial`,
@@ -76,3 +78,20 @@ moment that earned it: `focus_done`, `milestone`, `good_week` or `perfect_day`),
 task, goal or brain-dump text; no person profiles; `$ip` null, `$geoip_disable`, and
 the project discards client IPs. Analytics starts off and is only enabled once the
 saved Settings choice is loaded; resetting data keeps an opt-out and forgets the id.
+
+Funnels: until 1.2 and older installs are gone, count a cancelled purchase as
+`purchase_cancelled` OR (`purchase_failed` AND `outcome` = cancelled); 1.1/1.2 still
+send the old shape.
+
+## Subscription numbers (trials, renewals, refunds)
+
+These happen server-side, so they're read in **RevenueCat Charts** (trial conversion,
+initial conversion, active subscriptions, MRR, churn, refunds), not PostHog. The weekly
+dashboard pairs RevenueCat Charts with the PostHog in-app funnel (installs → paywall →
+purchase started/completed/cancelled).
+
+We deliberately don't enable RevenueCat's PostHog integration: for customers without a
+`$posthogUserId` attribute it falls back to the RevenueCat app user id, so purchase data
+would reach PostHog even for people who turned "Share anonymous usage stats" off, and
+the privacy policy and App Privacy answers say PostHog only gets usage counts. Revisit
+only together with a privacy-policy and App Privacy update.
