@@ -7,8 +7,9 @@ import { useMemo, useState } from "react";
 
 import { RoutinesSheet } from "@/components/daily-tasks/routines-sheet";
 import { usePaywallGate } from "@/hooks/use-paywall-gate";
+import { useTodaysRoutines } from "@/hooks/use-todays-routines";
 import { track } from "@/lib/daily-tasks/analytics";
-import { FREE_ROUTINE_LIMIT, routineBlock, routinesDueToday } from "@/lib/daily-tasks/routines";
+import { FREE_ROUTINE_LIMIT } from "@/lib/daily-tasks/routines";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 
 export function RoutinesManager({
@@ -27,14 +28,12 @@ export function RoutinesManager({
     setRoutinePaused,
     removeRoutine,
     today,
-    remainingSlots,
   } = useDailyTasks();
-  // For the line after a save: is it due today, and could it be added now?
-  const dueTodayIds = useMemo(
-    () => routinesDueToday(state.routines, state.tasks, today).map((routine) => routine.id),
-    [state.routines, state.tasks, today],
-  );
-  const canAddToToday = routineBlock({ locked: state.todayLocked, remainingSlots }) === null;
+  // For the line after a save: is it due today, and is Today's card showing
+  // it with Add on right now (the same selector the card uses)?
+  const todaysRoutines = useTodaysRoutines();
+  const dueTodayIds = useMemo(() => todaysRoutines.due.map((routine) => routine.id), [todaysRoutines.due]);
+  const canAddToToday = todaysRoutines.show && todaysRoutines.block === null;
   const [startNew, setStartNew] = useState(false);
   const showPaywall = usePaywallGate<"routines">(() => {
     // Plus as of now: bought means straight into a new routine.
@@ -65,6 +64,7 @@ export function RoutinesManager({
       onRemove={removeRoutine}
       dueTodayIds={dueTodayIds}
       canAddToToday={canAddToToday}
+      today={today}
       onClose={() => {
         setStartNew(false);
         onVisibleChange(false);

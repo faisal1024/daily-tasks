@@ -7,6 +7,7 @@ import { AccessibilityInfo } from "react-native";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 
 import HomeScreen from "@/app/(tabs)/index";
+import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
 import { track } from "@/lib/daily-tasks/analytics";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
@@ -101,10 +102,13 @@ async function openToday(now: Date, saved: Partial<AppState>) {
 const FRIDAY_10AM = new Date(2026, 9, 2, 10, 0);
 
 const card = () => within(screen.getByTestId("today-routines"));
+// Only Today's card (Ideas' rows say "Add … to today" too).
 const cardTexts = () =>
-  screen
-    .queryAllByRole("button", { name: /^Add .+ to today$/ })
-    .map((node) => (node.props.accessibilityLabel as string).replace(/^Add (.+) to today$/, "$1"));
+  screen.queryByTestId("today-routines")
+    ? card()
+        .queryAllByRole("button", { name: /^Add .+ to today$/ })
+        .map((node) => (node.props.accessibilityLabel as string).replace(/^Add (.+) to today$/, "$1"))
+    : [];
 const todayTaskNames = () =>
   screen
     .queryAllByRole("checkbox")
@@ -167,8 +171,8 @@ describe("Today's routines: one add, both places (real store)", () => {
 
     await fireEvent.press(screen.getByTestId("need-ideas"));
     const ideas = within(screen.getByTestId("ideas-sheet"));
-    expect(ideas.queryByRole("button", { name: "Add Stretch" })).toBeNull();
-    expect(ideas.getByRole("button", { name: "Add Plan the week" })).toBeOnTheScreen();
+    expect(ideas.queryByRole("button", { name: "Add Stretch to today" })).toBeNull();
+    expect(ideas.getByRole("button", { name: "Add Plan the week to today" })).toBeOnTheScreen();
   });
 
   it("Add in Ideas takes it off Today's card too, tracked with source ideas", async () => {
@@ -177,7 +181,7 @@ describe("Today's routines: one add, both places (real store)", () => {
       routines: [routine("r1", "Stretch", WEEKDAYS), routine("r2", "Plan the week", [5])],
     });
     await fireEvent.press(screen.getByTestId("need-ideas"));
-    await fireEvent.press(within(screen.getByTestId("ideas-sheet")).getByRole("button", { name: "Add Stretch" }));
+    await fireEvent.press(within(screen.getByTestId("ideas-sheet")).getByRole("button", { name: "Add Stretch to today" }));
     expect(addedEvents()).toEqual([["routine_added_today", { source: "ideas" }]]);
     expect(todayTaskNames()).toEqual(["Read", "Stretch"]);
     expect(cardTexts()).toEqual(["Plan the week"]);
@@ -217,11 +221,9 @@ describe("Today's routines: only an add that lands counts (real store)", () => {
     expect(cardTexts()).toEqual(["Plan the week"]);
   });
 
-  // KNOWN BUG (PR #86 review): the store judges "lands" from stateRef, which
-  // only updates on render, so the second tap of a double tap is also counted
-  // (tracked and announced twice) though the reducer refuses it. `it.failing`
-  // until store.tsx's addRoutineToToday sees its own earlier add; then make it `it`.
-  it.failing("a double tap on Add tracks once and announces once", async () => {
+  // PR #86 review: the store remembers its own add until React renders it,
+  // so the second tap of a double tap is refused (not tracked or announced).
+  it("a double tap on Add tracks once and announces once", async () => {
     await doubleTapStretch();
     expect(addedEvents()).toEqual([["routine_added_today", { source: "today" }]]);
     expect(announce.mock.calls.filter(([text]) => text === "Added Stretch to today")).toHaveLength(1);
@@ -270,5 +272,56 @@ describe("Today's routines: Edit (real store)", () => {
 
     await fireEvent.press(screen.getByRole("button", { name: "Close routines" }));
     await waitFor(() => expect(cardTexts()).toEqual(["Stretch", "Water plants"]));
+  });
+});
+
+// PR #86 review: the save note reads the same selector as Today's card, so it
+// only says "you can add it now" when the card is on screen with Add on.
+describe("Routines sheet's save note follows Today's card (real store)", () => {
+  async function saveFrom(now: Date, saved: Partial<AppState>, preset = "Weekdays") {
+    fakeClockAt(now);
+    const morning = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 7);
+    const state: AppState = {
+      ...buildInitialState(morning),
+      hasSeenOnboarding: true,
+      plusGrandfathered: false,
+      autoLock: { ...DEFAULT_AUTO_LOCK, enabled: false },
+      ...saved,
+    };
+    await AsyncStorage.setItem("daily-tasks/state/v1", JSON.stringify(syncTodayHistory(state, state.lastOpenedDate)));
+    await render(
+      <DailyTasksProvider>
+        <RoutinesManager visible onVisibleChange={() => {}} />
+      </DailyTasksProvider>,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add a routine" })).toBeOnTheScreen());
+    await fireEvent.press(screen.getByRole("button", { name: "Add a routine" }));
+    await fireEvent.changeText(screen.getByLabelText("Routine"), "Water plants");
+    await fireEvent.press(screen.getByRole("radio", { name: preset }));
+    await fireEvent.press(screen.getByRole("button", { name: "Save routine" }));
+    return screen.getAllByTestId(/^routine-saved-note-/);
+  }
+
+  it("due today, card showing with room: you can add it now", async () => {
+    const notes = await saveFrom(FRIDAY_10AM, { tasks: [task("t0", "Read")] });
+    expect(notes[0]).toHaveTextContent(/Shows on Today — you can add it now\.$/);
+  });
+
+  it("due today but every task is done (card hidden): just its days", async () => {
+    const notes = await saveFrom(FRIDAY_10AM, { tasks: [task("t0", "Read")], todayCompletions: ["t0"] });
+    expect(notes[0]).toHaveTextContent(/Shows on Today on weekdays\.$/);
+  });
+
+  it("due today but last night's draft is showing (card waits): just its days", async () => {
+    const notes = await saveFrom(FRIDAY_10AM, {
+      tasks: [task("t0", "Read")],
+      tomorrowDraft: { forDate: "2026-10-02", tasks: ["Call mum"], note: "", because: "", source: "local" },
+    });
+    expect(notes[0]).toHaveTextContent(/Shows on Today on weekdays\.$/);
+  });
+
+  it("not due today (Saturday): says the next day, Monday", async () => {
+    const notes = await saveFrom(new Date(2026, 9, 3, 10, 0), { tasks: [task("t0", "Read")] });
+    expect(notes[0]).toHaveTextContent(/Shows on Today on weekdays — next on Monday\.$/);
   });
 });

@@ -140,21 +140,97 @@ export function routineBlock(input: { locked: boolean; remainingSlots: number })
   return null;
 }
 
-/** The one muted line under "Today's routines" on Today when its Add buttons are off. */
-export function routineBlockedLine(block: RoutineBlock): string | null {
-  if (block === "set") return "Today is set. Change it to add one.";
+/** Where a routines list is shown: Today's card or the Ideas sheet. */
+export type RoutinesWhere = "today" | "ideas";
+
+/**
+ * The one muted line under "Today's routines" when its Add buttons are off.
+ * A full day reads the same in both places; a set day on Today collapses the
+ * card to this line (nothing to add until next time), while Ideas points back
+ * to Today, where the day can be changed.
+ */
+export function routineBlockedLine(block: RoutineBlock, options: { where: RoutinesWhere }): string | null {
+  if (block === "set") {
+    return options.where === "today"
+      ? "Today is set. Your routines will be here next time."
+      : "Today is set. Change it on Today to add one.";
+  }
   if (block === "full") return "Your three are picked. Free a slot to add one.";
   return null;
 }
 
 /**
- * Whether Today shows its "Today's routines" card: only with something due
- * and not yet on the list, and never once the day's tasks are all done (no
- * nagging after a finished day). Only ever about today: a past day's
- * routines are never mentioned.
+ * Today's "Today's routines" card, in one place (Today's screen and the
+ * routines sheet's save note both read it, so the note never promises an Add
+ * the card doesn't offer):
+ * - `due`: active routines due today and not on today's list yet;
+ * - `show`: the card is on screen: something is due, and the day isn't
+ *   finished (every task done), closed in the evening, or still waiting on
+ *   last night's draft (that card leads; this one follows once it's used or
+ *   dismissed). Only ever about today: a past day's routines never show;
+ * - `block`: why Add is off (set or full), or null.
  */
-export function showTodaysRoutinesCard(input: { dueCount: number; allDone: boolean }): boolean {
-  return input.dueCount > 0 && !input.allDone;
+export function todaysRoutinesState(input: {
+  routines: readonly Routine[];
+  tasks: readonly Pick<Task, "text" | "routineId">[];
+  today: string | Date;
+  locked: boolean;
+  remainingSlots: number;
+  /** completed >= total > 0. */
+  allDone: boolean;
+  /** Last night's draft card is showing. */
+  draftShowing?: boolean;
+  /** The day was closed in the evening check-in. */
+  dayClosed?: boolean;
+}): { due: Routine[]; show: boolean; block: RoutineBlock } {
+  const due = routinesDueToday(input.routines, input.tasks, input.today);
+  const show = due.length > 0 && !input.allDone && !input.draftShowing && !input.dayClosed;
+  return { due, show, block: routineBlock(input) };
+}
+
+/** Whether every one of today's tasks is done (there's at least one). */
+export function allTasksDone(completed: number, total: number): boolean {
+  return total > 0 && completed >= total;
+}
+
+/**
+ * The next day (strictly after `today`) an active routine is due: how many
+ * days away (1–7) and its weekday. Null when paused or it has no days.
+ */
+export function nextDueDay(
+  routine: { days: readonly number[]; paused?: boolean },
+  today: string | Date,
+): { inDays: number; weekday: number } | null {
+  if (routine.paused) return null;
+  const days = cleanDays([...routine.days]);
+  if (days.length === 0) return null;
+  const from = weekdayOf(today);
+  for (let inDays = 1; inDays <= 7; inDays++) {
+    const weekday = (from + inDays) % 7;
+    if (days.includes(weekday)) return { inDays, weekday };
+  }
+  return null;
+}
+
+/** "tomorrow" or "on Monday" for a nextDueDay. */
+export function nextDayPhrase(next: { inDays: number; weekday: number }): string {
+  return next.inDays === 1 ? "tomorrow" : `on ${DAY_NAMES[next.weekday]}`;
+}
+
+/**
+ * The routine coming up next (soonest day after today; list order breaks a
+ * tie), for Ideas' "Next: Stretch on Monday" when nothing is due today.
+ */
+export function nextRoutineUp(
+  routines: readonly Routine[],
+  today: string | Date,
+): { routine: Routine; inDays: number; weekday: number } | null {
+  let best: { routine: Routine; inDays: number; weekday: number } | null = null;
+  for (const routine of routines) {
+    const next = nextDueDay(routine, today);
+    if (next && (!best || next.inDays < best.inDays)) best = { routine, ...next };
+  }
+  return best;
 }
 
 const listWithAnd = (items: string[]) =>
@@ -176,20 +252,25 @@ export function daysPhrase(days: readonly number[]): string {
 
 /**
  * What the routines sheet says after a routine is saved, so it's clear when
- * it shows up: "Shows on Today on weekdays.", or, when it's due today and can
- * be added right now, "Shows on Today — you can add it now."
+ * it shows up: "Shows on Today on weekdays — next on Monday." for one not due
+ * today, or, when it's due today and Today's card offers it right now,
+ * "Shows on Today — you can add it now."
  */
 export function routineSavedNote(input: {
   days: readonly number[];
   paused?: boolean;
   /** Due today and not on today's list yet. */
   dueToday: boolean;
-  /** Today has room and isn't set. */
+  /** Today's routines card is showing with Add on (todaysRoutinesState: show && !block). */
   canAddNow: boolean;
+  /** Today (for the next day it shows); without it, no "next on" part. */
+  today?: string | Date;
 }): string {
   if (input.paused) return "Paused. It won't show on Today until you resume it.";
   if (input.dueToday && input.canAddNow) return "Shows on Today — you can add it now.";
-  return `Shows on Today ${daysPhrase(input.days)}.`;
+  const base = `Shows on Today ${daysPhrase(input.days)}`;
+  const next = !input.dueToday && input.today !== undefined ? nextDueDay({ days: input.days }, input.today) : null;
+  return next ? `${base} — next ${nextDayPhrase(next)}.` : `${base}.`;
 }
 
 /** Whether a user can create another routine (free: FREE_ROUTINE_LIMIT; Plus: unlimited). */

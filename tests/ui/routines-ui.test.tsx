@@ -88,19 +88,20 @@ describe("IdeasSheet: Today's routines", () => {
     await render(<IdeasSheet {...p} routines={ROUTINES} />);
     expect(screen.getByText("Today's routines")).toBeOnTheScreen();
     expect(screen.queryByTestId("todays-routines-blocked")).toBeNull();
-    await fireEvent.press(screen.getByRole("button", { name: "Add Stretch" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Add Stretch to today" }));
     expect(p.onAddRoutine).toHaveBeenCalledWith("r1");
     expect(p.onAdd).not.toHaveBeenCalled();
   });
 
   it.each([
-    ["full", { remainingSlots: 0 }, "Today's three are picked. Free a slot to add one."],
+    // Same full-day line as Today's card (PR #86).
+    ["full", { remainingSlots: 0 }, "Your three are picked. Free a slot to add one."],
     ["set", { remainingSlots: 2, locked: true }, "Today is set. Change it on Today to add one."],
   ])("disables the rows and says why when today is %s", async (_label, overrides, reason) => {
     const p = props();
     await render(<IdeasSheet {...p} routines={ROUTINES} {...overrides} />);
     expect(screen.getByTestId("todays-routines-blocked")).toHaveTextContent(reason);
-    const row = screen.getByRole("button", { name: "Add Stretch" });
+    const row = screen.getByRole("button", { name: "Add Stretch to today" });
     expect(row).toBeDisabled();
     expect(row.props.accessibilityHint).toBe(reason);
     await fireEvent.press(row);
@@ -110,7 +111,7 @@ describe("IdeasSheet: Today's routines", () => {
   it("lists an idea with the same words as a due routine once, as the routine", async () => {
     const p = props();
     await render(<IdeasSheet {...p} routines={[{ id: "r1", text: "walk 20 minutes" }]} />);
-    expect(screen.getByRole("button", { name: "Add walk 20 minutes" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Add walk 20 minutes to today" })).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Add Walk 20 minutes" })).toBeNull();
   });
 
@@ -145,6 +146,28 @@ describe("IdeasSheet: Today's routines", () => {
     // Once there are routines (due today or not), it's gone.
     await rerender(<IdeasSheet {...props()} routines={[]} hasRoutines onManageRoutines={onManageRoutines} />);
     expect(screen.queryByTestId("ideas-make-routine")).toBeNull();
+  });
+
+  // Simulator UAT (PR #86): with routines, Ideas always has a way back to them.
+  it("with routines, a small Routines link opens the sheet; with none due it says which is next", async () => {
+    const onManageRoutines = jest.fn();
+    const next = { text: "Long run", when: "on Saturday" };
+    const { rerender } = await render(
+      <IdeasSheet {...props()} routines={[]} hasRoutines onManageRoutines={onManageRoutines} nextRoutine={next} />,
+    );
+    const link = screen.getByTestId("ideas-routines-link");
+    expect(link).toHaveTextContent(/Next: Long run on Saturday ·\s*Routines$/);
+    expect(link.props.accessibilityLabel).toBe("Routines. Next: Long run on Saturday");
+    await fireEvent.press(link);
+    expect(onManageRoutines).toHaveBeenCalledTimes(1);
+    // Something due: still the link, without the "Next" part.
+    await rerender(
+      <IdeasSheet {...props()} routines={ROUTINES} hasRoutines onManageRoutines={onManageRoutines} nextRoutine={next} />,
+    );
+    expect(screen.getByTestId("ideas-routines-link")).toHaveTextContent(/^\W*Routines$/);
+    // Saved for later: no routines link.
+    await rerender(<IdeasSheet {...props()} savedOnly hasRoutines onManageRoutines={onManageRoutines} />);
+    expect(screen.queryByTestId("ideas-routines-link")).toBeNull();
   });
 });
 
@@ -197,16 +220,36 @@ describe("RoutinesSheet: the day picker", () => {
     expect(day("Monday")).not.toBeChecked();
     expect(day("Sunday")).toBeChecked();
 
-    // Choosing Custom days stays picked until a day is toggled; a toggle that
-    // lands on a preset's days picks that preset.
+    // Choosing Custom days from a preset starts with no days (Save waits for
+    // one); a toggle that lands on a preset's days picks that preset.
     await fireEvent.press(preset("Every day"));
     await fireEvent.press(preset("Custom days"));
     expect(isOn("Custom days")).toBe(true);
+    for (const name of ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]) {
+      expect(day(name)).not.toBeChecked();
+    }
     await fireEvent.press(day("Sunday"));
     expect(isOn("Custom days")).toBe(true);
-    await fireEvent.press(day("Sunday"));
-    expect(isOn("Every day")).toBe(true);
+    // Tapping Custom days again keeps the days picked.
+    await fireEvent.press(preset("Custom days"));
+    expect(day("Sunday")).toBeChecked();
+    await fireEvent.press(day("Saturday"));
+    expect(isOn("Weekends")).toBe(true);
     expect(isOn("Custom days")).toBe(false);
+  });
+
+  it("Custom days from a preset: Save stays off until a day is picked", async () => {
+    const p = await openEditor();
+    await fireEvent.changeText(screen.getByLabelText("Routine"), "Stretch");
+    await fireEvent.press(preset("Custom days"));
+    const save = screen.getByRole("button", { name: "Save routine" });
+    expect(save).toBeDisabled();
+    expect(screen.getByText("Pick at least one day.")).toBeOnTheScreen();
+    await fireEvent.press(save);
+    expect(p.onAdd).not.toHaveBeenCalled();
+    await fireEvent.press(day("Wednesday"));
+    await fireEvent.press(screen.getByRole("button", { name: "Save routine" }));
+    expect(p.onAdd).toHaveBeenCalledWith("Stretch", [3]);
   });
 
   it("Save is disabled with no words or no days, then saves the words and days", async () => {
@@ -380,6 +423,13 @@ describe("RoutinesSheet: the note after a save", () => {
     await fireEvent.press(screen.getByRole("button", { name: "Save routine" }));
     expect(screen.getByTestId("routine-saved-note-r1")).toHaveTextContent(/Shows on Today on Mondays and Thursdays\.$/);
     expect(saidSaved()).toEqual([["Saved. Shows on Today on Mondays and Thursdays."]]);
+  });
+
+  it("not due today: says the next day it shows (Friday 2 Oct 2026 → Monday; Thursday → tomorrow)", async () => {
+    const { rerender, after } = await saveSecondWalk({ ...props(), today: "2026-10-02" } as ReturnType<typeof props>);
+    expect(screen.getByTestId("routine-saved-note-r2")).toHaveTextContent(/Shows on Today on weekends — next tomorrow\.$/);
+    await rerender(<RoutinesSheet {...after} today="2026-10-01" />);
+    expect(screen.getByTestId("routine-saved-note-r2")).toHaveTextContent(/Shows on Today on weekends — next on Saturday\.$/);
   });
 
   it.each([

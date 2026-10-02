@@ -64,8 +64,10 @@ interface RoutinesSheetProps {
   onClose: () => void;
   /** Routines due today and not on today's list yet (for the note after a save). */
   dueTodayIds?: readonly string[];
-  /** Today has room and isn't set: a routine due today can be added right now. */
+  /** Today's routines card is showing with Add on: a routine due today can be added right now. */
   canAddToToday?: boolean;
+  /** Today (yyyy-MM-dd), for "next on Monday" after a save. */
+  today?: string;
 }
 
 type Editing = { kind: "new" } | { kind: "edit"; routine: Routine } | null;
@@ -93,6 +95,7 @@ export function RoutinesSheet({
   onClose,
   dueTodayIds = [],
   canAddToToday = false,
+  today,
 }: RoutinesSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -114,6 +117,7 @@ export function RoutinesSheet({
         paused: savedRoutine.paused,
         dueToday: dueTodayIds.includes(savedRoutine.id),
         canAddNow: canAddToToday,
+        today,
       })
     : null;
   // Said once per save, when the line first appears.
@@ -407,6 +411,9 @@ function RoutineEditor({
 
   const pickPreset = (preset: DaysPreset) => {
     if (preset === "custom") {
+      // From a preset, Custom starts blank: the user picks the days (Save
+      // waits for one). Tapping it again keeps the days already picked.
+      if (selected !== "custom") setDays([]);
       setCustom(true);
       return;
     }

@@ -12,8 +12,13 @@ import {
   MAX_ROUTINE_TEXT,
   MAX_ROUTINES,
   normalizeRoutines,
+  allTasksDone,
+  nextDueDay,
+  nextRoutineUp,
   routineBlock,
+  routineBlockedLine,
   routineSavedNote,
+  todaysRoutinesState,
   routinesDueToday,
   weekdayOf,
   withRoutineAdded,
@@ -255,5 +260,92 @@ describe("routines: the note after a save", () => {
     expect(routineBlock({ locked: false, remainingSlots: 0 })).toBe("full");
     expect(routineBlock({ locked: true, remainingSlots: 2 })).toBe("set");
     expect(routineBlock({ locked: true, remainingSlots: 0 })).toBe("set");
+  });
+});
+
+// PR #86 review: one selector for Today's card and the routines sheet's note.
+describe("todaysRoutinesState", () => {
+  const FRIDAY = "2026-10-02";
+  const base = {
+    routines: [routine({ id: "r1", text: "Stretch", days: [1, 2, 3, 4, 5] })],
+    tasks: [{ text: "Read" }],
+    today: FRIDAY,
+    locked: false,
+    remainingSlots: 2,
+    allDone: false,
+  };
+
+  it("shows a due routine with Add on", () => {
+    const state = todaysRoutinesState(base);
+    expect(state.due.map((r) => r.id)).toEqual(["r1"]);
+    expect(state.show).toBe(true);
+    expect(state.block).toBeNull();
+  });
+
+  it.each([
+    ["every task is done", { allDone: true }],
+    ["last night's draft is showing", { draftShowing: true }],
+    ["the day was closed in the evening", { dayClosed: true }],
+    ["nothing is due", { today: "2026-10-03" }],
+  ])("is hidden when %s", (_label, overrides) => {
+    expect(todaysRoutinesState({ ...base, ...overrides }).show).toBe(false);
+  });
+
+  it("still shows (Add off) when full or set, with the reason", () => {
+    expect(todaysRoutinesState({ ...base, remainingSlots: 0 })).toMatchObject({ show: true, block: "full" });
+    expect(todaysRoutinesState({ ...base, locked: true })).toMatchObject({ show: true, block: "set" });
+  });
+
+  it("allTasksDone: completed >= total > 0", () => {
+    expect(allTasksDone(0, 0)).toBe(false);
+    expect(allTasksDone(1, 2)).toBe(false);
+    expect(allTasksDone(2, 2)).toBe(true);
+  });
+});
+
+describe("routineBlockedLine: one copy for Today and Ideas", () => {
+  it("full reads the same in both; set collapses on Today and points back to Today in Ideas", () => {
+    const full = "Your three are picked. Free a slot to add one.";
+    expect(routineBlockedLine("full", { where: "today" })).toBe(full);
+    expect(routineBlockedLine("full", { where: "ideas" })).toBe(full);
+    expect(routineBlockedLine("set", { where: "today" })).toBe("Today is set. Your routines will be here next time.");
+    expect(routineBlockedLine("set", { where: "ideas" })).toBe("Today is set. Change it on Today to add one.");
+    expect(routineBlockedLine(null, { where: "today" })).toBeNull();
+  });
+});
+
+describe("the next day a routine shows", () => {
+  const FRIDAY = "2026-10-02";
+  it("nextDueDay: strictly after today; null when paused", () => {
+    expect(nextDueDay({ days: [1, 2, 3, 4, 5] }, FRIDAY)).toEqual({ inDays: 3, weekday: 1 });
+    expect(nextDueDay({ days: [6] }, FRIDAY)).toEqual({ inDays: 1, weekday: 6 });
+    expect(nextDueDay({ days: [5] }, FRIDAY)).toEqual({ inDays: 7, weekday: 5 });
+    expect(nextDueDay({ days: [1], paused: true }, FRIDAY)).toBeNull();
+  });
+
+  it("the save note adds the next day for one not due today", () => {
+    expect(routineSavedNote({ days: [1, 2, 3, 4, 5], dueToday: false, canAddNow: true, today: "2026-10-03" })).toBe(
+      "Shows on Today on weekdays — next on Monday.",
+    );
+    expect(routineSavedNote({ days: [0, 6], dueToday: false, canAddNow: false, today: FRIDAY })).toBe(
+      "Shows on Today on weekends — next tomorrow.",
+    );
+    // Due today (Add off): no "next" part.
+    expect(routineSavedNote({ days: [5], dueToday: true, canAddNow: false, today: FRIDAY })).toBe(
+      "Shows on Today on Fridays.",
+    );
+  });
+
+  it("nextRoutineUp: the soonest active routine (list order breaks a tie)", () => {
+    const routines = [
+      routine({ id: "a", text: "Plan", days: [1] }),
+      routine({ id: "b", text: "Run", days: [6] }),
+      routine({ id: "c", text: "Read", days: [6] }),
+      routine({ id: "d", text: "Paused", days: [6], paused: true }),
+    ];
+    const next = nextRoutineUp(routines, FRIDAY);
+    expect(next?.routine.id).toBe("b");
+    expect(next?.inDays).toBe(1);
+    expect(nextRoutineUp([], FRIDAY)).toBeNull();
   });
 });

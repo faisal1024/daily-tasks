@@ -1,7 +1,8 @@
 // Today's routines on Today (1.3): routines due today and not on the list
 // yet, right under the task card, each with a compact "+ Add". A quiet
-// suggestion, never a slot filler: when today is full or set the Add buttons
-// are off and one muted line says why. Nothing is ever marked missed.
+// suggestion, never a slot filler: when today is full the Add buttons are off
+// and one muted line says why; on a set day the card is just its header and
+// one line (nothing to add until next time). Nothing is ever marked missed.
 import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -22,8 +23,10 @@ export function TodaysRoutinesCard({
   onEdit: () => void;
 }) {
   const colors = useColors();
-  const blockedLine = routineBlockedLine(block);
+  const blockedLine = routineBlockedLine(block, { where: "today" });
   const disabled = blockedLine !== null;
+  // A set day: no rows to look at, just when they'll be back.
+  const rows = block === "set" ? [] : routines;
   return (
     <View
       className="rounded-3xl border px-4 pt-1 pb-2"
@@ -56,7 +59,7 @@ export function TodaysRoutinesCard({
           {blockedLine}
         </Text>
       )}
-      {routines.map((routine, index) => (
+      {rows.map((routine, index) => (
         <View key={routine.id}>
           {index > 0 && <View style={{ height: 1, backgroundColor: colors.border, marginLeft: 26 }} />}
           <View
@@ -92,7 +95,6 @@ export function TodaysRoutinesCard({
                 minWidth: 44,
                 flexShrink: 0,
                 backgroundColor: disabled ? "transparent" : `${colors.primary}16`,
-                opacity: disabled ? 0.45 : 1,
               }}
               testID={`today-routine-add-${routine.id}`}
             >

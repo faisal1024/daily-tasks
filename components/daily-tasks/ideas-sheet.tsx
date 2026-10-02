@@ -15,6 +15,7 @@ import { Fonts } from "@/constants/theme";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
 import { suggestionsHint } from "@/lib/daily-tasks/ai-status";
+import { routineBlock, routineBlockedLine } from "@/lib/daily-tasks/routines";
 import { THINKING_HINT_DELAY_MS, type IdeasSource } from "@/lib/daily-tasks/today-view";
 
 export interface IdeaItem {
@@ -53,8 +54,10 @@ interface IdeasSheetProps {
   locked?: boolean;
   /** The user has routines (due today or not); without any, a quiet footer offers one. */
   hasRoutines?: boolean;
-  /** Opens the routines sheet (the footer's "Make it a routine", Today's routines' Edit). */
+  /** Opens the routines sheet (the footer's routines link, Today's routines' Edit). */
   onManageRoutines?: () => void;
+  /** The routine coming up next, said in the footer when none is due today ("on Monday", "tomorrow"). */
+  nextRoutine?: { text: string; when: string } | null;
 }
 
 const keyOf = (text: string) => text.trim().toLowerCase();
@@ -84,6 +87,7 @@ export function IdeasSheet({
   locked = false,
   hasRoutines = true,
   onManageRoutines,
+  nextRoutine = null,
 }: IdeasSheetProps) {
   const colors = useColors();
   const sheetAnimation = useSheetAnimation();
@@ -146,13 +150,7 @@ export function IdeasSheet({
               routines={shownRoutines}
               onAdd={onAddRoutine}
               onEdit={onManageRoutines}
-              blockedReason={
-                locked
-                  ? "Today is set. Change it on Today to add one."
-                  : full
-                    ? "Today's three are picked. Free a slot to add one."
-                    : null
-              }
+              blockedReason={routineBlockedLine(routineBlock({ locked, remainingSlots }), { where: "ideas" })}
             />
           )}
 
@@ -388,6 +386,29 @@ export function IdeasSheet({
               </Text>
             </Pressable>
           )}
+          {/* With routines: always a way back to them, and (with none due
+              today) when the next one shows. */}
+          {!savedOnly && hasRoutines && onManageRoutines && (
+            <Pressable
+              onPress={onManageRoutines}
+              accessibilityRole="button"
+              accessibilityLabel={
+                shownRoutines.length === 0 && nextRoutine
+                  ? `Routines. Next: ${nextRoutine.text} ${nextRoutine.when}`
+                  : "Routines"
+              }
+              accessibilityHint="Opens routines"
+              className="flex-row items-center justify-center gap-1.5 mt-2"
+              style={{ minHeight: 44 }}
+              testID="ideas-routines-link"
+            >
+              <Ionicons name="repeat" size={14} color={colors.muted} />
+              <Text className="text-sm" style={{ color: colors.muted }} numberOfLines={2}>
+                {shownRoutines.length === 0 && nextRoutine ? `Next: ${nextRoutine.text} ${nextRoutine.when} · ` : ""}
+                <Text style={{ color: colors.primary, fontWeight: "600" }}>Routines</Text>
+              </Text>
+            </Pressable>
+          )}
         </ScrollView>
       </View>
     </Modal>
@@ -445,7 +466,7 @@ function TodaysRoutines({
           onPress={() => onAdd?.(routine.id)}
           disabled={disabled}
           accessibilityRole="button"
-          accessibilityLabel={`Add ${routine.text}`}
+          accessibilityLabel={`Add ${routine.text} to today`}
           accessibilityHint={blockedReason ?? "Adds this routine to today's three"}
           accessibilityState={{ disabled }}
           className="rounded-2xl border p-4 flex-row items-center gap-3"
