@@ -18,7 +18,6 @@ import {
   PLUS_ENTITLEMENT,
   type PlusPackage,
   type PlusTrial,
-  trialReminderEnd,
   type WinBackOffer,
 } from "./plus";
 
@@ -94,11 +93,6 @@ function refreshProxyUserId(sdk: PurchasesModule | null = loadSdk()): void {
 
 export function isPlusActive(info: SdkCustomerInfo | null | undefined): boolean {
   return Boolean(info?.entitlements?.active?.[PLUS_ENTITLEMENT]);
-}
-
-/** When a free trial of Plus that will renew ends (ISO; the reminder's date), else null. */
-export function trialEndsAt(info: SdkCustomerInfo | null | undefined): string | null {
-  return trialReminderEnd(currentTrial(info));
 }
 
 /**

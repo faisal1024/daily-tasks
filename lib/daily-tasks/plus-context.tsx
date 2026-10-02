@@ -435,10 +435,11 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
           { installDay: "", lastPaywallShownAt: now, ahaShown: source === "aha" },
     );
     // A win-back showing counts as used only once iOS has actually shown it:
-    // the first (plain) one, else the later offer one.
+    // the first (plain) one here; the later offer one only with an offer on
+    // screen (marked by trackViewed, or when a late lookup finds one).
     const lapse = lookup?.lapse ?? lapsedRef.current;
-    if (source === "win_back" && lapse) {
-      markWinBack(winBackRef.current.offeredFor === lapse ? "offerShownFor" : "offeredFor", lapse);
+    if (source === "win_back" && lapse && winBackRef.current.offeredFor !== lapse) {
+      markWinBack("offeredFor", lapse);
     }
   }, [trackViewed, markWinBack, clearViewedCap]);
 
@@ -478,6 +479,9 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       if (lookup.viewPending && sourceRef.current) {
         lookup.viewPending = false;
         trackViewed(sourceRef.current, offer);
+      } else if (offer && shownRef.current && sourceRef.current) {
+        // Found after paywall_viewed went out (capped wait, or a reload): still on screen.
+        markWinBack("offerShownFor", lookup.lapse);
       }
     };
     if (!forOpen) return loadSdkPackages();
@@ -489,7 +493,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       settle(false);
       throw error;
     }
-  }, [trackViewed]);
+  }, [trackViewed, markWinBack]);
 
   // Today's one look for a win-back offer (see WIN_BACK_KEY). Recorded first,
   // so a slow or failed answer still counts as today's check.

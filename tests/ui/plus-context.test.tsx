@@ -928,6 +928,20 @@ describe("PlusProvider: win-back's two showings per lapse", () => {
     expect(result.current.winBackOfferPending).toBe(false);
   });
 
+  it("a second win_back showing without an offer on screen doesn't spend the offer showing", async () => {
+    const { result } = await renderLapsed();
+    await showWinBack(result, [ANNUAL]); // the plain showing
+    expect(result.current.winBackOfferPending).toBe(true);
+    // The offer was found, but gone again by the time the paywall loads.
+    await showWinBack(result, [ANNUAL]);
+    expect(await AsyncStorage.getItem(WIN_BACK_OFFER_KEY)).toBeNull();
+    expect(result.current.winBackOfferPending).toBe(true);
+    // With the offer actually on screen, it's spent.
+    await showWinBack(result, [OFFERED]);
+    expect(await AsyncStorage.getItem(WIN_BACK_OFFER_KEY)).toBe(status().lapsedAt);
+    expect(result.current.winBackOfferPending).toBe(false);
+  });
+
   it("the offer seen on any other paywall spends the offer showing", async () => {
     const { result } = await renderLapsed();
     await showWinBack(result, [ANNUAL]);

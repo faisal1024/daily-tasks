@@ -774,6 +774,11 @@ export default function HomeScreen() {
         // Any focus session, paused too: it's their time, not ours.
         focusSession !== null,
     });
+  // The win-back paywall's quiet moment: nothing else up, no rating ask, app in front.
+  const appActiveRef = useRef(appActive);
+  appActiveRef.current = appActive;
+  const winBackCanShow = () =>
+    appActiveRef.current && RNAppState.currentState === "active" && !busyRef.current && !ratingRecent();
   const ahaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -988,15 +993,18 @@ export default function HomeScreen() {
     // launch). Skipped if anything else is on screen, e.g. the celebration.
     if (completing && winBackDue && paywallEnabled && !hasPlus) {
       setTimeout(() => {
-        if (!busyRef.current && !ratingRecent() && winBackDueRef.current) openPaywall("win_back");
+        if (winBackCanShow() && winBackDueRef.current) openPaywall("win_back");
       }, 1200);
     } else if (completing && winBackOfferPending && paywallEnabled && !hasPlus) {
       // Later in the lapse: once Apple has a win-back offer for them, one more
-      // showing (the check runs at most once a day, at this same moment).
-      const wait = new Promise((resolve) => setTimeout(resolve, 1200));
-      void Promise.all([checkWinBackOffer(), wait]).then(([available]) => {
-        if (available && !busyRef.current && !ratingRecent()) openPaywall("win_back");
-      });
+      // showing. The check runs at most once a day, so it's only spent when
+      // its answer could be shown right then.
+      setTimeout(() => {
+        if (!winBackCanShow()) return;
+        void checkWinBackOffer().then((available) => {
+          if (available && winBackCanShow()) openPaywall("win_back");
+        });
+      }, 1200);
     }
   };
 

@@ -381,9 +381,13 @@ export function trialTimelineLabel(steps: TrialStep[]): string {
 
 /**
  * The quiet line offered after someone backs out of buying the yearly plan:
- * a smaller step, never a countdown.
+ * a smaller step, never a countdown. With a win-back offer on monthly, it
+ * quotes the offer (as the card does), never the full price.
  */
 export function monthlyNudgeText(monthly: PlusPackage): string {
+  // A win-back offer replaces the plain price on the card: quote the same terms.
+  const offer = shownWinBackOffer(monthly);
+  if (offer) return `Prefer to start small? Monthly, ${winBackOfferPhrase(offer)}.`;
   return monthly.trialDays
     ? `Prefer to start small? Monthly, ${monthly.trialDays} days free.`
     : `Prefer to start small? Monthly is ${monthly.priceString}/month.`;

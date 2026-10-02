@@ -1427,6 +1427,17 @@ describe("Free AI brain dumps (free plan)", () => {
 });
 
 describe("Win-back paywall on Today", () => {
+  // Like the aha paywall, win-back only opens with the app in front.
+  const appState = RNAppState as unknown as { currentState: unknown };
+  let originalAppState: unknown;
+  beforeEach(() => {
+    originalAppState = appState.currentState;
+    appState.currentState = "active";
+  });
+  afterEach(() => {
+    appState.currentState = originalAppState;
+  });
+
   const lapsedFree = () => {
     mockPaywall = { paywallSource: null, entitlementActive: false, winBackDue: true };
     mockStore = { ...makeStore({ ...SET, tasks: tasks("Walk", "Read") }), hasPlus: false };
@@ -1515,15 +1526,30 @@ describe("Win-back paywall on Today", () => {
       await render(<HomeScreen />);
       expect(check).not.toHaveBeenCalled();
       await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
-      expect(check).toHaveBeenCalledTimes(1);
+      // Checked only at the quiet moment, so the day's look isn't spent early.
       await act(async () => {
         jest.advanceTimersByTime(1100);
       });
+      expect(check).not.toHaveBeenCalled();
       expect(mockOpenPaywall).not.toHaveBeenCalled();
       await act(async () => {
         jest.advanceTimersByTime(200);
       });
+      expect(check).toHaveBeenCalledTimes(1);
       expect(mockOpenPaywall).toHaveBeenCalledWith("win_back");
+    });
+
+    it("doesn't spend the day's check when the answer couldn't be shown (app in the background)", async () => {
+      jest.useFakeTimers({ now: MORNING });
+      const check = offerCheckDue(true);
+      await render(<HomeScreen />);
+      await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+      appState.currentState = "background";
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(check).not.toHaveBeenCalled();
+      expect(mockOpenPaywall).not.toHaveBeenCalled();
     });
 
     it("stays shut when Apple has no offer", async () => {

@@ -10,7 +10,8 @@ import {
   freeAiDumpsLeft,
   refundFreeAiDump,
 } from "@/lib/daily-tasks/free-uses";
-import { lapsedAt, trialEndsAt } from "@/lib/daily-tasks/purchases";
+import { currentTrial, lapsedAt } from "@/lib/daily-tasks/purchases";
+import { trialReminderEnd } from "@/lib/daily-tasks/plus";
 import { clearState } from "@/lib/daily-tasks/storage";
 import { TRIAL_REMINDER_ID, syncTrialReminder, trialReminderAt } from "@/lib/daily-tasks/trial-reminder";
 
@@ -187,7 +188,9 @@ describe("syncTrialReminder", () => {
   });
 });
 
-describe("trialEndsAt", () => {
+describe("trial reminder end (trialReminderEnd of currentTrial)", () => {
+  // The path plus-context uses to schedule the trial reminder.
+  const trialEndsAt = (customer: Parameters<typeof currentTrial>[0]) => trialReminderEnd(currentTrial(customer));
   const info = (plus: object | undefined) => ({ entitlements: { active: plus ? { plus } : {} } }) as never;
   const TRIAL = { periodType: "TRIAL", expirationDate: "2026-10-04T12:00:00Z", willRenew: true };
 

@@ -62,6 +62,8 @@ interface PaywallSheetProps {
 
 /** After an offer purchase fails: the plans are reloaded, never bought at full price. */
 export const OFFER_GONE_MESSAGE = "That offer isn't available any more. Here are the current prices.";
+/** Any other failed purchase (the plan and its offer, if any, still stand). */
+export const PURCHASE_FAILED_MESSAGE = "The purchase didn't go through. If you were charged, tap Restore purchases.";
 
 /** Said a moment after StoreKit's sheet goes, so its dismissal doesn't cut it off. */
 const NUDGE_ANNOUNCE_DELAY_MS = 500;
@@ -109,8 +111,13 @@ export function PaywallSheet({
     [],
   );
 
-  /** `notice`: said once the plans are back (e.g. why they were reloaded). */
-  const fetchPackages = async (notice: string | null = null) => {
+  /**
+   * `reselect`: after a reload, keep this plan selected (when it's still
+   * offered) and say `notice(plan)` once the plans are back.
+   */
+  const fetchPackages = async (
+    reselect: { id: string; notice: (plan: PlusPackage | null) => string } | null = null,
+  ) => {
     const mine = ++session.current;
     setLoad("loading");
     setMessage(null);
@@ -126,9 +133,10 @@ export function PaywallSheet({
         return;
       }
       setPackages(loaded);
-      setSelectedId(defaultPackageId(loaded));
+      const kept = reselect ? (loaded.find((pkg) => pkg.id === reselect.id) ?? null) : null;
+      setSelectedId(kept ? kept.id : defaultPackageId(loaded));
       setLoad("ready");
-      if (notice) setMessage(notice);
+      if (reselect) setMessage(reselect.notice(kept));
     } catch {
       if (mine === session.current) setLoad("error");
     }
@@ -206,9 +214,14 @@ export function PaywallSheet({
       // The offer may have lapsed (eligibility changes): show today's prices
       // again and let them choose; never retry at full price on their behalf.
       // (The plans are cleared while they reload, so nothing can be bought meanwhile.)
-      await fetchPackages(OFFER_GONE_MESSAGE);
+      // Only "offer gone" when the reloaded plan really lost it: a network or
+      // StoreKit hiccup (or a charge without Plus yet) gets the usual message.
+      await fetchPackages({
+        id: selected.id,
+        notice: (plan) => (shownWinBackOffer(plan) ? PURCHASE_FAILED_MESSAGE : OFFER_GONE_MESSAGE),
+      });
     } else if (outcome === "failed") {
-      setMessage("The purchase didn't go through. If you were charged, tap Restore purchases.");
+      setMessage(PURCHASE_FAILED_MESSAGE);
     }
   };
 
