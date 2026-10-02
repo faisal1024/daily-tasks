@@ -67,9 +67,29 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 
 `app_opened` (once per day), `onboarding_completed`, `task_completed`, `perfect_day`,
 `brain_dump_sorted`, `break_down_used`, `plus_gate_hit`, `paywall_viewed`,
-`paywall_closed`, `purchase_started`, `purchase_completed`, `purchase_failed`,
-`restore_completed`, `redeem_code_opened`, `path_edited`, `path_regenerated`. Properties are limited to `source`, `plan`, `outcome`, `trial`,
+`paywall_closed`, `purchase_started`, `purchase_completed`, `purchase_failed`
+(failed or pending/Ask to Buy, with `outcome`), `purchase_cancelled` (the user backed
+out of Apple's purchase sheet; `plan`, `source`, `trial`), `restore_completed`, `redeem_code_opened`, `path_edited`, `path_regenerated`. Properties are limited to `source`, `plan`, `outcome`, `trial`,
 `count`, `skipped`, `feature`, `active`, `plus`, `step`, `timer` with short enum/number/boolean values. Never
 task, goal or brain-dump text; no person profiles; `$ip` null, `$geoip_disable`, and
 the project discards client IPs. Analytics starts off and is only enabled once the
 saved Settings choice is loaded; resetting data keeps an opt-out and forgets the id.
+
+## RevenueCat → PostHog
+
+So trials, renewals, cancellations and refunds (which happen server-side, outside the
+app) land in PostHog next to the in-app funnel, the app sets the RevenueCat subscriber
+attribute `$posthogUserId` to the analytics distinct id: the random anonymous install
+id from `analytics.ts`, not linked to a name, email or device id.
+
+- Wiring: `getAnalyticsDistinctId()` (analytics.ts, null while analytics is off) →
+  `setAnalyticsUserAttribute()` (purchases.ts, `Purchases.setAttributes`), synced from
+  the store once the saved Settings choice loads, whenever the Settings switch changes,
+  and after "Reset all data" (new id). Applied as soon as RevenueCat is configured.
+- Opt-out: while analytics is off the attribute is cleared (set to null) and never set.
+  Failures are swallowed; analytics never affects the app.
+- **Owner action:** in RevenueCat › Project settings › Integrations › PostHog, enable
+  the integration with the PostHog project API key (project 630531). Until then the
+  attribute is stored but nothing is forwarded.
+- App Privacy: unchanged. The id is the same anonymous install id already used for
+  Usage Data, so purchase data stays "not linked to you" and "not used for tracking".
