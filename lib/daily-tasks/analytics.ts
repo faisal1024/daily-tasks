@@ -22,6 +22,7 @@ export type AnalyticsEvent =
   | "plus_gate_hit"
   | "paywall_viewed"
   | "paywall_closed"
+  | "paywall_monthly_nudge_tapped"
   | "purchase_started"
   | "purchase_completed"
   | "purchase_failed"

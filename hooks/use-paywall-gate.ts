@@ -19,6 +19,8 @@ export interface ShowPaywallOptions<U> {
   afterSheet?: boolean;
   /** Handed to `onResume` once the paywall closes. */
   resume?: U;
+  /** For the onboarding headline ("Your three are set."). */
+  taskCount?: number;
 }
 
 /**
@@ -52,7 +54,9 @@ export function usePaywallGate<U>(onResume: (unlock: U) => void) {
       const open = () => {
         pendingUnlock.current = unlock;
         // Didn't open (e.g. a paywall is already up elsewhere): nothing to resume.
-        if (!openPaywall(source)) pendingUnlock.current = null;
+        const opened =
+          options.taskCount === undefined ? openPaywall(source) : openPaywall(source, { taskCount: options.taskCount });
+        if (!opened) pendingUnlock.current = null;
       };
       if (!options.afterSheet) {
         open();

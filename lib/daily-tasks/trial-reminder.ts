@@ -3,8 +3,10 @@
 
 import * as Notifications from "expo-notifications";
 
+import { TRIAL_REMINDER_DAYS_BEFORE_END } from "./plus";
+
 export const TRIAL_REMINDER_ID = "plus-trial-ending";
-const DAYS_BEFORE = 2;
+const DAYS_BEFORE = TRIAL_REMINDER_DAYS_BEFORE_END;
 const EARLIEST_HOUR = 9;
 const LATEST_HOUR = 20;
 
@@ -36,7 +38,7 @@ export async function syncTrialReminder(trialEndsAt: string | null, now: Date = 
     if (!at || !trialEndsAt) return;
     await Notifications.scheduleNotificationAsync({
       identifier: TRIAL_REMINDER_ID,
-      content: { title: "Your Plus trial ends in 2 days", body: trialReminderBody(trialEndsAt) },
+      content: { title: `Your Plus trial ends in ${DAYS_BEFORE} days`, body: trialReminderBody(trialEndsAt) },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at },
     });
   } catch {
