@@ -547,15 +547,23 @@ describe("Today's routines card (1.3, PR #86)", () => {
     expect(screen.queryByRole("button", { name: "Add Stretch to today" })).toBeNull();
   });
 
-  it("waits behind last night's draft, then shows once the draft is used or dismissed", async () => {
+  it("waits behind last night's draft on an empty morning, then shows once the draft is dismissed", async () => {
     const draft = { forDate: TODAY, tasks: ["Call mum"], note: "", because: "", source: "local" as const };
-    mockStore = makeStore({ tasks: tasks("Walk"), routines: [stretch()], tomorrowDraft: draft });
+    mockStore = makeStore({ tasks: [], routines: [stretch()], tomorrowDraft: draft });
     const { rerender } = await render(<HomeScreen />);
     expect(screen.getByTestId("tomorrow-draft")).toBeOnTheScreen();
     expect(screen.queryByTestId("today-routines")).toBeNull();
     // Dismissed (the store clears it): the card is back.
-    mockStore = makeStore({ tasks: tasks("Walk"), routines: [stretch()], tomorrowDraft: null });
+    mockStore = makeStore({ tasks: [], routines: [stretch()], tomorrowDraft: null });
     await rerender(<HomeScreen />);
+    expect(screen.getByTestId("today-routines")).toBeOnTheScreen();
+  });
+
+  it("shows beside the draft once today has a task (someone who never touches the draft still sees routines)", async () => {
+    const draft = { forDate: TODAY, tasks: ["Call mum"], note: "", because: "", source: "local" as const };
+    mockStore = makeStore({ tasks: tasks("Walk"), routines: [stretch()], tomorrowDraft: draft });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("tomorrow-draft")).toBeOnTheScreen();
     expect(screen.getByTestId("today-routines")).toBeOnTheScreen();
   });
 

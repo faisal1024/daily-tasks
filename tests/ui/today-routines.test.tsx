@@ -312,9 +312,9 @@ describe("Routines sheet's save note follows Today's card (real store)", () => {
     expect(notes[0]).toHaveTextContent(/Shows on Today on weekdays\.$/);
   });
 
-  it("due today but last night's draft is showing (card waits): just its days", async () => {
+  it("due today but last night's draft is showing on an empty morning (card waits): just its days", async () => {
     const notes = await saveFrom(FRIDAY_10AM, {
-      tasks: [task("t0", "Read")],
+      tasks: [],
       tomorrowDraft: { forDate: "2026-10-02", tasks: ["Call mum"], note: "", because: "", source: "local" },
     });
     expect(notes[0]).toHaveTextContent(/Shows on Today on weekdays\.$/);

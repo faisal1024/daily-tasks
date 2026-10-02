@@ -12,8 +12,11 @@ import { useDailyTasks } from "@/lib/daily-tasks/store";
 
 export function useTodaysRoutines() {
   const { state, today, remainingSlots, completedCount } = useDailyTasks();
-  // Last night's draft leads while it shows (the same draft Today shows).
+  // Last night's draft leads only on an empty morning (the same draft Today
+  // shows): once any task is on today, routines show beside it, so someone
+  // who never touches the draft card still sees them.
   const draftShowing =
+    state.tasks.length === 0 &&
     draftToShow(state.tomorrowDraft, {
       today,
       locked: state.todayLocked,
