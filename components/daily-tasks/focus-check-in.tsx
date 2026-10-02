@@ -15,7 +15,7 @@ import type { ThemeColorPalette } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import {
   checkInBreakLabel,
-  checkInTitle,
+  checkInLine,
   KEEP_GOING_MINUTES,
   type FocusSession,
 } from "@/lib/daily-tasks/focus-session";
@@ -132,7 +132,7 @@ export function FocusCheckIn({
           accessibilityRole="header"
           testID="focus-check-in-title"
         >
-          {checkInTitle(session)}
+          {checkInLine(session)}
         </Text>
       ) : null}
       <View className="flex-row gap-2">
@@ -149,6 +149,8 @@ export function FocusCheckIn({
         {breakDown ? (
           <>
             <QuietLink
+              // The way forward when stuck: primary, not muted.
+              tint="primary"
               label="Stuck? Break it down"
               onPress={breakDown}
               testID="focus-check-in-break-down"
@@ -171,17 +173,19 @@ export function FocusCheckIn({
   );
 }
 
-/** A quiet (muted) text link, 44pt tall. */
+/** A quiet text link (muted, or the primary ink), 44pt tall. */
 function QuietLink({
   label,
   onPress,
   testID,
   hint,
+  tint = "muted",
 }: {
   label: string;
   onPress: () => void;
   testID: string;
   hint?: string;
+  tint?: "muted" | "primary";
 }) {
   const colors = useColors();
   return (
@@ -193,7 +197,10 @@ function QuietLink({
       style={{ minHeight: 44, justifyContent: "center", flexShrink: 1 }}
       testID={testID}
     >
-      <Text className="text-sm font-semibold" style={{ color: colors.muted, flexShrink: 1 }}>
+      <Text
+        className="text-sm font-semibold"
+        style={{ color: tint === "primary" ? colors.primaryInk : colors.muted, flexShrink: 1 }}
+      >
         {label}
       </Text>
     </Pressable>
@@ -210,11 +217,14 @@ export function MarkTaskDoneLink({
   onPress,
   testID,
   align = "flex-start",
+  maxFontSizeMultiplier,
 }: {
   taskText: string;
   onPress: () => void;
   testID: string;
   align?: "flex-start" | "center";
+  /** Caps the label's growth (focus mode's footer keeps the timer in view). */
+  maxFontSizeMultiplier?: number;
 }) {
   const colors = useColors();
   // The tick grows with the text (to 1.4×, as the check-in's buttons cap it).
@@ -238,7 +248,11 @@ export function MarkTaskDoneLink({
       testID={testID}
     >
       <Ionicons name="checkmark" size={iconSize} color={colors.primaryInk} testID={`${testID}-icon`} />
-      <Text className="text-sm font-semibold" style={{ color: colors.primaryInk, flexShrink: 1 }}>
+      <Text
+        className="text-sm font-semibold"
+        style={{ color: colors.primaryInk, flexShrink: 1 }}
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
+      >
         Mark task done
       </Text>
     </Pressable>

@@ -5,7 +5,7 @@
 // Pause / Resume and Stop timer; at zero, the check-in. The timer itself is
 // the store's session (see focus-session.ts), so it keeps going when the
 // screen closes.
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
@@ -90,6 +90,9 @@ export function FocusTimerPanel({
   }, [openCustom]);
   const [customMinutes, setCustomMinutes] = useState(FOCUS_TIMER_DEFAULT_CUSTOM_MINUTES);
   const [lastCustom, setLastCustom] = useState<number | null>(null);
+  // The wheel waits for the stored last length, so it mounts with the value
+  // Start will use (never the default, changed under it a moment later).
+  const [customLoaded, setCustomLoaded] = useState(false);
   const [canNotify, setCanNotify] = useState(false);
   const now = useFocusClock(session);
 
@@ -97,11 +100,16 @@ export function FocusTimerPanel({
   const touchedCustom = useRef(false);
   useEffect(() => {
     let live = true;
-    void loadLastCustomTimer().then((minutes) => {
-      if (!live || minutes === null) return;
-      setLastCustom(minutes);
-      if (!touchedCustom.current) setCustomMinutes(minutes);
-    });
+    void loadLastCustomTimer()
+      .then((minutes) => {
+        if (!live || minutes === null) return;
+        setLastCustom(minutes);
+        if (!touchedCustom.current) setCustomMinutes(minutes);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (live) setCustomLoaded(true);
+      });
     // The bell by the end time only when the end notification can go out.
     Promise.resolve(getNotificationPermissionStatus())
       .then((status) => {
@@ -199,12 +207,17 @@ export function FocusTimerPanel({
         {customOpen ? (
           <>
             {Platform.OS === "ios" ? (
-              <CountdownWheel
-                minutes={customMinutes}
-                onChange={pickCustom}
-                scheme={scheme}
-                accentColor={colors.primary}
-              />
+              customLoaded ? (
+                <CountdownWheel
+                  minutes={customMinutes}
+                  onChange={pickCustom}
+                  scheme={scheme}
+                  accentColor={colors.primary}
+                />
+              ) : (
+                // Holds the wheel's place for the moment the stored length loads.
+                <View style={{ height: 216 }} testID="focus-timer-wheel-loading" />
+              )
             ) : (
               <MinutesStepper minutes={customMinutes} onChange={pickCustom} />
             )}
@@ -398,12 +411,21 @@ function wheelDate(minutes: number, second = 0): Date {
 /**
  * The iOS countdown wheel (hours + minutes).
  *
- * UIKit quirk: in countdown mode UIDatePicker doesn't report the first spin
- * (no valueChanged) unless its date is set again once it's on screen, and
- * datetimepicker 8.4.4 (Fabric) has no workaround. So one frame after it
- * mounts, and whenever a length had to be clamped, the value is nudged by a
- * second and back: two prop changes, so native setDate runs with the picker
- * on screen (and writes a clamped length back to the wheel). No remounting.
+ * UIKit quirk: in countdown mode UIDatePicker shows 0 h 1 min (and doesn't
+ * report the first spin) unless its date is set again once it's on screen;
+ * datetimepicker 8.4.4 (Fabric) sets the date before the mode on mount. So
+ * the value is nudged by a second one frame after mounting, again one frame
+ * after the wrapper's first layout (Fabric dispatches layout once the native
+ * views exist, so this lands after the picker is really there however slow
+ * the mount is: no fixed timer), and whenever a length had to be clamped:
+ * native setDate then runs with the picker on screen, showing the length
+ * Start will use. No remounting.
+ *
+ * Each nudge moves the seconds on and leaves them (never "a second and
+ * back"): in a Release build Fabric can mount only the latest of two quick
+ * revisions, and a there-and-back pair cancels out to no setDate at all.
+ * Once the wheel has reported a spin, the mount/layout nudges stand down so a
+ * late one can't fight a fast first spin.
  */
 function CountdownWheel({
   minutes,
@@ -417,21 +439,36 @@ function CountdownWheel({
   accentColor: string;
 }) {
   const [nudge, setNudge] = useState(0);
-  const [nudges, setNudges] = useState(0);
+  const bump = useCallback(() => setNudge((count) => (count + 1) % 60), []);
+  // Set once the wheel reports a change: the settle nudges are then moot.
+  const spun = useRef(false);
+  const laidOut = useRef(false);
+  const layoutFrame = useRef<number | null>(null);
+  const settleNudge = useCallback(() => {
+    if (!spun.current) bump();
+  }, [bump]);
   useEffect(() => {
-    let second: number | null = null;
-    const first = requestAnimationFrame(() => {
-      setNudge(1);
-      second = requestAnimationFrame(() => setNudge(0));
-    });
+    const frame = requestAnimationFrame(settleNudge);
     return () => {
-      cancelAnimationFrame(first);
-      if (second !== null) cancelAnimationFrame(second);
+      cancelAnimationFrame(frame);
+      if (layoutFrame.current !== null) cancelAnimationFrame(layoutFrame.current);
     };
-  }, [nudges]);
+  }, [settleNudge]);
 
   return (
-    <View className="items-center">
+    <View
+      className="items-center"
+      onLayout={() => {
+        // The first layout only (later ones are size changes, not a mount).
+        if (laidOut.current) return;
+        laidOut.current = true;
+        layoutFrame.current = requestAnimationFrame(() => {
+          layoutFrame.current = null;
+          settleNudge();
+        });
+      }}
+      testID="focus-timer-wheel-frame"
+    >
       <DateTimePicker
         value={wheelDate(minutes, nudge)}
         mode="countdown"
@@ -441,8 +478,10 @@ function CountdownWheel({
         accessibilityLabel={`Timer length, ${durationWords(minutes)}`}
         onChange={(_event, date) => {
           if (!date) return;
+          spun.current = true;
           const raw = date.getHours() * 60 + date.getMinutes();
-          if (clampTimerMinutes(raw) !== raw) setNudges((count) => count + 1);
+          // Clamped: set the wheel back to the length Start will use.
+          if (clampTimerMinutes(raw) !== raw) bump();
           onChange(raw);
         }}
         testID="focus-timer-wheel"

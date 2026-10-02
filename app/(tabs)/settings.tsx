@@ -565,11 +565,15 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        <Section icon="repeat-outline" title="Routines">
+        <Section
+          icon="repeat-outline"
+          title="Routines"
+          subtitle="Things you do on repeat, waiting in Ideas on their days."
+        >
           <Pressable
             onPress={() => setRoutinesOpen(true)}
             accessibilityRole="button"
-            accessibilityLabel="Routines"
+            accessibilityLabel="Manage routines"
             accessibilityHint="Add, edit, pause or delete routines"
             accessibilityValue={{ text: routinesSummary(state.routines.length, pausedRoutines) }}
             className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3"
@@ -583,7 +587,7 @@ export default function SettingsScreen() {
               <Ionicons name="repeat-outline" size={18} color={colors.primary} />
             </View>
             <View className="flex-1">
-              <Text className="text-base font-semibold text-foreground">Routines</Text>
+              <Text className="text-base font-semibold text-foreground">Manage routines</Text>
               <Text className="text-xs mt-1" style={{ color: colors.muted }}>
                 {routinesSummary(state.routines.length, pausedRoutines)}
               </Text>
@@ -677,6 +681,41 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
+        <Section icon="heart-outline" title="Feedback">
+          <View className="bg-surface rounded-2xl border border-border overflow-hidden">
+            <HelpRow
+              icon="star-outline"
+              label="Rate Three Today"
+              hint="Opens the App Store to write a review"
+              onPress={() => void openWriteReview()}
+            />
+            <View style={{ height: 1, backgroundColor: colors.border }} />
+            <HelpRow
+              icon="chatbubble-outline"
+              label="Send feedback"
+              hint="Opens the support page"
+              onPress={openFeedback}
+            />
+          </View>
+        </Section>
+
+        <Section icon="help-circle-outline" title="Help">
+          <View className="bg-surface rounded-2xl border border-border overflow-hidden">
+            <HelpRow
+              icon="chatbubble-ellipses-outline"
+              label="Contact support"
+              onPress={() => void openExternal(SUPPORT_URL)}
+            />
+            <View style={{ height: 1, backgroundColor: colors.border }} />
+            <HelpRow
+              icon="lock-closed-outline"
+              label="Privacy policy"
+              onPress={() => void openExternal(PRIVACY_URL)}
+            />
+          </View>
+        </Section>
+
+        {/* Last, so Reset all data is the final row. */}
         <Section
           icon="folder-outline"
           title="Data"
@@ -723,40 +762,6 @@ export default function SettingsScreen() {
               </Text>
             </View>
           </Pressable>
-        </Section>
-
-        <Section icon="heart-outline" title="Feedback">
-          <View className="bg-surface rounded-2xl border border-border overflow-hidden">
-            <HelpRow
-              icon="star-outline"
-              label="Rate Three Today"
-              hint="Opens the App Store to write a review"
-              onPress={() => void openWriteReview()}
-            />
-            <View style={{ height: 1, backgroundColor: colors.border }} />
-            <HelpRow
-              icon="chatbubble-outline"
-              label="Send feedback"
-              hint="Opens the support page"
-              onPress={openFeedback}
-            />
-          </View>
-        </Section>
-
-        <Section icon="help-circle-outline" title="Help">
-          <View className="bg-surface rounded-2xl border border-border overflow-hidden">
-            <HelpRow
-              icon="chatbubble-ellipses-outline"
-              label="Contact support"
-              onPress={() => void openExternal(SUPPORT_URL)}
-            />
-            <View style={{ height: 1, backgroundColor: colors.border }} />
-            <HelpRow
-              icon="lock-closed-outline"
-              label="Privacy policy"
-              onPress={() => void openExternal(PRIVACY_URL)}
-            />
-          </View>
         </Section>
 
         <Text

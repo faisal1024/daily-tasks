@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/use-colors";
 import { track } from "@/lib/daily-tasks/analytics";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
-import { manageSubscriptions } from "@/lib/daily-tasks/purchases";
+import { fetchRenewalPrice, manageSubscriptions } from "@/lib/daily-tasks/purchases";
 import {
   loadPlusUses,
   loadTrialNoteRecord,
@@ -49,14 +49,25 @@ export function TrialNote({ today, active = true }: { today: string; active?: bo
         setShown(null);
         return;
       }
-      const usage = usageDuring(await loadPlusUses(), trial, now);
+      const uses = await loadPlusUses();
+      const usage = usageDuring(uses, trial, now);
       if (cancelled) return;
+      // Shown at once with the no-price line; the store lookup (which can be
+      // slow or offline) never holds the note back.
       setShown({ key, copy: trialNoteCopy(usage, trial, now) });
       // trial_note_shown once per trial (it may stay up across launches).
       if (record?.key !== key) {
         track("trial_note_shown", { count: usage.brain_dump + usage.break_down + usage.coach_note + usage.tomorrow_draft });
         void saveTrialNoteRecord({ key, dismissed: false });
       }
+      // Then the renewing line names the price once the store knows it.
+      if (!trial.willRenew) return;
+      const price = await fetchRenewalPrice(trial.productId).catch(() => null);
+      if (cancelled || !price) return;
+      // Only upgrade a note that's still up for this trial (not dismissed meanwhile).
+      setShown((current) =>
+        current && current.key === key ? { key, copy: trialNoteCopy(usage, trial, now, price) } : current,
+      );
     })();
     return () => {
       cancelled = true;

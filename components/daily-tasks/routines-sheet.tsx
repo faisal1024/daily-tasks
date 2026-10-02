@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -302,6 +303,9 @@ function SmallButton({
   );
 }
 
+/** Cancel and Save stop growing at 2x, so the title between them keeps its room. */
+const HEADER_BUTTON_MAX_FONT = 2;
+
 function RoutineEditor({
   initial,
   onCancel,
@@ -313,6 +317,9 @@ function RoutineEditor({
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  // The field grows with its words to about three lines, then scrolls.
+  const { fontScale } = useWindowDimensions();
+  const fieldMaxHeight = Math.round(3 * 24 * Math.max(fontScale || 1, 1) + 24);
   const startDays = initial ? cleanDays(initial.days) : [...ALL_DAYS];
   const [text, setText] = useState(initial?.text ?? "");
   const [days, setDays] = useState<number[]>(startDays);
@@ -358,13 +365,15 @@ function RoutineEditor({
           hitSlop={10}
           style={{ minHeight: 44, justifyContent: "center", flexShrink: 0 }}
         >
-          <Text className="text-base" style={{ color: colors.primary }}>
+          <Text className="text-base" style={{ color: colors.primary }} maxFontSizeMultiplier={HEADER_BUTTON_MAX_FONT}>
             Cancel
           </Text>
         </Pressable>
         <Text
           accessibilityRole="header"
-          numberOfLines={1}
+          // Two lines (shrinking to fit) at the large sizes, never "N..".
+          numberOfLines={2}
+          adjustsFontSizeToFit
           // Takes what's left between Cancel and Save, so they never collide at large text sizes.
           style={{
             flex: 1,
@@ -388,7 +397,13 @@ function RoutineEditor({
           style={{ minHeight: 44, justifyContent: "center", flexShrink: 0 }}
           testID="routine-save"
         >
-          <Text className="text-base font-bold" style={{ color: colors.primary, opacity: canSave ? 1 : 0.4 }}>
+          <Text
+            className="text-base font-bold"
+            // Disabled reads as disabled: muted and dimmed, not a paler tint.
+            style={{ color: canSave ? colors.primary : colors.muted, opacity: canSave ? 1 : 0.45 }}
+            maxFontSizeMultiplier={HEADER_BUTTON_MAX_FONT}
+            testID="routine-save-label"
+          >
             Save
           </Text>
         </Pressable>
@@ -409,7 +424,11 @@ function RoutineEditor({
           value={text}
           // Capped by visible character, like the saved text (maxLength counts
           // UTF-16 units, so emoji would hit it early).
-          onChangeText={(value) => setText(capVisibleChars(value))}
+          // One line of words: a pasted line break becomes a space.
+          onChangeText={(value) => setText(capVisibleChars(value.replace(/[\r\n]+/g, " ")))}
+          // Wraps as it grows, but return still saves (when it can) and closes the keyboard.
+          multiline
+          submitBehavior="blurAndSubmit"
           onSubmitEditing={save}
           placeholder="e.g. Walk after lunch"
           placeholderTextColor={colors.muted}
@@ -423,6 +442,8 @@ function RoutineEditor({
             borderColor: colors.border,
             backgroundColor: colors.surface,
             minHeight: 44,
+            maxHeight: fieldMaxHeight,
+            textAlignVertical: "top",
           }}
           testID="routine-text"
         />

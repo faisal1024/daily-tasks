@@ -4,7 +4,7 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import type { PlusTrial } from "./plus";
+import type { PlusTrial, RenewalPrice } from "./plus";
 
 export type { PlusTrial } from "./plus";
 
@@ -114,13 +114,37 @@ export function trialEndDay(endsAt: string, now: number): string {
   return end.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 }
 
+/**
+ * Apple renews an auto-renewable subscription unless it's cancelled at least
+ * 24 hours before the period ends, so the note only offers a cancel line
+ * while that's still possible. Inside the final 24 hours it says nothing
+ * about cancelling (Manage stays on the note either way).
+ */
+const RENEWAL_CUTOFF_MS = 24 * 60 * 60_000;
+
+/** "Not for you? Cancel at least 24 hours before with Manage below.", or "" inside the final 24 hours. */
+function cancelLine(endsAt: string, now: number): string {
+  const end = new Date(endsAt).getTime();
+  if (!Number.isFinite(end) || now >= end - RENEWAL_CUTOFF_MS) return "";
+  return " Not for you? Cancel at least 24 hours before with Manage below.";
+}
+
 export interface TrialNoteCopy {
   title: string;
   body: string;
 }
 
-/** The note's words. Counts only; a gentler line when Plus hasn't been used yet. */
-export function trialNoteCopy(usage: TrialUsage, trial: PlusTrial, now: number): TrialNoteCopy {
+/**
+ * The note's words. Counts only; a gentler line when Plus hasn't been used
+ * yet. `price`: what the subscribed product renews at, when known (the
+ * renewing line names it; without it, the line leaves the price out).
+ */
+export function trialNoteCopy(
+  usage: TrialUsage,
+  trial: PlusTrial,
+  now: number,
+  price: RenewalPrice | null = null,
+): TrialNoteCopy {
   const did: string[] = [];
   if (usage.brain_dump > 0) did.push(`sorted ${plural(usage.brain_dump, "brain dump", "brain dumps")}`);
   if (usage.break_down > 0) did.push(`broke down ${plural(usage.break_down, "task", "tasks")}`);
@@ -132,7 +156,9 @@ export function trialNoteCopy(usage: TrialUsage, trial: PlusTrial, now: number):
       : "Plus is here when you want it: sorting a brain dump, breaking down a stuck task, a coach's note.";
   const day = trialEndDay(trial.endsAt, now);
   const ends = trial.willRenew
-    ? `Your trial ends ${day}, then Plus continues as your subscription. If it's not for you, cancel at least a day before with Manage below.`
+    ? price
+      ? `Your trial ends ${day}, then Plus renews at ${price.priceString}/${price.period}.${cancelLine(trial.endsAt, now)}`
+      : `Your trial ends ${day}, then Plus continues as your subscription.${cancelLine(trial.endsAt, now)}`
     : `Your trial ends ${day} and won't renew. Your three tasks stay free after that.`;
   return { title: "Your Plus trial", body: `${what} ${ends}` };
 }

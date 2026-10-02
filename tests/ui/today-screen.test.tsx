@@ -482,8 +482,8 @@ describe("Need ideas sheet hint", () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Stretch") });
     await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("need-ideas"));
-    expect(screen.getByText("Add it if it fits.")).toBeOnTheScreen();
-    expect(screen.getByText("Add the first 1")).toBeOnTheScreen();
+    expect(screen.getByText("Room for one more today.")).toBeOnTheScreen();
+    expect(screen.getByText("Add 1 idea")).toBeOnTheScreen();
   });
 });
 

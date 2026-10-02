@@ -1,5 +1,6 @@
 // Phase 3 components: BrainDumpSheet, the parked section + Set these three of the
 // IdeasSheet, and TaskRow's step checklist / Break it down link.
+import { Ionicons } from "@expo/vector-icons";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
 import { BrainDumpSheet } from "@/components/daily-tasks/brain-dump-sheet";
@@ -372,6 +373,28 @@ describe("TaskRow: steps and Break it down", () => {
     await rerender(<TaskRow {...props()} task={withSteps} onClearSteps={onClearSteps} />);
     await fireEvent.press(screen.getByRole("button", { name: "Clear steps" }));
     expect(onClearSteps).toHaveBeenCalledTimes(1);
+  });
+
+  // PR #83: a task from a routine shows a small repeat glyph and says ", routine".
+  it("marks a routine's task with the repeat glyph and ', routine'; other tasks get neither", async () => {
+    const repeat = String.fromCodePoint(Ionicons.glyphMap.repeat as number);
+    const { rerender } = await render(<TaskRow {...props()} task={{ ...base, routineId: "r1" }} />);
+    expect(screen.getByRole("checkbox", { name: "Task 1: Clean kitchen, routine" })).toBeOnTheScreen();
+    // The words are hidden from VoiceOver (the checkbox's label says it).
+    const hidden = { includeHiddenElements: true };
+    expect(screen.getByTestId("task-routine-t1", hidden)).toHaveTextContent(repeat);
+    await rerender(<TaskRow {...props()} task={base} />);
+    expect(screen.getByRole("checkbox", { name: "Task 1: Clean kitchen" })).toBeOnTheScreen();
+    expect(screen.queryByTestId("task-routine-t1", hidden)).toBeNull();
+    expect(screen.queryByText(repeat, hidden)).toBeNull();
+  });
+
+  it("strikes through a completed routine task's words but not its repeat glyph", async () => {
+    const hidden = { includeHiddenElements: true };
+    await render(<TaskRow {...props()} task={{ ...base, routineId: "r1" }} completed />);
+    const glyph = screen.getByTestId("task-routine-t1", hidden);
+    expect(glyph).toHaveStyle({ textDecorationLine: "none" });
+    expect(glyph.parent).toHaveStyle({ textDecorationLine: "line-through" });
   });
 
   it("hides the steps once the task is done", async () => {

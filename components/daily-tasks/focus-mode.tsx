@@ -6,7 +6,7 @@
 // often just the first sitting). One way off the page at a time: Back to
 // Today, or Take a break at time's up.
 import { useEffect, useRef, useState } from "react";
-import { Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -45,6 +45,15 @@ interface FocusModeProps {
 }
 
 /**
+ * The accessibility text sizes (AX1 and up). iOS's fontScale is about 1.35 at
+ * the largest standard size (xxxL) and about 1.79 at AX1, so 1.6 sits
+ * between them: AX1 and up, never xxxL.
+ */
+const FOCUS_AX_FONT_SCALE = 1.6;
+/** The title and footer never grow past this, so the timer stays in view. */
+const FOCUS_MAX_FONT_MULTIPLIER = 1.6;
+
+/**
  * Mounted only while open (see Today). Full screen on iPhone. One way out at
  * a time: Back to Today (the timer keeps going), or at time's up the
  * check-in's Take a break (ends the session). "✓ Mark task done" ticks the
@@ -64,6 +73,10 @@ export function FocusMode({
 }: FocusModeProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  // At the accessibility text sizes the title is capped and the start line
+  // folds away, so the ring and its controls stay above the fold.
+  const { fontScale } = useWindowDimensions();
+  const largeText = (fontScale || 1) >= FOCUS_AX_FONT_SCALE;
   const animation = useSheetAnimation();
   const fullScreen = Platform.OS === "ios" && !Platform.isPad;
   // At time's up the check-in's Take a break is the way out (never both).
@@ -132,7 +145,13 @@ export function FocusMode({
       testID="focus-modal"
     >
       <View
-        style={{ flex: 1, backgroundColor: colors.background }}
+        style={{
+          flex: 1,
+          backgroundColor: colors.background,
+          // Full screen, the safe area pads the page itself (not the scroll
+          // content), so nothing scrolls under the status bar or Dynamic Island.
+          paddingTop: fullScreen || Platform.OS !== "ios" ? insets.top : 0,
+        }}
         accessibilityViewIsModal
         // VoiceOver's escape (two-finger Z): the screen's one way out, Back
         // to Today, or at time's up Take a break.
@@ -144,7 +163,7 @@ export function FocusMode({
           contentContainerStyle={{
             paddingHorizontal: 24,
             // A page sheet (iPad) sits below the status bar already.
-            paddingTop: Platform.OS === "ios" && !fullScreen ? 32 : insets.top + 24,
+            paddingTop: Platform.OS === "ios" && !fullScreen ? 32 : 24,
             paddingBottom: 24,
             gap: 20,
             // So a running timer's ring can sit in the middle of the space
@@ -156,6 +175,7 @@ export function FocusMode({
             <Text
               className="text-xs font-bold uppercase"
               style={{ color: colors.primary, letterSpacing: 0.6 }}
+              maxFontSizeMultiplier={FOCUS_MAX_FONT_MULTIPLIER}
               accessibilityElementsHidden
               importantForAccessibility="no"
             >
@@ -164,12 +184,18 @@ export function FocusMode({
             <Text
               accessibilityRole="header"
               accessibilityLabel={`Focus: ${task.text}`}
+              // At the accessibility sizes the start line folds away; VoiceOver still hears it.
+              accessibilityHint={startLine && largeText ? startLine : undefined}
               style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 28, fontWeight: "700", lineHeight: 36 }}
+              // Three lines at most (the full text is in its label), so a long
+              // task at a large size can't push the timer off the screen.
+              numberOfLines={3}
+              maxFontSizeMultiplier={FOCUS_MAX_FONT_MULTIPLIER}
               testID="focus-task-text"
             >
               {task.text}
             </Text>
-            {startLine ? (
+            {startLine && !largeText ? (
               <Text className="text-base" style={{ color: colors.muted }} testID="focus-start-line">
                 {startLine}
               </Text>
@@ -246,11 +272,18 @@ export function FocusMode({
                 <Text
                   className="text-base font-bold"
                   style={{ color: customOpen ? colors.primaryInk : colors.onPrimary }}
+                  maxFontSizeMultiplier={FOCUS_MAX_FONT_MULTIPLIER}
                 >
                   Back to Today
                 </Text>
               </Pressable>
-              <MarkTaskDoneLink taskText={task.text} onPress={done} testID="focus-done" align="center" />
+              <MarkTaskDoneLink
+                taskText={task.text}
+                onPress={done}
+                testID="focus-done"
+                align="center"
+                maxFontSizeMultiplier={FOCUS_MAX_FONT_MULTIPLIER}
+              />
             </>
           )}
         </View>

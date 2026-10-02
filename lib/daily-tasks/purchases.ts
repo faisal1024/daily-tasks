@@ -16,8 +16,10 @@ import {
   isUsableWinBackOffer,
   planKind,
   PLUS_ENTITLEMENT,
+  subscriptionPeriodWord,
   type PlusPackage,
   type PlusTrial,
+  type RenewalPrice,
   type WinBackOffer,
 } from "./plus";
 
@@ -125,6 +127,7 @@ export function currentTrial(info: SdkCustomerInfo | null | undefined): PlusTria
     startedAt: started && Number.isFinite(Date.parse(started)) ? started : null,
     endsAt,
     willRenew: entitlement.willRenew !== false && !entitlement.unsubscribeDetectedAt,
+    productId: typeof entitlement.productIdentifier === "string" && entitlement.productIdentifier ? entitlement.productIdentifier : null,
   };
 }
 
@@ -300,6 +303,45 @@ export async function loadPackages(options: { winBack?: boolean } = {}): Promise
     // A win-back price replaces any trial promise (Apple applies one or the other).
     return { ...plain, trialDays: null, winBackOffer: toWinBackOffer(offer) };
   });
+}
+
+/** How long the trial note waits for the store's price before leaving it out. */
+export const RENEWAL_PRICE_LOOKUP_MS = 1500;
+
+function toRenewalPrice(product: { priceString?: string; subscriptionPeriod?: string | null } | null | undefined): RenewalPrice | null {
+  const period = subscriptionPeriodWord(product?.subscriptionPeriod);
+  const priceString = product?.priceString;
+  return period && typeof priceString === "string" && priceString ? { priceString, period } : null;
+}
+
+/**
+ * What the subscribed product renews at, for the trial note: from the
+ * packages the paywall loaded when it's one of them (and that cached product
+ * carries a subscription period), else the store as a subscription (capped
+ * at RENEWAL_PRICE_LOOKUP_MS). Never throws; null when unknown.
+ *
+ * Known, accepted gap: this is the product's current regular price. A
+ * pending downgrade/crossgrade (renews into a different product) or a price
+ * Apple preserved for this subscriber after a price change can differ, and
+ * the note would still name the current product's regular price.
+ */
+export async function fetchRenewalPrice(productId: string | null | undefined): Promise<RenewalPrice | null> {
+  if (!productId) return null;
+  for (const pkg of sdkPackages.values()) {
+    // Only a cached product that knows its period; otherwise ask the store.
+    if (pkg.product.identifier === productId && pkg.product.subscriptionPeriod) return toRenewalPrice(pkg.product);
+  }
+  const sdk = loadSdk();
+  if (!configured || !sdk || typeof sdk.default.getProducts !== "function") return null;
+  try {
+    // As a subscription on iOS (the SDK's own default differs by platform).
+    const category = Platform.OS === "ios" ? sdk.default.PRODUCT_CATEGORY?.SUBSCRIPTION : undefined;
+    const lookup = category ? sdk.default.getProducts([productId], category) : sdk.default.getProducts([productId]);
+    const products = await withTimeout(lookup, RENEWAL_PRICE_LOOKUP_MS);
+    return toRenewalPrice(products?.find((product) => product.identifier === productId));
+  } catch {
+    return null;
+  }
 }
 
 export type PurchaseOutcome = "purchased" | "cancelled" | "pending" | "failed";

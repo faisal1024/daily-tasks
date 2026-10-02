@@ -2,6 +2,7 @@
 // survives an app restart. Pure (no React Native imports) so it's unit-tested.
 
 import { toDateKey } from "./date";
+import { numberWord } from "./number-word";
 import type { MomentumPlan } from "./types";
 
 export type AiFailureKind =
@@ -149,12 +150,15 @@ export function planAfterAiFailure(
   return current ?? buildFallback();
 }
 
-/** Copy under the suggestions header, adapted to how many ideas are showing. */
-export function suggestionsHint(count: number): string {
+/**
+ * Copy under the suggestions header: how many open slots today has (not how
+ * many ideas show, which can be more, with routines above them).
+ */
+export function suggestionsHint(openSlots: number): string {
   // Shown in the Ideas sheet, which has no text field, so no "write your own below".
-  if (count <= 1) return "Add it if it fits.";
-  if (count === 2) return "Add one or both.";
-  return "Add any you like — one, two, or all three.";
+  const slots = Math.max(0, Math.floor(openSlots));
+  if (slots === 0) return "Today's three are picked.";
+  return `Room for ${numberWord(slots)} more today.`;
 }
 
 /** Failures worth retrying automatically; limits and auth problems are not. */

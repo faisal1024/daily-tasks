@@ -371,13 +371,17 @@ export function PaywallSheet({
                     </View>
                     <View className="items-end gap-1">
                       {label.badge && (
-                        <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: colors.primary }}>
-                          <Text className="text-xs font-semibold" style={{ color: colors.onPrimary }}>
+                        // A tinted chip, never filled: the billed price stays the
+                        // most prominent thing on the plan (App Review 3.1.2).
+                        <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: `${colors.primary}1F` }}>
+                          <Text className="text-xs font-semibold" style={{ color: colors.primaryInk }}>
                             {label.badge}
                           </Text>
                         </View>
                       )}
-                      <Text className="text-sm text-foreground font-semibold">{label.price}</Text>
+                      <Text className="text-base text-foreground font-bold" testID={`paywall-price-${pkg.kind}`}>
+                        {label.price}
+                      </Text>
                     </View>
                   </Pressable>
                 );
@@ -455,6 +459,13 @@ export function PaywallSheet({
             )}
           </Pressable>
 
+          {/* Button, then what it bills, then the monthly nudge. */}
+          {selected && (
+            <Text className="text-xs text-center" style={{ color: colors.muted }} testID="paywall-terms">
+              {purchaseTerms(selected)}
+            </Text>
+          )}
+
           {showNudge && nudgeText && (
             <Pressable
               onPress={takeNudge}
@@ -472,13 +483,8 @@ export function PaywallSheet({
             </Pressable>
           )}
 
-          {selected && (
-            <Text className="text-xs text-center" style={{ color: colors.muted }} testID="paywall-terms">
-              {purchaseTerms(selected)}
-            </Text>
-          )}
-
-          <View className="flex-row justify-center gap-5">
+          {/* Wraps at large text sizes (a row gap between the lines) instead of clipping. */}
+          <View className="flex-row flex-wrap justify-center gap-x-5 gap-y-3" testID="paywall-footer">
             <Pressable
               onPress={() => void restore()}
               disabled={busy !== null}
@@ -498,7 +504,7 @@ export function PaywallSheet({
             </Pressable>
             <Pressable onPress={() => open(TERMS_URL)} accessibilityRole="link" hitSlop={8}>
               <Text className="text-sm" style={{ color: colors.muted }}>
-                Terms
+                Terms of Use
               </Text>
             </Pressable>
             <Pressable onPress={() => open(PRIVACY_URL)} accessibilityRole="link" hitSlop={8}>

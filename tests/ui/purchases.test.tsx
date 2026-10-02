@@ -7,6 +7,7 @@ import {
   configurePurchases,
   currentTrial,
   fetchPlusStatus,
+  fetchRenewalPrice,
   loadPackages,
   onPlusStatusChange,
   purchase,
@@ -24,6 +25,8 @@ const mockSdk = {
   addCustomerInfoUpdateListener: jest.fn(),
   removeCustomerInfoUpdateListener: jest.fn(),
   presentCodeRedemptionSheet: jest.fn(),
+  getProducts: jest.fn(),
+  PRODUCT_CATEGORY: { SUBSCRIPTION: "SUBSCRIPTION", NON_SUBSCRIPTION: "NON_SUBSCRIPTION" },
 };
 jest.mock("react-native-purchases", () => ({ __esModule: true, default: mockSdk }));
 
@@ -134,7 +137,7 @@ describe("purchases", () => {
     expect(await fetchPlusStatus()).toEqual({
       active: true,
       lapsedAt: null,
-      trial: { startedAt: null, endsAt: "2099-10-04T12:00:00Z", willRenew: true },
+      trial: { startedAt: null, endsAt: "2099-10-04T12:00:00Z", willRenew: true, productId: null },
     });
     const expired = { identifier: "plus", isActive: false, periodType: "NORMAL", expirationDate: "2020-01-01T00:00:00Z" };
     mockSdk.getCustomerInfo.mockResolvedValueOnce({ entitlements: { active: {}, all: { plus: expired } } });
@@ -452,6 +455,7 @@ describe("currentTrial (the day-5 note's trial)", () => {
       startedAt: "2026-10-01T09:00:00Z",
       endsAt: "2026-10-08T09:00:00Z",
       willRenew: true,
+      productId: null,
     });
     expect(currentTrial(info({ unsubscribeDetectedAt: "2026-10-02T09:00:00Z" }))?.willRenew).toBe(false);
     expect(currentTrial(info({ willRenew: false }))?.willRenew).toBe(false);
@@ -464,5 +468,106 @@ describe("currentTrial (the day-5 note's trial)", () => {
     expect(currentTrial(info({ expirationDate: null }))).toBeNull();
     expect(currentTrial(info({ expirationDate: "junk" }))).toBeNull();
     expect(currentTrial(null)).toBeNull();
+  });
+});
+
+// PR #83: the trial note's renewal price, from the paywall's packages or the
+// store (capped at 1.5 s); null whenever it can't be said exactly.
+describe("fetchRenewalPrice (the trial note's price)", () => {
+  const product = (identifier: string, subscriptionPeriod: string | null, priceString = "$29.99") => ({
+    identifier,
+    priceString,
+    subscriptionPeriod,
+  });
+
+  beforeEach(() => {
+    process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+    configurePurchases();
+  });
+
+  it("uses a package the paywall already loaded, without asking the store", async () => {
+    mockSdk.getOfferings.mockResolvedValue({
+      current: { availablePackages: [{ ...ANNUAL, product: { ...ANNUAL.product, subscriptionPeriod: "P1Y" } }] },
+    });
+    mockSdk.checkTrialOrIntroductoryPriceEligibility.mockResolvedValue({});
+    await loadPackages();
+    expect(await fetchRenewalPrice("plus_annual")).toEqual({ priceString: "$29.99", period: "year" });
+    expect(mockSdk.getProducts).not.toHaveBeenCalled();
+  });
+
+  it("otherwise asks the store for that product", async () => {
+    mockSdk.getProducts.mockResolvedValue([product("other", "P1M", "$1"), product("plus_monthly", "P1M", "$4.99")]);
+    expect(await fetchRenewalPrice("plus_monthly")).toEqual({ priceString: "$4.99", period: "month" });
+    // Looked up as a subscription on iOS.
+    expect(mockSdk.getProducts).toHaveBeenCalledWith(["plus_monthly"], "SUBSCRIPTION");
+  });
+
+  it("asks the store when the paywall's cached product has no subscription period", async () => {
+    mockSdk.getOfferings.mockResolvedValue({
+      current: { availablePackages: [{ ...ANNUAL, product: { ...ANNUAL.product, subscriptionPeriod: null } }] },
+    });
+    mockSdk.checkTrialOrIntroductoryPriceEligibility.mockResolvedValue({});
+    await loadPackages();
+    mockSdk.getProducts.mockResolvedValue([product("plus_annual", "P1Y", "$29.99")]);
+    expect(await fetchRenewalPrice("plus_annual")).toEqual({ priceString: "$29.99", period: "year" });
+    expect(mockSdk.getProducts).toHaveBeenCalledWith(["plus_annual"], "SUBSCRIPTION");
+  });
+
+  it.each([
+    ["an unsupported period (P3M)", [product("plus_q", "P3M")]],
+    ["no period", [product("plus_q", null)]],
+    ["no matching product", [product("other", "P1Y")]],
+    ["an empty answer", []],
+    ["a null answer", null],
+  ])("is null for %s", async (_why, answer) => {
+    mockSdk.getProducts.mockResolvedValue(answer);
+    expect(await fetchRenewalPrice("plus_q")).toBeNull();
+  });
+
+  it("is null when the store fails, and never throws", async () => {
+    mockSdk.getProducts.mockRejectedValue(new Error("offline"));
+    await expect(fetchRenewalPrice("plus_annual")).resolves.toBeNull();
+  });
+
+  it("gives up after 1.5 s", async () => {
+    jest.useFakeTimers();
+    try {
+      mockSdk.getProducts.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve([product("plus_annual", "P1Y")]), 5000)),
+      );
+      let price: unknown = "pending";
+      void fetchRenewalPrice("plus_annual").then((value) => (price = value));
+      await jest.advanceTimersByTimeAsync(1499);
+      expect(price).toBe("pending");
+      await jest.advanceTimersByTimeAsync(1);
+      expect(price).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("is null without a product id or before the SDK is configured, without asking the store", async () => {
+    expect(await fetchRenewalPrice(null)).toBeNull();
+    expect(await fetchRenewalPrice("")).toBeNull();
+    __resetPurchasesForTests();
+    expect(await fetchRenewalPrice("plus_annual")).toBeNull();
+    expect(mockSdk.getProducts).not.toHaveBeenCalled();
+  });
+});
+
+describe("currentTrial's product id", () => {
+  it("is the entitlement's product, or null when it has none", () => {
+    const entitlement = {
+      identifier: "plus",
+      isActive: true,
+      periodType: "TRIAL",
+      willRenew: true,
+      expirationDate: "2026-10-08T09:00:00Z",
+      ownershipType: "PURCHASED",
+    };
+    const info = (extra: Record<string, unknown>) =>
+      ({ entitlements: { active: { plus: { ...entitlement, ...extra } } } }) as never;
+    expect(currentTrial(info({ productIdentifier: "plus_annual" }))?.productId).toBe("plus_annual");
+    expect(currentTrial(info({ productIdentifier: "" }))?.productId).toBeNull();
   });
 });

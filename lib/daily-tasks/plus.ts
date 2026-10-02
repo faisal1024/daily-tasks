@@ -58,6 +58,34 @@ export interface PlusTrial {
   endsAt: string;
   /** False once the trial was cancelled (it won't turn into a subscription). */
   willRenew: boolean;
+  /** The store product the trial is for (its price is what renews), when known. */
+  productId?: string | null;
+}
+
+/** What a subscription renews at: "$29.99" a "year". */
+export interface RenewalPrice {
+  priceString: string;
+  period: string;
+}
+
+/**
+ * A store subscription period (ISO 8601, "P1Y", "P1M", "P1W") as the word
+ * after a price's slash; null for anything else (the copy then leaves the
+ * price out rather than guess).
+ */
+export function subscriptionPeriodWord(period: string | null | undefined): string | null {
+  switch (period) {
+    case "P1Y":
+    case "P12M":
+      return "year";
+    case "P1M":
+      return "month";
+    case "P1W":
+    case "P7D":
+      return "week";
+    default:
+      return null;
+  }
 }
 
 /**
@@ -299,7 +327,7 @@ export function paywallHeadline(source: PaywallSource, options: { taskCount?: nu
     case "onboarding": {
       const count = options.taskCount ?? 3;
       if (count <= 0) return "A little extra help, when you want it";
-      return count >= 3 ? "Your three are set." : "Today's set.";
+      return count >= 3 ? "Your three are set." : "You're set for today.";
     }
     case "aha":
       return "Today's three are set.";

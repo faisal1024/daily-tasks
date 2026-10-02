@@ -6,7 +6,7 @@ import { act, fireEvent, screen } from "@testing-library/react-native";
 
 import { TrialNote } from "@/components/daily-tasks/trial-note";
 import { track } from "@/lib/daily-tasks/analytics";
-import { manageSubscriptions } from "@/lib/daily-tasks/purchases";
+import { fetchRenewalPrice, manageSubscriptions } from "@/lib/daily-tasks/purchases";
 import { recordPlusUse, setTrialActiveForUses, trialKey, type PlusTrial } from "@/lib/daily-tasks/trial-note";
 
 import { renderWithProviders as render } from "./render";
@@ -17,6 +17,7 @@ jest.mock("@/lib/daily-tasks/plus-context", () => ({
 }));
 jest.mock("@/lib/daily-tasks/purchases", () => ({
   manageSubscriptions: jest.fn(async () => {}),
+  fetchRenewalPrice: jest.fn(async () => null),
 }));
 jest.mock("@/lib/daily-tasks/analytics", () => ({
   ...jest.requireActual("@/lib/daily-tasks/analytics"),
@@ -170,5 +171,65 @@ describe("TrialNote", () => {
       "accessibilityHint",
       "Opens your App Store subscription settings",
     );
+  });
+});
+
+// PR #83: the renewing line names the store's price; a cancelled trial never asks for one.
+describe("TrialNote: the renewal price", () => {
+  const fetchPrice = fetchRenewalPrice as jest.Mock;
+  afterEach(() => {
+    fetchPrice.mockReset();
+    fetchPrice.mockImplementation(async () => null);
+  });
+
+  it("asks for the trial's product and names its price, with the 24-hour cancel rule", async () => {
+    mockTrial = { ...dayFiveTrial(), productId: "plus_annual" };
+    fetchPrice.mockResolvedValueOnce({ priceString: "$29.99", period: "year" });
+    await launch();
+    expect(fetchPrice).toHaveBeenCalledWith("plus_annual");
+    // Ends in two days: cancelling is still possible.
+    expect(screen.getByTestId("trial-note")).toHaveTextContent(
+      /then Plus renews at \$29\.99\/year\. Not for you\? Cancel at least 24 hours before with Manage below\./,
+    );
+  });
+
+  it("shows the no-price line at once and upgrades when the price arrives", async () => {
+    mockTrial = { ...dayFiveTrial(), productId: "plus_annual" };
+    let resolvePrice: (price: { priceString: string; period: string }) => void = () => {};
+    fetchPrice.mockImplementationOnce(() => new Promise((resolve) => (resolvePrice = resolve)));
+    await launch();
+    // The lookup hasn't answered: the note is already up, without a price.
+    expect(screen.getByTestId("trial-note")).toHaveTextContent(/then Plus continues as your subscription\./);
+    expect(shownEvents()).toHaveLength(1);
+    await act(async () => resolvePrice({ priceString: "$29.99", period: "year" }));
+    expect(screen.getByTestId("trial-note")).toHaveTextContent(/then Plus renews at \$29\.99\/year\./);
+    // Still counted once.
+    expect(shownEvents()).toHaveLength(1);
+  });
+
+  it("doesn't bring a dismissed note back when the price arrives late", async () => {
+    mockTrial = { ...dayFiveTrial(), productId: "plus_annual" };
+    let resolvePrice: (price: { priceString: string; period: string }) => void = () => {};
+    fetchPrice.mockImplementationOnce(() => new Promise((resolve) => (resolvePrice = resolve)));
+    await launch();
+    await fireEvent.press(screen.getByTestId("trial-note-manage"));
+    await act(async () => resolvePrice({ priceString: "$29.99", period: "year" }));
+    expect(screen.queryByTestId("trial-note")).toBeNull();
+  });
+
+  it("keeps the old line when the price is unknown or the lookup rejects", async () => {
+    mockTrial = { ...dayFiveTrial(), productId: "plus_annual" };
+    fetchPrice.mockRejectedValueOnce(new Error("offline"));
+    await launch();
+    expect(screen.getByTestId("trial-note")).toHaveTextContent(/then Plus continues as your subscription/);
+    expect(screen.getByTestId("trial-note")).not.toHaveTextContent(/renews at/);
+  });
+
+  it("never fetches a price for a cancelled trial", async () => {
+    mockTrial = { ...dayFiveTrial(), productId: "plus_annual", willRenew: false };
+    fetchPrice.mockResolvedValue({ priceString: "$29.99", period: "year" });
+    await launch();
+    expect(screen.getByTestId("trial-note")).toHaveTextContent(/won't renew/);
+    expect(fetchPrice).not.toHaveBeenCalled();
   });
 });

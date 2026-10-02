@@ -60,7 +60,7 @@ describe("generateMomentumSuggestions", () => {
       timeAvailability: "30_min",
     });
 
-    expect(suggestions).toContain("Spend 15 minutes on Write a novel");
+    expect(suggestions).toContain("Spend a little time on Write a novel");
     expect(suggestions.length).toBeLessThanOrEqual(5);
   });
 });

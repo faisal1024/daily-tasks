@@ -108,8 +108,8 @@ describe("aha paywall copy", () => {
 describe("onboarding paywall headline", () => {
   it.each([
     [0, "A little extra help, when you want it"],
-    [1, "Today's set."],
-    [2, "Today's set."],
+    [1, "You're set for today."],
+    [2, "You're set for today."],
     [3, "Your three are set."],
     [undefined, "Your three are set."],
   ])("with %s tasks from first run: %s", (taskCount, headline) => {

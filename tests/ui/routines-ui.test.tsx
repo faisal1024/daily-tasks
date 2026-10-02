@@ -121,6 +121,18 @@ describe("IdeasSheet: Today's routines", () => {
     expect(screen.queryByTestId("ideas-make-routine")).toBeNull();
   });
 
+  // PR #83: an Edit link on "Today's routines" opens the routines sheet.
+  it("Edit opens the routines sheet (only offered with a handler)", async () => {
+    const onManageRoutines = jest.fn();
+    const { rerender } = await render(<IdeasSheet {...props()} routines={ROUTINES} />);
+    expect(screen.queryByTestId("todays-routines-edit")).toBeNull();
+    await rerender(<IdeasSheet {...props()} routines={ROUTINES} onManageRoutines={onManageRoutines} />);
+    const edit = screen.getByRole("button", { name: "Edit routines" });
+    expect(within(screen.getByTestId("todays-routines")).getByTestId("todays-routines-edit")).toBe(edit);
+    await fireEvent.press(edit);
+    expect(onManageRoutines).toHaveBeenCalledTimes(1);
+  });
+
   it("with no routines at all, a quiet footer opens the routines sheet", async () => {
     const onManageRoutines = jest.fn();
     const { rerender } = await render(
@@ -236,9 +248,32 @@ describe("RoutinesSheet: the day picker", () => {
     expect(screen.getByLabelText("Routine")).toHaveProp("value", "😀".repeat(MAX_ROUTINE_TEXT));
   });
 
-  it("keeps the title to one line between Cancel and Save", async () => {
+  // PR #83: the field wraps (multiline) but stays one line of words, and return still saves.
+  it("multiline field: return saves and blurs only when valid; a pasted line break becomes a space, still capped", async () => {
+    const p = await openEditor();
+    const field = () => screen.getByLabelText("Routine");
+    expect(field()).toHaveProp("multiline", true);
+    expect(field()).toHaveProp("submitBehavior", "blurAndSubmit");
+    await fireEvent.changeText(field(), "Walk\nafter\r\nlunch");
+    expect(field()).toHaveProp("value", "Walk after lunch");
+    // The cap still applies after the line breaks are swapped.
+    await fireEvent.changeText(field(), `${"a".repeat(MAX_ROUTINE_TEXT)}\n\nmore`);
+    expect(field()).toHaveProp("value", "a".repeat(MAX_ROUTINE_TEXT));
+    // Only line breaks: blank words, so return does nothing.
+    await fireEvent.changeText(field(), "\n\n");
+    await fireEvent(field(), "submitEditing");
+    expect(p.onAdd).not.toHaveBeenCalled();
+    await fireEvent.changeText(field(), "Walk\nafter lunch");
+    await fireEvent(field(), "submitEditing");
+    expect(p.onAdd).toHaveBeenCalledWith("Walk after lunch", [0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it("keeps the title to two lines (shrinking to fit) between Cancel and Save", async () => {
     await openEditor();
-    expect(screen.getByRole("header", { name: "New routine" })).toHaveProp("numberOfLines", 1);
+    expect(screen.getByRole("header", { name: "New routine" })).toHaveProp("numberOfLines", 2);
+    // Cancel and Save stop at 2x so the title keeps its room at AX sizes.
+    expect(screen.getByText("Cancel")).toHaveProp("maxFontSizeMultiplier", 2);
+    expect(screen.getByTestId("routine-save-label")).toHaveProp("maxFontSizeMultiplier", 2);
   });
 });
 

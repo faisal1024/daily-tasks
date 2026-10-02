@@ -22,6 +22,7 @@ import {
   startSession,
   type FocusSession,
 } from "@/lib/daily-tasks/focus-session";
+import * as timerStorage from "@/lib/daily-tasks/focus-timer-storage";
 import { LAST_CUSTOM_TIMER_KEY } from "@/lib/daily-tasks/focus-timer-storage";
 import { getNotificationPermissionStatus } from "@/lib/daily-tasks/notifications";
 
@@ -241,22 +242,15 @@ describe("FocusTimerPanel: custom length", () => {
     expect(clampedLow).toBe(wheel);
     expect(clampedLow.props.value.getHours() * 60 + clampedLow.props.value.getMinutes()).toBe(1);
     await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(4, 0)));
-    await advance(100);
+    // Past the mount nudges.
+    await advance(300);
     expect(screen.getByTestId("focus-timer-wheel")).toBe(wheel);
-    // Again at the cap: the value is nudged (a second, then back, a frame
-    // apart) so native setDate puts the wheel back to 3:00.
-    const frames: FrameRequestCallback[] = [];
-    jest.spyOn(global, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
-      frames.push(cb);
-      return frames.length;
-    });
+    // Again at the cap: the value is nudged on a second (and left there) so
+    // native setDate puts the wheel back to 3:00.
     const wheelTime = () => (screen.getByTestId("focus-timer-wheel").props.value as Date).getTime();
-    await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(5, 0)));
     const before = wheelTime();
-    await act(async () => frames.shift()?.(0));
+    await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(5, 0)));
     expect(wheelTime()).toBe(before + 1000);
-    await act(async () => frames.shift()?.(0));
-    expect(wheelTime()).toBe(before);
     expect(screen.getByTestId("focus-timer-wheel")).toBe(wheel);
     const capped = screen.getByTestId("focus-timer-wheel").props.value as Date;
     expect(capped.getHours() * 60 + capped.getMinutes()).toBe(180);
@@ -265,7 +259,16 @@ describe("FocusTimerPanel: custom length", () => {
     expect(remaining()).toHaveTextContent("3:00:00");
   });
 
-  it("iOS: one frame after the wheel mounts its value is nudged a second and back (UIKit first-spin quirk)", async () => {
+  // PR #83 review: the settle nudge follows the wrapper's first layout (+ a
+  // frame) rather than a fixed 250 ms, so a slow native mount can't outlast it.
+  const layOut = async () =>
+    act(async () => {
+      fireEvent(screen.getByTestId("focus-timer-wheel-frame"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 216 } },
+      });
+    });
+
+  it("iOS: the wheel is nudged on a second a frame after mounting and a frame after its first layout, never back (UIKit first-spin quirk)", async () => {
     Platform.OS = "ios";
     const frames: FrameRequestCallback[] = [];
     jest.spyOn(global, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
@@ -280,8 +283,43 @@ describe("FocusTimerPanel: custom length", () => {
     expect(new Date(mounted).getFullYear()).toBe(2000);
     await act(async () => frames.shift()?.(0));
     expect(wheelTime()).toBe(mounted + 1000);
+    expect(frames).toHaveLength(0);
+    // No fixed timer: however long the native mount takes, nothing moves until layout.
+    await advance(5000);
+    expect(wheelTime()).toBe(mounted + 1000);
+    // First layout, then one frame: the second nudge (forward again).
+    await layOut();
+    expect(wheelTime()).toBe(mounted + 1000);
+    expect(frames).toHaveLength(1);
     await act(async () => frames.shift()?.(0));
-    expect(wheelTime()).toBe(mounted);
+    expect(wheelTime()).toBe(mounted + 2000);
+    // Later layouts (a size change) don't nudge again.
+    await layOut();
+    expect(frames).toHaveLength(0);
+    expect(wheelTime()).toBe(mounted + 2000);
+  });
+
+  it("iOS: a fast first spin before the layout nudge isn't fought (the late nudge stands down)", async () => {
+    Platform.OS = "ios";
+    const frames: FrameRequestCallback[] = [];
+    jest.spyOn(global, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
+      frames.push(cb);
+      return frames.length;
+    });
+    const { onStart } = await renderPanel();
+    await press("Custom timer");
+    const wheelTime = () => (screen.getByTestId("focus-timer-wheel").props.value as Date).getTime();
+    await act(async () => frames.shift()?.(0));
+    await layOut();
+    // The user spins to 0:40 before the layout frame lands.
+    await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(0, 40)));
+    const spun = wheelTime();
+    await act(async () => frames.shift()?.(0));
+    expect(wheelTime()).toBe(spun);
+    const value = screen.getByTestId("focus-timer-wheel").props.value as Date;
+    expect(value.getHours() * 60 + value.getMinutes()).toBe(40);
+    await press("Start");
+    expect(onStart).toHaveBeenCalledWith(40);
   });
 
   it("Android: a stepper instead of the wheel, in steps of 5 within 1–180", async () => {
@@ -346,7 +384,7 @@ describe("FocusTimerPanel: running", () => {
     await advance(2 * MIN);
     expect(remaining()).toHaveTextContent("5:00");
     await advance(5 * MIN);
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("10 minutes on “Write”. How did it go?");
   });
 
   it("Stop timer while running goes back to the picker (nothing picked)", async () => {
@@ -367,7 +405,7 @@ describe("FocusTimerPanel: running", () => {
     expect(appStateListeners).toHaveLength(1);
     jest.setSystemTime(START.getTime() + 12 * MIN);
     await foreground();
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("5 minutes on “Write”. How did it go?");
   });
 
   it("Pause tapped after it ran out (between ticks) ends it instead of pausing at 0:00", async () => {
@@ -386,7 +424,7 @@ describe("FocusTimerPanel: finishing", () => {
     await press("5 minute timer");
     await advance(5 * MIN);
     expect(screen.getByTestId("focus-timer-times-up")).toHaveTextContent("Time's up");
-    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("Time's up on “Write”.");
+    expect(screen.getByTestId("focus-check-in-title")).toHaveTextContent("5 minutes on “Write”. How did it go?");
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop here" })).toBeNull();
     expect(screen.getByRole("button", { name: "Take a break" }).props.accessibilityHint).toBe(
@@ -630,5 +668,72 @@ describe("FocusTimerPanel: 1.3 polish", () => {
     await fireEvent.press(screen.getByRole("button", { name: "Take a break" }));
     expect(controls.takeBreak).toHaveBeenCalledTimes(1);
     expect(controls.stop).not.toHaveBeenCalled();
+  });
+});
+
+// PR #83: the iOS wheel mounts only once the stored last length has loaded, so
+// it never shows the default and changes under the user; its nudges only move
+// the seconds, so the wheel and Start always mean the same length.
+describe("FocusTimerPanel: the custom wheel waits for the stored length (PR #83)", () => {
+  const wheelMinutes = () => {
+    const value = screen.getByTestId("focus-timer-wheel").props.value as Date;
+    return value.getHours() * 60 + value.getMinutes();
+  };
+  const startHint = () => screen.getByRole("button", { name: "Start" }).props.accessibilityHint as string;
+
+  it("shows a placeholder until the stored 45 loads, then the wheel at 45; nudges never change it and Start uses it", async () => {
+    Platform.OS = "ios";
+    let release!: (minutes: number | null) => void;
+    jest.spyOn(timerStorage, "loadLastCustomTimer").mockImplementation(
+      () => new Promise<number | null>((resolve) => (release = resolve)),
+    );
+    const { onStart } = await renderPanel();
+    await press("Custom timer");
+    expect(screen.getByTestId("focus-timer-wheel-loading")).toBeOnTheScreen();
+    expect(screen.queryByTestId("focus-timer-wheel")).toBeNull();
+
+    await act(async () => release(45));
+    expect(screen.queryByTestId("focus-timer-wheel-loading")).toBeNull();
+    expect(wheelMinutes()).toBe(45);
+    expect(startHint()).toBe("Starts a timer for 45 minutes");
+    // The mount frame and the layout frame each move only the seconds.
+    const mounted = (screen.getByTestId("focus-timer-wheel").props.value as Date).getTime();
+    await act(async () => {
+      fireEvent(screen.getByTestId("focus-timer-wheel-frame"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 216 } },
+      });
+    });
+    await advance(300);
+    expect((screen.getByTestId("focus-timer-wheel").props.value as Date).getTime()).toBe(mounted + 2000);
+    expect(wheelMinutes()).toBe(45);
+    expect(startHint()).toBe("Starts a timer for 45 minutes");
+    // A clamp's nudge, too: past the cap it reads (and starts) 3 hours.
+    await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(3, 30)));
+    expect(wheelMinutes()).toBe(180);
+    expect(startHint()).toBe("Starts a timer for 3 hours");
+    await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(0, 45)));
+    expect(wheelMinutes()).toBe(45);
+    await press("Start");
+    expect(onStart).toHaveBeenCalledWith(45);
+  });
+
+  it("with nothing stored, mounts at the default 15 once the read finishes", async () => {
+    Platform.OS = "ios";
+    const { onStart } = await renderPanel();
+    await press("Custom timer");
+    expect(wheelMinutes()).toBe(15);
+    await advance(300);
+    expect(wheelMinutes()).toBe(15);
+    await press("Start");
+    expect(onStart).toHaveBeenCalledWith(15);
+  });
+
+  it("a failed read still mounts the wheel (at the default)", async () => {
+    Platform.OS = "ios";
+    jest.spyOn(timerStorage, "loadLastCustomTimer").mockRejectedValue(new Error("disk"));
+    await renderPanel();
+    await press("Custom timer");
+    expect(screen.queryByTestId("focus-timer-wheel-loading")).toBeNull();
+    expect(wheelMinutes()).toBe(15);
   });
 });

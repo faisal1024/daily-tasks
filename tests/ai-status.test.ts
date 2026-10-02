@@ -262,11 +262,11 @@ describe("nextAiPlanFetchKey with a restored plan", () => {
 });
 
 describe("suggestionsHint", () => {
-  it("matches the number of ideas showing", () => {
-    expect(suggestionsHint(1)).not.toMatch(/three|both/);
-    expect(suggestionsHint(2)).toContain("both");
-    expect(suggestionsHint(3)).toContain("all three");
-    expect(suggestionsHint(0)).not.toMatch(/three|both/);
+  it("says how many slots are open today", () => {
+    expect(suggestionsHint(1)).toBe("Room for one more today.");
+    expect(suggestionsHint(2)).toBe("Room for two more today.");
+    expect(suggestionsHint(3)).toBe("Room for three more today.");
+    expect(suggestionsHint(0)).not.toMatch(/Room/);
     // The sheet has no text field, so the hint must not point "below".
     for (const n of [1, 2, 3]) expect(suggestionsHint(n)).not.toMatch(/below/);
   });
