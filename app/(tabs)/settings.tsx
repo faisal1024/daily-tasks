@@ -704,7 +704,7 @@ export default function SettingsScreen() {
             />
             <View style={{ height: 1, backgroundColor: colors.border }} />
             <HelpRow
-              icon="mail-outline"
+              icon="chatbubble-outline"
               label="Send feedback"
               hint="Opens the support page"
               onPress={openFeedback}

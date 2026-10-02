@@ -9,7 +9,6 @@ import {
 } from "../lib/daily-tasks/milestones";
 import {
   REVIEW_COOLDOWN_DAYS,
-  countPerfectDays,
   shouldRequestReview,
 } from "../lib/daily-tasks/review-prompt";
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
@@ -254,36 +253,26 @@ describe("review prompt policy", () => {
     );
   const now = new Date("2026-09-26T20:00:00Z");
 
-  it("counts only three-for-three days as perfect", () => {
-    expect(
-      countPerfectDays({ a: day("a", 3), b: day("b", 2), c: day("c", 2, 2), d: day("d", 3) }),
-    ).toBe(2);
-  });
-
   const quiet = {
     today: "2026-09-26",
     now,
     onboardingVisible: false,
-    paywallOpen: false,
-    focusSessionActive: false,
   };
 
   it("asks right after a perfect day, once the user has shown up before today", () => {
     expect(
-      shouldRequestReview("perfect_day", { ...quiet, history: perfectHistory(1), lastReviewPromptAt: null }),
+      shouldRequestReview({ ...quiet, history: perfectHistory(1), lastReviewPromptAt: null }),
     ).toBe(true);
   });
 
-  it("never asks on the install's first day or outside a happy moment", () => {
-    const base = { ...quiet, lastReviewPromptAt: null };
-    expect(shouldRequestReview("perfect_day", { ...base, history: {} })).toBe(false);
-    expect(shouldRequestReview(null, { ...base, history: perfectHistory(10) })).toBe(false);
+  it("never asks on the install's first day", () => {
+    expect(shouldRequestReview({ ...quiet, lastReviewPromptAt: null, history: {} })).toBe(false);
   });
 
   it("respects the cooldown after the last prompt", () => {
     const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000).toISOString();
     const ask = (last: string) =>
-      shouldRequestReview("perfect_day", {
+      shouldRequestReview({
         ...quiet,
         history: perfectHistory(10),
         lastReviewPromptAt: last,

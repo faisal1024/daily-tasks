@@ -2,16 +2,16 @@
 // Today screen calls it at a happy moment (1.3).
 //
 // Apple already caps the system prompt at 3 times per year, but asking at a bad
-// moment wastes one of those. We only ask right after something good happened
-// (a focus session ended with its task done, a perfect day, a showed-up
-// milestone, a good week), never on the first day, never over onboarding, the
-// paywall or a focus session, and never more than once per cooldown.
+// moment wastes one of those. A happy moment (a focus session ended with its
+// task done, a perfect day, a showed-up milestone, a good week) EARNS an ask,
+// never on the first day, over onboarding, or within the cooldown. The ask
+// itself waits at least an hour, for a later quiet app open (no paywall, focus
+// session, sheet or celebration on screen; the Today screen checks that then).
 //
 // Guideline 5.6.1: there is no "do you like the app?" gate before the system
 // prompt, and nothing is ever given in return for a review.
 
 import type { History, ReviewTrigger } from "./types";
-import { MAX_TASKS } from "./types";
 import { showedUp } from "./streaks";
 
 /** The happy moment behind an ask; also the `source` of rating_prompt_requested. */
@@ -33,41 +33,24 @@ export const SHOWED_UP_MILESTONES: readonly number[] = [7, 30, 100];
 /** Showed-up days in the last 7 (today included) that make a good week. */
 export const GOOD_WEEK_DAYS = 5;
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-export function countPerfectDays(history: History): number {
-  return Object.values(history).filter(
-    (day) => day.total === MAX_TASKS && day.completed === MAX_TASKS,
-  ).length;
-}
+/** An earned ask waits at least this long after the happy moment... */
+export const REVIEW_DELAY_MS = 60 * 60 * 1000;
+/** ...and expires after a week (too far from the moment that earned it). */
+export const REVIEW_EXPIRY_MS = 7 * DAY_MS;
 
 /**
- * Days actually shown up so far, today only once it counts (the shared
- * `showedUp` rule, as for "Day N"). `todayTotal` is today's live task count,
- * so this never lags the screen.
+ * At today's first tick, the achievement today makes, or null: a showed-up
+ * milestone (Day 7, 30 or 100) first, else a good week (exactly 5 of the last
+ * 7). Both counts include today, which a tick means has a task, so equality
+ * is "reached today".
  */
-export function countShowedUpDays(history: History, today: string, todayTotal: number): number {
-  let count = 0;
-  for (const record of Object.values(history)) {
-    if (record.date < today && showedUp(record)) count += 1;
-  }
-  return count + (todayTotal > 0 ? 1 : 0);
-}
-
-/** The milestone just reached going from `previous` to `current`, or null. */
-export function milestoneReached(previous: number | null, current: number): number | null {
-  if (previous === null) return null;
-  for (const milestone of SHOWED_UP_MILESTONES) {
-    if (previous < milestone && current >= milestone) return milestone;
-  }
+export function achievementOnFirstTick(
+  showedUpDays: number,
+  weekShowedUpDays: number,
+): "milestone" | "good_week" | null {
+  if (SHOWED_UP_MILESTONES.includes(showedUpDays)) return "milestone";
+  if (weekShowedUpDays === GOOD_WEEK_DAYS) return "good_week";
   return null;
-}
-
-/**
- * True only when the showed-up days in the last 7 (today included, as the week
- * row counts them) just reached a good week.
- */
-export function goodWeekReached(previous: number | null, current: number): boolean {
-  return previous !== null && previous < GOOD_WEEK_DAYS && current >= GOOD_WEEK_DAYS;
 }
 
 /** Showed up on some day before today: not the install's first day. */
@@ -83,9 +66,6 @@ export interface ReviewPromptState {
   now: Date;
   /** Onboarding or the first-run flow is showing. */
   onboardingVisible: boolean;
-  paywallOpen: boolean;
-  /** A focus session is running, paused or at its check-in. */
-  focusSessionActive: boolean;
 }
 
 export function cooldownPassed(lastReviewPromptAt: string | null, now: Date): boolean {
@@ -98,16 +78,23 @@ export function cooldownPassed(lastReviewPromptAt: string | null, now: Date): bo
 }
 
 /**
- * Whether a happy moment (`trigger`, or null when nothing just happened) earns
- * a rating ask. Callers pass a trigger only on the transition, not on every
- * render.
+ * Whether a happy moment, just now, earns a rating ask. Callers ask only on the
+ * transition, not on every render. The paywall, a focus session and the rest
+ * are checked when the ask is shown (reviewDueStatus + the screen being quiet).
  */
-export function shouldRequestReview(
-  trigger: ReviewTrigger | null,
-  state: ReviewPromptState,
-): boolean {
-  if (!trigger) return false;
-  if (state.onboardingVisible || state.paywallOpen || state.focusSessionActive) return false;
+export function shouldRequestReview(state: ReviewPromptState): boolean {
+  if (state.onboardingVisible) return false;
   if (!hasShowedUpBefore(state.history, state.today)) return false;
   return cooldownPassed(state.lastReviewPromptAt, state.now);
+}
+
+/**
+ * Where a saved ask (`reviewDueAt`) stands at `now`: too soon, ready, or
+ * expired. A corrupt timestamp (or one a week or more off) is expired, never
+ * "ask now", so it's cleared or replaced instead of blocking every later ask.
+ */
+export function reviewDueStatus(dueAt: string, now: number): "wait" | "ready" | "expired" {
+  const age = now - Date.parse(dueAt);
+  if (Number.isNaN(age) || Math.abs(age) > REVIEW_EXPIRY_MS) return "expired";
+  return age < REVIEW_DELAY_MS ? "wait" : "ready";
 }
