@@ -207,6 +207,7 @@ function toPlusPackage(pkg: SdkPackage, trialEligible: boolean): PlusPackage {
     priceString: pkg.product.priceString,
     pricePerMonthString: pkg.product.pricePerMonthString ?? null,
     trialDays: trialEligible ? freeTrialDays(pkg.product.introPrice) : null,
+    trialUnit: trialEligible ? (pkg.product.introPrice?.periodUnit ?? null) : null,
   };
 }
 

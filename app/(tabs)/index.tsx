@@ -69,6 +69,7 @@ import {
   type SortedBrainDump,
 } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
+import { AHA_PAYWALL_DELAY_MS, fillsDay, shouldOfferAhaPaywall } from "@/lib/daily-tasks/aha-paywall";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import {
@@ -124,6 +125,9 @@ import type { ReflectionResult } from "@/lib/daily-tasks/types";
 
 /** Wait this long after the app becomes active before asking. */
 const REVIEW_SETTLE_MS = 2000;
+// After the system rating prompt is requested, no paywall for this long: the
+// two must never stack (the rating alert may still be up).
+const RATING_QUIET_MS = 10_000;
 
 type Unlock =
   // `starter`: from the timer's check-in, so a 5-minute starter is offered after.
@@ -197,7 +201,7 @@ export default function HomeScreen() {
     focusPrompt,
     clearFocusPrompt,
   } = useDailyTasks();
-  const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue } = usePlus();
+  const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue, ahaPaywallState } = usePlus();
   const winBackDueRef = useRef(winBackDue);
   winBackDueRef.current = winBackDue;
 
@@ -680,6 +684,11 @@ export default function HomeScreen() {
   const previousCompleted = useRef<number | null>(null);
   const celebratedDay = useRef<string | null>(null);
   const reviewInFlight = useRef(false);
+  // When the rating prompt was last requested (0: not this session). With
+  // reviewInFlight, keeps the aha and win-back paywalls off a rating ask.
+  const ratingAskedAt = useRef(0);
+  const ratingRecent = () =>
+    reviewInFlight.current || Date.now() - ratingAskedAt.current < RATING_QUIET_MS;
   useEffect(() => {
     if (!ready) return;
     const transition = isPerfectDayTransition({
@@ -729,6 +738,59 @@ export default function HomeScreen() {
     // No rating ask over a focus session: running, paused or at its check-in.
     focusSession !== null ||
     showCelebration;
+
+  // The gentle aha paywall: once per install, after day 1, at a real win
+  // (last night's draft used, Set, or a brain dump that filled the day's
+  // three). Checked again when the delay ends, so a sheet, a timer, another
+  // paywall, the app going to the background (or a purchase elsewhere)
+  // cancels it. Rule: lib/daily-tasks/aha-paywall.ts.
+  const totalRef = useRef(total);
+  totalRef.current = total;
+  const ahaAllowedRef = useRef<() => boolean>(() => false);
+  ahaAllowedRef.current = () =>
+    shouldOfferAhaPaywall({
+      today,
+      state: ahaPaywallState,
+      now: Date.now(),
+      paywallEnabled: Boolean(paywallEnabled),
+      hasPlus,
+      busy:
+        !ready ||
+        !appActive ||
+        RNAppState.currentState !== "active" ||
+        busyRef.current ||
+        // A rating ask in flight or just made: never a paywall on top of it.
+        ratingRecent() ||
+        state.pendingRollover !== null ||
+        // Any focus session, paused too: it's their time, not ours.
+        focusSession !== null,
+    });
+  const ahaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (ahaTimer.current) clearTimeout(ahaTimer.current);
+    },
+    [],
+  );
+  // Backgrounded while waiting: drop it rather than greet them with a paywall on return.
+  useEffect(() => {
+    if (!appActive && ahaTimer.current) {
+      clearTimeout(ahaTimer.current);
+      ahaTimer.current = null;
+    }
+  }, [appActive]);
+  // Only judged when the delay ends: the moment may come from a sheet that's
+  // still closing. `fillsFrom`: the task count before an add, so the offer only
+  // stands if the add really filled the day (checked against the count after it).
+  const offerAhaPaywall = (options: { fillsFrom?: number } = {}) => {
+    if (ahaTimer.current) clearTimeout(ahaTimer.current);
+    ahaTimer.current = setTimeout(() => {
+      ahaTimer.current = null;
+      if (options.fillsFrom !== undefined && !fillsDay(options.fillsFrom, totalRef.current)) return;
+      if (ahaAllowedRef.current()) openPaywall("aha");
+    }, AHA_PAYWALL_DELAY_MS);
+  };
+
   useEffect(() => {
     if (!ready) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -742,8 +804,11 @@ export default function HomeScreen() {
         return;
       }
       if (status === "wait" || busyRef.current) return;
+      // The aha paywall is about to open: keep the ask for a later foreground.
+      if (ahaTimer.current) return;
       if (RNAppState.currentState !== "active") return;
       reviewInFlight.current = true;
+      ratingAskedAt.current = Date.now();
       try {
         if (await requestAppReview()) {
           // Storage gives an ask saved before 1.3 the source "perfect_day".
@@ -894,6 +959,7 @@ export default function HomeScreen() {
         onPress: () => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
           lockToday();
+          offerAhaPaywall();
         },
       },
     ]);
@@ -912,7 +978,7 @@ export default function HomeScreen() {
     // launch). Skipped if anything else is on screen, e.g. the celebration.
     if (completing && winBackDue && paywallEnabled && !hasPlus) {
       setTimeout(() => {
-        if (!busyRef.current && winBackDueRef.current) openPaywall("win_back");
+        if (!busyRef.current && !ratingRecent() && winBackDueRef.current) openPaywall("win_back");
       }, 1200);
     }
   };
@@ -1189,6 +1255,7 @@ export default function HomeScreen() {
                       const message = skipped > 0 ? `${added} ${skipped} saved for later.` : added;
                       AccessibilityInfo.announceForAccessibility(message);
                       if (skipped > 0) showToast(message);
+                      offerAhaPaywall();
                     }}
                     onChange={() => setBrainDumpOpen(true)}
                     onDismiss={dismissTomorrowDraft}
@@ -1495,6 +1562,8 @@ export default function HomeScreen() {
           }
           parkTasks(saved);
           setBrainDumpOpen(false);
+          // Offered only if the dump really filled the day's three (checked once the sheet has gone).
+          if (accepted.length > 0) offerAhaPaywall({ fillsFrom: total });
           const message = brainDumpToast(accepted.length, saved.length);
           if (message) showToast(message);
         }}
@@ -1580,7 +1649,7 @@ export default function HomeScreen() {
           setFirstRunActive(false);
           track("onboarding_completed", { source: state.tasks.length > 0 ? "dump" : "own" });
           // Offer the trial once, at the end of first run (closable).
-          if (paywallEnabled && !hasPlus) showPaywall("onboarding", { afterSheet: true });
+          if (paywallEnabled && !hasPlus) showPaywall("onboarding", { afterSheet: true, taskCount: state.tasks.length });
         }}
       />
 

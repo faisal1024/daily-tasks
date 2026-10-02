@@ -22,6 +22,8 @@ export type PaywallSource =
   | "new_ideas"
   | "calendar"
   | "win_back"
+  // The gentle second paywall after a first real "aha" (lib/daily-tasks/aha-paywall.ts).
+  | "aha"
   | "routines";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
@@ -35,6 +37,12 @@ export interface PlusPackage {
   pricePerMonthString: string | null;
   /** Free-trial length in days, when the product has a free intro offer the user can get. */
   trialDays: number | null;
+  /**
+   * The store's unit for that free intro period ("DAY", "WEEK", "MONTH",
+   * "YEAR"). The trial timeline only counts days for DAY/WEEK trials, since a
+   * month or year isn't a fixed number of days.
+   */
+  trialUnit?: string | null;
   /**
    * An Apple win-back offer this lapsed subscriber is eligible for (iOS 18+,
    * created in App Store Connect). Absent or null: the plain price applies.
@@ -82,6 +90,9 @@ export function planKind(packageType: string): PlanKind {
       return "other";
   }
 }
+
+/** The trial reminder (trial-reminder.ts) goes out this many days before a trial ends. */
+export const TRIAL_REMINDER_DAYS_BEFORE_END = 2;
 
 const UNIT_DAYS: Record<string, number> = { DAY: 1, WEEK: 7, MONTH: 30, YEAR: 365 };
 
@@ -258,9 +269,20 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
   },
 ];
 
-/** Headline per entry point, so the paywall says why it appeared. */
-export function paywallHeadline(source: PaywallSource): string {
+/**
+ * Headline per entry point, so the paywall says why it appeared. The
+ * onboarding one echoes what the user just did: `taskCount` is how many tasks
+ * first run set (0 = they chose to add their own, so nothing to echo).
+ */
+export function paywallHeadline(source: PaywallSource, options: { taskCount?: number } = {}): string {
   switch (source) {
+    case "onboarding": {
+      const count = options.taskCount ?? 3;
+      if (count <= 0) return "A little extra help, when you want it";
+      return count >= 3 ? "Your three are set." : "Today's set.";
+    }
+    case "aha":
+      return "Today's three are set.";
     case "brain_dump":
       return "Let AI sort your brain dump";
     case "break_down":
@@ -276,6 +298,75 @@ export function paywallHeadline(source: PaywallSource): string {
     default:
       return "A little extra help, when you want it";
   }
+}
+
+/** The line under the headline. */
+export function paywallSubhead(source: PaywallSource, options: { taskCount?: number } = {}): string {
+  switch (source) {
+    case "onboarding":
+      return (options.taskCount ?? 3) > 0
+        ? "Want help like this every morning? Your three stay free either way."
+        : "Your three tasks stay free forever. Plus adds the AI helpers.";
+    case "aha":
+      return "Plus sorts a messy brain dump, breaks big tasks into steps and plans around your calendar. Your three stay free either way.";
+    case "win_back":
+      return "Your three tasks stay free. Plus brings back AI sorting, break it down and calendar planning.";
+    case "routines":
+      return "Two routines are free, and they keep working. Plus keeps as many as you like, with the AI helpers too.";
+    default:
+      return "Your three tasks stay free forever. Plus adds the AI helpers.";
+  }
+}
+
+export interface TrialStep {
+  /** "Today", "Day 5", "Day 7". */
+  when: string;
+  what: string;
+}
+
+/**
+ * What happens during a free trial, for the timeline under the plans: today,
+ * the reminder, the first charge. Null when the plan has no free trial for
+ * this user (or isn't a subscription), and null for month/year-unit trials,
+ * whose length in days isn't fixed. The reminder step is left out when it
+ * can't be kept: notifications aren't allowed, or the trial is too short for
+ * the two-day heads-up.
+ */
+export function trialTimeline(
+  pkg: PlusPackage | null,
+  options: { remindersAllowed: boolean },
+): TrialStep[] | null {
+  if (!pkg || !pkg.trialDays || pkg.trialDays <= 0) return null;
+  if (pkg.kind !== "annual" && pkg.kind !== "monthly") return null;
+  if (pkg.trialUnit !== "DAY" && pkg.trialUnit !== "WEEK") return null;
+  const period = pkg.kind === "annual" ? "year" : "month";
+  const steps: TrialStep[] = [{ when: "Today", what: "All of Plus, free" }];
+  const reminderDay = pkg.trialDays - TRIAL_REMINDER_DAYS_BEFORE_END;
+  if (options.remindersAllowed && reminderDay >= 1) {
+    steps.push({ when: `Day ${reminderDay}`, what: "We remind you, with time to cancel" });
+  }
+  steps.push({ when: `Day ${pkg.trialDays}`, what: `${pkg.priceString}/${period} starts. Cancel before then and you won't pay.` });
+  return steps;
+}
+
+/** The timeline read as one sentence by VoiceOver. */
+export function trialTimelineLabel(steps: TrialStep[]): string {
+  const spoken = steps.map((step) => {
+    const what = step.what.replace(/\/(year|month)\b/, " per $1");
+    // Steps that are already sentences keep their own full stop.
+    return `${step.when}: ${/[.!?]$/.test(what) ? what : `${what}.`}`;
+  });
+  return `How the free trial works. ${spoken.join(" ")}`;
+}
+
+/**
+ * The quiet line offered after someone backs out of buying the yearly plan:
+ * a smaller step, never a countdown.
+ */
+export function monthlyNudgeText(monthly: PlusPackage): string {
+  return monthly.trialDays
+    ? `Prefer to start small? Monthly, ${monthly.trialDays} days free.`
+    : `Prefer to start small? Monthly is ${monthly.priceString}/month.`;
 }
 
 /** Status line for the Settings row. */

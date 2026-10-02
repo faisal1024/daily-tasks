@@ -219,7 +219,10 @@ describe("Today: first run", () => {
     await fireEvent.press(button("Done"));
     expect(mockStore.markOnboardingSeen).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId(/^first-run-/)).toBeNull();
-    await waitFor(() => expect(mockOpenPaywall).toHaveBeenCalledWith("onboarding"), { timeout: 2000 });
+    // "I'll add my own": no tasks set, so the paywall gets the generic headline.
+    await waitFor(() => expect(mockOpenPaywall).toHaveBeenCalledWith("onboarding", { taskCount: 0 }), {
+      timeout: 2000,
+    });
   });
 
   it("doesn't offer the trial to someone who already has Plus", async () => {
