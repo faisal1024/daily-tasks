@@ -66,6 +66,7 @@ import {
   type SortedBrainDump,
 } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
+import { AHA_PAYWALL_DELAY_MS, shouldOfferAhaPaywall } from "@/lib/daily-tasks/aha-paywall";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
@@ -188,7 +189,7 @@ export default function HomeScreen() {
     focusPrompt,
     clearFocusPrompt,
   } = useDailyTasks();
-  const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue } = usePlus();
+  const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue, ahaPaywall } = usePlus();
   const winBackDueRef = useRef(winBackDue);
   winBackDueRef.current = winBackDue;
 
@@ -676,6 +677,42 @@ export default function HomeScreen() {
     // No rating ask over a running timer or its check-in (a paused one is fine).
     (focusSession !== null && focusSession.status !== "paused") ||
     showCelebration;
+
+  // The gentle aha paywall: once per install, after day 1, at a real win
+  // (last night's draft used, or the day's three set). Checked again when the
+  // delay ends, so a sheet, a timer or another paywall that came up meanwhile
+  // (or a purchase elsewhere) cancels it. Rule: lib/daily-tasks/aha-paywall.ts.
+  const ahaAllowedRef = useRef<() => boolean>(() => false);
+  ahaAllowedRef.current = () =>
+    shouldOfferAhaPaywall({
+      today,
+      state: ahaPaywall,
+      now: Date.now(),
+      paywallEnabled: Boolean(paywallEnabled),
+      hasPlus,
+      busy:
+        !ready ||
+        busyRef.current ||
+        state.pendingRollover !== null ||
+        // Any focus session, paused too: it's their time, not ours.
+        focusSession !== null,
+    });
+  const ahaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (ahaTimer.current) clearTimeout(ahaTimer.current);
+    },
+    [],
+  );
+  // Only judged when the delay ends: the moment may come from a sheet that's still closing.
+  const offerAhaPaywall = () => {
+    if (ahaTimer.current) clearTimeout(ahaTimer.current);
+    ahaTimer.current = setTimeout(() => {
+      ahaTimer.current = null;
+      if (ahaAllowedRef.current()) openPaywall("aha");
+    }, AHA_PAYWALL_DELAY_MS);
+  };
+
   useEffect(() => {
     if (!ready) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -858,6 +895,7 @@ export default function HomeScreen() {
         onPress: () => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
           lockToday();
+          offerAhaPaywall();
         },
       },
     ]);
@@ -969,6 +1007,8 @@ export default function HomeScreen() {
   const handleAdd = (text: string) => {
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     addTask(text);
+    // This one completes the day's three.
+    if (total + 1 >= MAX_TASKS && total < MAX_TASKS) offerAhaPaywall();
   };
 
   return (
@@ -1151,6 +1191,7 @@ export default function HomeScreen() {
                       const message = skipped > 0 ? `${added} ${skipped} saved for later.` : added;
                       AccessibilityInfo.announceForAccessibility(message);
                       if (skipped > 0) showToast(message);
+                      offerAhaPaywall();
                     }}
                     onChange={() => setBrainDumpOpen(true)}
                     onDismiss={dismissTomorrowDraft}
@@ -1442,6 +1483,8 @@ export default function HomeScreen() {
           }
           parkTasks(saved);
           setBrainDumpOpen(false);
+          // The dump filled the day's three (checked once the sheet has gone).
+          if (accepted.length > 0 && total < MAX_TASKS && total + accepted.length >= MAX_TASKS) offerAhaPaywall();
           const message = brainDumpToast(accepted.length, saved.length);
           if (message) showToast(message);
         }}

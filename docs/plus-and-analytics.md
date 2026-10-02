@@ -27,6 +27,28 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
   Break it down, "Get Plus" in the brain dump (only after the free sorts), "New ideas",
   the calendar setting, and Settings › Plus. Lifetime is shown only from Settings.
   Restore purchases is on the paywall and in Settings.
+- **Onboarding paywall (1.3):** echoes what first run just did ("Your three are set." /
+  "Want help like this every morning?"); with no tasks set ("I'll add my own") it falls
+  back to the generic headline.
+- **Trial timeline (1.3):** when the selected plan has a free trial the user is eligible
+  for, a 3-step timeline sits under the plans: "Today · All of Plus, free", "Day N−2 · We
+  remind you", "Day N · {price}/year (or /month), cancel anytime". The reminder step is
+  left out when notifications aren't allowed or the trial is under 3 days (the reminder
+  couldn't be sent). Never for lifetime or plans without a trial. VoiceOver reads it as
+  one element (`trialTimeline` / `trialTimelineLabel` in `plus.ts`).
+- **Aha paywall (1.3, source `aha`):** a gentle second offer, at most once per install,
+  at the first real win after install day: using last night's draft, setting the day
+  (Set), or filling the day's three (typed, or from a brain dump). Never on install
+  day, never for Plus/trial/grandfathered or still-checking users, never within 24 h of
+  any other paywall shown, never during first run, a rollover, a focus session (even
+  paused), a sheet or another paywall. Judged 1.2 s after the moment (so a closing sheet
+  is gone). Rule: `lib/daily-tasks/aha-paywall.ts`; install day, "aha shown" and the last
+  paywall time are kept in their own AsyncStorage keys (`plus-context.tsx`), so "Reset
+  all data" doesn't re-arm it. Counted as shown only once iOS presents it.
+- **Monthly nudge (1.3):** backing out of the yearly purchase (StoreKit "cancelled") shows
+  one quiet line under the button, "Prefer to start small? Monthly, 7 days free." (the
+  monthly plan's real trial; its price when it has none). Tapping selects monthly, it
+  never buys. Once per paywall open; hidden once monthly is selected.
 - **Trial reminder:** a local notification ~48 h before a free trial ends (daytime),
   skipped if the trial was cancelled or is family-shared.
 - **Win-back:** once per lapse (RevenueCat's own expiry), at least 2 days after it,
@@ -65,9 +87,12 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 
 ## Events
 
+`paywall_viewed` / `paywall_closed` carry `source`: `onboarding`, `aha`, `settings`,
+`brain_dump`, `break_down`, `new_ideas`, `calendar`, `win_back`.
+
 `app_opened` (once per day), `onboarding_completed`, `task_completed`, `perfect_day`,
 `brain_dump_sorted`, `break_down_used`, `plus_gate_hit`, `paywall_viewed`,
-`paywall_closed`, `purchase_started`, `purchase_completed`, `purchase_failed`,
+`paywall_closed`, `paywall_monthly_nudge_tapped` (`source`), `purchase_started`, `purchase_completed`, `purchase_failed`,
 `restore_completed`, `redeem_code_opened`, `path_edited`, `path_regenerated`. Properties are limited to `source`, `plan`, `outcome`, `trial`,
 `count`, `skipped`, `feature`, `active`, `plus`, `step`, `timer` with short enum/number/boolean values. Never
 task, goal or brain-dump text; no person profiles; `$ip` null, `$geoip_disable`, and

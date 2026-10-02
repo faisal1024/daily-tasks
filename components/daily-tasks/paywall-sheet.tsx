@@ -16,20 +16,27 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Fonts } from "@/constants/theme";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
+import { track } from "@/lib/daily-tasks/analytics";
 import { PRIVACY_URL, TERMS_URL } from "@/lib/daily-tasks/links";
+import { getNotificationPermissionStatus } from "@/lib/daily-tasks/notifications";
 import {
   defaultPackageId,
+  monthlyNudgeText,
   paywallHeadline,
+  paywallSubhead,
   planLabel,
   PLUS_BENEFITS,
   purchaseButtonLabel,
   purchaseTerms,
   sortPackages,
+  trialTimeline,
+  trialTimelineLabel,
   visiblePackages,
   type PaywallSource,
   type PlusPackage,
 } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
+import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type { PurchaseOutcome } from "@/lib/daily-tasks/purchases";
 
 type LoadState = "loading" | "ready" | "error";
@@ -44,7 +51,14 @@ interface PaywallSheetProps {
   loadPackages: () => Promise<PlusPackage[]>;
   onPurchase: (pkg: PlusPackage) => Promise<PurchaseOutcome>;
   onRestore: () => Promise<boolean | null>;
+  /** Tasks first run set (the onboarding headline echoes it). */
+  taskCount?: number;
+  /** Notifications are allowed, so the trial reminder can actually be sent. */
+  remindersAllowed?: boolean;
 }
+
+// After backing out of the yearly plan: the monthly line, offered once per open.
+type MonthlyNudge = "none" | "shown" | "done";
 
 export function PaywallSheet({
   source,
@@ -54,6 +68,8 @@ export function PaywallSheet({
   loadPackages,
   onPurchase,
   onRestore,
+  taskCount,
+  remindersAllowed = false,
 }: PaywallSheetProps) {
   const colors = useColors();
   const sheetAnimation = useSheetAnimation();
@@ -64,6 +80,7 @@ export function PaywallSheet({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState<"purchase" | "restore" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [nudge, setNudge] = useState<MonthlyNudge>("none");
   // Bumped per open: a load that finishes after close/reopen is ignored.
   const session = useRef(0);
 
@@ -93,6 +110,7 @@ export function PaywallSheet({
   useEffect(() => {
     if (visible) {
       setBusy(null);
+      setNudge("none");
       void fetchPackages();
     } else {
       session.current += 1;
@@ -102,6 +120,22 @@ export function PaywallSheet({
   }, [visible]);
 
   const selected = packages.find((pkg) => pkg.id === selectedId) ?? null;
+  const monthly = packages.find((pkg) => pkg.kind === "monthly") ?? null;
+  const timeline = trialTimeline(selected, { remindersAllowed });
+  const nudgeText = monthly ? monthlyNudgeText(monthly) : null;
+  const showNudge = nudge === "shown" && nudgeText !== null && selected?.kind !== "monthly";
+
+  const select = (pkg: PlusPackage) => {
+    setSelectedId(pkg.id);
+    // Monthly chosen by any route: the line has done its job.
+    if (pkg.kind === "monthly") setNudge((current) => (current === "none" ? current : "done"));
+  };
+
+  const takeNudge = () => {
+    if (!monthly) return;
+    select(monthly);
+    if (source) track("paywall_monthly_nudge_tapped", { source });
+  };
 
   // accessibilityLiveRegion is Android-only: tell VoiceOver about status changes.
   useEffect(() => {
@@ -124,7 +158,13 @@ export function PaywallSheet({
     if (mine !== session.current) return;
     setBusy(null);
     if (outcome === "purchased") onClose();
-    else if (outcome === "pending") {
+    else if (outcome === "cancelled") {
+      // Backed out of the yearly plan: once per open, offer the smaller step.
+      if (selected.kind === "annual" && monthly && nudge === "none") {
+        setNudge("shown");
+        AccessibilityInfo.announceForAccessibility(monthlyNudgeText(monthly));
+      }
+    } else if (outcome === "pending") {
       setMessage("Your purchase is waiting for approval. Plus unlocks as soon as it goes through.");
     } else if (outcome === "failed") {
       setMessage("The purchase didn't go through. If you were charged, tap Restore purchases.");
@@ -187,12 +227,10 @@ export function PaywallSheet({
               className="text-3xl text-foreground text-center"
               style={{ fontFamily: Fonts.rounded, fontWeight: "700" }}
             >
-              {source ? paywallHeadline(source) : ""}
+              {source ? paywallHeadline(source, { taskCount }) : ""}
             </Text>
             <Text className="text-base text-center" style={{ color: colors.muted }}>
-              {source === "win_back"
-                ? "Your three tasks stay free. Plus brings back AI sorting, break it down and calendar planning."
-                : "Your three tasks stay free forever. Plus adds the AI helpers."}
+              {source ? paywallSubhead(source, { taskCount }) : ""}
             </Text>
           </View>
 
@@ -248,7 +286,7 @@ export function PaywallSheet({
                 return (
                   <Pressable
                     key={pkg.id}
-                    onPress={() => setSelectedId(pkg.id)}
+                    onPress={() => select(pkg)}
                     disabled={busy !== null}
                     accessibilityRole="radio"
                     accessibilityState={{ checked: on, selected: on }}
@@ -293,6 +331,39 @@ export function PaywallSheet({
             </View>
           )}
 
+          {load === "ready" && timeline && (
+            <View
+              // One element for VoiceOver: the whole timeline in a sentence.
+              accessible
+              accessibilityRole="text"
+              accessibilityLabel={trialTimelineLabel(timeline)}
+              className="rounded-2xl px-4 py-3 gap-2"
+              style={{ backgroundColor: `${colors.primary}0f` }}
+              testID="paywall-trial-timeline"
+            >
+              {timeline.map((step, index) => (
+                <View key={step.when} className="flex-row items-start gap-3">
+                  <View className="items-center" style={{ paddingTop: 5 }}>
+                    <View
+                      className="rounded-full"
+                      style={{
+                        width: 9,
+                        height: 9,
+                        backgroundColor: index === 0 ? colors.primary : "transparent",
+                        borderWidth: 2,
+                        borderColor: colors.primary,
+                      }}
+                    />
+                  </View>
+                  <Text className="flex-1 text-sm text-foreground">
+                    <Text style={{ fontWeight: "700" }}>{step.when}</Text>
+                    {`  ${step.what}`}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           {message && (
             <Text
               className="text-sm text-center"
@@ -328,6 +399,23 @@ export function PaywallSheet({
               </Text>
             )}
           </Pressable>
+
+          {showNudge && nudgeText && (
+            <Pressable
+              onPress={takeNudge}
+              disabled={busy !== null}
+              accessibilityRole="button"
+              accessibilityLabel={nudgeText}
+              accessibilityHint="Selects the monthly plan"
+              hitSlop={8}
+              className="self-center"
+              testID="paywall-monthly-nudge"
+            >
+              <Text className="text-sm text-center" style={{ color: colors.primary }}>
+                {nudgeText}
+              </Text>
+            </Pressable>
+          )}
 
           {selected && (
             <Text className="text-xs text-center" style={{ color: colors.muted }} testID="paywall-terms">
@@ -373,6 +461,24 @@ export function PaywallSheet({
 /** Connects the sheet to the Plus context. Mounted once near the app root. */
 export function PaywallHost() {
   const plus = usePlus();
+  const { state } = useDailyTasks();
+  const open = plus.paywallSource !== null;
+  // The trial timeline only promises the reminder when it can be delivered.
+  const [remindersAllowed, setRemindersAllowed] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getNotificationPermissionStatus()
+      .then((status) => {
+        if (!cancelled) setRemindersAllowed(status === "granted");
+      })
+      .catch(() => {
+        if (!cancelled) setRemindersAllowed(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
   return (
     <PaywallSheet
       source={plus.paywallSource}
@@ -382,6 +488,8 @@ export function PaywallHost() {
       loadPackages={plus.loadPackages}
       onPurchase={plus.purchase}
       onRestore={plus.restore}
+      taskCount={state.tasks.length}
+      remindersAllowed={remindersAllowed}
     />
   );
 }

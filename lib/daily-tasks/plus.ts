@@ -21,7 +21,9 @@ export type PaywallSource =
   | "break_down"
   | "new_ideas"
   | "calendar"
-  | "win_back";
+  | "win_back"
+  // The gentle second paywall after a first real "aha" (lib/daily-tasks/aha-paywall.ts).
+  | "aha";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -176,9 +178,23 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
   },
 ];
 
-/** Headline per entry point, so the paywall says why it appeared. */
-export function paywallHeadline(source: PaywallSource): string {
+const COUNT_WORDS = ["zero", "one", "two", "three"];
+
+/**
+ * Headline per entry point, so the paywall says why it appeared. The
+ * onboarding one echoes what the user just did: `taskCount` is how many tasks
+ * first run set (0 = they chose to add their own, so nothing to echo).
+ */
+export function paywallHeadline(source: PaywallSource, options: { taskCount?: number } = {}): string {
   switch (source) {
+    case "onboarding": {
+      const count = options.taskCount ?? 3;
+      if (count <= 0) return "A little extra help, when you want it";
+      if (count === 1) return "It's set.";
+      return `Your ${COUNT_WORDS[count] ?? count} are set.`;
+    }
+    case "aha":
+      return "Nice start to the day.";
     case "brain_dump":
       return "Let AI sort your brain dump";
     case "break_down":
@@ -192,6 +208,70 @@ export function paywallHeadline(source: PaywallSource): string {
     default:
       return "A little extra help, when you want it";
   }
+}
+
+/** The line under the headline. */
+export function paywallSubhead(source: PaywallSource, options: { taskCount?: number } = {}): string {
+  switch (source) {
+    case "onboarding":
+      return (options.taskCount ?? 3) > 0
+        ? "Want help like this every morning? Your three stay free either way."
+        : "Your three tasks stay free forever. Plus adds the AI helpers.";
+    case "aha":
+      return "Plus sorts your brain dumps and drafts tomorrow with AI. Your three stay free either way.";
+    case "win_back":
+      return "Your three tasks stay free. Plus brings back AI sorting, break it down and calendar planning.";
+    default:
+      return "Your three tasks stay free forever. Plus adds the AI helpers.";
+  }
+}
+
+export interface TrialStep {
+  /** "Today", "Day 5", "Day 7". */
+  when: string;
+  what: string;
+}
+
+/** The trial reminder (trial-reminder.ts) goes out this many days before the end. */
+const REMINDER_DAYS_BEFORE_END = 2;
+
+/**
+ * What happens during a free trial, for the timeline under the plans: today,
+ * the reminder, the first charge. Null when the plan has no free trial for
+ * this user (or isn't a subscription). The reminder step is left out when it
+ * can't be kept: notifications aren't allowed, or the trial is too short for
+ * the two-day heads-up.
+ */
+export function trialTimeline(
+  pkg: PlusPackage | null,
+  options: { remindersAllowed: boolean },
+): TrialStep[] | null {
+  if (!pkg || !pkg.trialDays || pkg.trialDays <= 0) return null;
+  if (pkg.kind !== "annual" && pkg.kind !== "monthly") return null;
+  const period = pkg.kind === "annual" ? "year" : "month";
+  const steps: TrialStep[] = [{ when: "Today", what: "All of Plus, free" }];
+  const reminderDay = pkg.trialDays - REMINDER_DAYS_BEFORE_END;
+  if (options.remindersAllowed && reminderDay >= 1) {
+    steps.push({ when: `Day ${reminderDay}`, what: "We remind you" });
+  }
+  steps.push({ when: `Day ${pkg.trialDays}`, what: `${pkg.priceString}/${period}, cancel anytime` });
+  return steps;
+}
+
+/** The timeline read as one sentence by VoiceOver. */
+export function trialTimelineLabel(steps: TrialStep[]): string {
+  const spoken = steps.map((step) => `${step.when}: ${step.what.replace(/\/(year|month)\b/, " per $1")}`);
+  return `How the free trial works. ${spoken.join(". ")}.`;
+}
+
+/**
+ * The quiet line offered after someone backs out of buying the yearly plan:
+ * a smaller step, never a countdown.
+ */
+export function monthlyNudgeText(monthly: PlusPackage): string {
+  return monthly.trialDays
+    ? `Prefer to start small? Monthly, ${monthly.trialDays} days free.`
+    : `Prefer to start small? Monthly is ${monthly.priceString}/month.`;
 }
 
 /** Status line for the Settings row. */

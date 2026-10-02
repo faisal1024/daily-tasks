@@ -9,7 +9,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState as RNAppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import type { AhaPaywallState } from "./aha-paywall";
 import { flush, track } from "./analytics";
+import { todayKey } from "./date";
 import type { PaywallSource, PlusPackage } from "./plus";
 import {
   configurePurchases,
@@ -29,6 +31,36 @@ import { syncTrialReminder } from "./trial-reminder";
 const WIN_BACK_KEY = "daily-tasks/plus-win-back-offered-for";
 /** Let a lapse settle before offering Plus back (people who just cancelled meant it). */
 export const WIN_BACK_DELAY_MS = 2 * 24 * 60 * 60_000;
+// The aha paywall (aha-paywall.ts): first launch day, once-per-install flag,
+// and when any paywall was last shown. Own keys, so "Reset all data" keeps them.
+export const INSTALL_DAY_KEY = "daily-tasks/install-day";
+export const AHA_SHOWN_KEY = "daily-tasks/plus-aha-shown";
+export const LAST_PAYWALL_KEY = "daily-tasks/plus-last-paywall-shown-at";
+
+/** Read (and on the very first launch, record) what the aha rule needs. Null on a storage error. */
+async function loadAhaState(): Promise<AhaPaywallState | null> {
+  try {
+    const [installDay, shown, last] = await Promise.all([
+      AsyncStorage.getItem(INSTALL_DAY_KEY),
+      AsyncStorage.getItem(AHA_SHOWN_KEY),
+      AsyncStorage.getItem(LAST_PAYWALL_KEY),
+    ]);
+    let day = installDay;
+    if (!day) {
+      day = todayKey();
+      await AsyncStorage.setItem(INSTALL_DAY_KEY, day);
+    }
+    const lastAt = last === null ? null : Number(last);
+    return {
+      installDay: day,
+      ahaShown: shown !== null,
+      // Unreadable counts as "just now" (fail closed: no aha paywall yet).
+      lastPaywallShownAt: lastAt === null ? null : Number.isFinite(lastAt) ? lastAt : Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export interface PlusContextValue {
   /** This build ships with a RevenueCat key (a "paywall build"). */
@@ -59,6 +91,8 @@ export interface PlusContextValue {
   redeemCode: () => Promise<boolean>;
   /** Plus lapsed over two days ago and this lapse hasn't been offered back yet. */
   winBackDue: boolean;
+  /** What the aha paywall rule needs; null while loading or unreadable (no offer). */
+  ahaPaywall: AhaPaywallState | null;
 }
 
 const noPaywall: PlusContextValue = {
@@ -77,6 +111,7 @@ const noPaywall: PlusContextValue = {
   restore: async () => null,
   redeemCode: async () => false,
   winBackDue: false,
+  ahaPaywall: null,
 };
 
 const PlusContext = createContext<PlusContextValue>(noPaywall);
@@ -110,6 +145,26 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     !entitlementActive &&
     offeredFor !== lapsedAt &&
     Date.now() - Date.parse(lapsedAt) >= WIN_BACK_DELAY_MS;
+  const [ahaPaywall, setAhaPaywall] = useState<AhaPaywallState | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void loadAhaState().then((loaded) => {
+      if (cancelled || !loaded) return;
+      // A paywall shown while this was loading already updated the state: keep that.
+      setAhaPaywall((current) =>
+        current
+          ? {
+              installDay: loaded.installDay,
+              ahaShown: current.ahaShown || loaded.ahaShown,
+              lastPaywallShownAt: current.lastPaywallShownAt ?? loaded.lastPaywallShownAt,
+            }
+          : loaded,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const lapsedRef = useRef<string | null>(null);
   lapsedRef.current = lapsedAt;
 
@@ -215,7 +270,18 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const markPaywallShown = useCallback(() => {
     if (!sourceRef.current || shownRef.current) return;
     shownRef.current = true;
-    track("paywall_viewed", { source: sourceRef.current });
+    const source = sourceRef.current;
+    track("paywall_viewed", { source });
+    // Any paywall shown starts the aha paywall's 24-hour gap; the aha one is once per install.
+    const now = Date.now();
+    void AsyncStorage.setItem(LAST_PAYWALL_KEY, String(now)).catch(() => {});
+    if (source === "aha") void AsyncStorage.setItem(AHA_SHOWN_KEY, "1").catch(() => {});
+    setAhaPaywall((current) =>
+      current
+        ? { ...current, lastPaywallShownAt: now, ahaShown: current.ahaShown || source === "aha" }
+        : // Still loading: no install day yet (so no offer); the load fills it in.
+          { installDay: "", lastPaywallShownAt: now, ahaShown: source === "aha" },
+    );
     // The win-back offer counts as used only once iOS has actually shown it.
     const lapse = lapsedRef.current;
     if (sourceRef.current === "win_back" && lapse) {
@@ -306,6 +372,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       restore,
       redeemCode,
       winBackDue,
+      ahaPaywall,
     }),
     [
       paywallBuild,
@@ -322,6 +389,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       restore,
       redeemCode,
       winBackDue,
+      ahaPaywall,
     ],
   );
 
