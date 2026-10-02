@@ -8,6 +8,24 @@ type Predicate = (record: Pick<DayRecord, "total" | "completed"> | undefined) =>
 // about coming back, not about being perfect. The one rule behind "Day N",
 // the streak and Today's week row.
 export const showedUp: Predicate = (r) => !!r && r.total > 0;
+/**
+ * Days shown up before today (the `showedUp` rule), plus today when
+ * `includeToday`. "Day N" always counts today, the day being lived; the rating
+ * milestones count it only once it has a task (pass the live `total > 0`, so
+ * this never lags the screen). Today's own synced record is never counted twice.
+ */
+export function countShowedUpDays(
+  history: History,
+  today: string,
+  { includeToday }: { includeToday: boolean },
+): number {
+  let count = 0;
+  for (const record of Object.values(history)) {
+    if (record.date < today && showedUp(record)) count += 1;
+  }
+  return count + (includeToday ? 1 : 0);
+}
+
 const isPerfect: Predicate = (r) =>
   !!r && r.total === MAX_TASKS && r.completed === MAX_TASKS;
 

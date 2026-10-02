@@ -442,6 +442,32 @@ describe("store: what clears the session", () => {
   });
 });
 
+describe("store: focusDoneCount, the rating ask's focus moment (1.3)", () => {
+  it("counts only a session that ends with its task done, not extended, break or cleared", async () => {
+    const { result } = await renderStore();
+    expect(result.current.focusDoneCount).toBe(0);
+
+    await act(async () => result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
+    jest.setSystemTime(START.getTime() + 10 * MIN + 100);
+    await act(async () => result.current.extendFocusSession());
+    await flush();
+    await act(async () => result.current.stopFocusSession("break"));
+    await flush();
+    await act(async () => result.current.startFocusSession("t1", { kind: "timer", minutes: 10, source: "row" }));
+    await act(async () => result.current.deleteTask("t1"));
+    await flush();
+    expect(endedEvents().map((call) => call[1].outcome)).toEqual(["extended", "break", "cleared"]);
+    expect(result.current.focusDoneCount).toBe(0);
+
+    // "Mark task done" ticks the session's task the normal way.
+    await act(async () => result.current.startFocusSession("t2", { kind: "timer", minutes: 10, source: "row" }));
+    await act(async () => result.current.toggleTask("t2"));
+    await flush();
+    expect(endedEvents().at(-1)?.[1].outcome).toBe("done");
+    expect(result.current.focusDoneCount).toBe(1);
+  });
+});
+
 describe("store: the end notification's buttons", () => {
   async function endedSession() {
     const hook = await renderStore();
