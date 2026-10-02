@@ -16,14 +16,14 @@
         "simulator": true
       },
       "env": {
-        "EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL": "https://momentum-ai-proxy.onrender.com/api/momentum/plan"
+        "EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL": "https://three-today-ai.faisal1024.workers.dev/api/momentum/plan"
       },
       "environment": "production"
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL": "https://momentum-ai-proxy.onrender.com/api/momentum/plan"
+        "EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL": "https://three-today-ai.faisal1024.workers.dev/api/momentum/plan"
       }
     }
   },
