@@ -25,7 +25,14 @@ import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { requestAgendaAccess } from "@/lib/daily-tasks/agenda";
 import { aiFailureMessage } from "@/lib/daily-tasks/ai-status";
 import { getPostHogKey, track } from "@/lib/daily-tasks/analytics";
-import { MANAGE_SUBSCRIPTIONS_URL, PRIVACY_URL, SUPPORT_URL } from "@/lib/daily-tasks/links";
+import {
+  FEEDBACK_URL,
+  MANAGE_SUBSCRIPTIONS_URL,
+  PRIVACY_URL,
+  SUPPORT_URL,
+  WRITE_REVIEW_URL,
+  WRITE_REVIEW_WEB_URL,
+} from "@/lib/daily-tasks/links";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
@@ -201,6 +208,24 @@ export default function SettingsScreen() {
     } catch {
       Alert.alert("Couldn't open link", "Please try again later.");
     }
+  };
+
+  // The App Store's "Write a Review" page. Nothing is offered in return, and
+  // there's no "do you like it?" step first (guideline 5.6.1).
+  const openWriteReview = async () => {
+    track("rate_row_tapped");
+    // Straight to openURL: canOpenURL would need itms-apps declared in
+    // LSApplicationQueriesSchemes. openURL rejects when it can't open.
+    try {
+      await Linking.openURL(WRITE_REVIEW_URL);
+    } catch {
+      await openExternal(WRITE_REVIEW_WEB_URL);
+    }
+  };
+
+  const openFeedback = () => {
+    track("feedback_row_tapped");
+    void openExternal(FEEDBACK_URL);
   };
 
   const handleReset = () => {
@@ -700,6 +725,24 @@ export default function SettingsScreen() {
           </Pressable>
         </Section>
 
+        <Section icon="heart-outline" title="Feedback">
+          <View className="bg-surface rounded-2xl border border-border overflow-hidden">
+            <HelpRow
+              icon="star-outline"
+              label="Rate Three Today"
+              hint="Opens the App Store to write a review"
+              onPress={() => void openWriteReview()}
+            />
+            <View style={{ height: 1, backgroundColor: colors.border }} />
+            <HelpRow
+              icon="chatbubble-outline"
+              label="Send feedback"
+              hint="Opens the support page"
+              onPress={openFeedback}
+            />
+          </View>
+        </Section>
+
         <Section icon="help-circle-outline" title="Help">
           <View className="bg-surface rounded-2xl border border-border overflow-hidden">
             <HelpRow
@@ -741,10 +784,12 @@ export default function SettingsScreen() {
 function HelpRow({
   icon,
   label,
+  hint,
   onPress,
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
+  hint?: string;
   onPress: () => void;
 }) {
   const colors = useColors();
@@ -753,6 +798,7 @@ function HelpRow({
       onPress={onPress}
       accessibilityRole="link"
       accessibilityLabel={label}
+      accessibilityHint={hint}
       className="flex-row items-center gap-3 p-4"
     >
       <View

@@ -267,9 +267,11 @@ export interface AppState {
   journey: Journey;
   // When we last asked for an App Store rating (ISO), or null if never.
   lastReviewPromptAt: string | null;
-  // A perfect day earned a rating ask (ISO time). It's shown on a later app
+  // A happy moment earned a rating ask (ISO time). It's shown on a later app
   // open, never on top of the celebration. Cleared once requested.
   reviewDueAt: string | null;
+  // Which happy moment earned it (rating_prompt_requested's source), or null.
+  reviewDueSource: ReviewTrigger | null;
   parkedTasks: ParkedTask[];
   // Repeating tasks suggested in Ideas on their days (1.3). See routines.ts.
   routines: Routine[];
@@ -350,3 +352,6 @@ export type NotificationPermissionState =
   | "denied"
   | "undetermined"
   | "unsupported";
+
+/** A happy moment that can earn an App Store rating ask (see review-prompt.ts). */
+export type ReviewTrigger = "focus_done" | "milestone" | "good_week" | "perfect_day";
