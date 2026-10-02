@@ -6,7 +6,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 
 import { FOREGROUND_RETRY_COOLDOWN_MS, MomentumAiError } from "@/lib/daily-tasks/ai-status";
-import { countPerfectDays } from "@/lib/daily-tasks/review-prompt";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import type { MomentumPlan, MomentumProfile } from "@/lib/daily-tasks/types";
@@ -308,7 +307,6 @@ describe("store: AI plan requests", () => {
     }
     const today = result.current.today;
     expect(result.current.state.history[today]).toMatchObject({ total: 3, completed: 3 });
-    expect(countPerfectDays(result.current.state.history)).toBe(1);
   });
 
   it("records the review prompt time", async () => {
