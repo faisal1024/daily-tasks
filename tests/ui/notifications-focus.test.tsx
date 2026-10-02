@@ -1,6 +1,6 @@
 // The focus session's end notification (1.2, per session since 1.3):
-// scheduled only with permission, with the 5 more minutes / Done category
-// (a starter's: Keep going / Mark done),
+// scheduled only with permission, with the 5 more minutes / Take a break /
+// Mark done category (a starter's: Keep going / Stop for now / Mark done),
 // cancel wins over an earlier schedule, never shown in-app, and never touched
 // by the reminder syncs.
 import * as Notifications from "expo-notifications";
@@ -53,11 +53,11 @@ describe("focus timer notification", () => {
   it("schedules one with the check-in's copy, the default sound, its category and session, at the end time", async () => {
     const { scheduleFocusSessionNotification, FOCUS_TIMER_NOTIFICATION_ID, FOCUS_CATEGORY_ID } = load();
     await scheduleFocusSessionNotification(INPUT);
-    // Extend on the left, Done on the right (as everywhere else).
+    // As the Live Activity and the check-in: extend, the way out, then Mark done.
     expect(mocked.setNotificationCategoryAsync).toHaveBeenCalledWith(FOCUS_CATEGORY_ID, [
       { identifier: "focus-extend", buttonTitle: "5 more minutes", options: { opensAppToForeground: true } },
-      { identifier: "focus-done", buttonTitle: "Mark done", options: { opensAppToForeground: true } },
       { identifier: "focus-break", buttonTitle: "Take a break", options: { opensAppToForeground: true } },
+      { identifier: "focus-done", buttonTitle: "Mark done", options: { opensAppToForeground: true } },
     ]);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledWith({
@@ -83,8 +83,8 @@ describe("focus timer notification", () => {
     expect(FOCUS_STARTER_CATEGORY_ID).toBe("three-today:focus-starter");
     expect(mocked.setNotificationCategoryAsync).toHaveBeenCalledWith(FOCUS_STARTER_CATEGORY_ID, [
       { identifier: "focus-keep-going", buttonTitle: "Keep going", options: { opensAppToForeground: true } },
-      { identifier: "focus-done", buttonTitle: "Mark done", options: { opensAppToForeground: true } },
       { identifier: "focus-break", buttonTitle: "Stop for now", options: { opensAppToForeground: true } },
+      { identifier: "focus-done", buttonTitle: "Mark done", options: { opensAppToForeground: true } },
     ]);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -227,7 +227,7 @@ describe("focus notification responses (1.3)", () => {
     expect(listener.mock.calls).toEqual([[{ action: "break", sessionId: "s1" }]]);
   });
 
-  it("both categories end with the quiet way out, after extend and Mark done, and every button opens the app", async () => {
+  it("both categories match the Live Activity's order (extend, the way out, Mark done), and every button opens the app", async () => {
     const { scheduleFocusSessionNotification, FOCUS_CATEGORY_ID, FOCUS_STARTER_CATEGORY_ID } = load();
     await scheduleFocusSessionNotification(INPUT);
     const calls = mocked.setNotificationCategoryAsync.mock.calls as unknown as [
@@ -235,10 +235,10 @@ describe("focus notification responses (1.3)", () => {
       { identifier: string; buttonTitle: string; options: { opensAppToForeground: boolean } }[],
     ][];
     const byId = new Map(calls.map(([id, actions]) => [id, actions]));
-    expect(byId.get(FOCUS_CATEGORY_ID)!.map((a) => a.buttonTitle)).toEqual(["5 more minutes", "Mark done", "Take a break"]);
-    expect(byId.get(FOCUS_STARTER_CATEGORY_ID)!.map((a) => a.buttonTitle)).toEqual(["Keep going", "Mark done", "Stop for now"]);
+    expect(byId.get(FOCUS_CATEGORY_ID)!.map((a) => a.buttonTitle)).toEqual(["5 more minutes", "Take a break", "Mark done"]);
+    expect(byId.get(FOCUS_STARTER_CATEGORY_ID)!.map((a) => a.buttonTitle)).toEqual(["Keep going", "Stop for now", "Mark done"]);
     for (const actions of byId.values()) {
-      expect(actions.at(-1)!.identifier).toBe("focus-break");
+      expect(actions.map((a) => a.identifier).slice(1)).toEqual(["focus-break", "focus-done"]);
       expect(actions.every((a) => a.options.opensAppToForeground)).toBe(true);
     }
   });

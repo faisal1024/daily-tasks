@@ -152,7 +152,7 @@ describe("One timer, on the task (real store)", () => {
     const slop = node.props.hitSlop as { top: number; bottom: number };
     expect(style.height + slop.top + slop.bottom).toBeGreaterThanOrEqual(44);
     expect(style.minWidth).toBeGreaterThanOrEqual(44);
-    expect(node.props.accessibilityHint).toBe("Double-tap to pause");
+    expect(node.props.accessibilityHint).toBe("Pauses the timer.");
     await advance(30_000);
     // 6:30 left reads as 7 minutes (rounded up), never seconds.
     expect(left()).toHaveTextContent("6:30");
@@ -168,7 +168,7 @@ describe("One timer, on the task (real store)", () => {
     expect(left()).toHaveTextContent("7:00");
     expect(pill().props.accessibilityLabel).toBe("Timer paused, 7 minutes left");
     expect(said()).toContain("Paused");
-    expect(pill().props.accessibilityHint).toBe("Double-tap to resume");
+    expect(pill().props.accessibilityHint).toBe("Resumes the timer.");
     expect(screen.getByTestId("task-session-line-t0")).toHaveTextContent("Paused.");
     // Frozen while paused, and it never ends.
     await advance(10 * MIN);
@@ -322,7 +322,7 @@ describe("One timer, on the task (real store)", () => {
     expect(options.tintColor).toMatch(/^#/);
     await act(async () => pick(1));
     await act(async () => {});
-    expect(pill().props.accessibilityHint).toBe("Double-tap to resume");
+    expect(pill().props.accessibilityHint).toBe("Resumes the timer.");
     // Like the pill: felt and said.
     expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
     expect(said()).toContain("Paused");
@@ -423,20 +423,20 @@ describe("One timer, on the task (real store)", () => {
     await openToday(session());
     expect(pill().props.accessibilityLabel).toBe("Timer, 7 minutes left");
     expect(pill().props.accessibilityLabel).not.toMatch(/Walk/);
-    expect(pill().props.accessibilityHint).toBe("Double-tap to pause");
+    expect(pill().props.accessibilityHint).toBe("Pauses the timer.");
     expect(pill().props.accessibilityValue?.text).toBeUndefined();
-    expect(screen.getByTestId("task-timer-pause-t0").props.accessible).toBe(false);
-    expect(left().props.accessible).toBe(false);
+    // The pill is the accessible element, so iOS reads what's inside as part of it.
+    expect(pill().props.accessible).toBe(true);
     // Only the pill answers to the timer's name.
     expect(screen.getAllByRole("button", { name: "Timer, 7 minutes left" })).toHaveLength(1);
 
     await fireEvent.press(pill());
     await act(async () => {});
     expect(pill().props.accessibilityLabel).toBe("Timer paused, 7 minutes left");
-    expect(pill().props.accessibilityHint).toBe("Double-tap to resume");
+    expect(pill().props.accessibilityHint).toBe("Resumes the timer.");
     expect(pill().props.accessibilityValue?.text).toBeUndefined();
-    expect(screen.getByTestId("task-timer-play-t0").props.accessible).toBe(false);
-    expect(left().props.accessible).toBe(false);
+    expect(pill().props.accessible).toBe(true);
+    expect(screen.getByTestId("task-timer-play-t0")).toBeTruthy();
     // "Paused." is on screen but not read: the pill already said it.
     const paused = screen.getByText("Paused.", { includeHiddenElements: true });
     expect(paused.props.accessibilityElementsHidden).toBe(true);
@@ -464,7 +464,8 @@ describe("One timer, on the task (real store)", () => {
     await advance(7 * MIN + 1000);
     expect(pill().props.accessibilityLabel).toBe("Time's up: Walk");
     expect(pill().props.accessibilityHint).toBe("Opens focus");
-    expect(screen.getByTestId("task-timer-times-up-t0").props.accessible).toBe(false);
+    expect(pill().props.accessible).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Time's up: Walk" })).toHaveLength(1);
   });
 
   // R8 (1.3 polish): the timed row stays calm: no "Clear steps" (the focus

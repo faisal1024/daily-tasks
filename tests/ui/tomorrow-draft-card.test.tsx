@@ -58,7 +58,8 @@ describe("TomorrowDraftCard", () => {
     expect(checked("Walk")).toBe(true);
     // Nothing greyed out: any row can be the one.
     expect(disabled("Read")).toBe(false);
-    expect(row("Read").props.accessibilityHint).toBe("Room for one more today. Pick which.");
+    expect(row("Read").props.accessibilityHint).toBe("Picks this one instead.");
+    expect(row("Walk").props.accessibilityHint).toBeUndefined();
     expect(screen.getByTestId("tomorrow-draft-room")).toHaveTextContent("Room for one more today. Pick which.");
     expect(useButton()).toHaveTextContent("Use this");
     expect(hint()).toHaveTextContent("Unticked ones are saved for later.");
@@ -142,6 +143,27 @@ describe("TomorrowDraftCard", () => {
       expect(screen.getByRole("radio", { name: "Stretch" })).not.toBeChecked();
       await fireEvent.press(useButton());
       expect(onUse).toHaveBeenCalledWith(["Read"]);
+    });
+
+    it("re-tapping the picked radio button does nothing (a radio can't be unticked)", async () => {
+      const { onUse } = await renderCard(draftOf(["Walk", "Read", "Stretch"]), 1);
+      await fireEvent.press(screen.getByRole("radio", { name: "Walk" }));
+      expect(screen.getByRole("radio", { name: "Walk" })).toBeChecked();
+      expect(useButton()).toHaveTextContent("Use this");
+      // After a swap too.
+      await fireEvent.press(screen.getByRole("radio", { name: "Read" }));
+      await fireEvent.press(screen.getByRole("radio", { name: "Read" }));
+      expect(screen.getByRole("radio", { name: "Read" })).toBeChecked();
+      expect(screen.getByRole("radio", { name: "Read" }).props.accessibilityHint).toBeUndefined();
+      expect(screen.getByRole("radio", { name: "Walk" }).props.accessibilityHint).toBe("Picks this one instead.");
+      await fireEvent.press(useButton());
+      expect(onUse).toHaveBeenCalledWith(["Read"]);
+    });
+
+    it("one slot, one row is a checkbox that can still be unticked", async () => {
+      await renderCard(draftOf(["Walk"]), 1);
+      await fireEvent.press(row("Walk"));
+      expect(checked("Walk")).toBe(false);
     });
 
     it("one slot, two rows is still a pick-one group", async () => {

@@ -1533,9 +1533,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
 
   // The Live Activity and Dynamic Island (1.3): started with a session,
   // updated as it changes, and ended with a short "Done" (its task was
-  // ticked), "Timer ended" (Take a break) or "Timer stopped" when it goes. Reconciled whenever the app
-  // becomes active: an activity whose session is gone ends, and a session
-  // without one (e.g. activities were off, or it was dismissed) gets one again.
+  // ticked), "Timer ended" (Take a break) or "Timer stopped" when it goes.
+  // Reconciled whenever the app becomes active: an activity whose session is
+  // gone ends, and a session that never had one (e.g. activities were off
+  // when it started) gets one. One whose activity was dismissed doesn't: the
+  // native module remembers that session and won't start another for it.
   // The reconcile is a render away, so it sees the session after this
   // foreground's Live Activity commands and widget taps (same batch).
   const [liveNonce, setLiveNonce] = useState(0);

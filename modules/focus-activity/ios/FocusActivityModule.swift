@@ -15,6 +15,9 @@ import ExpoModulesCore
 // system ends it, that session never gets another, even after a pause,
 // resume or 5 more minutes, or the app being killed and relaunched. A new
 // session (a new id) can start one again. Kept in the app's own defaults.
+// Turning Live Activities off in Settings mid-session ends the activity, so
+// that session counts as dismissed too: turning them back on brings one for
+// the next session, not this one.
 public class FocusActivityModule: Module {
   public func definition() -> ModuleDefinition {
     Name("FocusActivity")
@@ -100,6 +103,8 @@ enum DismissedActivities {
   }
 
   static func started(_ sessionId: String) {
+    lock.lock()
+    defer { lock.unlock() }
     UserDefaults.standard.set(sessionId, forKey: startedKey)
   }
 
@@ -111,24 +116,35 @@ enum DismissedActivities {
     let gone = Activity<FocusActivityAttributes>.activities.contains {
       $0.attributes.sessionId == sessionId && ($0.activityState == .dismissed || $0.activityState == .ended)
     }
-    if gone || UserDefaults.standard.string(forKey: startedKey) == sessionId {
+    lock.lock()
+    let startedBefore = UserDefaults.standard.string(forKey: startedKey) == sessionId
+    let listed = (UserDefaults.standard.stringArray(forKey: dismissedKey) ?? []).contains(sessionId)
+    lock.unlock()
+    if gone || startedBefore {
       record(sessionId)
       return true
     }
-    lock.lock()
-    defer { lock.unlock() }
-    return (UserDefaults.standard.stringArray(forKey: dismissedKey) ?? []).contains(sessionId)
+    return listed
   }
 
   /// Records the session when its activity is dismissed (the app ends one
   /// only once its session has gone, so that never blocks a session still on).
+  /// Stops watching once the activity is ended too (only dismissed is
+  /// recorded), so the task doesn't wait on an activity that's over.
   @available(iOS 16.2, *)
   static func watch(_ activity: Activity<FocusActivityAttributes>) {
     let sessionId = activity.attributes.sessionId
     Task {
-      for await state in activity.activityStateUpdates where state == .dismissed {
-        record(sessionId)
-        return
+      for await state in activity.activityStateUpdates {
+        switch state {
+        case .dismissed:
+          record(sessionId)
+          return
+        case .ended:
+          return
+        default:
+          continue
+        }
       }
     }
   }

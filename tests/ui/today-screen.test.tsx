@@ -2823,7 +2823,7 @@ describe("Timer on your tasks (1.3)", () => {
     expect(screen.getByRole("button", { name: "Start a timer: Read" })).toBeOnTheScreen();
     const pill = screen.getByTestId("task-timer-running-t0");
     expect(pill.props.accessibilityLabel).toBe("Timer, 7 minutes left");
-    expect(pill.props.accessibilityHint).toBe("Double-tap to pause");
+    expect(pill.props.accessibilityHint).toBe("Pauses the timer.");
     expect(screen.getByTestId("task-timer-pause-t0")).toBeOnTheScreen();
     expect(screen.getByTestId("task-timer-left-t0")).toHaveTextContent("7:00");
     expect(screen.queryByTestId("now-bar")).toBeNull();

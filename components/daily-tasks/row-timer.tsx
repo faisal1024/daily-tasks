@@ -127,7 +127,6 @@ export function RowTimerPill({
             name="notifications-outline"
             size={11}
             color={colors.primary}
-            accessible={false}
             testID={`task-timer-times-up-${session.taskId}`}
           />
         </ProgressRing>
@@ -136,10 +135,11 @@ export function RowTimerPill({
   }
 
   // One element, said once: "Timer, 12 minutes left" (whole minutes, so
-  // VoiceOver isn't told every second), then "Double-tap to pause". The state
+  // VoiceOver isn't told every second), then "Pauses the timer." The state
   // is in the label only (no value repeating it), the task isn't (the row's
-  // checkbox just said it), and the glyph and digits inside are never elements
-  // of their own, so nothing in the pill is read a second time.
+  // checkbox just said it). The Pressable is the accessible element, so the
+  // glyph and digits inside are never elements of their own and nothing in
+  // the pill is read a second time.
   const label = `Timer${paused ? " paused" : ""}, ${durationWords(Math.ceil(left / MINUTE_MS))} left`;
   const toggle = () => toggleTimer(controls, paused ? "resume" : "pause");
   return (
@@ -147,7 +147,7 @@ export function RowTimerPill({
       onPress={toggle}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityHint={paused ? "Double-tap to resume" : "Double-tap to pause"}
+      accessibilityHint={paused ? "Resumes the timer." : "Pauses the timer."}
       hitSlop={{ top: 7, bottom: 7 }}
       style={({ pressed }) => ({ ...pill, opacity: pressed ? 0.7 : 1 })}
       testID={`task-timer-running-${session.taskId}`}
@@ -161,13 +161,10 @@ export function RowTimerPill({
         size={22}
         strokeWidth={2.5}
       >
-        {/* The glyph and the digits are a Text each, which iOS makes an
-            element of its own: never one here (the pill's label says it). */}
         <Ionicons
           name={paused ? "play" : "pause"}
           size={11}
           color={colors.primary}
-          accessible={false}
           testID={`task-timer-${paused ? "play" : "pause"}-${session.taskId}`}
         />
       </ProgressRing>
@@ -181,7 +178,6 @@ export function RowTimerPill({
           }}
           maxFontSizeMultiplier={1.3}
           numberOfLines={1}
-          accessible={false}
           testID={`task-timer-left-${session.taskId}`}
         >
           {formatRemaining(left)}

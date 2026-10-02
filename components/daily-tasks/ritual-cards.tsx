@@ -118,19 +118,23 @@ export function TomorrowDraftCard({
         ? `${skipped === 1 ? "The unticked one is saved for later." : "Unticked ones are saved for later."}${count < room ? " Fill the rest after." : ""}`
         : null;
 
+  // One slot and a choice of rows: picking one swaps it in, so VoiceOver
+  // hears them as radio buttons; otherwise checkboxes.
+  const pickOne = room === 1 && draft.tasks.length > 1;
+
   const toggle = (text: string) => {
     let next: string[];
-    if (selectedSet.has(text)) next = picked.filter((item) => item !== text);
+    if (selectedSet.has(text)) {
+      // A radio button can't be unticked: re-tapping the picked one does nothing.
+      if (pickOne) return;
+      next = picked.filter((item) => item !== text);
+    }
     // One slot: picking another swaps it in (like a radio button).
     else if (room === 1) next = [text];
     else if (count >= room) return;
     else next = draft.tasks.filter((item) => item === text || selectedSet.has(item));
     setTouched(next);
   };
-
-  // One slot and a choice of rows: picking one swaps it in, so VoiceOver
-  // hears them as a pick-one group (radio buttons); otherwise checkboxes.
-  const pickOne = room === 1 && draft.tasks.length > 1;
 
   const useLabel = allTicked ? (count === 1 ? "Use this" : "Use these") : `Add ${count}`;
 
@@ -181,7 +185,7 @@ export function TomorrowDraftCard({
                 accessibilityRole={pickOne ? "radio" : "checkbox"}
                 accessibilityState={{ checked: on, disabled: full }}
                 accessibilityLabel={text}
-                accessibilityHint={full ? "Untick another one first." : !on && room === 1 ? roomLine ?? undefined : undefined}
+                accessibilityHint={full ? "Untick another one first." : pickOne && !on && count > 0 ? "Picks this one instead." : undefined}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",

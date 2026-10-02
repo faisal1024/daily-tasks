@@ -239,8 +239,11 @@ struct FocusButtons: View {
         EmptyView()
       }
     }
-    // Dynamic Type, to the lock screen's cap (the island too).
-    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    // Dynamic Type, but capped lower than the rest of the lock screen
+    // (xLarge, not xxxLarge): three pills share one row, and the expanded
+    // Dynamic Island, which uses these too, is narrower still. Past xLarge
+    // "5 more minutes" no longer fits a third of the row.
+    .dynamicTypeSize(...DynamicTypeSize.xLarge)
   }
 
   private func pill<I: AppIntent>(_ intent: I, _ title: String, symbol: String? = nil, solid: Bool) -> some View {
@@ -252,11 +255,12 @@ struct FocusButtons: View {
           Text(title)
         }
       }
-      // Text style based, so it follows Dynamic Type (capped on the lock
-      // screen); 0.7× to fit keeps the three at time's up on one row.
+      // Text style based, so it follows Dynamic Type (to xLarge, above);
+      // shrinking to fit (0.6× for the three at time's up, which share the
+      // row) keeps every title whole on one line.
       .font(.system(.subheadline, design: .rounded, weight: .semibold))
       .lineLimit(1)
-      .minimumScaleFactor(0.7)
+      .minimumScaleFactor(phase == .timesUp ? 0.6 : 0.7)
       .padding(.horizontal, 6)
       .frame(maxWidth: .infinity, minHeight: 34)
       .foregroundStyle(solid ? solidInk : .white)
