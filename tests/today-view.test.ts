@@ -8,7 +8,6 @@ import {
   milestonesWithCompletion,
 } from "../lib/daily-tasks/milestones";
 import {
-  MIN_PERFECT_DAYS_BEFORE_REVIEW,
   REVIEW_COOLDOWN_DAYS,
   countPerfectDays,
   shouldRequestReview,
@@ -261,39 +260,33 @@ describe("review prompt policy", () => {
     ).toBe(2);
   });
 
-  it("asks right after a perfect day once the user has had a few", () => {
+  const quiet = {
+    today: "2026-09-26",
+    now,
+    onboardingVisible: false,
+    paywallOpen: false,
+    focusSessionActive: false,
+  };
+
+  it("asks right after a perfect day, once the user has shown up before today", () => {
     expect(
-      shouldRequestReview({
-        history: perfectHistory(MIN_PERFECT_DAYS_BEFORE_REVIEW),
-        lastReviewPromptAt: null,
-        now,
-        justCompletedPerfectDay: true,
-      }),
+      shouldRequestReview("perfect_day", { ...quiet, history: perfectHistory(1), lastReviewPromptAt: null }),
     ).toBe(true);
   });
 
-  it("never asks new users or outside the perfect-day moment", () => {
-    const base = { lastReviewPromptAt: null, now };
-    expect(
-      shouldRequestReview({
-        ...base,
-        history: perfectHistory(MIN_PERFECT_DAYS_BEFORE_REVIEW - 1),
-        justCompletedPerfectDay: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldRequestReview({ ...base, history: perfectHistory(10), justCompletedPerfectDay: false }),
-    ).toBe(false);
+  it("never asks on the install's first day or outside a happy moment", () => {
+    const base = { ...quiet, lastReviewPromptAt: null };
+    expect(shouldRequestReview("perfect_day", { ...base, history: {} })).toBe(false);
+    expect(shouldRequestReview(null, { ...base, history: perfectHistory(10) })).toBe(false);
   });
 
   it("respects the cooldown after the last prompt", () => {
     const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000).toISOString();
     const ask = (last: string) =>
-      shouldRequestReview({
+      shouldRequestReview("perfect_day", {
+        ...quiet,
         history: perfectHistory(10),
         lastReviewPromptAt: last,
-        now,
-        justCompletedPerfectDay: true,
       });
     expect(ask(daysAgo(REVIEW_COOLDOWN_DAYS - 1))).toBe(false);
     expect(ask(daysAgo(REVIEW_COOLDOWN_DAYS))).toBe(true);

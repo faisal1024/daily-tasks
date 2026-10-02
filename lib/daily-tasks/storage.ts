@@ -5,6 +5,7 @@ import { todayKey } from "./date";
 import { migrateCompletedMilestoneIds, migrateMilestoneId } from "./milestones";
 import { DEFAULT_JOURNEY, type Journey } from "./journey";
 import { MAX_SESSION_MS, type FocusSession } from "./focus-session";
+import { isReviewTrigger } from "./review-prompt";
 import type {
   AppState,
   AutoLockConfig,
@@ -505,6 +506,13 @@ export function normalizeState(value: unknown): AppState | null {
     lastReviewPromptAt:
       typeof value.lastReviewPromptAt === "string" ? value.lastReviewPromptAt : null,
     reviewDueAt: typeof value.reviewDueAt === "string" ? value.reviewDueAt : null,
+    // An ask saved before 1.3 could only have come from a perfect day.
+    reviewDueSource:
+      typeof value.reviewDueAt !== "string"
+        ? null
+        : isReviewTrigger(value.reviewDueSource)
+          ? value.reviewDueSource
+          : "perfect_day",
     parkedTasks: normalizeParkedTasks(value.parkedTasks),
     // Saved state without this flag was written by a build from before the
     // paywall, so its owner is an early user: grandfather them.
@@ -681,6 +689,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     journey: DEFAULT_JOURNEY,
     lastReviewPromptAt: null,
     reviewDueAt: null,
+    reviewDueSource: null,
     parkedTasks: [],
     plusGrandfathered: false,
     analyticsEnabled: true,

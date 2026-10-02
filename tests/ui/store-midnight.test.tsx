@@ -246,11 +246,11 @@ describe("store: rating due", () => {
   it("marks a rating due once and clears it when the prompt is shown", async () => {
     const { result } = await renderOnDay({}, new Date());
     expect(result.current.state.reviewDueAt).toBeNull();
-    await act(async () => result.current.markReviewDue());
+    await act(async () => result.current.markReviewDue("perfect_day"));
     const due = result.current.state.reviewDueAt;
     expect(due).not.toBeNull();
     // A second perfect day doesn't push the ask further out.
-    await act(async () => result.current.markReviewDue());
+    await act(async () => result.current.markReviewDue("perfect_day"));
     expect(result.current.state.reviewDueAt).toBe(due);
     await act(async () => result.current.markReviewPrompted());
     expect(result.current.state.reviewDueAt).toBeNull();

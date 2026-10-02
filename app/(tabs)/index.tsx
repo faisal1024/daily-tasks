@@ -87,7 +87,13 @@ import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-stor
 import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
-import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
+import {
+  countShowedUpDays,
+  goodWeekReached,
+  milestoneReached,
+  shouldRequestReview,
+  type ReviewTrigger,
+} from "@/lib/daily-tasks/review-prompt";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import {
   brainDumpToast,
@@ -112,7 +118,7 @@ import {
 } from "@/lib/daily-tasks/evening";
 import type { ReflectionResult } from "@/lib/daily-tasks/types";
 
-/** A rating ask waits at least this long after the perfect day that earned it. */
+/** A rating ask waits at least this long after the happy moment that earned it. */
 const REVIEW_DELAY_MS = 60 * 60 * 1000;
 /** ...and is dropped after a week (too far from the moment that earned it). */
 const REVIEW_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
@@ -163,6 +169,7 @@ export default function HomeScreen() {
     requestMomentumPlan,
     markReviewPrompted,
     markReviewDue,
+    focusDoneCount,
     parkTasks,
     removeParkedTask,
     addParkedTask,
@@ -616,6 +623,65 @@ export default function HomeScreen() {
         })
       : null;
 
+  // Rating asks (1.3): a happy moment (perfect day, a focus session ended with
+  // its task done, a showed-up milestone, a good week) may earn one, which is
+  // then asked on a later app open (below). The policy reads the latest state.
+  const reviewInputs = useRef({
+    history: state.history,
+    today,
+    lastReviewPromptAt: state.lastReviewPromptAt,
+    onboardingVisible: false,
+    paywallOpen: false,
+    focusSessionActive: false,
+  });
+  reviewInputs.current = {
+    history: state.history,
+    today,
+    lastReviewPromptAt: state.lastReviewPromptAt,
+    onboardingVisible: !state.hasSeenOnboarding || firstRunActive,
+    paywallOpen: paywallSource !== null,
+    focusSessionActive: focusSession !== null,
+  };
+  const considerReview = useCallback(
+    (trigger: ReviewTrigger) => {
+      if (shouldRequestReview(trigger, { ...reviewInputs.current, now: new Date() })) {
+        markReviewDue(trigger);
+      }
+    },
+    [markReviewDue],
+  );
+
+  // A focus session just ended with "Mark task done" (or its task ticked).
+  const seenFocusDone = useRef(focusDoneCount);
+  useEffect(() => {
+    if (!ready || focusDoneCount === seenFocusDone.current) return;
+    seenFocusDone.current = focusDoneCount;
+    if (appActive) considerReview("focus_done");
+  }, [ready, appActive, focusDoneCount, considerReview]);
+
+  // Days showed up just reached 7, 30 or 100, or the last 7 days just reached
+  // a good week. Only on the transition: the first render and a new day are a
+  // fresh baseline, and each milestone asks once per app run.
+  const showedUpCount = useMemo(
+    () => countShowedUpDays(state.history, today, total),
+    [state.history, today, total],
+  );
+  const showedUpBaseline = useRef<{ day: string; showedUp: number; week: number } | null>(null);
+  const milestonesAsked = useRef(new Set<number>());
+  useEffect(() => {
+    if (!ready) return;
+    const previous = showedUpBaseline.current;
+    showedUpBaseline.current = { day: today, showedUp: showedUpCount, week: week.showedUpDays };
+    if (!previous || previous.day !== today || !appActive) return;
+    const milestone = milestoneReached(previous.showedUp, showedUpCount);
+    if (milestone !== null && !milestonesAsked.current.has(milestone)) {
+      milestonesAsked.current.add(milestone);
+      considerReview("milestone");
+    } else if (goodWeekReached(previous.week, week.showedUpDays)) {
+      considerReview("good_week");
+    }
+  }, [ready, appActive, today, showedUpCount, week.showedUpDays, considerReview]);
+
   // Celebrate (and maybe ask for a rating) only at the moment the third task is
   // checked off, never just because the app opened on a finished day.
   const previousCompleted = useRef<number | null>(null);
@@ -638,19 +704,10 @@ export default function HomeScreen() {
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
     setShowCelebration(true);
     track("perfect_day", { count: total });
-    // Earned a rating ask: remember it for a later app open instead of
+    // Maybe a rating ask: remembered for a later app open instead of
     // stacking it on the celebration and the evening check-in.
-    if (
-      shouldRequestReview({
-        history: state.history,
-        lastReviewPromptAt: state.lastReviewPromptAt,
-        now: new Date(),
-        justCompletedPerfectDay: true,
-      })
-    ) {
-      markReviewDue();
-    }
-  }, [ready, appActive, completedCount, total, today, state.history, state.lastReviewPromptAt, markReviewDue]);
+    considerReview("perfect_day");
+  }, [ready, appActive, completedCount, total, today, considerReview]);
 
   // Stable identity: the overlay restarts its auto-dismiss timer whenever
   // onDismiss changes.
@@ -658,11 +715,13 @@ export default function HomeScreen() {
     setShowCelebration(false);
   }, []);
 
-  // Ask for the rating on a LATER app open (at least an hour after the perfect
-  // day), when nothing else is happening. The cooldown is only spent if the
+  // Ask for the rating on a LATER app open (at least an hour after the happy
+  // moment), when nothing else is happening. The cooldown is only spent if the
   // prompt was actually requested while the app was active.
   const reviewDueAtRef = useRef(state.reviewDueAt);
   reviewDueAtRef.current = state.reviewDueAt;
+  const reviewDueSourceRef = useRef(state.reviewDueSource);
+  reviewDueSourceRef.current = state.reviewDueSource;
   // Something else is on screen (rollover, onboarding, a sheet, the paywall,
   // a celebration): the rating ask waits for a quiet moment.
   const busyRef = useRef(false);
@@ -687,7 +746,11 @@ export default function HomeScreen() {
       if (RNAppState.currentState !== "active") return;
       reviewInFlight.current = true;
       try {
-        if (await requestAppReview()) markReviewPrompted();
+        if (await requestAppReview()) {
+          // An ask saved before 1.3 has no source: those came from perfect days.
+          track("rating_prompt_requested", { source: reviewDueSourceRef.current ?? "perfect_day" });
+          markReviewPrompted();
+        }
       } finally {
         reviewInFlight.current = false;
       }

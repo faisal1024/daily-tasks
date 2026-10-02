@@ -166,6 +166,7 @@ import type {
   NotificationPermissionState,
   NotificationKey,
   ReflectionResult,
+  ReviewTrigger,
   TaskId,
 } from "./types";
 import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
@@ -205,7 +206,7 @@ type Action =
   | { type: "selectJourneyCosmetic"; id: string }
   | { type: "acknowledgeMilestoneCelebration" }
   | { type: "markReviewPrompted"; at: string }
-  | { type: "markReviewDue"; at: string }
+  | { type: "markReviewDue"; at: string; source: ReviewTrigger }
   | { type: "parkTasks"; texts: string[]; at: string }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
@@ -442,9 +443,13 @@ function reduce(state: AppState, action: Action): AppState {
       return focusSession === state.focusSession ? state : { ...state, focusSession };
     }
     case "markReviewPrompted":
-      return { ...state, lastReviewPromptAt: action.at, reviewDueAt: null };
+      return { ...state, lastReviewPromptAt: action.at, reviewDueAt: null, reviewDueSource: null };
     case "markReviewDue":
-      return state.reviewDueAt ? state : { ...state, reviewDueAt: action.at };
+      // The first happy moment keeps the ask (and its source); later ones
+      // don't push it further out.
+      return state.reviewDueAt
+        ? state
+        : { ...state, reviewDueAt: action.at, reviewDueSource: action.source };
     case "applyWidgetToggles": {
       // Taps belong to the day the widget showed, which is the day these tasks
       // belong to (lastOpenedDate), even if the app is only opened tomorrow:
@@ -1045,7 +1050,13 @@ interface StoreContextValue {
   pendingMilestoneCelebration: string | null;
   acknowledgeMilestoneCelebration: () => void;
   markReviewPrompted: () => void;
-  markReviewDue: () => void;
+  /** A happy moment (`source`) earned a rating ask, shown on a later app open. */
+  markReviewDue: (source: ReviewTrigger) => void;
+  /**
+   * Bumped each time a focus session ends with its task done (the same
+   * moment as focus_session_ended {outcome: "done"}) while the app runs.
+   */
+  focusDoneCount: number;
   setEveningClose: (close: EveningClose, day: string, result: ReflectionResult) => void;
   /** `shown` is what the card offered; the unused rest is saved for later. */
   applyTomorrowDraft: (tasks: string[], shown: string[]) => void;
@@ -1426,6 +1437,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // the one its action gave, or else: its task was ticked ("done", from
   // anywhere), or it was cleared (deleted, Not today, a new day, another start).
   const focusOutcome = useRef<FocusSessionOutcome | null>(null);
+  // A happy moment for the rating ask (see focusDoneCount).
+  const [focusDoneCount, setFocusDoneCount] = useState(0);
   // The last session's outcome, for the Live Activity's final words below.
   const endedOutcome = useRef<FocusSessionOutcome | null>(null);
   const lastFocusSession = useRef<FocusSession | null>(null);
@@ -1438,6 +1451,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     focusOutcome.current = null;
     endedOutcome.current = outcome;
     track("focus_session_ended", { outcome, minutes: sessionMinutes(previous) });
+    if (outcome === "done") setFocusDoneCount((n) => n + 1);
     // Only when the session changes; completions are read at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, focusSession]);
@@ -1844,8 +1858,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const markReviewPrompted = useCallback(() => {
     dispatch({ type: "markReviewPrompted", at: new Date().toISOString() });
   }, []);
-  const markReviewDue = useCallback(() => {
-    dispatch({ type: "markReviewDue", at: new Date().toISOString() });
+  const markReviewDue = useCallback((source: ReviewTrigger) => {
+    dispatch({ type: "markReviewDue", at: new Date().toISOString(), source });
   }, []);
   const setEveningClose = useCallback(
     (close: EveningClose, day: string, result: ReflectionResult) => {
@@ -2165,6 +2179,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       acknowledgeMilestoneCelebration,
       markReviewPrompted,
       markReviewDue,
+      focusDoneCount,
       setEveningClose,
       applyTomorrowDraft,
       dismissTomorrowDraft,
@@ -2237,6 +2252,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       acknowledgeMilestoneCelebration,
       markReviewPrompted,
       markReviewDue,
+      focusDoneCount,
       setEveningClose,
       applyTomorrowDraft,
       dismissTomorrowDraft,
