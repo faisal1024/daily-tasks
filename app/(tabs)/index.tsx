@@ -121,6 +121,9 @@ import type { ReflectionResult } from "@/lib/daily-tasks/types";
 
 /** Wait this long after the app becomes active before asking. */
 const REVIEW_SETTLE_MS = 2000;
+// After the system rating prompt is requested, no paywall for this long: the
+// two must never stack (the rating alert may still be up).
+const RATING_QUIET_MS = 10_000;
 
 type Unlock =
   // `starter`: from the timer's check-in, so a 5-minute starter is offered after.
@@ -683,6 +686,11 @@ export default function HomeScreen() {
   const previousCompleted = useRef<number | null>(null);
   const celebratedDay = useRef<string | null>(null);
   const reviewInFlight = useRef(false);
+  // When the rating prompt was last requested (0: not this session). With
+  // reviewInFlight, keeps the aha and win-back paywalls off a rating ask.
+  const ratingAskedAt = useRef(0);
+  const ratingRecent = () =>
+    reviewInFlight.current || Date.now() - ratingAskedAt.current < RATING_QUIET_MS;
   useEffect(() => {
     if (!ready) return;
     const transition = isPerfectDayTransition({
@@ -752,6 +760,8 @@ export default function HomeScreen() {
         !appActive ||
         RNAppState.currentState !== "active" ||
         busyRef.current ||
+        // A rating ask in flight or just made: never a paywall on top of it.
+        ratingRecent() ||
         state.pendingRollover !== null ||
         // Any focus session, paused too: it's their time, not ours.
         focusSession !== null,
@@ -795,8 +805,11 @@ export default function HomeScreen() {
         return;
       }
       if (status === "wait" || busyRef.current) return;
+      // The aha paywall is about to open: keep the ask for a later foreground.
+      if (ahaTimer.current) return;
       if (RNAppState.currentState !== "active") return;
       reviewInFlight.current = true;
+      ratingAskedAt.current = Date.now();
       try {
         if (await requestAppReview()) {
           // Storage gives an ask saved before 1.3 the source "perfect_day".
@@ -992,7 +1005,7 @@ export default function HomeScreen() {
     // launch). Skipped if anything else is on screen, e.g. the celebration.
     if (completing && winBackDue && paywallEnabled && !hasPlus) {
       setTimeout(() => {
-        if (!busyRef.current && winBackDueRef.current) openPaywall("win_back");
+        if (!busyRef.current && !ratingRecent() && winBackDueRef.current) openPaywall("win_back");
       }, 1200);
     }
   };

@@ -489,6 +489,8 @@ describe("PlusProvider: paywall details", () => {
     });
     expect(result.current.paywallTaskCount).toBe(2);
     await act(async () => result.current.closePaywall());
+    // Cleared on close, not left over until the next open.
+    expect(result.current.paywallTaskCount).toBeUndefined();
     await act(async () => {
       result.current.openPaywall("settings");
     });

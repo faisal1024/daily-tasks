@@ -3268,6 +3268,42 @@ describe("Aha paywall on Today", () => {
     await wait(2000);
     expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
+
+  // The rating ask (2 s after opening) and the aha offer never stack (PR #80).
+  describe("with a rating ask due on open", () => {
+    const RATING_DUE = { reviewDueAt: new Date(MORNING.getTime() - 2 * 60 * 60 * 1000).toISOString() };
+
+    it("rating first: no aha while the rating prompt was just requested, the next win after the quiet window is fine", async () => {
+      freeUser(RATING_DUE);
+      await render(<HomeScreen />);
+      await wait(2000);
+      expect(requestAppReview).toHaveBeenCalledTimes(1);
+      await setDay();
+      await wait(2000);
+      expect(mockOpenPaywall).not.toHaveBeenCalled();
+      // Past the ~10 s quiet window, a later win can still offer it.
+      await wait(10_000);
+      await setDay();
+      await wait(1200);
+      expect(mockOpenPaywall).toHaveBeenCalledWith("aha");
+    });
+
+    it("aha pending: the rating ask waits (kept for later) and the aha opens alone", async () => {
+      freeUser(RATING_DUE);
+      await render(<HomeScreen />);
+      await wait(1500);
+      // A win at 1.5 s: the aha would open at 2.7 s, after the 2 s rating check.
+      await setDay();
+      await wait(500);
+      expect(requestAppReview).not.toHaveBeenCalled();
+      await wait(700);
+      expect(mockOpenPaywall).toHaveBeenCalledWith("aha");
+      await wait(5000);
+      expect(requestAppReview).not.toHaveBeenCalled();
+      expect(mockStore.clearReviewDue).not.toHaveBeenCalled();
+      expect(mockStore.markReviewPrompted).not.toHaveBeenCalled();
+    });
+  });
 });
 
 // --- 1.3: rating asks at happy moments (PR #78) --------------------------------

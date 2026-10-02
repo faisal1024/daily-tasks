@@ -314,6 +314,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     sourceRef.current = null;
     shownRef.current = false;
     setPaywallSource(null);
+    setPaywallTaskCount(undefined);
   }, []);
   const trackMonthlyNudge = useCallback(() => {
     if (sourceRef.current) track("paywall_monthly_nudge_tapped", { source: sourceRef.current });
