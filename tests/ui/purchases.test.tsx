@@ -5,6 +5,7 @@ import { Platform } from "react-native";
 import {
   __resetPurchasesForTests,
   configurePurchases,
+  currentTrial,
   fetchPlusStatus,
   loadPackages,
   onPlusStatusChange,
@@ -292,5 +293,174 @@ describe("redeemCode (Apple offer codes)", () => {
     await redeemCode();
     expect(mockSdk.getCustomerInfo).not.toHaveBeenCalled();
     expect(mockSdk.purchasePackage).not.toHaveBeenCalled();
+  });
+});
+
+// --- 1.3: Apple win-back offers (PR #81) ----------------------------------------
+
+describe("win-back offers", () => {
+  // Optional on the SDK mock so a test can remove them (an older native build).
+  const sdk = mockSdk as typeof mockSdk & {
+    getEligibleWinBackOffersForPackage?: jest.Mock;
+    purchasePackageWithWinBackOffer?: jest.Mock;
+  };
+  const MONTHLY = {
+    identifier: "$rc_monthly",
+    packageType: "MONTHLY",
+    product: { identifier: "plus_monthly", priceString: "$4.99", pricePerMonthString: "$4.99", introPrice: null },
+  };
+  const OFFER = {
+    identifier: "winback_3m",
+    price: 2.99,
+    priceString: "$2.99",
+    cycles: 3,
+    period: "P1M",
+    periodUnit: "MONTH",
+    periodNumberOfUnits: 1,
+  };
+  const originalOS = Platform.OS;
+
+  beforeEach(() => {
+    process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+    expect(configurePurchases()).toBe(true);
+    mockSdk.getOfferings.mockResolvedValue({ current: { availablePackages: [ANNUAL, MONTHLY] } });
+    mockSdk.checkTrialOrIntroductoryPriceEligibility.mockResolvedValue({ plus_annual: { status: 2 } });
+    sdk.getEligibleWinBackOffersForPackage = jest.fn(async () => []);
+    sdk.purchasePackageWithWinBackOffer = jest.fn();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    Platform.OS = originalOS;
+    delete sdk.getEligibleWinBackOffersForPackage;
+    delete sdk.purchasePackageWithWinBackOffer;
+  });
+
+  /** What a non-lapsed paywall loads today (no lookup at all). */
+  async function plainPackages() {
+    const plain = await loadPackages();
+    __resetPurchasesForTests();
+    configurePurchases();
+    return plain;
+  }
+
+  it("attaches an offer to its plan and drops that plan's trial promise", async () => {
+    sdk.getEligibleWinBackOffersForPackage!.mockImplementation(async (pkg: { identifier: string }) =>
+      pkg.identifier === "$rc_annual" ? [OFFER] : [],
+    );
+    const [annual, monthly] = await loadPackages({ winBack: true });
+    expect(annual).toMatchObject({
+      id: "$rc_annual",
+      trialDays: null,
+      winBackOffer: { price: 2.99, priceString: "$2.99", cycles: 3, periodUnit: "MONTH", periodNumberOfUnits: 1 },
+    });
+    expect(monthly.winBackOffer).toBeUndefined();
+  });
+
+  it.each([
+    ["throws", () => jest.fn(() => { throw new Error("native"); })],
+    ["rejects", () => jest.fn(async () => { throw new Error("offline"); })],
+    ["answers empty", () => jest.fn(async () => [])],
+    ["answers undefined", () => jest.fn(async () => undefined)],
+    ["offers only malformed offers", () => jest.fn(async () => [{ ...OFFER, periodUnit: "FORTNIGHT" }, { ...OFFER, cycles: 0 }])],
+    ["is missing (older native build)", () => undefined],
+  ])("when the lookup %s, the packages are exactly today's (trial kept, no offer)", async (_why, make) => {
+    const plain = await plainPackages();
+    expect(plain[0].trialDays).toBe(7);
+    sdk.getEligibleWinBackOffersForPackage = make() as jest.Mock | undefined;
+    const withLookup = await loadPackages({ winBack: true });
+    expect(withLookup).toEqual(plain);
+    expect(withLookup.every((pkg) => !("winBackOffer" in pkg))).toBe(true);
+  });
+
+  it("gives up on a lookup slower than 1.5 s and shows today's packages", async () => {
+    const plain = await plainPackages();
+    jest.useFakeTimers();
+    sdk.getEligibleWinBackOffersForPackage!.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve([OFFER]), 5000)),
+    );
+    let loaded: Awaited<ReturnType<typeof loadPackages>> | undefined;
+    void loadPackages({ winBack: true }).then((value) => (loaded = value));
+    await jest.advanceTimersByTimeAsync(1499);
+    expect(loaded).toBeUndefined();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(loaded).toEqual(plain);
+  });
+
+  it("never looks one up off iOS", async () => {
+    Platform.OS = "android";
+    sdk.getEligibleWinBackOffersForPackage!.mockResolvedValue([OFFER]);
+    const loaded = await loadPackages({ winBack: true });
+    expect(sdk.getEligibleWinBackOffersForPackage).not.toHaveBeenCalled();
+    expect(loaded.every((pkg) => !pkg.winBackOffer)).toBe(true);
+  });
+
+  it("buys with the offer that was shown", async () => {
+    sdk.getEligibleWinBackOffersForPackage!.mockResolvedValue([OFFER]);
+    await loadPackages({ winBack: true });
+    sdk.purchasePackageWithWinBackOffer!.mockResolvedValue({ customerInfo: ACTIVE });
+    expect(await purchase("$rc_annual", { winBack: true })).toEqual({ outcome: "purchased", active: true });
+    expect(sdk.purchasePackageWithWinBackOffer).toHaveBeenCalledWith(ANNUAL, OFFER);
+    expect(mockSdk.purchasePackage).not.toHaveBeenCalled();
+  });
+
+  it("never buys at full price when the shown offer is gone", async () => {
+    // Loaded without an offer (e.g. the packages were reloaded meanwhile).
+    await loadPackages({ winBack: true });
+    expect(await purchase("$rc_annual", { winBack: true })).toEqual({ outcome: "failed", active: false });
+    expect(mockSdk.purchasePackage).not.toHaveBeenCalled();
+    expect(sdk.purchasePackageWithWinBackOffer).not.toHaveBeenCalled();
+  });
+
+  it("never buys at full price when the SDK can't buy with an offer", async () => {
+    sdk.getEligibleWinBackOffersForPackage!.mockResolvedValue([OFFER]);
+    await loadPackages({ winBack: true });
+    delete sdk.purchasePackageWithWinBackOffer;
+    expect(await purchase("$rc_annual", { winBack: true })).toEqual({ outcome: "failed", active: false });
+    expect(mockSdk.purchasePackage).not.toHaveBeenCalled();
+  });
+
+  it("buys a plan without an offer at its plain price", async () => {
+    sdk.getEligibleWinBackOffersForPackage!.mockImplementation(async (pkg: { identifier: string }) =>
+      pkg.identifier === "$rc_annual" ? [OFFER] : [],
+    );
+    await loadPackages({ winBack: true });
+    mockSdk.purchasePackage.mockResolvedValue({ customerInfo: ACTIVE });
+    expect(await purchase("$rc_monthly")).toEqual({ outcome: "purchased", active: true });
+    expect(mockSdk.purchasePackage).toHaveBeenCalledWith(MONTHLY);
+    expect(sdk.purchasePackageWithWinBackOffer).not.toHaveBeenCalled();
+  });
+});
+
+describe("currentTrial (the day-5 note's trial)", () => {
+  const entitlement = {
+    identifier: "plus",
+    isActive: true,
+    periodType: "TRIAL",
+    willRenew: true,
+    latestPurchaseDate: "2026-10-01T09:00:00Z",
+    expirationDate: "2026-10-08T09:00:00Z",
+    unsubscribeDetectedAt: null,
+    ownershipType: "PURCHASED",
+  };
+  const info = (overrides: Record<string, unknown> = {}) =>
+    ({ entitlements: { active: { plus: { ...entitlement, ...overrides } } } }) as never;
+
+  it("reads the start, end and renewal; a cancelled trial won't renew", () => {
+    expect(currentTrial(info())).toEqual({
+      startedAt: "2026-10-01T09:00:00Z",
+      endsAt: "2026-10-08T09:00:00Z",
+      willRenew: true,
+    });
+    expect(currentTrial(info({ unsubscribeDetectedAt: "2026-10-02T09:00:00Z" }))?.willRenew).toBe(false);
+    expect(currentTrial(info({ willRenew: false }))?.willRenew).toBe(false);
+    expect(currentTrial(info({ latestPurchaseDate: "junk" }))?.startedAt).toBeNull();
+  });
+
+  it("is null when not a trial, family-shared, or without a usable end", () => {
+    expect(currentTrial(info({ periodType: "NORMAL" }))).toBeNull();
+    expect(currentTrial(info({ ownershipType: "FAMILY_SHARED" }))).toBeNull();
+    expect(currentTrial(info({ expirationDate: null }))).toBeNull();
+    expect(currentTrial(info({ expirationDate: "junk" }))).toBeNull();
+    expect(currentTrial(null)).toBeNull();
   });
 });

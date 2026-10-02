@@ -3078,3 +3078,68 @@ describe("Timer on your tasks (1.3)", () => {
     expect(focusEvents()).toEqual([["focus_opened", { source: "siri" }]]);
   });
 });
+
+// --- 1.3: counting genuine Plus use for the day-5 trial note (PR #81) ---------
+
+describe("Plus use counter (day-5 trial note)", () => {
+  const USES_KEY = "daily-tasks/plus-uses";
+  const storedUses = async () => {
+    // recordPlusUse is fire-and-forget: let its queued write land.
+    for (let i = 0; i < 3; i += 1) await act(async () => {});
+    const raw = await AsyncStorage.getItem(USES_KEY);
+    return raw === null ? null : (JSON.parse(raw) as unknown[]);
+  };
+
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+  });
+
+  async function sortDump(text: string) {
+    await openBrainDump();
+    await act(async () => {});
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), text);
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+  }
+
+  it("counts a Plus AI sort as kind and time only, never the text", async () => {
+    (sortBrainDump as jest.Mock).mockResolvedValue({
+      result: { picks: ["Finish secret report"], parked: [], source: "ai" },
+      notice: null,
+    });
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await sortDump("finish secret report");
+    expect(await storedUses()).toEqual([{ kind: "brain_dump", at: MORNING.getTime() }]);
+    expect(await AsyncStorage.getItem(USES_KEY)).not.toMatch(/secret/i);
+  });
+
+  it.each([
+    ["a Plus sort that fell back to the local split", true, "local"],
+    ["a free user's free AI sort", false, "ai"],
+  ] as const)("doesn't count %s", async (_why, hasPlus, source) => {
+    (sortBrainDump as jest.Mock).mockResolvedValue({
+      result: { picks: ["Finish report"], parked: [], source },
+      notice: null,
+    });
+    mockStore = { ...makeStore(), hasPlus };
+    await render(<HomeScreen />);
+    await sortDump("finish report");
+    expect(mockTrack).toHaveBeenCalledWith("brain_dump_sorted", expect.objectContaining({ source }));
+    expect(await storedUses()).toBeNull();
+  });
+
+  it.each([
+    ["an AI draft used with Plus", true, "ai", [{ kind: "tomorrow_draft", at: MORNING.getTime() }]],
+    ["a local draft used with Plus", true, "local", null],
+    ["an AI draft used after Plus ended", false, "ai", null],
+  ] as const)("tomorrow's draft: %s", async (_why, hasPlus, source, expected) => {
+    mockStore = {
+      ...makeStore({ tasks: [], tomorrowDraft: { forDate: TODAY, tasks: ["Stretch"], note: "", because: "", source } }),
+      hasPlus,
+    };
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
+    expect(mockStore.applyTomorrowDraft).toHaveBeenCalled();
+    expect(await storedUses()).toEqual(expected);
+  });
+});

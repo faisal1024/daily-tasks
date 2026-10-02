@@ -10,6 +10,7 @@ import type { PlusPackage } from "@/lib/daily-tasks/plus";
 import { CHECK_TIMEOUT_MS, PlusProvider, WIN_BACK_DELAY_MS, usePlus } from "@/lib/daily-tasks/plus-context";
 import {
   fetchPlusStatus,
+  loadPackages as loadSdkPackages,
   onPlusStatusChange,
   purchase as purchasePackage,
   redeemCode as presentRedeemSheet,
@@ -468,5 +469,201 @@ describe("PlusProvider: redeem a code", () => {
     const { result } = await renderHook(() => usePlus());
     await expect(result.current.redeemCode()).resolves.toBe(false);
     expect(presentRedeemSheet).not.toHaveBeenCalled();
+  });
+});
+
+// --- 1.3: Apple win-back offers on the paywall (PR #81) -------------------------
+
+describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
+  const OFFERED: PlusPackage = {
+    ...ANNUAL,
+    winBackOffer: { price: 9.99, priceString: "$9.99", cycles: 1, periodUnit: "YEAR", periodNumberOfUnits: 1 },
+  };
+  const paywallEvents = () =>
+    (track as jest.Mock).mock.calls.filter(([name]) => name === "paywall_viewed" || name === "paywall_closed");
+
+  function deferredPackages() {
+    let resolve!: (value: PlusPackage[]) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<PlusPackage[]>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  async function renderLapsed() {
+    (fetchPlusStatus as jest.Mock).mockResolvedValue(lapsed(3 * DAY));
+    const hook = await renderWithListener();
+    await waitFor(() => expect(hook.result.current.winBackDue).toBe(true));
+    (track as jest.Mock).mockClear();
+    return hook;
+  }
+
+  it("a lookup answering after the sheet shows: one paywall_viewed, with the offer", async () => {
+    const { result } = await renderLapsed();
+    const lookup = deferredPackages();
+    (loadSdkPackages as jest.Mock).mockReturnValueOnce(lookup.promise);
+    await act(async () => {
+      result.current.openPaywall("win_back");
+    });
+    let loading!: Promise<PlusPackage[]>;
+    await act(async () => {
+      loading = result.current.loadPackages();
+    });
+    expect(loadSdkPackages).toHaveBeenCalledWith({ winBack: true });
+    await act(async () => result.current.markPaywallShown());
+    expect(paywallEvents()).toEqual([]);
+    await act(async () => {
+      lookup.resolve([OFFERED]);
+      await loading;
+    });
+    await act(async () => result.current.closePaywall());
+    expect(paywallEvents()).toEqual([
+      ["paywall_viewed", { source: "win_back", feature: "offer" }],
+      ["paywall_closed", { source: "win_back" }],
+    ]);
+  });
+
+  it("a lookup answering before the sheet shows: one paywall_viewed on show", async () => {
+    const { result } = await renderLapsed();
+    (loadSdkPackages as jest.Mock).mockResolvedValueOnce([ANNUAL]);
+    await act(async () => {
+      result.current.openPaywall("break_down");
+    });
+    await act(async () => {
+      await result.current.loadPackages();
+    });
+    expect(paywallEvents()).toEqual([]);
+    await act(async () => result.current.markPaywallShown());
+    await act(async () => result.current.markPaywallShown()); // a second onShow
+    expect(paywallEvents()).toEqual([["paywall_viewed", { source: "break_down", feature: "plain" }]]);
+  });
+
+  it("a failed lookup counts as plain", async () => {
+    const { result } = await renderLapsed();
+    (loadSdkPackages as jest.Mock).mockRejectedValueOnce(new Error("offline"));
+    await act(async () => {
+      result.current.openPaywall("break_down");
+    });
+    await act(async () => result.current.markPaywallShown());
+    await act(async () => {
+      await result.current.loadPackages().catch(() => {});
+    });
+    expect(paywallEvents()).toEqual([["paywall_viewed", { source: "break_down", feature: "plain" }]]);
+  });
+
+  it("closed before the lookup answers: paywall_viewed plain, then paywall_closed, and the late answer adds nothing", async () => {
+    const { result } = await renderLapsed();
+    const lookup = deferredPackages();
+    (loadSdkPackages as jest.Mock).mockReturnValueOnce(lookup.promise);
+    await act(async () => {
+      result.current.openPaywall("win_back");
+    });
+    let loading!: Promise<PlusPackage[]>;
+    await act(async () => {
+      loading = result.current.loadPackages();
+    });
+    await act(async () => result.current.markPaywallShown());
+    await act(async () => result.current.closePaywall());
+    await act(async () => {
+      lookup.resolve([OFFERED]);
+      await loading;
+    });
+    expect(paywallEvents()).toEqual([
+      ["paywall_viewed", { source: "win_back", feature: "plain" }],
+      ["paywall_closed", { source: "win_back" }],
+    ]);
+  });
+
+  it("a stale lookup from an earlier open isn't credited to the next one", async () => {
+    const { result } = await renderLapsed();
+    const first = deferredPackages();
+    const second = deferredPackages();
+    (loadSdkPackages as jest.Mock).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    // First open: never shown, closed while its lookup is still running.
+    await act(async () => {
+      result.current.openPaywall("break_down");
+    });
+    let firstLoad!: Promise<PlusPackage[]>;
+    await act(async () => {
+      firstLoad = result.current.loadPackages();
+    });
+    await act(async () => result.current.closePaywall());
+    // Second open: shown, its own lookup still running.
+    await act(async () => {
+      result.current.openPaywall("brain_dump");
+    });
+    let secondLoad!: Promise<PlusPackage[]>;
+    await act(async () => {
+      secondLoad = result.current.loadPackages();
+    });
+    await act(async () => result.current.markPaywallShown());
+    // The first open's late "offer" answer must not decide the second's event.
+    await act(async () => {
+      first.resolve([OFFERED]);
+      await firstLoad;
+    });
+    expect(paywallEvents()).toEqual([]);
+    await act(async () => {
+      second.resolve([ANNUAL]);
+      await secondLoad;
+    });
+    expect(paywallEvents()).toEqual([["paywall_viewed", { source: "brain_dump", feature: "plain" }]]);
+  });
+
+  it("someone who never lapsed: no lookup, and exactly { source } on show", async () => {
+    const { result } = await renderWithListener();
+    await waitFor(() => expect(result.current.entitlementKnown).toBe(true));
+    (track as jest.Mock).mockClear();
+    await act(async () => {
+      result.current.openPaywall("break_down");
+    });
+    await act(async () => {
+      await result.current.loadPackages();
+    });
+    expect((loadSdkPackages as jest.Mock).mock.calls).toEqual([[]]);
+    await act(async () => result.current.markPaywallShown());
+    expect(paywallEvents()).toEqual([["paywall_viewed", { source: "break_down" }]]);
+  });
+});
+
+describe("PlusProvider: buying with a win-back offer", () => {
+  const OFFERED: PlusPackage = {
+    ...ANNUAL,
+    winBackOffer: { price: 9.99, priceString: "$9.99", cycles: 1, periodUnit: "YEAR", periodNumberOfUnits: 1 },
+  };
+
+  it("buys a plan showing an offer with that offer, and marks the funnel events", async () => {
+    (purchasePackage as jest.Mock).mockResolvedValue({ outcome: "cancelled", active: false });
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await act(async () => {
+      result.current.openPaywall("win_back");
+    });
+    await act(async () => {
+      await result.current.purchase(OFFERED);
+    });
+    expect((purchasePackage as jest.Mock).mock.calls).toEqual([["$rc_annual", { winBack: true }]]);
+    expect(track).toHaveBeenCalledWith("purchase_started", { plan: "annual", source: "win_back", feature: "offer" });
+    expect(track).toHaveBeenCalledWith("purchase_cancelled", {
+      plan: "annual",
+      source: "win_back",
+      trial: false,
+      feature: "offer",
+    });
+  });
+
+  it.each([
+    ["no offer", ANNUAL],
+    ["a malformed offer", { ...OFFERED, winBackOffer: { ...OFFERED.winBackOffer!, cycles: 0 } }],
+    ["lifetime (never an offer)", { ...OFFERED, id: "$rc_lifetime", kind: "lifetime" as const }],
+  ])("buys a plan with %s plainly: purchase(id) and no options", async (_why, pkg) => {
+    (purchasePackage as jest.Mock).mockResolvedValue({ outcome: "failed", active: false });
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await act(async () => {
+      await result.current.purchase(pkg);
+    });
+    expect((purchasePackage as jest.Mock).mock.calls).toEqual([[pkg.id]]);
+    expect(track).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ feature: "offer" }));
   });
 });
