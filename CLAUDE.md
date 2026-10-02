@@ -40,8 +40,12 @@ and notify. Trivial config/doc one-liners may skip the two-agent review.
 
 The app never holds an API key. AI goes through `server/momentum-proxy.mjs`
 (provider-agnostic; switch with `MOMENTUM_AI_PROVIDER=openai|anthropic`).
-- Deployed on Render (`render.yaml`), URL baked into the production build via
-  `eas.json` `build.production.env.EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL`.
+- Deployed on Cloudflare Workers (`server/worker.mjs`, `server/wrangler.toml`) at
+  `https://three-today-ai.faisal1024.workers.dev` from 1.3.0; URL baked into the
+  production build via `eas.json` `build.production.env.EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL`.
+  Render (`render.yaml`) keeps serving 1.2 and older builds until their traffic is
+  near zero; then suspend it (don't delete). Deploy the Worker with
+  `cd server && npx wrangler@4 deploy`; secrets are set by the owner only.
 - Local dev: put secrets in gitignored `.env.local`; `pnpm ai:proxy` auto-loads it.
 - No proxy URL configured → app silently uses the local template plan.
 

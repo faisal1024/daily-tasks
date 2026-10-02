@@ -79,7 +79,13 @@ A `render.yaml` blueprint is included.
 Note: Render's free plan sleeps on idle, so the first request after a quiet
 period has a cold-start delay. Use a paid instance to avoid that.
 
-### Cloudflare Workers (planned home: free, no cold starts)
+### Cloudflare Workers (live from 1.3.0: free, no cold starts)
+
+Deployed 2026-10-02 at `https://three-today-ai.faisal1024.workers.dev`, with
+`ANTHROPIC_API_KEY` (a workspace-scoped key: an unscoped org key fails with
+"must include the anthropic-workspace-id header"), `PROXY_SHARED_SECRET` (same as
+Render) and `REVENUECAT_SECRET_KEY` set as secrets. 1.3.0 is the first build that
+calls it; Render stays up for older builds.
 
 `server/worker.mjs` runs the same routes as the Node server (both use
 `server/handler.mjs`). Limits live in one Durable Object (`Limits`): per-minute
