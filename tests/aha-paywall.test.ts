@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AHA_PAYWALL_GAP_MS,
+  fillsDay,
   shouldOfferAhaPaywall,
   type AhaPaywallInput,
 } from "../lib/daily-tasks/aha-paywall";
@@ -12,6 +13,8 @@ import { todayKey } from "../lib/daily-tasks/date";
 import {
   monthlyNudgeText,
   paywallHeadline,
+  paywallSubhead,
+  TRIAL_REMINDER_DAYS_BEFORE_END,
   trialTimeline,
   trialTimelineLabel,
   type PlusPackage,
@@ -81,11 +84,32 @@ describe("shouldOfferAhaPaywall", () => {
   });
 });
 
+describe("fillsDay", () => {
+  it("is true only when an add took the day from under three to three", () => {
+    expect(fillsDay(2, 3)).toBe(true);
+    expect(fillsDay(0, 3)).toBe(true);
+    expect(fillsDay(1, 2)).toBe(false);
+    // The add didn't land (day set, slot filled meanwhile): count unchanged.
+    expect(fillsDay(2, 2)).toBe(false);
+    // Already full before.
+    expect(fillsDay(3, 3)).toBe(false);
+  });
+});
+
+describe("aha paywall copy", () => {
+  it("is time-neutral and names what Plus does", () => {
+    expect(paywallHeadline("aha")).toBe("Today's three are set.");
+    expect(paywallSubhead("aha")).toBe(
+      "Plus sorts a messy brain dump, breaks big tasks into steps and plans around your calendar. Your three stay free either way.",
+    );
+  });
+});
+
 describe("onboarding paywall headline", () => {
   it.each([
     [0, "A little extra help, when you want it"],
-    [1, "It's set."],
-    [2, "Your two are set."],
+    [1, "Today's set."],
+    [2, "Today's set."],
     [3, "Your three are set."],
     [undefined, "Your three are set."],
   ])("with %s tasks from first run: %s", (taskCount, headline) => {
@@ -100,6 +124,7 @@ function pkg(overrides: Partial<PlusPackage> = {}): PlusPackage {
     priceString: "$29.99",
     pricePerMonthString: "$2.49",
     trialDays: 7,
+    trialUnit: "WEEK",
     ...overrides,
   };
 }
@@ -114,17 +139,37 @@ describe("trialTimeline", () => {
     expect(trialTimeline(pkg({ kind: "other" }), on)).toBeNull();
   });
 
+  it("is only for DAY or WEEK intro periods (a month or year isn't a fixed day count)", () => {
+    const on = { remindersAllowed: true };
+    expect(trialTimeline(pkg({ trialDays: 30, trialUnit: "MONTH" }), on)).toBeNull();
+    expect(trialTimeline(pkg({ trialDays: 365, trialUnit: "YEAR" }), on)).toBeNull();
+    expect(trialTimeline(pkg({ trialUnit: null }), on)).toBeNull();
+    expect(trialTimeline(pkg({ trialUnit: undefined }), on)).toBeNull();
+    expect(trialTimeline(pkg({ trialDays: 3, trialUnit: "DAY" }), on)?.map((step) => step.when)).toEqual([
+      "Today",
+      "Day 1",
+      "Day 3",
+    ]);
+  });
+
   it("numbers the days from the trial length, with the price per year or per month", () => {
     expect(trialTimeline(pkg(), { remindersAllowed: true })).toEqual([
       { when: "Today", what: "All of Plus, free" },
-      { when: "Day 5", what: "We remind you" },
-      { when: "Day 7", what: "$29.99/year, cancel anytime" },
+      { when: "Day 5", what: "We remind you, with time to cancel" },
+      { when: "Day 7", what: "$29.99/year starts. Cancel before then and you won't pay." },
     ]);
-    expect(trialTimeline(pkg({ kind: "monthly", priceString: "$4.99", trialDays: 14 }), { remindersAllowed: true })).toEqual([
+    expect(trialTimeline(pkg({ kind: "monthly", priceString: "$4.99", trialDays: 14, trialUnit: "DAY" }), { remindersAllowed: true })).toEqual([
       { when: "Today", what: "All of Plus, free" },
-      { when: "Day 12", what: "We remind you" },
-      { when: "Day 14", what: "$4.99/month, cancel anytime" },
+      { when: "Day 12", what: "We remind you, with time to cancel" },
+      { when: "Day 14", what: "$4.99/month starts. Cancel before then and you won't pay." },
     ]);
+  });
+
+  it("puts the reminder step the shared reminder offset before the end", () => {
+    expect(TRIAL_REMINDER_DAYS_BEFORE_END).toBe(2);
+    expect(trialTimeline(pkg({ trialDays: 7 }), { remindersAllowed: true })?.[1]?.when).toBe(
+      `Day ${7 - TRIAL_REMINDER_DAYS_BEFORE_END}`,
+    );
   });
 
   it("drops the reminder when notifications aren't allowed or the trial is under 3 days", () => {
@@ -140,7 +185,7 @@ describe("trialTimeline", () => {
 
   it("reads as one sentence, with the price said per year", () => {
     expect(trialTimelineLabel(trialTimeline(pkg(), { remindersAllowed: true })!)).toBe(
-      "How the free trial works. Today: All of Plus, free. Day 5: We remind you. Day 7: $29.99 per year, cancel anytime.",
+      "How the free trial works. Today: All of Plus, free. Day 5: We remind you, with time to cancel. Day 7: $29.99 per year starts. Cancel before then and you won't pay.",
     );
   });
 });

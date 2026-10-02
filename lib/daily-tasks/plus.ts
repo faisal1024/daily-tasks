@@ -36,6 +36,12 @@ export interface PlusPackage {
   pricePerMonthString: string | null;
   /** Free-trial length in days, when the product has a free intro offer the user can get. */
   trialDays: number | null;
+  /**
+   * The store's unit for that free intro period ("DAY", "WEEK", "MONTH",
+   * "YEAR"). The trial timeline only counts days for DAY/WEEK trials, since a
+   * month or year isn't a fixed number of days.
+   */
+  trialUnit?: string | null;
 }
 
 /**
@@ -65,6 +71,9 @@ export function planKind(packageType: string): PlanKind {
       return "other";
   }
 }
+
+/** The trial reminder (trial-reminder.ts) goes out this many days before a trial ends. */
+export const TRIAL_REMINDER_DAYS_BEFORE_END = 2;
 
 const UNIT_DAYS: Record<string, number> = { DAY: 1, WEEK: 7, MONTH: 30, YEAR: 365 };
 
@@ -178,8 +187,6 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
   },
 ];
 
-const COUNT_WORDS = ["zero", "one", "two", "three"];
-
 /**
  * Headline per entry point, so the paywall says why it appeared. The
  * onboarding one echoes what the user just did: `taskCount` is how many tasks
@@ -190,11 +197,10 @@ export function paywallHeadline(source: PaywallSource, options: { taskCount?: nu
     case "onboarding": {
       const count = options.taskCount ?? 3;
       if (count <= 0) return "A little extra help, when you want it";
-      if (count === 1) return "It's set.";
-      return `Your ${COUNT_WORDS[count] ?? count} are set.`;
+      return count >= 3 ? "Your three are set." : "Today's set.";
     }
     case "aha":
-      return "Nice start to the day.";
+      return "Today's three are set.";
     case "brain_dump":
       return "Let AI sort your brain dump";
     case "break_down":
@@ -218,7 +224,7 @@ export function paywallSubhead(source: PaywallSource, options: { taskCount?: num
         ? "Want help like this every morning? Your three stay free either way."
         : "Your three tasks stay free forever. Plus adds the AI helpers.";
     case "aha":
-      return "Plus sorts your brain dumps and drafts tomorrow with AI. Your three stay free either way.";
+      return "Plus sorts a messy brain dump, breaks big tasks into steps and plans around your calendar. Your three stay free either way.";
     case "win_back":
       return "Your three tasks stay free. Plus brings back AI sorting, break it down and calendar planning.";
     default:
@@ -232,13 +238,11 @@ export interface TrialStep {
   what: string;
 }
 
-/** The trial reminder (trial-reminder.ts) goes out this many days before the end. */
-const REMINDER_DAYS_BEFORE_END = 2;
-
 /**
  * What happens during a free trial, for the timeline under the plans: today,
  * the reminder, the first charge. Null when the plan has no free trial for
- * this user (or isn't a subscription). The reminder step is left out when it
+ * this user (or isn't a subscription), and null for month/year-unit trials,
+ * whose length in days isn't fixed. The reminder step is left out when it
  * can't be kept: notifications aren't allowed, or the trial is too short for
  * the two-day heads-up.
  */
@@ -248,20 +252,25 @@ export function trialTimeline(
 ): TrialStep[] | null {
   if (!pkg || !pkg.trialDays || pkg.trialDays <= 0) return null;
   if (pkg.kind !== "annual" && pkg.kind !== "monthly") return null;
+  if (pkg.trialUnit !== "DAY" && pkg.trialUnit !== "WEEK") return null;
   const period = pkg.kind === "annual" ? "year" : "month";
   const steps: TrialStep[] = [{ when: "Today", what: "All of Plus, free" }];
-  const reminderDay = pkg.trialDays - REMINDER_DAYS_BEFORE_END;
+  const reminderDay = pkg.trialDays - TRIAL_REMINDER_DAYS_BEFORE_END;
   if (options.remindersAllowed && reminderDay >= 1) {
-    steps.push({ when: `Day ${reminderDay}`, what: "We remind you" });
+    steps.push({ when: `Day ${reminderDay}`, what: "We remind you, with time to cancel" });
   }
-  steps.push({ when: `Day ${pkg.trialDays}`, what: `${pkg.priceString}/${period}, cancel anytime` });
+  steps.push({ when: `Day ${pkg.trialDays}`, what: `${pkg.priceString}/${period} starts. Cancel before then and you won't pay.` });
   return steps;
 }
 
 /** The timeline read as one sentence by VoiceOver. */
 export function trialTimelineLabel(steps: TrialStep[]): string {
-  const spoken = steps.map((step) => `${step.when}: ${step.what.replace(/\/(year|month)\b/, " per $1")}`);
-  return `How the free trial works. ${spoken.join(". ")}.`;
+  const spoken = steps.map((step) => {
+    const what = step.what.replace(/\/(year|month)\b/, " per $1");
+    // Steps that are already sentences keep their own full stop.
+    return `${step.when}: ${/[.!?]$/.test(what) ? what : `${what}.`}`;
+  });
+  return `How the free trial works. ${spoken.join(" ")}`;
 }
 
 /**

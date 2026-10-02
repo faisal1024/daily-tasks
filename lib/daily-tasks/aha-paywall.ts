@@ -1,7 +1,12 @@
 // The gentle second paywall (source "aha"): offered once per install, at the
-// first real "aha" after the first day: using last night's draft for today, or
-// setting the day's three. Pure, so the rule can be unit tested; plus-context
-// persists what it needs and the Today screen reports the moments.
+// first real "aha" after the first day: using last night's draft for today,
+// tapping Set (even with only one or two tasks: Set is a deliberate "my day is
+// set" moment), or a brain dump that fills the day's three. Typing the third
+// task by hand doesn't count (too interruptive mid-typing). Pure, so the rule
+// can be unit tested; plus-context persists what it needs and the Today screen
+// reports the moments.
+
+import { MAX_TASKS } from "./types";
 
 /** No paywall of any kind within this long of the last one shown. */
 export const AHA_PAYWALL_GAP_MS = 24 * 60 * 60_000;
@@ -45,4 +50,9 @@ export function shouldOfferAhaPaywall(input: AhaPaywallInput): boolean {
     if (!Number.isFinite(since) || since < AHA_PAYWALL_GAP_MS) return false;
   }
   return true;
+}
+
+/** Whether an add took the day from under three tasks to a full three. */
+export function fillsDay(before: number, after: number): boolean {
+  return before < MAX_TASKS && after >= MAX_TASKS;
 }

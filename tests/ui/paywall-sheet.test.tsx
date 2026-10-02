@@ -1,19 +1,18 @@
 // Paywall sheet: plans load with annual selected, buying closes only on success,
 // failures and pending purchases explain themselves, and restore/retry work.
-import { AccessibilityInfo } from "react-native";
 import { act, fireEvent, screen } from "@testing-library/react-native";
 
 import { PaywallSheet } from "@/components/daily-tasks/paywall-sheet";
-import { track } from "@/lib/daily-tasks/analytics";
+import { announcePolitely } from "@/lib/daily-tasks/announce";
 import type { PlusPackage } from "@/lib/daily-tasks/plus";
 import type { PurchaseOutcome } from "@/lib/daily-tasks/purchases";
 
 import { renderWithProviders as render } from "./render";
 
-jest.mock("@/lib/daily-tasks/analytics", () => ({
-  ...jest.requireActual("@/lib/daily-tasks/analytics"),
-  track: jest.fn(),
-}));
+jest.mock("@/lib/daily-tasks/announce", () => ({ announcePolitely: jest.fn() }));
+
+/** Past the nudge's announce delay (said once StoreKit's sheet has gone). */
+const afterAnnounceDelay = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 600)));
 
 afterEach(() => {
   jest.clearAllMocks();
@@ -32,6 +31,7 @@ const ANNUAL: PlusPackage = {
   priceString: "$29.99",
   pricePerMonthString: "$2.49",
   trialDays: 7,
+  trialUnit: "WEEK",
 };
 
 function setup(overrides: {
@@ -46,6 +46,7 @@ function setup(overrides: {
     onPurchase:
       overrides.onPurchase ?? jest.fn(async (): Promise<PurchaseOutcome> => "purchased"),
     onRestore: overrides.onRestore ?? jest.fn(async (): Promise<boolean | null> => true),
+    onMonthlyNudge: jest.fn(),
   };
 }
 
@@ -198,8 +199,8 @@ describe("PaywallSheet", () => {
 describe("PaywallSheet: the monthly line", () => {
   const cancelling = () => setup({ onPurchase: jest.fn(async (): Promise<PurchaseOutcome> => "cancelled") });
 
-  it("appears after backing out of yearly; a tap selects monthly without buying, tracked once", async () => {
-    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  it("appears after backing out of yearly; a tap selects monthly without buying, reported once", async () => {
+    const announce = announcePolitely as jest.Mock;
     const props = cancelling();
     await renderSheet(props);
     expect(screen.queryByTestId("paywall-monthly-nudge")).toBeNull();
@@ -209,21 +210,31 @@ describe("PaywallSheet: the monthly line", () => {
     // No trial on monthly: the price, not "days free".
     const nudge = screen.getByTestId("paywall-monthly-nudge");
     expect(nudge).toHaveTextContent("Prefer to start small? Monthly is $4.99/month.");
+    // Said a beat later, so StoreKit's sheet closing doesn't cut it off.
+    expect(announce).not.toHaveBeenCalled();
+    await afterAnnounceDelay();
     expect(announce).toHaveBeenCalledWith("Prefer to start small? Monthly is $4.99/month.");
 
     await fireEvent.press(nudge);
     expect(screen.getByTestId("paywall-plan-monthly")).toBeChecked();
     expect(props.onPurchase).toHaveBeenCalledTimes(1);
-    expect(track).toHaveBeenCalledWith("paywall_monthly_nudge_tapped", { source: "break_down" });
+    expect(props.onMonthlyNudge).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("paywall-monthly-nudge")).toBeNull();
     // Back to yearly: it has done its job for this open.
     await fireEvent.press(screen.getByTestId("paywall-plan-annual"));
     await fireEvent.press(screen.getByTestId("paywall-buy"));
     expect(screen.queryByTestId("paywall-monthly-nudge")).toBeNull();
-    expect((track as jest.Mock).mock.calls.filter(([event]) => event === "paywall_monthly_nudge_tapped")).toHaveLength(
-      1,
-    );
-    announce.mockRestore();
+    expect(props.onMonthlyNudge).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't announce the line when the sheet closes before the delay", async () => {
+    const props = cancelling();
+    const { rerender } = await render(<PaywallSheet source="settings" {...props} />);
+    await act(async () => {});
+    await fireEvent.press(screen.getByTestId("paywall-buy"));
+    await rerender(<PaywallSheet source={null} {...props} />);
+    await afterAnnounceDelay();
+    expect(announcePolitely).not.toHaveBeenCalled();
   });
 
   it("hides once monthly is picked from the plans, and comes back fresh on the next open", async () => {
@@ -236,7 +247,7 @@ describe("PaywallSheet: the monthly line", () => {
     expect(screen.queryByTestId("paywall-monthly-nudge")).toBeNull();
     await fireEvent.press(screen.getByTestId("paywall-plan-annual"));
     expect(screen.queryByTestId("paywall-monthly-nudge")).toBeNull();
-    expect(track).not.toHaveBeenCalledWith("paywall_monthly_nudge_tapped", expect.anything());
+    expect(props.onMonthlyNudge).not.toHaveBeenCalled();
 
     await rerender(<PaywallSheet source={null} {...props} />);
     await rerender(<PaywallSheet source="settings" {...props} />);
@@ -255,15 +266,14 @@ describe("PaywallSheet: the monthly line", () => {
   });
 
   it("not after backing out of monthly (even once yearly is picked again)", async () => {
-    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     await renderSheet(cancelling());
     await fireEvent.press(screen.getByTestId("paywall-plan-monthly"));
     await fireEvent.press(screen.getByTestId("paywall-buy"));
     expect(screen.queryByTestId("paywall-monthly-nudge")).toBeNull();
     await fireEvent.press(screen.getByTestId("paywall-plan-annual"));
     expect(screen.queryByTestId("paywall-monthly-nudge")).toBeNull();
-    expect(announce).not.toHaveBeenCalledWith(expect.stringMatching(/start small/));
-    announce.mockRestore();
+    await afterAnnounceDelay();
+    expect(announcePolitely).not.toHaveBeenCalled();
   });
 
   it("not when there's no monthly plan", async () => {
@@ -273,7 +283,7 @@ describe("PaywallSheet: the monthly line", () => {
   });
 
   it("names the free days when monthly has a trial", async () => {
-    const props = { ...cancelling(), loadPackages: jest.fn(async () => [{ ...MONTHLY, trialDays: 7 }, ANNUAL]) };
+    const props = { ...cancelling(), loadPackages: jest.fn(async () => [{ ...MONTHLY, trialDays: 7, trialUnit: "WEEK" }, ANNUAL]) };
     await renderSheet(props);
     await fireEvent.press(screen.getByTestId("paywall-buy"));
     expect(screen.getByTestId("paywall-monthly-nudge")).toHaveTextContent("Prefer to start small? Monthly, 7 days free.");
@@ -285,14 +295,15 @@ describe("PaywallSheet: the trial timeline and onboarding headline", () => {
     const props = setup();
     const { rerender } = await render(<PaywallSheet source="onboarding" taskCount={2} remindersAllowed {...props} />);
     await act(async () => {});
-    expect(screen.getByText("Your two are set.")).toBeOnTheScreen();
+    expect(screen.getByText("Today's set.")).toBeOnTheScreen();
     const timeline = screen.getByTestId("paywall-trial-timeline");
     expect(timeline.props.accessible).toBe(true);
     expect(timeline).toHaveProp(
       "accessibilityLabel",
-      "How the free trial works. Today: All of Plus, free. Day 5: We remind you. Day 7: $29.99 per year, cancel anytime.",
+      "How the free trial works. Today: All of Plus, free. Day 5: We remind you, with time to cancel. Day 7: $29.99 per year starts. Cancel before then and you won't pay.",
     );
-    expect(timeline).toHaveTextContent(/Day 7\s+\$29\.99\/year, cancel anytime/);
+    expect(timeline).toHaveTextContent(/Day 7\s+\$29\.99\/year starts\. Cancel before then and you won't pay\./);
+    expect(timeline).not.toHaveTextContent(/cancel anytime/i);
 
     // Monthly here has no trial: no timeline.
     await fireEvent.press(screen.getByTestId("paywall-plan-monthly"));
@@ -304,12 +315,30 @@ describe("PaywallSheet: the trial timeline and onboarding headline", () => {
   });
 
   it("prices a monthly trial per month", async () => {
-    const props = setup({ loadPackages: jest.fn(async () => [{ ...MONTHLY, trialDays: 3 }, ANNUAL]) });
+    const props = setup({ loadPackages: jest.fn(async () => [{ ...MONTHLY, trialDays: 3, trialUnit: "DAY" }, ANNUAL]) });
     await render(<PaywallSheet source="settings" remindersAllowed {...props} />);
     await act(async () => {});
     await fireEvent.press(screen.getByTestId("paywall-plan-monthly"));
     const timeline = screen.getByTestId("paywall-trial-timeline");
-    expect(timeline).toHaveTextContent(/Day 1\s+We remind you/);
-    expect(timeline).toHaveTextContent(/Day 3\s+\$4\.99\/month, cancel anytime/);
+    expect(timeline).toHaveTextContent(/Day 1\s+We remind you, with time to cancel/);
+    expect(timeline).toHaveTextContent(/Day 3\s+\$4\.99\/month starts\./);
+  });
+
+  it("shows no timeline for a month-long intro period", async () => {
+    const props = setup({ loadPackages: jest.fn(async () => [MONTHLY, { ...ANNUAL, trialDays: 30, trialUnit: "MONTH" }]) });
+    await render(<PaywallSheet source="settings" remindersAllowed {...props} />);
+    await act(async () => {});
+    expect(screen.getByTestId("paywall-plan-annual")).toBeChecked();
+    expect(screen.queryByTestId("paywall-trial-timeline")).toBeNull();
+  });
+
+  it.each([
+    [3, "Your three are set."],
+    [1, "Today's set."],
+    [0, "A little extra help, when you want it"],
+  ])("onboarding with %s tasks set: %s", async (taskCount, headline) => {
+    await render(<PaywallSheet source="onboarding" taskCount={taskCount} {...setup()} />);
+    await act(async () => {});
+    expect(screen.getByText(headline)).toBeOnTheScreen();
   });
 });

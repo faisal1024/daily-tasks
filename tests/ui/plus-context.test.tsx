@@ -480,11 +480,38 @@ describe("PlusProvider: redeem a code", () => {
   });
 });
 
+// 1.3: the onboarding count travels with the open; the monthly nudge is tracked here.
+describe("PlusProvider: paywall details", () => {
+  it("passes the onboarding task count with the open, and drops it for the next source", async () => {
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await act(async () => {
+      result.current.openPaywall("onboarding", { taskCount: 2 });
+    });
+    expect(result.current.paywallTaskCount).toBe(2);
+    await act(async () => result.current.closePaywall());
+    await act(async () => {
+      result.current.openPaywall("settings");
+    });
+    expect(result.current.paywallTaskCount).toBeUndefined();
+  });
+
+  it("tracks the monthly nudge with the open paywall's source, and nothing when none is open", async () => {
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await act(async () => result.current.trackMonthlyNudge());
+    expect(track).not.toHaveBeenCalledWith("paywall_monthly_nudge_tapped", expect.anything());
+    await act(async () => {
+      result.current.openPaywall("break_down");
+    });
+    await act(async () => result.current.trackMonthlyNudge());
+    expect(track).toHaveBeenCalledWith("paywall_monthly_nudge_tapped", { source: "break_down" });
+  });
+});
+
 // 1.3: what the aha paywall rule needs, kept per install.
 describe("PlusProvider: aha paywall state", () => {
   const launch = async () => {
     const view = await renderHook(() => usePlus(), { wrapper });
-    await waitFor(() => expect(view.result.current.ahaPaywall).not.toBeNull());
+    await waitFor(() => expect(view.result.current.ahaPaywallState).not.toBeNull());
     return view;
   };
   const show = async (result: { current: ReturnType<typeof usePlus> }, source: "aha" | "onboarding") => {
@@ -497,13 +524,13 @@ describe("PlusProvider: aha paywall state", () => {
 
   it("records the install day on first launch and keeps it on later ones", async () => {
     const { result, unmount } = await launch();
-    expect(result.current.ahaPaywall).toEqual({ installDay: todayKey(), ahaShown: false, lastPaywallShownAt: null });
+    expect(result.current.ahaPaywallState).toEqual({ installDay: todayKey(), ahaShown: false, lastPaywallShownAt: null });
     expect(await AsyncStorage.getItem(INSTALL_DAY_KEY)).toBe(todayKey());
     await unmount();
 
     await AsyncStorage.setItem(INSTALL_DAY_KEY, "2026-01-02");
     const again = await launch();
-    expect(again.result.current.ahaPaywall?.installDay).toBe("2026-01-02");
+    expect(again.result.current.ahaPaywallState?.installDay).toBe("2026-01-02");
   });
 
   it("counts the aha paywall as shown only once iOS presents it, and remembers that across launches", async () => {
@@ -511,24 +538,24 @@ describe("PlusProvider: aha paywall state", () => {
     await act(async () => {
       result.current.openPaywall("aha");
     });
-    expect(result.current.ahaPaywall?.ahaShown).toBe(false);
+    expect(result.current.ahaPaywallState?.ahaShown).toBe(false);
     expect(await AsyncStorage.getItem(AHA_SHOWN_KEY)).toBeNull();
     await act(async () => result.current.markPaywallShown());
-    expect(result.current.ahaPaywall?.ahaShown).toBe(true);
+    expect(result.current.ahaPaywallState?.ahaShown).toBe(true);
     expect(await AsyncStorage.getItem(AHA_SHOWN_KEY)).not.toBeNull();
     await unmount();
 
     const relaunched = await launch();
-    expect(relaunched.result.current.ahaPaywall?.ahaShown).toBe(true);
+    expect(relaunched.result.current.ahaPaywallState?.ahaShown).toBe(true);
   });
 
   it("starts the 24 h gap when any paywall is shown, onboarding included (without spending the aha one)", async () => {
     const { result } = await launch();
     const before = Date.now();
     await show(result, "onboarding");
-    const at = result.current.ahaPaywall?.lastPaywallShownAt;
+    const at = result.current.ahaPaywallState?.lastPaywallShownAt;
     expect(at).toBeGreaterThanOrEqual(before);
-    expect(result.current.ahaPaywall?.ahaShown).toBe(false);
+    expect(result.current.ahaPaywallState?.ahaShown).toBe(false);
     expect(await AsyncStorage.getItem(LAST_PAYWALL_KEY)).toBe(String(at));
     expect(await AsyncStorage.getItem(AHA_SHOWN_KEY)).toBeNull();
   });
@@ -549,16 +576,41 @@ describe("PlusProvider: aha paywall state", () => {
     try {
       const { result } = await renderHook(() => usePlus(), { wrapper });
       await act(async () => {});
-      expect(result.current.ahaPaywall).toBeNull();
+      expect(result.current.ahaPaywallState).toBeNull();
       await show(result, "onboarding");
-      const shownAt = result.current.ahaPaywall?.lastPaywallShownAt;
+      const shownAt = result.current.ahaPaywallState?.lastPaywallShownAt;
       expect(shownAt).toBeGreaterThan(older);
       // No install day yet: no offer while loading.
-      expect(result.current.ahaPaywall?.installDay).toBe("");
+      expect(result.current.ahaPaywallState?.installDay).toBe("");
 
       await act(async () => release());
-      await waitFor(() => expect(result.current.ahaPaywall?.installDay).toBe("2026-01-02"));
-      expect(result.current.ahaPaywall).toEqual({ installDay: "2026-01-02", ahaShown: false, lastPaywallShownAt: shownAt });
+      await waitFor(() => expect(result.current.ahaPaywallState?.installDay).toBe("2026-01-02"));
+      expect(result.current.ahaPaywallState).toEqual({ installDay: "2026-01-02", ahaShown: false, lastPaywallShownAt: shownAt });
+    } finally {
+      getItem.mockImplementation(real);
+    }
+  });
+
+  it("a stored time newer than one shown while loading wins (keeps the later of the two)", async () => {
+    const newer = Date.now() + 60 * 60_000;
+    await AsyncStorage.setItem(INSTALL_DAY_KEY, "2026-01-02");
+    await AsyncStorage.setItem(LAST_PAYWALL_KEY, String(newer));
+    const getItem = AsyncStorage.getItem as jest.Mock;
+    const real = getItem.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    getItem.mockImplementation(async (key: string) => {
+      if (key === INSTALL_DAY_KEY) await gate;
+      return real(key);
+    });
+    try {
+      const { result } = await renderHook(() => usePlus(), { wrapper });
+      await act(async () => {});
+      await show(result, "onboarding");
+      expect(result.current.ahaPaywallState?.lastPaywallShownAt).toBeLessThan(newer);
+      await act(async () => release());
+      await waitFor(() => expect(result.current.ahaPaywallState?.installDay).toBe("2026-01-02"));
+      expect(result.current.ahaPaywallState?.lastPaywallShownAt).toBe(newer);
     } finally {
       getItem.mockImplementation(real);
     }

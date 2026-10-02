@@ -65,7 +65,7 @@ let mockPaywall: {
   entitlementActive: boolean;
   purchaseCount?: number;
   winBackDue?: boolean;
-  ahaPaywall?: AhaPaywallState | null;
+  ahaPaywallState?: AhaPaywallState | null;
 } = {
   paywallSource: null,
   entitlementActive: false,
@@ -3088,7 +3088,7 @@ describe("Aha paywall on Today", () => {
   let alert: jest.SpyInstance;
 
   const freeUser = (overrides: Partial<AppState> = {}, aha: AhaPaywallState = SINCE_YESTERDAY) => {
-    mockPaywall = { paywallSource: null, entitlementActive: false, ahaPaywall: aha };
+    mockPaywall = { paywallSource: null, entitlementActive: false, ahaPaywallState: aha };
     mockStore = { ...makeStore({ tasks: tasks("Walk", "Read"), ...overrides }), hasPlus: false };
   };
   const setDay = async () => {
@@ -3102,11 +3102,19 @@ describe("Aha paywall on Today", () => {
     });
   };
 
+  const appState = RNAppState as unknown as { currentState: unknown };
+  let originalAppState: unknown;
+
   beforeEach(() => {
     jest.useFakeTimers({ now: MORNING });
     alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    originalAppState = appState.currentState;
+    appState.currentState = "active";
   });
-  afterEach(() => alert.mockRestore());
+  afterEach(() => {
+    alert.mockRestore();
+    appState.currentState = originalAppState;
+  });
 
   it("opens 1.2 s after setting the day, not before", async () => {
     freeUser();
@@ -3120,24 +3128,49 @@ describe("Aha paywall on Today", () => {
     expect(mockOpenPaywall).toHaveBeenCalledWith("aha");
   });
 
-  it("opens after the task that completes the day's three, not an earlier one", async () => {
-    freeUser({ tasks: tasks("Walk") });
-    const { rerender } = await render(<HomeScreen />);
-    const add = async (text: string) => {
-      await fireEvent.press(screen.getAllByRole("button", { name: /^Add a task, slot/ })[0]);
-      const input = screen.getByLabelText("New task");
-      await fireEvent.changeText(input, text);
-      await fireEvent(input, "submitEditing");
-    };
-    await add("Read");
+  it("not when typing the third task by hand (too interruptive mid-typing)", async () => {
+    freeUser({ tasks: tasks("Walk", "Read") });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getAllByRole("button", { name: /^Add a task, slot/ })[0]);
+    const input = screen.getByLabelText("New task");
+    await fireEvent.changeText(input, "Stretch");
+    await fireEvent(input, "submitEditing");
+    expect(mockStore.addTask).toHaveBeenCalledWith("Stretch");
     await wait(2000);
     expect(mockOpenPaywall).not.toHaveBeenCalled();
+  });
 
-    freeUser({ tasks: tasks("Walk", "Read") });
-    await rerender(<HomeScreen />);
-    await add("Stretch");
-    await wait(1200);
-    expect(mockOpenPaywall).toHaveBeenCalledWith("aha");
+  describe("from a brain dump", () => {
+    const confirmDump = async () => {
+      (sortBrainDump as jest.Mock).mockResolvedValue({
+        result: { picks: ["Stretch"], parked: [], source: "local" },
+        notice: null,
+      });
+      await openBrainDump();
+      await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "stretch");
+      await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+      await fireEvent.press(screen.getByRole("button", { name: "Add 1 to today" }));
+      expect(mockStore.addTasks).toHaveBeenCalledWith(["Stretch"]);
+    };
+
+    it("opens when the dump really filled the day's three", async () => {
+      freeUser({ tasks: tasks("Walk", "Read") });
+      const { rerender } = await render(<HomeScreen />);
+      await confirmDump();
+      // The add landed: the store now has three.
+      freeUser({ tasks: tasks("Walk", "Read", "Stretch") });
+      await rerender(<HomeScreen />);
+      await wait(1200);
+      expect(mockOpenPaywall).toHaveBeenCalledWith("aha");
+    });
+
+    it("not when the add didn't land (the count after it is still under three)", async () => {
+      freeUser({ tasks: tasks("Walk", "Read") });
+      await render(<HomeScreen />);
+      await confirmDump();
+      await wait(2000);
+      expect(mockOpenPaywall).not.toHaveBeenCalledWith("aha");
+    });
   });
 
   it("never on install day", async () => {
@@ -3192,6 +3225,32 @@ describe("Aha paywall on Today", () => {
     await openBrainDump();
     await wait(2000);
     expect(mockOpenPaywall).not.toHaveBeenCalledWith("aha");
+  });
+
+  it("not when the app went to the background during the delay (and not on return either)", async () => {
+    const listeners: ((status: string) => void)[] = [];
+    const listen = RNAppState.addEventListener as jest.Mock;
+    const originalListen = listen.getMockImplementation();
+    listen.mockImplementation((_type: string, listener: (status: string) => void) => {
+      listeners.push(listener);
+      return { remove: () => {} };
+    });
+    try {
+      freeUser();
+      await render(<HomeScreen />);
+      await setDay();
+      await wait(600);
+      appState.currentState = "background";
+      await act(async () => listeners.forEach((listener) => listener("background")));
+      await wait(200);
+      // Back before the delay would have ended: the pending offer was dropped, not kept.
+      appState.currentState = "active";
+      await act(async () => listeners.forEach((listener) => listener("active")));
+      await wait(2000);
+      expect(mockOpenPaywall).not.toHaveBeenCalled();
+    } finally {
+      listen.mockImplementation(originalListen);
+    }
   });
 
   it("not after the screen has gone (the timer is cleared on unmount)", async () => {

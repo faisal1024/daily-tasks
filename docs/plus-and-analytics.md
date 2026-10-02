@@ -27,24 +27,35 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
   Break it down, "Get Plus" in the brain dump (only after the free sorts), "New ideas",
   the calendar setting, and Settings › Plus. Lifetime is shown only from Settings.
   Restore purchases is on the paywall and in Settings.
-- **Onboarding paywall (1.3):** echoes what first run just did ("Your three are set." /
-  "Want help like this every morning?"); with no tasks set ("I'll add my own") it falls
-  back to the generic headline.
+- **Onboarding paywall (1.3):** echoes what first run just did ("Your three are set." with
+  three tasks, "Today's set." with one or two, then "Want help like this every
+  morning?"); with no tasks set ("I'll add my own") it falls back to the generic
+  headline. The count is passed with `openPaywall("onboarding", { taskCount })`.
 - **Trial timeline (1.3):** when the selected plan has a free trial the user is eligible
   for, a 3-step timeline sits under the plans: "Today · All of Plus, free", "Day N−2 · We
-  remind you", "Day N · {price}/year (or /month), cancel anytime". The reminder step is
-  left out when notifications aren't allowed or the trial is under 3 days (the reminder
-  couldn't be sent). Never for lifetime or plans without a trial. VoiceOver reads it as
+  remind you, with time to cancel", "Day N · {price}/year (or /month) starts. Cancel
+  before then and you won't pay." (never "cancel anytime": Apple needs cancelling at
+  least 24 h before the trial ends). The reminder step is left out when notifications
+  aren't allowed or the trial is under 3 days (the reminder couldn't be sent). Never for
+  lifetime, plans without a trial, or month/year-unit trials (only DAY/WEEK intro
+  periods have a fixed day count). The reminder offset is `TRIAL_REMINDER_DAYS_BEFORE_END`,
+  shared with `trial-reminder.ts`. VoiceOver reads it as
   one element (`trialTimeline` / `trialTimelineLabel` in `plus.ts`).
 - **Aha paywall (1.3, source `aha`):** a gentle second offer, at most once per install,
   at the first real win after install day: using last night's draft, setting the day
-  (Set), or filling the day's three (typed, or from a brain dump). Never on install
-  day, never for Plus/trial/grandfathered or still-checking users, never within 24 h of
-  any other paywall shown, never during first run, a rollover, a focus session (even
-  paused), a sheet or another paywall. Judged 1.2 s after the moment (so a closing sheet
-  is gone). Rule: `lib/daily-tasks/aha-paywall.ts`; install day, "aha shown" and the last
+  (Set, even with one or two tasks: it's a deliberate "my day is set" moment), or a
+  brain dump that actually filled the day's three (checked against the task count
+  after the add). Typing the third task by hand doesn't trigger it (too interruptive).
+  Never on install day, never for Plus/trial/grandfathered or still-checking users,
+  never within 24 h of any other paywall shown, never during first run, a rollover, a
+  focus session (even paused), a sheet, another paywall, or with the app in the
+  background (a pending offer is dropped when the app is backgrounded). Judged 1.2 s
+  after the moment (so a closing sheet is gone). Rule: `lib/daily-tasks/aha-paywall.ts`; install day, "aha shown" and the last
   paywall time are kept in their own AsyncStorage keys (`plus-context.tsx`), so "Reset
   all data" doesn't re-arm it. Counted as shown only once iOS presents it.
+- **Reset all data keeps the aha keys** (install day, aha shown, last paywall time),
+  like the win-back flag: a reset never brings back the aha offer or the install-day
+  grace.
 - **Monthly nudge (1.3):** backing out of the yearly purchase (StoreKit "cancelled") shows
   one quiet line under the button, "Prefer to start small? Monthly, 7 days free." (the
   monthly plan's real trial; its price when it has none). Tapping selects monthly, it

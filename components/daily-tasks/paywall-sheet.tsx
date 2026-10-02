@@ -8,6 +8,7 @@ import {
   Pressable,
   ScrollView,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,7 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Fonts } from "@/constants/theme";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
-import { track } from "@/lib/daily-tasks/analytics";
+import { announcePolitely } from "@/lib/daily-tasks/announce";
 import { PRIVACY_URL, TERMS_URL } from "@/lib/daily-tasks/links";
 import { getNotificationPermissionStatus } from "@/lib/daily-tasks/notifications";
 import {
@@ -36,7 +37,6 @@ import {
   type PlusPackage,
 } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
-import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type { PurchaseOutcome } from "@/lib/daily-tasks/purchases";
 
 type LoadState = "loading" | "ready" | "error";
@@ -55,7 +55,15 @@ interface PaywallSheetProps {
   taskCount?: number;
   /** Notifications are allowed, so the trial reminder can actually be sent. */
   remindersAllowed?: boolean;
+  /** The monthly nudge was tapped (analytics live in plus-context). */
+  onMonthlyNudge?: () => void;
 }
+
+/** Said a moment after StoreKit's sheet goes, so its dismissal doesn't cut it off. */
+const NUDGE_ANNOUNCE_DELAY_MS = 500;
+/** text-sm line height and the timeline dot, before Dynamic Type scaling. */
+const TIMELINE_LINE_HEIGHT = 20;
+const TIMELINE_DOT = 9;
 
 // After backing out of the yearly plan: the monthly line, offered once per open.
 type MonthlyNudge = "none" | "shown" | "done";
@@ -70,8 +78,14 @@ export function PaywallSheet({
   onRestore,
   taskCount,
   remindersAllowed = false,
+  onMonthlyNudge,
 }: PaywallSheetProps) {
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
+  // The dot sits on the first line's centre at any text size.
+  const scale = Math.max(fontScale || 1, 1);
+  const dotSize = Math.round(TIMELINE_DOT * Math.min(scale, 1.6));
+  const dotOffset = Math.max(0, (TIMELINE_LINE_HEIGHT * scale - dotSize) / 2);
   const sheetAnimation = useSheetAnimation();
   const insets = useSafeAreaInsets();
   const visible = source !== null;
@@ -83,6 +97,13 @@ export function PaywallSheet({
   const [nudge, setNudge] = useState<MonthlyNudge>("none");
   // Bumped per open: a load that finishes after close/reopen is ignored.
   const session = useRef(0);
+  const nudgeAnnounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (nudgeAnnounceTimer.current) clearTimeout(nudgeAnnounceTimer.current);
+    },
+    [],
+  );
 
   const fetchPackages = async () => {
     const mine = ++session.current;
@@ -114,6 +135,10 @@ export function PaywallSheet({
       void fetchPackages();
     } else {
       session.current += 1;
+      if (nudgeAnnounceTimer.current) {
+        clearTimeout(nudgeAnnounceTimer.current);
+        nudgeAnnounceTimer.current = null;
+      }
     }
     // fetchPackages only depends on props that are stable per open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,7 +159,7 @@ export function PaywallSheet({
   const takeNudge = () => {
     if (!monthly) return;
     select(monthly);
-    if (source) track("paywall_monthly_nudge_tapped", { source });
+    onMonthlyNudge?.();
   };
 
   // accessibilityLiveRegion is Android-only: tell VoiceOver about status changes.
@@ -162,7 +187,12 @@ export function PaywallSheet({
       // Backed out of the yearly plan: once per open, offer the smaller step.
       if (selected.kind === "annual" && monthly && nudge === "none") {
         setNudge("shown");
-        AccessibilityInfo.announceForAccessibility(monthlyNudgeText(monthly));
+        const text = monthlyNudgeText(monthly);
+        if (nudgeAnnounceTimer.current) clearTimeout(nudgeAnnounceTimer.current);
+        nudgeAnnounceTimer.current = setTimeout(() => {
+          nudgeAnnounceTimer.current = null;
+          announcePolitely(text);
+        }, NUDGE_ANNOUNCE_DELAY_MS);
       }
     } else if (outcome === "pending") {
       setMessage("Your purchase is waiting for approval. Plus unlocks as soon as it goes through.");
@@ -338,17 +368,18 @@ export function PaywallSheet({
               accessibilityRole="text"
               accessibilityLabel={trialTimelineLabel(timeline)}
               className="rounded-2xl px-4 py-3 gap-2"
-              style={{ backgroundColor: `${colors.primary}0f` }}
+              // Surface, not a faint primary tint: that all but vanished in dark mode.
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}
               testID="paywall-trial-timeline"
             >
               {timeline.map((step, index) => (
                 <View key={step.when} className="flex-row items-start gap-3">
-                  <View className="items-center" style={{ paddingTop: 5 }}>
+                  <View className="items-center" style={{ paddingTop: dotOffset }}>
                     <View
                       className="rounded-full"
                       style={{
-                        width: 9,
-                        height: 9,
+                        width: dotSize,
+                        height: dotSize,
                         backgroundColor: index === 0 ? colors.primary : "transparent",
                         borderWidth: 2,
                         borderColor: colors.primary,
@@ -461,12 +492,13 @@ export function PaywallSheet({
 /** Connects the sheet to the Plus context. Mounted once near the app root. */
 export function PaywallHost() {
   const plus = usePlus();
-  const { state } = useDailyTasks();
   const open = plus.paywallSource !== null;
   // The trial timeline only promises the reminder when it can be delivered.
   const [remindersAllowed, setRemindersAllowed] = useState(false);
   useEffect(() => {
     if (!open) return;
+    // Re-checked every open (they may have turned notifications off meanwhile).
+    setRemindersAllowed(false);
     let cancelled = false;
     getNotificationPermissionStatus()
       .then((status) => {
@@ -488,8 +520,9 @@ export function PaywallHost() {
       loadPackages={plus.loadPackages}
       onPurchase={plus.purchase}
       onRestore={plus.restore}
-      taskCount={state.tasks.length}
+      taskCount={plus.paywallTaskCount}
       remindersAllowed={remindersAllowed}
+      onMonthlyNudge={plus.trackMonthlyNudge}
     />
   );
 }

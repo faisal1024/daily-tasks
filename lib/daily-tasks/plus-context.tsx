@@ -79,8 +79,15 @@ export interface PlusContextValue {
   purchasing: boolean;
   /** Bumped after each completed purchase (drives the thank-you note). */
   purchaseCount: number;
-  /** Returns false when it didn't open (no paywall, or one is already up). */
-  openPaywall: (source: PaywallSource) => boolean;
+  /**
+   * Returns false when it didn't open (no paywall, or one is already up).
+   * `taskCount`: what first run set, for the onboarding headline.
+   */
+  openPaywall: (source: PaywallSource, details?: { taskCount?: number }) => boolean;
+  /** Tasks first run set, passed with openPaywall("onboarding"); undefined otherwise. */
+  paywallTaskCount: number | undefined;
+  /** The paywall's "Prefer to start small? Monthly…" line was tapped. */
+  trackMonthlyNudge: () => void;
   closePaywall: () => void;
   /** The paywall sheet reports that iOS actually presented it. */
   markPaywallShown: () => void;
@@ -92,7 +99,7 @@ export interface PlusContextValue {
   /** Plus lapsed over two days ago and this lapse hasn't been offered back yet. */
   winBackDue: boolean;
   /** What the aha paywall rule needs; null while loading or unreadable (no offer). */
-  ahaPaywall: AhaPaywallState | null;
+  ahaPaywallState: AhaPaywallState | null;
 }
 
 const noPaywall: PlusContextValue = {
@@ -104,6 +111,8 @@ const noPaywall: PlusContextValue = {
   purchasing: false,
   purchaseCount: 0,
   openPaywall: () => false,
+  paywallTaskCount: undefined,
+  trackMonthlyNudge: () => {},
   closePaywall: () => {},
   markPaywallShown: () => {},
   loadPackages: async () => [],
@@ -111,7 +120,7 @@ const noPaywall: PlusContextValue = {
   restore: async () => null,
   redeemCode: async () => false,
   winBackDue: false,
-  ahaPaywall: null,
+  ahaPaywallState: null,
 };
 
 const PlusContext = createContext<PlusContextValue>(noPaywall);
@@ -129,6 +138,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const [checkTimedOut, setCheckTimedOut] = useState(false);
   const entitlementKnown = entitlementAnswered || checkTimedOut;
   const [paywallSource, setPaywallSource] = useState<PaywallSource | null>(null);
+  const [paywallTaskCount, setPaywallTaskCount] = useState<number | undefined>(undefined);
   const sourceRef = useRef<PaywallSource | null>(null);
   const [purchasing, setPurchasing] = useState(false);
   const purchasingRef = useRef(false);
@@ -145,18 +155,24 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     !entitlementActive &&
     offeredFor !== lapsedAt &&
     Date.now() - Date.parse(lapsedAt) >= WIN_BACK_DELAY_MS;
-  const [ahaPaywall, setAhaPaywall] = useState<AhaPaywallState | null>(null);
+  const [ahaPaywallState, setAhaPaywallState] = useState<AhaPaywallState | null>(null);
   useEffect(() => {
     let cancelled = false;
     void loadAhaState().then((loaded) => {
       if (cancelled || !loaded) return;
       // A paywall shown while this was loading already updated the state: keep that.
-      setAhaPaywall((current) =>
+      setAhaPaywallState((current) =>
         current
           ? {
               installDay: loaded.installDay,
               ahaShown: current.ahaShown || loaded.ahaShown,
-              lastPaywallShownAt: current.lastPaywallShownAt ?? loaded.lastPaywallShownAt,
+              // The later of the two: a stored time can be newer (e.g. a clock change).
+              lastPaywallShownAt:
+                current.lastPaywallShownAt === null
+                  ? loaded.lastPaywallShownAt
+                  : loaded.lastPaywallShownAt === null
+                    ? current.lastPaywallShownAt
+                    : Math.max(current.lastPaywallShownAt, loaded.lastPaywallShownAt),
             }
           : loaded,
       );
@@ -235,7 +251,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   );
 
   const openPaywall = useCallback(
-    (source: PaywallSource): boolean => {
+    (source: PaywallSource, details: { taskCount?: number } = {}): boolean => {
       if (!paywallEnabled) return false;
       if (sourceRef.current) {
         const stale = !shownRef.current && Date.now() - openedAt.current > PRESENT_TIMEOUT_MS;
@@ -251,6 +267,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
           sourceRef.current = source;
           shownRef.current = false;
           openedAt.current = Date.now();
+          setPaywallTaskCount(details.taskCount);
           setPaywallSource(source);
         }, 60);
         return true;
@@ -258,6 +275,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       sourceRef.current = source;
       shownRef.current = false;
       openedAt.current = Date.now();
+      setPaywallTaskCount(details.taskCount);
       setPaywallSource(source);
       return true;
     },
@@ -276,7 +294,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     const now = Date.now();
     void AsyncStorage.setItem(LAST_PAYWALL_KEY, String(now)).catch(() => {});
     if (source === "aha") void AsyncStorage.setItem(AHA_SHOWN_KEY, "1").catch(() => {});
-    setAhaPaywall((current) =>
+    setAhaPaywallState((current) =>
       current
         ? { ...current, lastPaywallShownAt: now, ahaShown: current.ahaShown || source === "aha" }
         : // Still loading: no install day yet (so no offer); the load fills it in.
@@ -297,6 +315,10 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     shownRef.current = false;
     setPaywallSource(null);
   }, []);
+  const trackMonthlyNudge = useCallback(() => {
+    if (sourceRef.current) track("paywall_monthly_nudge_tapped", { source: sourceRef.current });
+  }, []);
+
   const closePaywallRef = useRef(closePaywall);
   closePaywallRef.current = closePaywall;
 
@@ -370,6 +392,8 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       purchasing,
       purchaseCount,
       openPaywall,
+      paywallTaskCount,
+      trackMonthlyNudge,
       closePaywall,
       markPaywallShown,
       loadPackages,
@@ -377,7 +401,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       restore,
       redeemCode,
       winBackDue,
-      ahaPaywall,
+      ahaPaywallState,
     }),
     [
       paywallBuild,
@@ -388,13 +412,15 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       purchasing,
       purchaseCount,
       openPaywall,
+      paywallTaskCount,
+      trackMonthlyNudge,
       closePaywall,
       markPaywallShown,
       purchase,
       restore,
       redeemCode,
       winBackDue,
-      ahaPaywall,
+      ahaPaywallState,
     ],
   );
 
