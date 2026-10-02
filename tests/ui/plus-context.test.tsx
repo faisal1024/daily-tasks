@@ -7,7 +7,16 @@ import { act, renderHook, waitFor } from "@testing-library/react-native";
 
 import { track } from "@/lib/daily-tasks/analytics";
 import type { PlusPackage } from "@/lib/daily-tasks/plus";
-import { CHECK_TIMEOUT_MS, PlusProvider, WIN_BACK_DELAY_MS, usePlus } from "@/lib/daily-tasks/plus-context";
+import { todayKey } from "@/lib/daily-tasks/date";
+import {
+  AHA_SHOWN_KEY,
+  CHECK_TIMEOUT_MS,
+  INSTALL_DAY_KEY,
+  LAST_PAYWALL_KEY,
+  PlusProvider,
+  WIN_BACK_DELAY_MS,
+  usePlus,
+} from "@/lib/daily-tasks/plus-context";
 import {
   fetchPlusStatus,
   onPlusStatusChange,
@@ -445,5 +454,90 @@ describe("PlusProvider: redeem a code", () => {
     const { result } = await renderHook(() => usePlus());
     await expect(result.current.redeemCode()).resolves.toBe(false);
     expect(presentRedeemSheet).not.toHaveBeenCalled();
+  });
+});
+
+// 1.3: what the aha paywall rule needs, kept per install.
+describe("PlusProvider: aha paywall state", () => {
+  const launch = async () => {
+    const view = await renderHook(() => usePlus(), { wrapper });
+    await waitFor(() => expect(view.result.current.ahaPaywall).not.toBeNull());
+    return view;
+  };
+  const show = async (result: { current: ReturnType<typeof usePlus> }, source: "aha" | "onboarding") => {
+    await act(async () => {
+      result.current.openPaywall(source);
+    });
+    await act(async () => result.current.markPaywallShown());
+    await act(async () => result.current.closePaywall());
+  };
+
+  it("records the install day on first launch and keeps it on later ones", async () => {
+    const { result, unmount } = await launch();
+    expect(result.current.ahaPaywall).toEqual({ installDay: todayKey(), ahaShown: false, lastPaywallShownAt: null });
+    expect(await AsyncStorage.getItem(INSTALL_DAY_KEY)).toBe(todayKey());
+    await unmount();
+
+    await AsyncStorage.setItem(INSTALL_DAY_KEY, "2026-01-02");
+    const again = await launch();
+    expect(again.result.current.ahaPaywall?.installDay).toBe("2026-01-02");
+  });
+
+  it("counts the aha paywall as shown only once iOS presents it, and remembers that across launches", async () => {
+    const { result, unmount } = await launch();
+    await act(async () => {
+      result.current.openPaywall("aha");
+    });
+    expect(result.current.ahaPaywall?.ahaShown).toBe(false);
+    expect(await AsyncStorage.getItem(AHA_SHOWN_KEY)).toBeNull();
+    await act(async () => result.current.markPaywallShown());
+    expect(result.current.ahaPaywall?.ahaShown).toBe(true);
+    expect(await AsyncStorage.getItem(AHA_SHOWN_KEY)).not.toBeNull();
+    await unmount();
+
+    const relaunched = await launch();
+    expect(relaunched.result.current.ahaPaywall?.ahaShown).toBe(true);
+  });
+
+  it("starts the 24 h gap when any paywall is shown, onboarding included (without spending the aha one)", async () => {
+    const { result } = await launch();
+    const before = Date.now();
+    await show(result, "onboarding");
+    const at = result.current.ahaPaywall?.lastPaywallShownAt;
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(result.current.ahaPaywall?.ahaShown).toBe(false);
+    expect(await AsyncStorage.getItem(LAST_PAYWALL_KEY)).toBe(String(at));
+    expect(await AsyncStorage.getItem(AHA_SHOWN_KEY)).toBeNull();
+  });
+
+  it("a paywall shown while the saved state is still loading keeps its newer time", async () => {
+    const DAY_MS = 24 * 60 * 60_000;
+    const older = Date.now() - 5 * DAY_MS;
+    await AsyncStorage.setItem(INSTALL_DAY_KEY, "2026-01-02");
+    await AsyncStorage.setItem(LAST_PAYWALL_KEY, String(older));
+    const getItem = AsyncStorage.getItem as jest.Mock;
+    const real = getItem.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    getItem.mockImplementation(async (key: string) => {
+      if (key === INSTALL_DAY_KEY) await gate;
+      return real(key);
+    });
+    try {
+      const { result } = await renderHook(() => usePlus(), { wrapper });
+      await act(async () => {});
+      expect(result.current.ahaPaywall).toBeNull();
+      await show(result, "onboarding");
+      const shownAt = result.current.ahaPaywall?.lastPaywallShownAt;
+      expect(shownAt).toBeGreaterThan(older);
+      // No install day yet: no offer while loading.
+      expect(result.current.ahaPaywall?.installDay).toBe("");
+
+      await act(async () => release());
+      await waitFor(() => expect(result.current.ahaPaywall?.installDay).toBe("2026-01-02"));
+      expect(result.current.ahaPaywall).toEqual({ installDay: "2026-01-02", ahaShown: false, lastPaywallShownAt: shownAt });
+    } finally {
+      getItem.mockImplementation(real);
+    }
   });
 });

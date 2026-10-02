@@ -12,6 +12,7 @@ import { coachTaskKey, localCoachLine, requestCoachNotes } from "@/lib/daily-tas
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import { themeColors } from "@/theme.config";
 import type { AppState, DayRecord, Task } from "@/lib/daily-tasks/types";
+import type { AhaPaywallState } from "@/lib/daily-tasks/aha-paywall";
 
 import { renderWithProviders as render } from "./render";
 
@@ -64,6 +65,7 @@ let mockPaywall: {
   entitlementActive: boolean;
   purchaseCount?: number;
   winBackDue?: boolean;
+  ahaPaywall?: AhaPaywallState | null;
 } = {
   paywallSource: null,
   entitlementActive: false,
@@ -3076,5 +3078,128 @@ describe("Timer on your tasks (1.3)", () => {
     } as MockStore;
     await view.rerender(<HomeScreen />);
     expect(focusEvents()).toEqual([["focus_opened", { source: "siri" }]]);
+  });
+});
+
+// 1.3: the gentle aha paywall, judged when its 1.2 s delay ends.
+describe("Aha paywall on Today", () => {
+  // Installed yesterday (local dates), no paywall seen yet.
+  const SINCE_YESTERDAY: AhaPaywallState = { installDay: "2026-09-25", ahaShown: false, lastPaywallShownAt: null };
+  let alert: jest.SpyInstance;
+
+  const freeUser = (overrides: Partial<AppState> = {}, aha: AhaPaywallState = SINCE_YESTERDAY) => {
+    mockPaywall = { paywallSource: null, entitlementActive: false, ahaPaywall: aha };
+    mockStore = { ...makeStore({ tasks: tasks("Walk", "Read"), ...overrides }), hasPlus: false };
+  };
+  const setDay = async () => {
+    await fireEvent.press(screen.getByRole("button", { name: "Set today's tasks" }));
+    const buttons = alert.mock.calls.at(-1)[2] as { text: string; onPress?: () => void }[];
+    await act(async () => buttons.find((b) => b.text === "Set")?.onPress?.());
+  };
+  const wait = async (ms: number) => {
+    await act(async () => {
+      jest.advanceTimersByTime(ms);
+    });
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers({ now: MORNING });
+    alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  });
+  afterEach(() => alert.mockRestore());
+
+  it("opens 1.2 s after setting the day, not before", async () => {
+    freeUser();
+    await render(<HomeScreen />);
+    await setDay();
+    expect(mockStore.lockToday).toHaveBeenCalledTimes(1);
+    await wait(1199);
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+    await wait(1);
+    expect(mockOpenPaywall).toHaveBeenCalledTimes(1);
+    expect(mockOpenPaywall).toHaveBeenCalledWith("aha");
+  });
+
+  it("opens after the task that completes the day's three, not an earlier one", async () => {
+    freeUser({ tasks: tasks("Walk") });
+    const { rerender } = await render(<HomeScreen />);
+    const add = async (text: string) => {
+      await fireEvent.press(screen.getAllByRole("button", { name: /^Add a task, slot/ })[0]);
+      const input = screen.getByLabelText("New task");
+      await fireEvent.changeText(input, text);
+      await fireEvent(input, "submitEditing");
+    };
+    await add("Read");
+    await wait(2000);
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+
+    freeUser({ tasks: tasks("Walk", "Read") });
+    await rerender(<HomeScreen />);
+    await add("Stretch");
+    await wait(1200);
+    expect(mockOpenPaywall).toHaveBeenCalledWith("aha");
+  });
+
+  it("never on install day", async () => {
+    freeUser({}, { ...SINCE_YESTERDAY, installDay: TODAY });
+    await render(<HomeScreen />);
+    await setDay();
+    await wait(2000);
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Plus arrived", () => (mockStore = { ...mockStore, hasPlus: true })],
+    ["another paywall came up", () => (mockPaywall = { ...mockPaywall, paywallSource: "break_down" })],
+    [
+      "a focus session started (even paused)",
+      () =>
+        (mockStore = {
+          ...mockStore,
+          state: {
+            ...mockStore.state,
+            focusSession: {
+              id: "s1",
+              taskId: "t1",
+              taskText: "Read",
+              stepText: null,
+              date: TODAY,
+              kind: "timer",
+              durationMs: 10 * 60_000,
+              startedAt: Date.now(),
+              endAt: null,
+              pausedRemainingMs: 5 * 60_000,
+              status: "paused",
+            },
+          },
+        }),
+    ],
+  ])("is judged on the state when the delay ends: not when %s meanwhile", async (_why, change) => {
+    freeUser();
+    const { rerender } = await render(<HomeScreen />);
+    await setDay();
+    await wait(600);
+    change();
+    await rerender(<HomeScreen />);
+    await wait(1000);
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+  });
+
+  it("not when a sheet was opened during the delay", async () => {
+    freeUser();
+    await render(<HomeScreen />);
+    await setDay();
+    await openBrainDump();
+    await wait(2000);
+    expect(mockOpenPaywall).not.toHaveBeenCalledWith("aha");
+  });
+
+  it("not after the screen has gone (the timer is cleared on unmount)", async () => {
+    freeUser();
+    const { unmount } = await render(<HomeScreen />);
+    await setDay();
+    await unmount();
+    await wait(2000);
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 });
