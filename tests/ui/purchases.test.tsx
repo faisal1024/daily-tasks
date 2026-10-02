@@ -130,10 +130,20 @@ describe("purchases", () => {
     configurePurchases();
     const trial = { identifier: "plus", isActive: true, periodType: "TRIAL", willRenew: true, expirationDate: "2099-10-04T12:00:00Z" };
     mockSdk.getCustomerInfo.mockResolvedValueOnce({ entitlements: { active: { plus: trial }, all: { plus: trial } } });
-    expect(await fetchPlusStatus()).toEqual({ active: true, trialEndsAt: "2099-10-04T12:00:00Z", lapsedAt: null });
+    expect(await fetchPlusStatus()).toEqual({
+      active: true,
+      trialEndsAt: "2099-10-04T12:00:00Z",
+      lapsedAt: null,
+      trial: { startedAt: null, endsAt: "2099-10-04T12:00:00Z", willRenew: true },
+    });
     const expired = { identifier: "plus", isActive: false, periodType: "NORMAL", expirationDate: "2020-01-01T00:00:00Z" };
     mockSdk.getCustomerInfo.mockResolvedValueOnce({ entitlements: { active: {}, all: { plus: expired } } });
-    expect(await fetchPlusStatus()).toEqual({ active: false, trialEndsAt: null, lapsedAt: "2020-01-01T00:00:00Z" });
+    expect(await fetchPlusStatus()).toEqual({
+      active: false,
+      trialEndsAt: null,
+      lapsedAt: "2020-01-01T00:00:00Z",
+      trial: null,
+    });
     mockSdk.getCustomerInfo.mockRejectedValueOnce(new Error("offline"));
     expect(await fetchPlusStatus()).toBeNull();
   });
@@ -147,7 +157,7 @@ describe("purchases", () => {
     const off = onPlusStatusChange(listener);
     const handler = mockSdk.addCustomerInfoUpdateListener.mock.calls[0][0];
     handler(ACTIVE);
-    expect(listener).toHaveBeenCalledWith({ active: true, trialEndsAt: null, lapsedAt: null });
+    expect(listener).toHaveBeenCalledWith({ active: true, trialEndsAt: null, lapsedAt: null, trial: null });
     off();
     expect(mockSdk.removeCustomerInfoUpdateListener).toHaveBeenCalledWith(handler);
   });

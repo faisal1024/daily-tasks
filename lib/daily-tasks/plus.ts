@@ -34,6 +34,24 @@ export interface PlusPackage {
   pricePerMonthString: string | null;
   /** Free-trial length in days, when the product has a free intro offer the user can get. */
   trialDays: number | null;
+  /**
+   * An Apple win-back offer this lapsed subscriber is eligible for (iOS 18+,
+   * created in App Store Connect). Absent or null: the plain price applies.
+   */
+  winBackOffer?: WinBackOffer | null;
+}
+
+/** SDK-independent view of an Apple win-back offer (a discount, not a separate product). */
+export interface WinBackOffer {
+  /** Price per billing period in the local currency, e.g. 9.99 (0 = free). */
+  price: number;
+  /** Formatted price per billing period, e.g. "$9.99". */
+  priceString: string;
+  /** How many billing periods the price applies for (1 for "pay up front"). */
+  cycles: number;
+  /** DAY, WEEK, MONTH or YEAR. */
+  periodUnit: string;
+  periodNumberOfUnits: number;
 }
 
 /**
@@ -105,7 +123,60 @@ export interface PlanLabel {
   badge: string | null;
 }
 
+const UNIT_WORDS: Record<string, string> = { DAY: "day", WEEK: "week", MONTH: "month", YEAR: "year" };
+
+function duration(count: number, unit: string): string {
+  return `${count} ${unit}${count === 1 ? "" : "s"}`;
+}
+
+/** The offer is something we can describe honestly (otherwise it's ignored). */
+export function isUsableWinBackOffer(offer: WinBackOffer | null | undefined): offer is WinBackOffer {
+  return Boolean(
+    offer &&
+      UNIT_WORDS[offer.periodUnit] &&
+      Number.isInteger(offer.cycles) &&
+      offer.cycles > 0 &&
+      Number.isInteger(offer.periodNumberOfUnits) &&
+      offer.periodNumberOfUnits > 0 &&
+      Number.isFinite(offer.price) &&
+      offer.price >= 0 &&
+      offer.priceString,
+  );
+}
+
+/**
+ * The offer in plain words: "3 months for $9.99" (pay up front),
+ * "$2.99/month for 3 months" (pay as you go) or "1 month free".
+ */
+export function winBackOfferPhrase(offer: WinBackOffer): string {
+  const unit = UNIT_WORDS[offer.periodUnit] ?? offer.periodUnit.toLowerCase();
+  const total = duration(offer.cycles * offer.periodNumberOfUnits, unit);
+  if (offer.price === 0) return `${total} free`;
+  if (offer.cycles === 1) return `${total} for ${offer.priceString}`;
+  const per =
+    offer.periodNumberOfUnits === 1
+      ? `${offer.priceString}/${unit}`
+      : `${offer.priceString} every ${duration(offer.periodNumberOfUnits, unit)}`;
+  return `${per} for ${total}`;
+}
+
+/** The win-back offer to show (and buy with) for this plan, or null. Lifetime never has one. */
+export function shownWinBackOffer(pkg: PlusPackage | null): WinBackOffer | null {
+  if (!pkg || (pkg.kind !== "annual" && pkg.kind !== "monthly")) return null;
+  return isUsableWinBackOffer(pkg.winBackOffer) ? pkg.winBackOffer : null;
+}
+
 export function planLabel(pkg: PlusPackage): PlanLabel {
+  const offer = shownWinBackOffer(pkg);
+  if (offer) {
+    const period = pkg.kind === "annual" ? "year" : "month";
+    return {
+      title: pkg.kind === "annual" ? "Yearly" : "Monthly",
+      price: winBackOfferPhrase(offer),
+      detail: `Then ${pkg.priceString}/${period}`,
+      badge: "Welcome back",
+    };
+  }
   switch (pkg.kind) {
     case "annual":
       return {
@@ -131,6 +202,7 @@ export function planLabel(pkg: PlusPackage): PlanLabel {
 /** Main button text for the selected plan. */
 export function purchaseButtonLabel(pkg: PlusPackage | null): string {
   if (!pkg) return "Continue";
+  if (shownWinBackOffer(pkg)) return "Subscribe with offer";
   if (pkg.trialDays) return `Start ${pkg.trialDays}-day free trial`;
   return pkg.kind === "lifetime" ? "Buy lifetime" : "Subscribe";
 }
@@ -144,6 +216,10 @@ export function purchaseTerms(pkg: PlusPackage | null): string {
   if (pkg.kind === "lifetime") return `One-time payment of ${pkg.priceString}. No subscription.`;
   const period = pkg.kind === "annual" ? "year" : "month";
   const renew = `Renews automatically at ${pkg.priceString}/${period} until you cancel. Cancel anytime in Settings › your name › Subscriptions.`;
+  const offer = shownWinBackOffer(pkg);
+  if (offer) {
+    return `Welcome-back offer: ${winBackOfferPhrase(offer)}, then ${pkg.priceString}/${period}. ${renew}`;
+  }
   return pkg.trialDays ? `Free for ${pkg.trialDays} days, then ${pkg.priceString}/${period}. ${renew}` : renew;
 }
 

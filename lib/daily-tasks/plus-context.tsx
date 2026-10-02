@@ -10,12 +10,12 @@ import { AppState as RNAppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { flush, track } from "./analytics";
-import type { PaywallSource, PlusPackage } from "./plus";
+import { shownWinBackOffer, type PaywallSource, type PlusPackage } from "./plus";
 import {
   configurePurchases,
   fetchPlusStatus,
   isPaywallConfigured,
-  loadPackages,
+  loadPackages as loadSdkPackages,
   onPlusStatusChange,
   type PlusStatus,
   purchase as purchasePackage,
@@ -23,6 +23,7 @@ import {
   restore as restorePurchases,
   type PurchaseOutcome,
 } from "./purchases";
+import type { PlusTrial } from "./trial-note";
 import { syncTrialReminder } from "./trial-reminder";
 
 // Win-back: which lapse (by its expiry) was already offered, so each is offered once.
@@ -59,6 +60,8 @@ export interface PlusContextValue {
   redeemCode: () => Promise<boolean>;
   /** Plus lapsed over two days ago and this lapse hasn't been offered back yet. */
   winBackDue: boolean;
+  /** The free trial of Plus this install is in (for the day-5 note), or null. */
+  trial: PlusTrial | null;
 }
 
 const noPaywall: PlusContextValue = {
@@ -77,6 +80,7 @@ const noPaywall: PlusContextValue = {
   restore: async () => null,
   redeemCode: async () => false,
   winBackDue: false,
+  trial: null,
 };
 
 const PlusContext = createContext<PlusContextValue>(noPaywall);
@@ -100,6 +104,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const [purchaseCount, setPurchaseCount] = useState(0);
   const [lapsedAt, setLapsedAt] = useState<string | null>(null);
   const [offeredFor, setOfferedFor] = useState<string | null>(null);
+  const [trial, setTrial] = useState<PlusTrial | null>(null);
   useEffect(() => {
     AsyncStorage.getItem(WIN_BACK_KEY)
       .then((value) => setOfferedFor(value))
@@ -118,6 +123,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     setEntitlementActive(status.active);
     setEntitlementAnswered(true);
     setLapsedAt(status.active ? null : status.lapsedAt);
+    setTrial(status.active ? (status.trial ?? null) : null);
     // A heads-up two days before a free trial ends (cleared otherwise).
     void syncTrialReminder(status.trialEndsAt);
   }, []);
@@ -171,6 +177,22 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   // instead the NEXT open replaces a request that wasn't shown in time.
   const shownRef = useRef(false);
   const openedAt = useRef(0);
+  // Each open gets a number. For a lapsed subscriber the paywall looks up an
+  // Apple win-back offer; paywall_viewed waits for that answer (bounded by
+  // WIN_BACK_LOOKUP_MS) so it can say whether the offer was on screen.
+  const openSeq = useRef(0);
+  const offerLookup = useRef<{ seq: number; offer: boolean | null; viewPending: boolean } | null>(null);
+  const beginOpen = useCallback((source: PaywallSource) => {
+    sourceRef.current = source;
+    shownRef.current = false;
+    openedAt.current = Date.now();
+    openSeq.current += 1;
+    offerLookup.current = lapsedRef.current ? { seq: openSeq.current, offer: null, viewPending: false } : null;
+    setPaywallSource(source);
+  }, []);
+  const trackViewed = useCallback((source: PaywallSource, offer: boolean | null) => {
+    track("paywall_viewed", offer === null ? { source } : { source, feature: offer ? "offer" : "plain" });
+  }, []);
   const reopenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -193,20 +215,14 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
           reopenTimer.current = null;
           // Something else opened in the 60 ms gap: let that one stand.
           if (sourceRef.current) return;
-          sourceRef.current = source;
-          shownRef.current = false;
-          openedAt.current = Date.now();
-          setPaywallSource(source);
+          beginOpen(source);
         }, 60);
         return true;
       }
-      sourceRef.current = source;
-      shownRef.current = false;
-      openedAt.current = Date.now();
-      setPaywallSource(source);
+      beginOpen(source);
       return true;
     },
-    [paywallEnabled],
+    [paywallEnabled, beginOpen],
   );
 
   // Only the Modal's onShow proves iOS presented it (onLayout fires even when
@@ -215,24 +231,57 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const markPaywallShown = useCallback(() => {
     if (!sourceRef.current || shownRef.current) return;
     shownRef.current = true;
-    track("paywall_viewed", { source: sourceRef.current });
+    const lookup = offerLookup.current;
+    if (lookup && lookup.seq === openSeq.current && lookup.offer === null) lookup.viewPending = true;
+    else trackViewed(sourceRef.current, lookup ? lookup.offer : null);
     // The win-back offer counts as used only once iOS has actually shown it.
     const lapse = lapsedRef.current;
     if (sourceRef.current === "win_back" && lapse) {
       setOfferedFor(lapse);
       void AsyncStorage.setItem(WIN_BACK_KEY, lapse).catch(() => {});
     }
-  }, []);
+  }, [trackViewed]);
 
   const closePaywall = useCallback(() => {
     if (!sourceRef.current) return;
+    // Closed before the offer lookup answered: no offer was on screen.
+    const lookup = offerLookup.current;
+    if (lookup?.viewPending) {
+      lookup.viewPending = false;
+      lookup.offer = false;
+      trackViewed(sourceRef.current, false);
+    }
+    offerLookup.current = null;
     if (shownRef.current) track("paywall_closed", { source: sourceRef.current });
     sourceRef.current = null;
     shownRef.current = false;
     setPaywallSource(null);
-  }, []);
+  }, [trackViewed]);
   const closePaywallRef = useRef(closePaywall);
   closePaywallRef.current = closePaywall;
+
+  // A lapsed subscriber's paywall also asks Apple for a win-back offer.
+  const loadPackages = useCallback(async (): Promise<PlusPackage[]> => {
+    const seq = openSeq.current;
+    const settle = (offer: boolean) => {
+      const lookup = offerLookup.current;
+      if (!lookup || lookup.seq !== seq) return;
+      lookup.offer = offer;
+      if (lookup.viewPending && sourceRef.current) {
+        lookup.viewPending = false;
+        trackViewed(sourceRef.current, offer);
+      }
+    };
+    if (!lapsedRef.current) return loadSdkPackages();
+    try {
+      const packages = await loadSdkPackages({ winBack: true });
+      settle(packages.some((pkg) => shownWinBackOffer(pkg) !== null));
+      return packages;
+    } catch (error) {
+      settle(false);
+      throw error;
+    }
+  }, [trackViewed]);
 
   const purchase = useCallback(async (pkg: PlusPackage): Promise<PurchaseOutcome> => {
     // RevenueCat rejects a second purchase while one is running.
@@ -240,8 +289,12 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     purchasingRef.current = true;
     setPurchasing(true);
     const source = sourceRef.current ?? "settings";
-    track("purchase_started", { plan: pkg.kind, source });
-    const result = await purchasePackage(pkg.id).finally(() => {
+    // Bought with an Apple win-back offer (shown on the plan): marked "offer".
+    const withOffer = shownWinBackOffer(pkg) !== null;
+    const offer = withOffer ? { feature: "offer" } : {};
+    track("purchase_started", { plan: pkg.kind, source, ...offer });
+    const buying = withOffer ? purchasePackage(pkg.id, { winBack: true }) : purchasePackage(pkg.id);
+    const result = await buying.finally(() => {
       purchasingRef.current = false;
       setPurchasing(false);
     });
@@ -261,13 +314,14 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     }
     if (result.outcome === "cancelled") {
       // Backed out of Apple's purchase sheet: not an error, a funnel drop-off.
-      track("purchase_cancelled", { plan: pkg.kind, source, trial: pkg.trialDays != null });
+      track("purchase_cancelled", { plan: pkg.kind, source, trial: pkg.trialDays != null, ...offer });
     } else {
       track(result.outcome === "purchased" ? "purchase_completed" : "purchase_failed", {
         plan: pkg.kind,
         source,
         outcome: result.outcome,
         trial: pkg.trialDays != null,
+        ...offer,
       });
     }
     return result.outcome;
@@ -311,6 +365,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       restore,
       redeemCode,
       winBackDue,
+      trial,
     }),
     [
       paywallBuild,
@@ -323,10 +378,12 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       openPaywall,
       closePaywall,
       markPaywallShown,
+      loadPackages,
       purchase,
       restore,
       redeemCode,
       winBackDue,
+      trial,
     ],
   );
 

@@ -31,6 +31,34 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
   skipped if the trial was cancelled or is family-shared.
 - **Win-back:** once per lapse (RevenueCat's own expiry), at least 2 days after it,
   right after the user ticks a task on Today; counted as offered only when shown.
+  With an Apple win-back offer set up (see below) the paywall shows the offer price.
+- **Day-5 note:** during a free trial, from day 5 until it ends, Today shows one calm,
+  dismissible note with what Plus did during the trial (counts only: brain dumps sorted,
+  tasks broken down, coach's notes, evening plans; `lib/daily-tasks/trial-note.ts`), the
+  day the trial ends, and **Manage** (Apple's subscription sheet). Once per trial, in-app
+  only (never a notification); nothing to set up.
+
+## Win-back offer (App Store Connect, owner)
+
+The app asks Apple (through RevenueCat, iOS 18+) whether a lapsed subscriber is eligible
+for a win-back offer. If one exists, the paywall shows it, e.g. "3 months for $9.99, then
+$34.99/year", and buys with it. With no offer (not created yet, iOS 17, not eligible, or
+no answer within 1.5 s) the paywall shows the normal prices, exactly as before.
+
+1. App Store Connect › Three Today › Subscriptions › Three Today Plus › **plus_annual** ›
+   Subscription Prices › Win-Back Offers › **Create** (the Paid Apps agreement must be active).
+2. Suggested defaults (all editable later; change them any time in App Store Connect):
+   - Reference name `winback_annual_3m`, offer ID `winback_annual_3m`.
+   - Payment: **Pay up front**, **3 months** for **$9.99** (then the normal $34.99/year).
+   - Eligibility: paid for at least **1 month** before; lapsed at least **1 month**;
+     can redeem again after **1 year**. Leave "Promotion in the App Store" off at first.
+   - Start now, no end date; all territories.
+3. Optional: the same on `plus_monthly` (e.g. 2 months at $1.99/month, pay as you go).
+4. RevenueCat picks offers up automatically (StoreKit 2): no dashboard change, no app
+   update. Test with a sandbox account whose Plus has expired, on iOS 18+.
+
+Analytics: a lapsed subscriber's `paywall_viewed` carries `feature` = `offer` or `plain`
+(whether an offer was on screen); purchase events bought with it carry `feature: "offer"`.
 - The AI proxy's Plus check (RevenueCat REST, `ENTITLEMENT_MODE`) arrives in Phase 11b.
 
 ## Code map
@@ -39,6 +67,7 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 - `lib/daily-tasks/purchases.ts`: RevenueCat wrapper (lazy native module, entitlement `plus`).
 - `lib/daily-tasks/plus-context.tsx`: `PlusProvider` (entitlement + which paywall is open).
 - `components/daily-tasks/paywall-sheet.tsx`: the paywall; `PaywallHost` mounts it at the root.
+- `lib/daily-tasks/trial-note.ts` + `components/daily-tasks/trial-note.tsx`: the day-5 trial note.
 - `lib/daily-tasks/analytics.ts`: PostHog HTTP capture, anonymous, allowlisted properties.
 
 ## Setup checklist (before a paywall build)
@@ -69,7 +98,9 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 `brain_dump_sorted`, `break_down_used`, `plus_gate_hit`, `paywall_viewed`,
 `paywall_closed`, `purchase_started`, `purchase_completed`, `purchase_failed`
 (failed or pending/Ask to Buy, with `outcome`), `purchase_cancelled` (the user backed
-out of Apple's purchase sheet; `plan`, `source`, `trial`), `restore_completed`, `redeem_code_opened`, `path_edited`, `path_regenerated`. Properties are limited to `source`, `plan`, `outcome`, `trial`,
+out of Apple's purchase sheet; `plan`, `source`, `trial`), `restore_completed`, `redeem_code_opened`, `path_edited`, `path_regenerated`,
+`trial_note_shown` (`count` = Plus uses during the trial), `trial_note_dismissed`
+(`action` = close or manage). Properties are limited to `source`, `plan`, `outcome`, `trial`,
 `count`, `skipped`, `feature`, `active`, `plus`, `step`, `timer` with short enum/number/boolean values. Never
 task, goal or brain-dump text; no person profiles; `$ip` null, `$geoip_disable`, and
 the project discards client IPs. Analytics starts off and is only enabled once the
