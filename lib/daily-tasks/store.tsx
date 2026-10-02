@@ -116,12 +116,10 @@ import {
   type MilestoneView,
 } from "./milestones";
 import {
-  getAnalyticsDistinctId,
   resetAnalyticsIdentity,
   setAnalyticsEnabled as applyAnalyticsEnabled,
   track,
 } from "./analytics";
-import { setAnalyticsUserAttribute } from "./purchases";
 import { getCurrentVersion } from "./app-update";
 import { GRANDFATHER_BEFORE_VERSION, hasPlusAccess } from "./plus";
 import { compareVersions } from "./version";
@@ -171,23 +169,6 @@ import type {
   TaskId,
 } from "./types";
 import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
-
-// Bumped per sync so a slow id lookup can't overwrite a newer choice.
-let analyticsLinkGeneration = 0;
-
-/**
- * Tell RevenueCat the current anonymous analytics id (or clear it when
- * analytics is off) so its PostHog integration attributes subscription events
- * to the same id. Never throws.
- */
-function syncAnalyticsLink(): void {
-  const generation = ++analyticsLinkGeneration;
-  void getAnalyticsDistinctId()
-    .then((id) => {
-      if (generation === analyticsLinkGeneration) setAnalyticsUserAttribute(id);
-    })
-    .catch(() => {});
-}
 
 type Action =
   | { type: "hydrate"; state: AppState }
@@ -1339,7 +1320,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!ready) return;
     applyAnalyticsEnabled(state.analyticsEnabled);
-    syncAnalyticsLink();
   }, [ready, state.analyticsEnabled]);
 
   // Keep the home/lock-screen widget in step with today's tasks.
@@ -1850,8 +1830,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   }, [ensureDay, dayChangePending]);
   const resetAll = useCallback(async () => {
     await Promise.all([clearState(), resetAnalyticsIdentity()]);
-    // Point RevenueCat at the fresh id (or keep it cleared when analytics is off).
-    syncAnalyticsLink();
     dispatch({ type: "reset", state: buildInitialState() });
   }, []);
   const acknowledgeLevelUp = useCallback(() => {

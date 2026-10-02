@@ -146,22 +146,6 @@ export function isAnalyticsActive(): boolean {
   return enabled && getPostHogKey() !== null;
 }
 
-/**
- * The anonymous install id events are sent under, or null when analytics is
- * off or not configured (so it's never handed out while the user opted out).
- * Never throws.
- */
-export async function getAnalyticsDistinctId(): Promise<string | null> {
-  if (!isAnalyticsActive()) return null;
-  try {
-    const id = await getDistinctId();
-    // The user may have turned analytics off while the id was loading.
-    return isAnalyticsActive() ? id : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Record an event. A no-op when analytics is off or not configured. */
 export function track(event: AnalyticsEvent, props?: Record<string, unknown>): void {
   if (!isAnalyticsActive()) return;

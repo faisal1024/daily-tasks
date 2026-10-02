@@ -57,43 +57,7 @@ export function configurePurchases(): boolean {
   // The proxy checks Plus by this anonymous id (never a name or email).
   // Separate from configure: a failure here must not turn the paywall off.
   refreshProxyUserId(sdk);
-  // The analytics choice may have been applied before RevenueCat was ready.
-  sendAnalyticsUserAttribute(sdk);
   return configured;
-}
-
-/** RevenueCat subscriber attribute its PostHog integration reads. */
-export const POSTHOG_USER_ID_ATTRIBUTE = "$posthogUserId";
-// undefined = the analytics choice isn't known yet (send nothing).
-let wantedAnalyticsId: string | null | undefined;
-// What RevenueCat was last told this launch (undefined = nothing yet).
-let sentAnalyticsId: string | null | undefined;
-
-/**
- * Link (id) or unlink (null) this install's anonymous analytics id with its
- * RevenueCat subscriber, so RevenueCat's PostHog integration can attribute
- * trials, renewals and refunds to the same anonymous id. Pass null whenever
- * analytics is off. Remembered until RevenueCat is configured. Never throws.
- */
-export function setAnalyticsUserAttribute(id: string | null): void {
-  wantedAnalyticsId = id;
-  sendAnalyticsUserAttribute();
-}
-
-function sendAnalyticsUserAttribute(sdk: PurchasesModule | null = null): void {
-  if (!configured || wantedAnalyticsId === undefined || wantedAnalyticsId === sentAnalyticsId) return;
-  const value = wantedAnalyticsId;
-  try {
-    const module = sdk ?? loadSdk();
-    if (!module) return;
-    sentAnalyticsId = value;
-    Promise.resolve(module.default.setAttributes({ [POSTHOG_USER_ID_ATTRIBUTE]: value })).catch(() => {
-      // Let a later call retry; analytics must never affect the app.
-      if (sentAnalyticsId === value) sentAnalyticsId = undefined;
-    });
-  } catch {
-    if (sentAnalyticsId === value) sentAnalyticsId = undefined;
-  }
 }
 
 /** (Re)read RevenueCat's anonymous id for the proxy (at launch, after purchase/restore). */
@@ -287,7 +251,5 @@ export async function redeemCode(): Promise<boolean> {
 /** Test-only: forget configuration between tests. */
 export function __resetPurchasesForTests(): void {
   configured = false;
-  wantedAnalyticsId = undefined;
-  sentAnalyticsId = undefined;
   sdkPackages.clear();
 }

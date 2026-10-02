@@ -75,21 +75,19 @@ task, goal or brain-dump text; no person profiles; `$ip` null, `$geoip_disable`,
 the project discards client IPs. Analytics starts off and is only enabled once the
 saved Settings choice is loaded; resetting data keeps an opt-out and forgets the id.
 
-## RevenueCat → PostHog
+Funnels: until 1.2 and older installs are gone, count a cancelled purchase as
+`purchase_cancelled` OR (`purchase_failed` AND `outcome` = cancelled); 1.1/1.2 still
+send the old shape.
 
-So trials, renewals, cancellations and refunds (which happen server-side, outside the
-app) land in PostHog next to the in-app funnel, the app sets the RevenueCat subscriber
-attribute `$posthogUserId` to the analytics distinct id: the random anonymous install
-id from `analytics.ts`, not linked to a name, email or device id.
+## Subscription numbers (trials, renewals, refunds)
 
-- Wiring: `getAnalyticsDistinctId()` (analytics.ts, null while analytics is off) →
-  `setAnalyticsUserAttribute()` (purchases.ts, `Purchases.setAttributes`), synced from
-  the store once the saved Settings choice loads, whenever the Settings switch changes,
-  and after "Reset all data" (new id). Applied as soon as RevenueCat is configured.
-- Opt-out: while analytics is off the attribute is cleared (set to null) and never set.
-  Failures are swallowed; analytics never affects the app.
-- **Owner action:** in RevenueCat › Project settings › Integrations › PostHog, enable
-  the integration with the PostHog project API key (project 630531). Until then the
-  attribute is stored but nothing is forwarded.
-- App Privacy: unchanged. The id is the same anonymous install id already used for
-  Usage Data, so purchase data stays "not linked to you" and "not used for tracking".
+These happen server-side, so they're read in **RevenueCat Charts** (trial conversion,
+initial conversion, active subscriptions, MRR, churn, refunds), not PostHog. The weekly
+dashboard pairs RevenueCat Charts with the PostHog in-app funnel (installs → paywall →
+purchase started/completed/cancelled).
+
+We deliberately don't enable RevenueCat's PostHog integration: for customers without a
+`$posthogUserId` attribute it falls back to the RevenueCat app user id, so purchase data
+would reach PostHog even for people who turned "Share anonymous usage stats" off, and
+the privacy policy and App Privacy answers say PostHog only gets usage counts. Revisit
+only together with a privacy-policy and App Privacy update.
