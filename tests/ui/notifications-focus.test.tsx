@@ -206,6 +206,43 @@ describe("focus notification responses (1.3)", () => {
     expect(subscription.remove).toHaveBeenCalledTimes(1);
   });
 
+  // 1.3 polish (PR #82): Take a break / Stop for now on the notification.
+  it("parses Take a break (focus-break) as break; an unknown button is just a tap on it", () => {
+    const { parseFocusResponse, FOCUS_ACTION_BREAK } = load();
+    expect(FOCUS_ACTION_BREAK).toBe("focus-break");
+    expect(parseFocusResponse(response("focus-break"))).toEqual({ action: "break", sessionId: "s1" });
+    expect(parseFocusResponse(response("focus-stop"))).toEqual({ action: "open", sessionId: "s1" });
+    // Another notification's break is still not ours.
+    expect(parseFocusResponse(response("focus-break", { identifier: "daily-tasks:2026-09-26:nudge:0900" }))).toBeNull();
+  });
+
+  it("a Take a break that launched the app is handed over as a break, once", () => {
+    const launch = response("focus-break");
+    mocked.getLastNotificationResponse.mockReturnValue(launch);
+    const { subscribeFocusResponses } = load();
+    const listener = jest.fn();
+    subscribeFocusResponses(listener);
+    const live = mocked.addNotificationResponseReceivedListener.mock.calls[0][0];
+    live(launch);
+    expect(listener.mock.calls).toEqual([[{ action: "break", sessionId: "s1" }]]);
+  });
+
+  it("both categories end with the quiet way out, after extend and Mark done, and every button opens the app", async () => {
+    const { scheduleFocusSessionNotification, FOCUS_CATEGORY_ID, FOCUS_STARTER_CATEGORY_ID } = load();
+    await scheduleFocusSessionNotification(INPUT);
+    const calls = mocked.setNotificationCategoryAsync.mock.calls as unknown as [
+      string,
+      { identifier: string; buttonTitle: string; options: { opensAppToForeground: boolean } }[],
+    ][];
+    const byId = new Map(calls.map(([id, actions]) => [id, actions]));
+    expect(byId.get(FOCUS_CATEGORY_ID)!.map((a) => a.buttonTitle)).toEqual(["5 more minutes", "Mark done", "Take a break"]);
+    expect(byId.get(FOCUS_STARTER_CATEGORY_ID)!.map((a) => a.buttonTitle)).toEqual(["Keep going", "Mark done", "Stop for now"]);
+    for (const actions of byId.values()) {
+      expect(actions.at(-1)!.identifier).toBe("focus-break");
+      expect(actions.every((a) => a.options.opensAppToForeground)).toBe(true);
+    }
+  });
+
   it("with no launch tap, nothing is handed over until one arrives", () => {
     mocked.getLastNotificationResponse.mockReturnValue(null);
     const { subscribeFocusResponses } = load();

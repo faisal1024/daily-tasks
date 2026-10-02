@@ -124,4 +124,53 @@ describe("TomorrowDraftCard", () => {
     await renderCard(draftOf(["Walk"], "Because today worked well, tomorrow builds on it."), 3);
     expect(screen.getByTestId("tomorrow-draft")).toHaveTextContent(/Because yesterday worked well, today builds on it\./);
   });
+
+  // 1.3 polish (PR #82): one slot and a choice is a pick-one group for VoiceOver.
+  describe("roles: radio buttons only for a pick-one choice", () => {
+    const list = () => screen.getByTestId("tomorrow-draft-list");
+    const roles = () => screen.queryAllByRole(/^(checkbox|radio)$/).map((node) => node.props.accessibilityRole);
+
+    it("one slot, three rows: a radiogroup ('Pick one for today') of radio buttons, and swapping still works", async () => {
+      const { onUse } = await renderCard(draftOf(["Walk", "Read", "Stretch"]), 1);
+      expect(list().props.accessibilityRole).toBe("radiogroup");
+      expect(list().props.accessibilityLabel).toBe("Pick one for today");
+      expect(roles()).toEqual(["radio", "radio", "radio"]);
+      expect(screen.getByRole("radio", { name: "Walk" })).toBeChecked();
+      await fireEvent.press(screen.getByRole("radio", { name: "Read" }));
+      expect(screen.getByRole("radio", { name: "Read" })).toBeChecked();
+      expect(screen.getByRole("radio", { name: "Walk" })).not.toBeChecked();
+      expect(screen.getByRole("radio", { name: "Stretch" })).not.toBeChecked();
+      await fireEvent.press(useButton());
+      expect(onUse).toHaveBeenCalledWith(["Read"]);
+    });
+
+    it("one slot, two rows is still a pick-one group", async () => {
+      await renderCard(draftOf(["Walk", "Read"]), 1);
+      expect(list().props.accessibilityRole).toBe("radiogroup");
+      expect(roles()).toEqual(["radio", "radio"]);
+    });
+
+    it.each([
+      ["one slot, one row", ["Walk"], 1],
+      ["two slots", ["Walk", "Read", "Stretch"], 2],
+      ["three slots", ["Walk", "Read", "Stretch"], 3],
+      ["more slots than rows", ["Walk", "Read"], 3],
+    ] as const)("%s: checkboxes in a plain list (no group role or label)", async (_name, tasks, slots) => {
+      await renderCard(draftOf([...tasks]), slots);
+      expect(list().props.accessibilityRole).toBeUndefined();
+      expect(list().props.accessibilityLabel).toBeUndefined();
+      expect(roles()).toEqual(tasks.map(() => "checkbox"));
+    });
+
+    it("room going from two to one turns the checkboxes into radio buttons (and back)", async () => {
+      const { props, rerender } = await renderCard(draftOf(["Walk", "Read", "Stretch"]), 2);
+      expect(roles()).toEqual(["checkbox", "checkbox", "checkbox"]);
+      await rerender(<TomorrowDraftCard {...props} remainingSlots={1} />);
+      expect(list().props.accessibilityRole).toBe("radiogroup");
+      expect(roles()).toEqual(["radio", "radio", "radio"]);
+      await rerender(<TomorrowDraftCard {...props} remainingSlots={2} />);
+      expect(list().props.accessibilityRole).toBeUndefined();
+      expect(roles()).toEqual(["checkbox", "checkbox", "checkbox"]);
+    });
+  });
 });
