@@ -216,6 +216,29 @@ describe("PlusProvider: purchases", () => {
   });
 });
 
+describe("PlusProvider: purchase funnel events", () => {
+  it.each([
+    ["cancelled", "purchase_cancelled", { plan: "annual", source: "break_down", trial: true }],
+    ["pending", "purchase_failed", { plan: "annual", source: "break_down", outcome: "pending", trial: true }],
+    ["failed", "purchase_failed", { plan: "annual", source: "break_down", outcome: "failed", trial: true }],
+    ["purchased", "purchase_completed", { plan: "annual", source: "break_down", outcome: "purchased", trial: true }],
+  ])("tracks a %s purchase as %s with exactly its props", async (outcome, event, props) => {
+    (purchasePackage as jest.Mock).mockResolvedValue({ outcome, active: outcome === "purchased" });
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await act(async () => {
+      result.current.openPaywall("break_down");
+    });
+    await act(async () => {
+      await result.current.purchase({ ...ANNUAL, trialDays: 7 });
+    });
+    const purchaseEvents = (track as jest.Mock).mock.calls.filter(([name]) =>
+      ["purchase_cancelled", "purchase_failed", "purchase_completed"].includes(name),
+    );
+    // toEqual: a cancel must not carry `outcome` (it's a drop-off, not an error).
+    expect(purchaseEvents).toEqual([[event, props]]);
+  });
+});
+
 describe("PlusProvider: RevenueCat never answers", () => {
   it("stays unknown while it can't be reached, then gates a free user after the timeout", async () => {
     jest.useFakeTimers();
