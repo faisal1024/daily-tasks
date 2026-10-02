@@ -16,7 +16,7 @@ auto-incremented. Apple closes old version "trains" once a version is approved,
 and rejects a build whose version isn't higher (errors 90062 / 90478 / 90186).
 - When cutting a new release, set `version` higher than every version previously
   uploaded to App Store Connect (not just the current one).
-- Current version: **1.3.0** (revenue-dashboard groundwork: `purchase_cancelled` event, RevenueCat→PostHog id link; 1.2.0, the timer release, is in App Review as of 2026-09-30; 1.1.0 was the first paywall release of "Three Today"; 1.0.10 was approved 2026-09-26, 1.0.11 only went to TestFlight).
+- Current version: **1.3.0** (ratings, paywalls, routines; subscription metrics from RevenueCat Charts; 1.2.0, the timer release, is in App Review as of 2026-09-30; 1.1.0 was the first paywall release of "Three Today"; 1.0.10 was approved 2026-09-26, 1.0.11 only went to TestFlight).
 
 **Build + submit (from `main`):**
 ```sh
