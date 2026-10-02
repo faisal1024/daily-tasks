@@ -39,6 +39,7 @@ import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { TaskRow } from "@/components/daily-tasks/task-row";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
+import { TrialNote } from "@/components/daily-tasks/trial-note";
 import { UpdateBanner } from "@/components/daily-tasks/update-banner";
 import { WeekRow } from "@/components/daily-tasks/week-row";
 import { useAppUpdate } from "@/hooks/use-app-update";
@@ -83,6 +84,7 @@ import {
   showsCoachNote,
 } from "@/lib/daily-tasks/coach-note";
 import { addDays, fromDateKey, greetingFor, greetingText } from "@/lib/daily-tasks/date";
+import { recordPlusUse } from "@/lib/daily-tasks/trial-note";
 import { sessionEndedAnnouncement, STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
 import { durationWords, timerMenuLengths } from "@/lib/daily-tasks/focus-timer";
 import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-storage";
@@ -199,7 +201,16 @@ export default function HomeScreen() {
     focusPrompt,
     clearFocusPrompt,
   } = useDailyTasks();
-  const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue, ahaPaywallState } = usePlus();
+  const {
+    paywallEnabled,
+    paywallSource,
+    purchaseCount,
+    openPaywall,
+    winBackDue,
+    winBackOfferPending,
+    checkWinBackOffer,
+    ahaPaywallState,
+  } = usePlus();
   const winBackDueRef = useRef(winBackDue);
   winBackDueRef.current = winBackDue;
 
@@ -416,6 +427,8 @@ export default function HomeScreen() {
     if (coachAiUser && !coachTasksReady && phase !== "midday") return;
     if (coachNoteLogged(state.coachNotes, today)) return;
     track("coach_note_loaded", { source: noteSource });
+    // Counted for the day-5 trial note (an AI note is a Plus one).
+    if (noteSource === "ai") void recordPlusUse("coach_note");
     markCoachNoteLogged(today);
   }, [
     ready,
@@ -761,6 +774,11 @@ export default function HomeScreen() {
         // Any focus session, paused too: it's their time, not ours.
         focusSession !== null,
     });
+  // The win-back paywall's quiet moment: nothing else up, no rating ask, app in front.
+  const appActiveRef = useRef(appActive);
+  appActiveRef.current = appActive;
+  const winBackCanShow = () =>
+    appActiveRef.current && RNAppState.currentState === "active" && !busyRef.current && !ratingRecent();
   const ahaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -882,6 +900,8 @@ export default function HomeScreen() {
       // Only if the task still reads the same (it may have been edited meanwhile).
       setTaskSteps(taskId, steps, text);
       track("break_down_used", { count: steps.length });
+      // Break it down is Plus-only and AI-only: steps back means Plus was used.
+      if (steps.length > 0) void recordPlusUse("break_down");
       // The store keeps steps trimmed: match it, so the starter names the step.
       const first = steps.map((step) => step.trim()).find(Boolean);
       if (starter && first) offerStarter(taskId, first);
@@ -973,7 +993,17 @@ export default function HomeScreen() {
     // launch). Skipped if anything else is on screen, e.g. the celebration.
     if (completing && winBackDue && paywallEnabled && !hasPlus) {
       setTimeout(() => {
-        if (!busyRef.current && !ratingRecent() && winBackDueRef.current) openPaywall("win_back");
+        if (winBackCanShow() && winBackDueRef.current) openPaywall("win_back");
+      }, 1200);
+    } else if (completing && winBackOfferPending && paywallEnabled && !hasPlus) {
+      // Later in the lapse: once Apple has a win-back offer for them, one more
+      // showing. The check runs at most once a day, so it's only spent when
+      // its answer could be shown right then.
+      setTimeout(() => {
+        if (!winBackCanShow()) return;
+        void checkWinBackOffer().then((available) => {
+          if (available && winBackCanShow()) openPaywall("win_back");
+        });
       }, 1200);
     }
   };
@@ -1224,6 +1254,8 @@ export default function HomeScreen() {
                   </Text>
                 </Pressable>
               )}
+              {/* The day-5 trial note: under the day's card and status, away from the rollover. */}
+              {ready && !firstRunActive && <TrialNote today={today} active={appActive} />}
             </View>
 
             {rightHasContent && (
@@ -1244,6 +1276,7 @@ export default function HomeScreen() {
                       applyTomorrowDraft(accepted, draft.tasks);
                       const skipped = draft.tasks.length - accepted.length;
                       track("tomorrow_draft_used", { count: accepted.length, skipped, source: draft.source });
+                      if (draft.source === "ai" && hasPlus) void recordPlusUse("tomorrow_draft");
                       const added = `Added ${accepted.length} ${accepted.length === 1 ? "task" : "tasks"}.`;
                       const message = skipped > 0 ? `${added} ${skipped} saved for later.` : added;
                       AccessibilityInfo.announceForAccessibility(message);
@@ -1505,6 +1538,7 @@ export default function HomeScreen() {
               ...(state.agendaEnabled ? { agenda: await readTodayAgenda() } : {}),
             });
             track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
+            if (sorted.result.source === "ai") void recordPlusUse("brain_dump");
             return sorted;
           }
           // Free plan: a few AI sorts to try it, then the simple on-device split.

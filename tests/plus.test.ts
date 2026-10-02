@@ -11,9 +11,12 @@ import {
   planLabel,
   purchaseButtonLabel,
   purchaseTerms,
+  shownWinBackOffer,
   visiblePackages,
+  winBackOfferPhrase,
   type PaywallSource,
   type PlusPackage,
+  type WinBackOffer,
 } from "../lib/daily-tasks/plus";
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
 
@@ -117,5 +120,80 @@ describe("which plans a paywall shows (Phase 11a)", () => {
     const titles = PLUS_BENEFITS.map((b) => b.title);
     expect(titles).toContain("Plan around your calendar");
     expect(titles).not.toContain("Weekly review");
+  });
+});
+
+// --- 1.3: Apple win-back offers (PR #81) ----------------------------------------
+
+describe("win-back offer wording", () => {
+  const offer = (overrides: Partial<WinBackOffer> = {}): WinBackOffer => ({
+    price: 9.99,
+    priceString: "$9.99",
+    cycles: 1,
+    periodUnit: "MONTH",
+    periodNumberOfUnits: 3,
+    ...overrides,
+  });
+
+  it("phrases pay up front, pay as you go and free offers", () => {
+    expect(winBackOfferPhrase(offer())).toBe("3 months for $9.99");
+    expect(winBackOfferPhrase(offer({ price: 2.99, priceString: "$2.99", cycles: 3, periodNumberOfUnits: 1 }))).toBe(
+      "$2.99/month for 3 months",
+    );
+    expect(winBackOfferPhrase(offer({ price: 5, priceString: "$5.00", cycles: 3, periodNumberOfUnits: 2 }))).toBe(
+      "$5.00 every 2 months for 6 months",
+    );
+    expect(winBackOfferPhrase(offer({ price: 0, priceString: "$0.00", periodNumberOfUnits: 1 }))).toBe("1 month free");
+    expect(winBackOfferPhrase(offer({ price: 0, priceString: "Free", periodUnit: "WEEK", periodNumberOfUnits: 2 }))).toBe(
+      "2 weeks free",
+    );
+  });
+
+  it("labels, buttons and terms the offered plan, then the full price", () => {
+    const annual = pkg({ trialDays: null, winBackOffer: offer({ periodUnit: "YEAR", periodNumberOfUnits: 1 }) });
+    expect(planLabel(annual)).toEqual({
+      title: "Yearly",
+      price: "1 year for $9.99",
+      detail: "Then $29.99/year",
+      badge: "Welcome back",
+    });
+    expect(purchaseButtonLabel(annual)).toBe("Continue with offer");
+    const terms = purchaseTerms(annual);
+    expect(terms).toMatch(/^Welcome-back offer: 1 year for \$9\.99, then \$29\.99\/year\. /);
+    expect(terms).toContain("Renews automatically at $29.99/year until you cancel.");
+
+    const monthly = pkg({ id: "$rc_monthly", kind: "monthly", priceString: "$4.99", winBackOffer: offer() });
+    expect(planLabel(monthly)).toMatchObject({ title: "Monthly", detail: "Then $4.99/month", badge: "Welcome back" });
+  });
+
+  it.each([
+    ["an unknown period", { periodUnit: "FORTNIGHT" }],
+    ["zero cycles", { cycles: 0 }],
+    ["fractional cycles", { cycles: 1.5 }],
+    ["zero period units", { periodNumberOfUnits: 0 }],
+    ["a negative price", { price: -1 }],
+    ["a NaN price", { price: Number.NaN }],
+    ["no price string", { priceString: "" }],
+    ["a blank price string", { priceString: "  " }],
+    ["free over several cycles", { price: 0, cycles: 3 }],
+    ["no period", { periodUnit: undefined }],
+    ["no period length", { periodNumberOfUnits: undefined }],
+    ["negative cycles", { cycles: -1 }],
+    ["no price", { price: undefined }],
+  ])("ignores a malformed offer (%s): the plain plan, trial and terms stay", (_why, bad) => {
+    const plan = pkg({ trialDays: 7, winBackOffer: offer(bad as Partial<WinBackOffer>) });
+    expect(shownWinBackOffer(plan)).toBeNull();
+    expect(planLabel(plan)).toEqual(planLabel(pkg({ trialDays: 7 })));
+    expect(purchaseButtonLabel(plan)).toBe("Start 7-day free trial");
+    expect(purchaseTerms(plan)).toBe(purchaseTerms(pkg({ trialDays: 7 })));
+  });
+
+  it("never shows an offer on lifetime", () => {
+    const lifetime = pkg({ id: "$rc_lifetime", kind: "lifetime", priceString: "$59.99", winBackOffer: offer() });
+    expect(shownWinBackOffer(lifetime)).toBeNull();
+    expect(purchaseButtonLabel(lifetime)).toBe("Buy lifetime");
+    expect(purchaseTerms(lifetime)).toBe("One-time payment of $59.99. No subscription.");
+    expect(planLabel(lifetime).badge).not.toBe("Welcome back");
+    expect(shownWinBackOffer(null)).toBeNull();
   });
 });

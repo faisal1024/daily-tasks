@@ -45,6 +45,8 @@ export type AnalyticsEvent =
   | "focus_session_started"
   | "focus_session_ended"
   | "live_activity_action"
+  | "trial_note_shown"
+  | "trial_note_dismissed"
   | "routine_created"
   | "routine_added_today"
   | "routine_limit_hit"
@@ -70,6 +72,7 @@ const ALLOWED_PROPS = [
   "kind",
   "minutes",
   "action",
+  "offer",
 ] as const;
 type AllowedProp = (typeof ALLOWED_PROPS)[number];
 

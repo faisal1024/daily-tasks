@@ -197,4 +197,15 @@ describe("monthlyNudgeText", () => {
       "Prefer to start small? Monthly is $4.99/month.",
     );
   });
+
+  it("quotes the win-back offer (as the card does), never the full price, when monthly has one", () => {
+    const offer = { price: 1.99, priceString: "$1.99", cycles: 3, periodUnit: "MONTH", periodNumberOfUnits: 1 };
+    const text = monthlyNudgeText(pkg({ kind: "monthly", priceString: "$4.99", trialDays: 7, winBackOffer: offer }));
+    expect(text).toBe("Prefer to start small? Monthly, $1.99/month for 3 months.");
+    expect(text).not.toMatch(/\$4\.99/);
+    // An unusable offer is ignored: the plain line stands.
+    expect(monthlyNudgeText(pkg({ kind: "monthly", priceString: "$4.99", trialDays: null, winBackOffer: { ...offer, cycles: 0 } }))).toBe(
+      "Prefer to start small? Monthly is $4.99/month.",
+    );
+  });
 });

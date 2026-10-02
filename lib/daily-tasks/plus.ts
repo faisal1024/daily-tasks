@@ -43,6 +43,42 @@ export interface PlusPackage {
    * month or year isn't a fixed number of days.
    */
   trialUnit?: string | null;
+  /**
+   * An Apple win-back offer this lapsed subscriber is eligible for (iOS 18+,
+   * created in App Store Connect). Absent or null: the plain price applies.
+   */
+  winBackOffer?: WinBackOffer | null;
+}
+
+/** A free trial of Plus, as RevenueCat reports it. */
+export interface PlusTrial {
+  /** When the trial started (ISO), when known. */
+  startedAt: string | null;
+  /** When the trial ends (ISO). */
+  endsAt: string;
+  /** False once the trial was cancelled (it won't turn into a subscription). */
+  willRenew: boolean;
+}
+
+/**
+ * When the trial-ending reminder is for: the trial's end, unless it was
+ * already cancelled (nothing to warn about).
+ */
+export function trialReminderEnd(trial: PlusTrial | null | undefined): string | null {
+  return trial && trial.willRenew ? trial.endsAt : null;
+}
+
+/** SDK-independent view of an Apple win-back offer (a discount, not a separate product). */
+export interface WinBackOffer {
+  /** Price per billing period in the local currency, e.g. 9.99 (0 = free). */
+  price: number;
+  /** Formatted price per billing period, e.g. "$9.99". */
+  priceString: string;
+  /** How many billing periods the price applies for (1 for "pay up front"). */
+  cycles: number;
+  /** DAY, WEEK, MONTH or YEAR. */
+  periodUnit: string;
+  periodNumberOfUnits: number;
 }
 
 /**
@@ -117,7 +153,62 @@ export interface PlanLabel {
   badge: string | null;
 }
 
+const UNIT_WORDS: Record<string, string> = { DAY: "day", WEEK: "week", MONTH: "month", YEAR: "year" };
+
+function duration(count: number, unit: string): string {
+  return `${count} ${unit}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * The offer has a shape we can describe honestly; anything unexpected is
+ * dropped (the plan shows its plain price): a missing or unknown period,
+ * fewer than one cycle, a negative or missing price, no price text, or a free
+ * offer spread over several cycles (Apple's free offers are one period).
+ */
+export function isUsableWinBackOffer(offer: WinBackOffer | null | undefined): offer is WinBackOffer {
+  if (!offer) return false;
+  if (typeof offer.periodUnit !== "string" || !UNIT_WORDS[offer.periodUnit]) return false;
+  if (!Number.isInteger(offer.cycles) || offer.cycles < 1) return false;
+  if (!Number.isInteger(offer.periodNumberOfUnits) || offer.periodNumberOfUnits < 1) return false;
+  if (typeof offer.price !== "number" || !Number.isFinite(offer.price) || offer.price < 0) return false;
+  if (typeof offer.priceString !== "string" || offer.priceString.trim() === "") return false;
+  if (offer.price === 0 && offer.cycles > 1) return false;
+  return true;
+}
+
+/**
+ * The offer in plain words: "3 months for $9.99" (pay up front),
+ * "$2.99/month for 3 months" (pay as you go) or "1 month free".
+ */
+export function winBackOfferPhrase(offer: WinBackOffer): string {
+  const unit = UNIT_WORDS[offer.periodUnit] ?? offer.periodUnit.toLowerCase();
+  const total = duration(offer.cycles * offer.periodNumberOfUnits, unit);
+  if (offer.price === 0) return `${total} free`;
+  if (offer.cycles === 1) return `${total} for ${offer.priceString}`;
+  const per =
+    offer.periodNumberOfUnits === 1
+      ? `${offer.priceString}/${unit}`
+      : `${offer.priceString} every ${duration(offer.periodNumberOfUnits, unit)}`;
+  return `${per} for ${total}`;
+}
+
+/** The win-back offer to show (and buy with) for this plan, or null. Lifetime never has one. */
+export function shownWinBackOffer(pkg: PlusPackage | null): WinBackOffer | null {
+  if (!pkg || (pkg.kind !== "annual" && pkg.kind !== "monthly")) return null;
+  return isUsableWinBackOffer(pkg.winBackOffer) ? pkg.winBackOffer : null;
+}
+
 export function planLabel(pkg: PlusPackage): PlanLabel {
+  const offer = shownWinBackOffer(pkg);
+  if (offer) {
+    const period = pkg.kind === "annual" ? "year" : "month";
+    return {
+      title: pkg.kind === "annual" ? "Yearly" : "Monthly",
+      price: winBackOfferPhrase(offer),
+      detail: `Then ${pkg.priceString}/${period}`,
+      badge: "Welcome back",
+    };
+  }
   switch (pkg.kind) {
     case "annual":
       return {
@@ -143,6 +234,7 @@ export function planLabel(pkg: PlusPackage): PlanLabel {
 /** Main button text for the selected plan. */
 export function purchaseButtonLabel(pkg: PlusPackage | null): string {
   if (!pkg) return "Continue";
+  if (shownWinBackOffer(pkg)) return "Continue with offer";
   if (pkg.trialDays) return `Start ${pkg.trialDays}-day free trial`;
   return pkg.kind === "lifetime" ? "Buy lifetime" : "Subscribe";
 }
@@ -156,6 +248,10 @@ export function purchaseTerms(pkg: PlusPackage | null): string {
   if (pkg.kind === "lifetime") return `One-time payment of ${pkg.priceString}. No subscription.`;
   const period = pkg.kind === "annual" ? "year" : "month";
   const renew = `Renews automatically at ${pkg.priceString}/${period} until you cancel. Cancel anytime in Settings › your name › Subscriptions.`;
+  const offer = shownWinBackOffer(pkg);
+  if (offer) {
+    return `Welcome-back offer: ${winBackOfferPhrase(offer)}, then ${pkg.priceString}/${period}. ${renew}`;
+  }
   return pkg.trialDays ? `Free for ${pkg.trialDays} days, then ${pkg.priceString}/${period}. ${renew}` : renew;
 }
 
@@ -285,9 +381,13 @@ export function trialTimelineLabel(steps: TrialStep[]): string {
 
 /**
  * The quiet line offered after someone backs out of buying the yearly plan:
- * a smaller step, never a countdown.
+ * a smaller step, never a countdown. With a win-back offer on monthly, it
+ * quotes the offer (as the card does), never the full price.
  */
 export function monthlyNudgeText(monthly: PlusPackage): string {
+  // A win-back offer replaces the plain price on the card: quote the same terms.
+  const offer = shownWinBackOffer(monthly);
+  if (offer) return `Prefer to start small? Monthly, ${winBackOfferPhrase(offer)}.`;
   return monthly.trialDays
     ? `Prefer to start small? Monthly, ${monthly.trialDays} days free.`
     : `Prefer to start small? Monthly is ${monthly.priceString}/month.`;
