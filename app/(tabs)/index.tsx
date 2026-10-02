@@ -88,7 +88,13 @@ import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-stor
 import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
-import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
+import {
+  achievementOnFirstTick,
+  reviewDueStatus,
+  shouldRequestReview,
+  type ReviewTrigger,
+} from "@/lib/daily-tasks/review-prompt";
+import { countShowedUpDays } from "@/lib/daily-tasks/streaks";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import {
   brainDumpToast,
@@ -113,10 +119,6 @@ import {
 } from "@/lib/daily-tasks/evening";
 import type { ReflectionResult } from "@/lib/daily-tasks/types";
 
-/** A rating ask waits at least this long after the perfect day that earned it. */
-const REVIEW_DELAY_MS = 60 * 60 * 1000;
-/** ...and is dropped after a week (too far from the moment that earned it). */
-const REVIEW_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 /** Wait this long after the app becomes active before asking. */
 const REVIEW_SETTLE_MS = 2000;
 
@@ -164,6 +166,8 @@ export default function HomeScreen() {
     requestMomentumPlan,
     markReviewPrompted,
     markReviewDue,
+    clearReviewDue,
+    focusDoneCount,
     parkTasks,
     removeParkedTask,
     addParkedTask,
@@ -619,6 +623,61 @@ export default function HomeScreen() {
         })
       : null;
 
+  // Rating asks (1.3): a happy moment (perfect day, a focus session ended with
+  // its task done, a showed-up milestone, a good week) may earn one, which is
+  // then asked on a later app open (below). The policy reads the latest state.
+  // Earning one only checks the first day, onboarding and the cooldown; the
+  // paywall, a focus session and the rest are checked when it's asked.
+  const reviewInputs = useRef({
+    history: state.history,
+    today,
+    lastReviewPromptAt: state.lastReviewPromptAt,
+    onboardingVisible: false,
+  });
+  reviewInputs.current = {
+    history: state.history,
+    today,
+    lastReviewPromptAt: state.lastReviewPromptAt,
+    onboardingVisible: !state.hasSeenOnboarding || firstRunActive,
+  };
+  const considerReview = useCallback(
+    (trigger: ReviewTrigger) => {
+      if (shouldRequestReview({ ...reviewInputs.current, now: new Date() })) {
+        markReviewDue(trigger);
+      }
+    },
+    [markReviewDue],
+  );
+
+  // A focus session just ended with "Mark task done" (or its task ticked).
+  // A Done on the Live Activity while the app is backgrounded deliberately
+  // doesn't earn one: nobody's looking at the app.
+  const seenFocusDone = useRef(focusDoneCount);
+  useEffect(() => {
+    if (!ready || focusDoneCount === seenFocusDone.current) return;
+    seenFocusDone.current = focusDoneCount;
+    if (appActive) considerReview("focus_done");
+  }, [ready, appActive, focusDoneCount, considerReview]);
+
+  // Ticking today's first task done may complete an achievement: days showed
+  // up reaching 7, 30 or 100, or 5 of the last 7. Only on that tick, never on
+  // mount, a new day or in the background. Re-ticking it is harmless: the
+  // first saved ask wins, and the cooldown follows an ask.
+  const showedUpCount = useMemo(
+    () => countShowedUpDays(state.history, today, { includeToday: total > 0 }),
+    [state.history, today, total],
+  );
+  const firstTickBaseline = useRef<{ day: string; completed: number } | null>(null);
+  useEffect(() => {
+    if (!ready) return;
+    const previous = firstTickBaseline.current;
+    firstTickBaseline.current = { day: today, completed: completedCount };
+    if (!previous || previous.day !== today || !appActive) return;
+    if (previous.completed !== 0 || completedCount === 0) return;
+    const achievement = achievementOnFirstTick(showedUpCount, week.showedUpDays);
+    if (achievement) considerReview(achievement);
+  }, [ready, appActive, today, completedCount, showedUpCount, week.showedUpDays, considerReview]);
+
   // Celebrate (and maybe ask for a rating) only at the moment the third task is
   // checked off, never just because the app opened on a finished day.
   const previousCompleted = useRef<number | null>(null);
@@ -641,19 +700,10 @@ export default function HomeScreen() {
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
     setShowCelebration(true);
     track("perfect_day", { count: total });
-    // Earned a rating ask: remember it for a later app open instead of
+    // Maybe a rating ask: remembered for a later app open instead of
     // stacking it on the celebration and the evening check-in.
-    if (
-      shouldRequestReview({
-        history: state.history,
-        lastReviewPromptAt: state.lastReviewPromptAt,
-        now: new Date(),
-        justCompletedPerfectDay: true,
-      })
-    ) {
-      markReviewDue();
-    }
-  }, [ready, appActive, completedCount, total, today, state.history, state.lastReviewPromptAt, markReviewDue]);
+    considerReview("perfect_day");
+  }, [ready, appActive, completedCount, total, today, considerReview]);
 
   // Stable identity: the overlay restarts its auto-dismiss timer whenever
   // onDismiss changes.
@@ -661,11 +711,13 @@ export default function HomeScreen() {
     setShowCelebration(false);
   }, []);
 
-  // Ask for the rating on a LATER app open (at least an hour after the perfect
-  // day), when nothing else is happening. The cooldown is only spent if the
+  // Ask for the rating on a LATER app open (at least an hour after the happy
+  // moment), when nothing else is happening. The cooldown is only spent if the
   // prompt was actually requested while the app was active.
   const reviewDueAtRef = useRef(state.reviewDueAt);
   reviewDueAtRef.current = state.reviewDueAt;
+  const reviewDueSourceRef = useRef(state.reviewDueSource);
+  reviewDueSourceRef.current = state.reviewDueSource;
   // Something else is on screen (rollover, onboarding, a sheet, the paywall,
   // a celebration): the rating ask waits for a quiet moment.
   const busyRef = useRef(false);
@@ -676,8 +728,8 @@ export default function HomeScreen() {
     ideasOpen ||
     brainDumpOpen ||
     focusTaskId !== null ||
-    // No rating ask over a running timer or its check-in (a paused one is fine).
-    (focusSession !== null && focusSession.status !== "paused") ||
+    // No rating ask over a focus session: running, paused or at its check-in.
+    focusSession !== null ||
     showCelebration;
 
   // The gentle aha paywall: once per install, after day 1, at a real win
@@ -735,13 +787,22 @@ export default function HomeScreen() {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const ask = async () => {
       const due = reviewDueAtRef.current;
-      if (!due || reviewInFlight.current || busyRef.current) return;
-      const age = Date.now() - Date.parse(due);
-      if (age < REVIEW_DELAY_MS || age > REVIEW_EXPIRY_MS) return;
+      if (!due || reviewInFlight.current) return;
+      const status = reviewDueStatus(due, Date.now());
+      // Expired (or corrupt): drop it, so a later happy moment can earn a fresh one.
+      if (status === "expired") {
+        clearReviewDue();
+        return;
+      }
+      if (status === "wait" || busyRef.current) return;
       if (RNAppState.currentState !== "active") return;
       reviewInFlight.current = true;
       try {
-        if (await requestAppReview()) markReviewPrompted();
+        if (await requestAppReview()) {
+          // Storage gives an ask saved before 1.3 the source "perfect_day".
+          track("rating_prompt_requested", { source: reviewDueSourceRef.current });
+          markReviewPrompted();
+        }
       } finally {
         reviewInFlight.current = false;
       }
@@ -762,7 +823,7 @@ export default function HomeScreen() {
       if (timer) clearTimeout(timer);
       sub.remove();
     };
-  }, [ready, markReviewPrompted]);
+  }, [ready, markReviewPrompted, clearReviewDue]);
 
   // The sheet has nothing to add once the day is locked, and it must not block
   // the onboarding modals (iOS shows one modal at a time). Yesterday's

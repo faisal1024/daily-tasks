@@ -105,7 +105,11 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 `brain_dump_sorted`, `break_down_used`, `plus_gate_hit`, `paywall_viewed`,
 `paywall_closed`, `paywall_monthly_nudge_tapped` (`source`), `purchase_started`, `purchase_completed`, `purchase_failed`
 (failed or pending/Ask to Buy, with `outcome`), `purchase_cancelled` (the user backed
-out of Apple's purchase sheet; `plan`, `source`, `trial`), `restore_completed`, `redeem_code_opened`, `path_edited`, `path_regenerated`. Properties are limited to `source`, `plan`, `outcome`, `trial`,
+out of Apple's purchase sheet; `plan`, `source`, `trial`), `restore_completed`,
+`redeem_code_opened`, `path_edited`, `path_regenerated`,
+`rating_prompt_requested` (the system rating prompt was requested; `source` is the happy
+moment that earned it: `focus_done`, `milestone`, `good_week` or `perfect_day`),
+`rate_row_tapped` and `feedback_row_tapped` (Settings › Feedback). Properties are limited to `source`, `plan`, `outcome`, `trial`,
 `count`, `skipped`, `feature`, `active`, `plus`, `step`, `timer` with short enum/number/boolean values. Never
 task, goal or brain-dump text; no person profiles; `$ip` null, `$geoip_disable`, and
 the project discards client IPs. Analytics starts off and is only enabled once the
