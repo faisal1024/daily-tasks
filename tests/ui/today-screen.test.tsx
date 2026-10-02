@@ -2824,8 +2824,8 @@ describe("Timer on your tasks (1.3)", () => {
     expect(screen.queryByRole("button", { name: "Start a timer: Walk" })).toBeNull();
     expect(screen.getByRole("button", { name: "Start a timer: Read" })).toBeOnTheScreen();
     const pill = screen.getByTestId("task-timer-running-t0");
-    expect(pill.props.accessibilityLabel).toBe("Pause timer: Walk, 7 minutes left");
-    expect(pill.props.accessibilityValue).toEqual({ text: "Running" });
+    expect(pill.props.accessibilityLabel).toBe("Timer, 7 minutes left");
+    expect(pill.props.accessibilityHint).toBe("Pauses the timer.");
     expect(screen.getByTestId("task-timer-pause-t0")).toBeOnTheScreen();
     expect(screen.getByTestId("task-timer-left-t0")).toHaveTextContent("7:00");
     expect(screen.queryByTestId("now-bar")).toBeNull();
@@ -2835,7 +2835,7 @@ describe("Timer on your tasks (1.3)", () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Read"), focusSession: running() });
     await render(<HomeScreen />);
     const said = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions");
-    await press("Pause timer: Walk, 7 minutes left");
+    await press("Timer, 7 minutes left");
     expect(mockStore.pauseFocusSession).toHaveBeenCalledTimes(1);
     expect(mockStore.resumeFocusSession).not.toHaveBeenCalled();
     expect(screen.queryByTestId("focus-mode")).toBeNull();
@@ -2858,7 +2858,7 @@ describe("Timer on your tasks (1.3)", () => {
       jest.setSystemTime(NOW + 30 * MIN);
     });
     expect(screen.getByTestId("task-timer-left-t0")).toHaveTextContent("6:00");
-    await press("Resume timer: Walk, 6 minutes left");
+    await press("Timer paused, 6 minutes left");
     expect(mockStore.resumeFocusSession).toHaveBeenCalledTimes(1);
     expect(mockStore.pauseFocusSession).not.toHaveBeenCalled();
   });

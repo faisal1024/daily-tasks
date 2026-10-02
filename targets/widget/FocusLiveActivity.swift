@@ -11,7 +11,12 @@ import WidgetKit
 // is never shown as done.
 //
 // Lock screen: ring | caption + task (2 lines) | big time, buttons below,
-// kept within 160pt with a 2-line task at larger text sizes.
+// kept within 160pt with a 2-line task at larger text sizes. The small text
+// (the caption, "left", the buttons) is subheadline / footnote, not caption
+// (1.3 polish: it was too small to read at a glance), and follows Dynamic
+// Type up to xxxLarge (the cap: the accessibility sizes would push the lock
+// screen past 160pt or the buttons onto two rows). The task's words stay
+// 16pt, so two lines of them always fit.
 
 /// The lock screen's background in light mode (the widget's daytime indigo).
 private let lockScreenIndigo = Color(hex: 0x4A40D0)
@@ -189,7 +194,7 @@ struct FocusTime: View {
           .monospacedDigit()
           .lineLimit(1)
           .minimumScaleFactor(0.7)
-        Text("left").font(.caption.weight(.semibold)).opacity(0.8)
+        Text("left").font(.footnote.weight(.semibold)).opacity(0.8)
       }
       .foregroundStyle(color.opacity(0.85))
     default:
@@ -234,6 +239,11 @@ struct FocusButtons: View {
         EmptyView()
       }
     }
+    // Dynamic Type, but capped lower than the rest of the lock screen
+    // (xLarge, not xxxLarge): three pills share one row, and the expanded
+    // Dynamic Island, which uses these too, is narrower still. Past xLarge
+    // "5 more minutes" no longer fits a third of the row.
+    .dynamicTypeSize(...DynamicTypeSize.xLarge)
   }
 
   private func pill<I: AppIntent>(_ intent: I, _ title: String, symbol: String? = nil, solid: Bool) -> some View {
@@ -245,9 +255,12 @@ struct FocusButtons: View {
           Text(title)
         }
       }
-      .font(.system(size: symbol == nil ? 14 : 15, weight: .semibold, design: .rounded))
+      // Text style based, so it follows Dynamic Type (to xLarge, above);
+      // shrinking to fit (0.6× for the three at time's up, which share the
+      // row) keeps every title whole on one line.
+      .font(.system(.subheadline, design: .rounded, weight: .semibold))
       .lineLimit(1)
-      .minimumScaleFactor(0.7)
+      .minimumScaleFactor(phase == .timesUp ? 0.6 : 0.7)
       .padding(.horizontal, 6)
       .frame(maxWidth: .infinity, minHeight: 34)
       .foregroundStyle(solid ? solidInk : .white)
@@ -292,13 +305,17 @@ struct FocusLockScreenContent: View {
         FocusRing(state: state, phase: phase, size: 44, lineWidth: 5)
         VStack(alignment: .leading, spacing: 1) {
           Text(state.caption(phase))
-            .font(.caption.weight(.semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white.opacity(0.85))
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
           Text(state.focusText)
             .font(.system(size: 16, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
             .lineLimit(2)
+            // Always the height of its two lines: the bigger caption above
+            // never squeezes the task down to one.
+            .fixedSize(horizontal: false, vertical: true)
         }
         Spacer(minLength: 6)
         FocusTime(state: state, phase: phase, size: 26)
@@ -306,6 +323,7 @@ struct FocusLockScreenContent: View {
       FocusButtons(attributes: attributes, state: state, phase: phase, solidFill: .white, solidInk: tint)
     }
     .padding(14)
+    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
   }
 }
 

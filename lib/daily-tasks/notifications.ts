@@ -135,16 +135,19 @@ export async function cancelAllNotifications(): Promise<void> {
 // reminder syncs never cancel it; the handler above doesn't show it in-app
 // (the task row's check-in says it there). Only with permission already granted: it never asks.
 export const FOCUS_TIMER_NOTIFICATION_ID = "three-today:focus-timer";
-// Its buttons, extend first (as the check-in, the Live Activity and the
-// Dynamic Island have them): a timer's "5 more minutes" and Mark done; a
-// 5-minute starter's "Keep going" (a 20-minute timer, as the check-in) and
-// Mark done (it ticks the task). All open the app, so a tap is handled even when the app wasn't
-// running (a background action is lost then).
+// Its buttons, in the order the check-in, the Live Activity and the Dynamic
+// Island have them: extend first (a timer's "5 more minutes"; a 5-minute
+// starter's "Keep going", a 20-minute timer, as the check-in), then the quiet
+// way out, "Take a break" ("Stop for now" on a starter), which ends the
+// session and never ticks the task, then Mark done (it ticks the task). All
+// open the app, so a tap is handled even when the app wasn't running (a
+// background action is lost then).
 export const FOCUS_CATEGORY_ID = "three-today:focus-session";
 export const FOCUS_STARTER_CATEGORY_ID = "three-today:focus-starter";
 export const FOCUS_ACTION_DONE = "focus-done";
 export const FOCUS_ACTION_EXTEND = "focus-extend";
 export const FOCUS_ACTION_KEEP_GOING = "focus-keep-going";
+export const FOCUS_ACTION_BREAK = "focus-break";
 
 // One at a time, like the reminder syncs. A schedule that another call has
 // already overtaken (a reschedule, a cancel) is skipped; the later call wins.
@@ -173,10 +176,12 @@ async function ensureFocusCategory(): Promise<void> {
   if (categoryReady || typeof Notifications.setNotificationCategoryAsync !== "function") return;
   await Notifications.setNotificationCategoryAsync(FOCUS_CATEGORY_ID, [
     { identifier: FOCUS_ACTION_EXTEND, buttonTitle: "5 more minutes", options: { opensAppToForeground: true } },
+    { identifier: FOCUS_ACTION_BREAK, buttonTitle: "Take a break", options: { opensAppToForeground: true } },
     { identifier: FOCUS_ACTION_DONE, buttonTitle: "Mark done", options: { opensAppToForeground: true } },
   ]);
   await Notifications.setNotificationCategoryAsync(FOCUS_STARTER_CATEGORY_ID, [
     { identifier: FOCUS_ACTION_KEEP_GOING, buttonTitle: "Keep going", options: { opensAppToForeground: true } },
+    { identifier: FOCUS_ACTION_BREAK, buttonTitle: "Stop for now", options: { opensAppToForeground: true } },
     { identifier: FOCUS_ACTION_DONE, buttonTitle: "Mark done", options: { opensAppToForeground: true } },
   ]);
   categoryReady = true;
@@ -186,7 +191,10 @@ async function ensureFocusCategory(): Promise<void> {
 export interface FocusNotificationInput {
   sessionId: string;
   taskId: string;
-  /** Picks the buttons: a starter's Keep going / Mark done, a timer's 5 more minutes / Mark done. */
+  /**
+   * Picks the buttons: a starter's Keep going / Stop for now / Mark done, a
+   * timer's 5 more minutes / Take a break / Mark done.
+   */
   kind: "timer" | "starter";
   at: Date;
   /** The task's words (see notificationTitle). */
@@ -253,8 +261,11 @@ export function dismissFocusTimerNotification(): Promise<void> {
 
 /** A tap on the end notification: one of its buttons, or the notification itself. */
 export interface FocusNotificationResponse {
-  /** extend: a timer's 5 more minutes; keepGoing: a starter's Keep going. */
-  action: "done" | "extend" | "keepGoing" | "open";
+  /**
+   * extend: a timer's 5 more minutes; keepGoing: a starter's Keep going;
+   * break: Take a break (a starter's Stop for now), which never ticks the task.
+   */
+  action: "done" | "extend" | "keepGoing" | "break" | "open";
   sessionId: string;
 }
 
@@ -271,7 +282,9 @@ export function parseFocusResponse(response: Notifications.NotificationResponse 
         ? "extend"
         : response?.actionIdentifier === FOCUS_ACTION_KEEP_GOING
           ? "keepGoing"
-          : "open";
+          : response?.actionIdentifier === FOCUS_ACTION_BREAK
+            ? "break"
+            : "open";
   return { action, sessionId };
 }
 

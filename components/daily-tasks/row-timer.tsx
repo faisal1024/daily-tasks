@@ -123,21 +123,31 @@ export function RowTimerPill({
       >
         {/* Time's up, not done: a bell on the full ring, never a green tick. */}
         <ProgressRing completed={session.durationMs} total={session.durationMs} color={colors.primary} size={22} strokeWidth={2.5}>
-          <Ionicons name="notifications-outline" size={11} color={colors.primary} testID={`task-timer-times-up-${session.taskId}`} />
+          <Ionicons
+            name="notifications-outline"
+            size={11}
+            color={colors.primary}
+            testID={`task-timer-times-up-${session.taskId}`}
+          />
         </ProgressRing>
       </Pressable>
     );
   }
 
-  // Whole minutes, so VoiceOver isn't told every second.
-  const label = `${paused ? "Resume" : "Pause"} timer: ${taskText}, ${durationWords(Math.ceil(left / MINUTE_MS))} left`;
+  // One element, said once: "Timer, 12 minutes left" (whole minutes, so
+  // VoiceOver isn't told every second), then "Pauses the timer." The state
+  // is in the label only (no value repeating it), the task isn't (the row's
+  // checkbox just said it). The Pressable is the accessible element, so the
+  // glyph and digits inside are never elements of their own and nothing in
+  // the pill is read a second time.
+  const label = `Timer${paused ? " paused" : ""}, ${durationWords(Math.ceil(left / MINUTE_MS))} left`;
   const toggle = () => toggleTimer(controls, paused ? "resume" : "pause");
   return (
     <Pressable
       onPress={toggle}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityValue={{ text: paused ? "Paused" : "Running" }}
+      accessibilityHint={paused ? "Resumes the timer." : "Pauses the timer."}
       hitSlop={{ top: 7, bottom: 7 }}
       style={({ pressed }) => ({ ...pill, opacity: pressed ? 0.7 : 1 })}
       testID={`task-timer-running-${session.taskId}`}
@@ -167,6 +177,7 @@ export function RowTimerPill({
             minWidth: timeWidth(session.durationMs),
           }}
           maxFontSizeMultiplier={1.3}
+          numberOfLines={1}
           testID={`task-timer-left-${session.taskId}`}
         >
           {formatRemaining(left)}
@@ -195,7 +206,13 @@ export function RowSessionLine({ clock }: { clock: RowSessionClock }) {
         </Text>
       ) : null}
       {status ? (
-        <Text className="text-sm" style={{ color: colors.muted }}>
+        <Text
+          className="text-sm"
+          style={{ color: colors.muted }}
+          // "Paused." is the pill's own "Timer paused, …": VoiceOver says it there, once.
+          accessibilityElementsHidden={phase === "paused"}
+          importantForAccessibility={phase === "paused" ? "no-hide-descendants" : "auto"}
+        >
           {status}
         </Text>
       ) : null}

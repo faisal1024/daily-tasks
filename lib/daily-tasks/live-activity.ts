@@ -10,7 +10,9 @@
 // task's words), "Time's up" once it ends; any other activity is ended
 // (an orphan from a session that's gone). When the session goes, its activity
 // shows "Done", "Timer stopped" or "Timer ended" (a break) briefly and then goes. One the user swiped
-// away isn't brought back for that session. Nothing here throws.
+// away isn't brought back for that session: not here (`started`), and not by
+// the module either, which remembers it across launches (its start returns
+// false for a dismissed session). A new session can have one. Nothing here throws.
 import { Platform } from "react-native";
 
 import { loadFocusActivity, type FocusActivityModule } from "@/modules/focus-activity";

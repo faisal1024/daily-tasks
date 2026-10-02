@@ -468,7 +468,8 @@ export function TaskRow({
                 Not while it's timed: the check-in, focus screen and long-press
                 menu have them, and the row stays calm. */}
             {hero && !editing && !completed && !breakingDown && !session ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 6 }}>
+              // Wraps at the larger text sizes rather than running off the card.
+              <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 16, rowGap: 4, marginTop: 6 }}>
                 {actions.includes("breakDown") ? (
                   <Pressable
                     onPress={() => run("breakDown")}
