@@ -15,7 +15,8 @@ const draftOf = (tasks: string[], because = ""): TomorrowDraft => ({
   source: "local",
 });
 
-const row = (name: string) => screen.getByRole("checkbox", { name });
+// A checkbox, or a radio button when one slot makes it a pick-one choice.
+const row = (name: string) => screen.getByRole(/^(checkbox|radio)$/, { name });
 const checked = (name: string) => row(name).props.accessibilityState?.checked === true;
 const disabled = (name: string) => row(name).props.accessibilityState?.disabled === true;
 const useButton = () => screen.getByTestId("tomorrow-draft-use");

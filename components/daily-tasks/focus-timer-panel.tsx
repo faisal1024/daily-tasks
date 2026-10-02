@@ -40,6 +40,13 @@ import { getNotificationPermissionStatus } from "@/lib/daily-tasks/notifications
 
 const MAX_RING = 232;
 
+/**
+ * The timer's pill labels: one line that grows to 1.4× and then shrinks to
+ * fit (as the check-in's buttons), so two pills side by side never wrap or
+ * clip at the accessibility text sizes.
+ */
+const PILL_TEXT = { numberOfLines: 1, adjustsFontSizeToFit: true, maxFontSizeMultiplier: 1.4 } as const;
+
 interface FocusTimerPanelProps {
   /** The session, when it's on this task; null offers the lengths. */
   session: FocusSession | null;
@@ -213,7 +220,9 @@ export function FocusTimerPanel({
                 style={pill("surface")}
                 testID="focus-timer-cancel"
               >
-                <Text className="text-base font-semibold text-foreground">Cancel</Text>
+                <Text className="text-base font-semibold text-foreground" {...PILL_TEXT}>
+                  Cancel
+                </Text>
               </Pressable>
               <Pressable
                 onPress={startCustom}
@@ -223,7 +232,7 @@ export function FocusTimerPanel({
                 style={pill("primary")}
                 testID="focus-timer-start"
               >
-                <Text className="text-base font-bold" style={{ color: colors.onPrimary }}>
+                <Text className="text-base font-bold" style={{ color: colors.onPrimary }} {...PILL_TEXT}>
                   Start
                 </Text>
               </Pressable>
@@ -266,14 +275,17 @@ export function FocusTimerPanel({
         >
           {finished ? (
             // Time's up, not done: a full ring and words, never a green tick.
-            <Text
-              style={{ color: colors.muted, fontFamily: Fonts.rounded, fontSize: Math.round(clockFontSize * 0.7), fontWeight: "700" }}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              testID="focus-timer-times-up"
-            >
-              Time&apos;s up
-            </Text>
+            // Bounded by the ring, so a large text size shrinks it to fit.
+            <View className="items-center px-6" style={{ maxWidth: ringSize - 32 }}>
+              <Text
+                style={{ color: colors.muted, fontFamily: Fonts.rounded, fontSize: Math.round(clockFontSize * 0.7), fontWeight: "700" }}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                testID="focus-timer-times-up"
+              >
+                Time&apos;s up
+              </Text>
+            </View>
           ) : (
             <View className="items-center px-6" style={{ maxWidth: ringSize - 32 }}>
               <Text
@@ -299,7 +311,8 @@ export function FocusTimerPanel({
                 />
                 <Text
                   className="text-sm"
-                  style={{ color: colors.muted, fontVariant: ["tabular-nums"] }}
+                  // flexShrink: next to the icon it shrinks to fit the ring, not past it.
+                  style={{ color: colors.muted, fontVariant: ["tabular-nums"], flexShrink: 1 }}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                   maxFontSizeMultiplier={1.6}
@@ -331,7 +344,9 @@ export function FocusTimerPanel({
             style={pill("surface")}
             testID="focus-timer-stop"
           >
-            <Text className="text-base font-semibold text-foreground">Stop timer</Text>
+            <Text className="text-base font-semibold text-foreground" {...PILL_TEXT}>
+              Stop timer
+            </Text>
           </Pressable>
           {paused ? (
             <Pressable
@@ -345,7 +360,7 @@ export function FocusTimerPanel({
               style={pill("tint")}
               testID="focus-timer-resume"
             >
-              <Text className="text-base font-bold" style={{ color: colors.primaryInk }}>
+              <Text className="text-base font-bold" style={{ color: colors.primaryInk }} {...PILL_TEXT}>
                 Resume
               </Text>
             </Pressable>
@@ -361,7 +376,7 @@ export function FocusTimerPanel({
               style={pill("tint")}
               testID="focus-timer-pause"
             >
-              <Text className="text-base font-bold" style={{ color: colors.primaryInk }}>
+              <Text className="text-base font-bold" style={{ color: colors.primaryInk }} {...PILL_TEXT}>
                 Pause
               </Text>
             </Pressable>

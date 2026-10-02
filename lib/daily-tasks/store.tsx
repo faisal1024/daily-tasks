@@ -2029,6 +2029,16 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       else if (response.action === "extend") extendFocusSession();
       return;
     }
+    if (response.action === "break") {
+      // Take a break (a starter's Stop for now): the same path as the
+      // check-in's and the Live Activity's, so the session ends as a break
+      // (focus_session_ended { outcome: "break" }, the activity's "Timer
+      // ended") and the task stays open. Only at time's up, like the lock
+      // screen's button: an old notification's tap mustn't end a countdown
+      // that was extended meanwhile. Never ticks the task.
+      if (sessionPhase(session, Date.now()) === "ended") stopFocusSession("break");
+      return;
+    }
     if (current.todayCompletions.includes(session.taskId)) return;
     toggleTask(session.taskId);
     track("task_completed", { count: countCompleted(current) + 1, source: "notification" });

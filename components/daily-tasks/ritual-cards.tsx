@@ -128,6 +128,10 @@ export function TomorrowDraftCard({
     setTouched(next);
   };
 
+  // One slot and a choice of rows: picking one swaps it in, so VoiceOver
+  // hears them as a pick-one group (radio buttons); otherwise checkboxes.
+  const pickOne = room === 1 && draft.tasks.length > 1;
+
   const useLabel = allTicked ? (count === 1 ? "Use this" : "Use these") : `Add ${count}`;
 
   return (
@@ -160,6 +164,9 @@ export function TomorrowDraftCard({
       <View
         className="rounded-2xl border overflow-hidden"
         style={{ borderColor: colors.border, backgroundColor: colors.background }}
+        accessibilityRole={pickOne ? "radiogroup" : undefined}
+        accessibilityLabel={pickOne ? "Pick one for today" : undefined}
+        testID="tomorrow-draft-list"
       >
         {draft.tasks.map((text, index) => {
           const on = selectedSet.has(text);
@@ -171,7 +178,7 @@ export function TomorrowDraftCard({
               <Pressable
                 onPress={() => toggle(text)}
                 disabled={full}
-                accessibilityRole="checkbox"
+                accessibilityRole={pickOne ? "radio" : "checkbox"}
                 accessibilityState={{ checked: on, disabled: full }}
                 accessibilityLabel={text}
                 accessibilityHint={full ? "Untick another one first." : !on && room === 1 ? roomLine ?? undefined : undefined}

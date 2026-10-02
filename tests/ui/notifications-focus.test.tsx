@@ -57,6 +57,7 @@ describe("focus timer notification", () => {
     expect(mocked.setNotificationCategoryAsync).toHaveBeenCalledWith(FOCUS_CATEGORY_ID, [
       { identifier: "focus-extend", buttonTitle: "5 more minutes", options: { opensAppToForeground: true } },
       { identifier: "focus-done", buttonTitle: "Mark done", options: { opensAppToForeground: true } },
+      { identifier: "focus-break", buttonTitle: "Take a break", options: { opensAppToForeground: true } },
     ]);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledWith({
@@ -83,6 +84,7 @@ describe("focus timer notification", () => {
     expect(mocked.setNotificationCategoryAsync).toHaveBeenCalledWith(FOCUS_STARTER_CATEGORY_ID, [
       { identifier: "focus-keep-going", buttonTitle: "Keep going", options: { opensAppToForeground: true } },
       { identifier: "focus-done", buttonTitle: "Mark done", options: { opensAppToForeground: true } },
+      { identifier: "focus-break", buttonTitle: "Stop for now", options: { opensAppToForeground: true } },
     ]);
     expect(mocked.scheduleNotificationAsync).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -136,7 +136,7 @@ describe("One timer, on the task (real store)", () => {
     expect(screen.queryByTestId("now-bar")).toBeNull();
     expect(screen.getByTestId("task-timer-pause-t0")).toHaveTextContent(glyph("pause"));
     expect(left()).toHaveTextContent("5:00");
-    expect(pill().props.accessibilityLabel).toBe("Pause timer: Walk, 5 minutes left");
+    expect(pill().props.accessibilityLabel).toBe("Timer, 5 minutes left");
     // Exactly one countdown on Today.
     expect(screen.queryAllByText(/^\d+:\d\d/)).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Start a timer: Walk" })).toBeNull();
@@ -152,11 +152,11 @@ describe("One timer, on the task (real store)", () => {
     const slop = node.props.hitSlop as { top: number; bottom: number };
     expect(style.height + slop.top + slop.bottom).toBeGreaterThanOrEqual(44);
     expect(style.minWidth).toBeGreaterThanOrEqual(44);
-    expect(node.props.accessibilityValue).toEqual({ text: "Running" });
+    expect(node.props.accessibilityHint).toBe("Double-tap to pause");
     await advance(30_000);
     // 6:30 left reads as 7 minutes (rounded up), never seconds.
     expect(left()).toHaveTextContent("6:30");
-    expect(pill().props.accessibilityLabel).toBe("Pause timer: Walk, 7 minutes left");
+    expect(pill().props.accessibilityLabel).toBe("Timer, 7 minutes left");
   });
 
   it("tap pauses the store's session (▶, frozen time, Resume label, 'Paused'); tap again resumes and it counts down", async () => {
@@ -166,9 +166,9 @@ describe("One timer, on the task (real store)", () => {
     expect(screen.getByTestId("task-timer-play-t0")).toHaveTextContent(glyph("play"));
     expect(screen.queryByTestId("task-timer-pause-t0")).toBeNull();
     expect(left()).toHaveTextContent("7:00");
-    expect(pill().props.accessibilityLabel).toBe("Resume timer: Walk, 7 minutes left");
+    expect(pill().props.accessibilityLabel).toBe("Timer paused, 7 minutes left");
     expect(said()).toContain("Paused");
-    expect(pill().props.accessibilityValue).toEqual({ text: "Paused" });
+    expect(pill().props.accessibilityHint).toBe("Double-tap to resume");
     expect(screen.getByTestId("task-session-line-t0")).toHaveTextContent("Paused.");
     // Frozen while paused, and it never ends.
     await advance(10 * MIN);
@@ -179,7 +179,7 @@ describe("One timer, on the task (real store)", () => {
     await act(async () => {});
     expect(said()).toContain("Resumed");
     expect(screen.getByTestId("task-timer-pause-t0")).toBeOnTheScreen();
-    expect(pill().props.accessibilityLabel).toBe("Pause timer: Walk, 7 minutes left");
+    expect(pill().props.accessibilityLabel).toBe("Timer, 7 minutes left");
     await advance(2 * MIN);
     expect(left()).toHaveTextContent("5:00");
     // The pill never opens the focus screen while it runs.
@@ -280,7 +280,7 @@ describe("One timer, on the task (real store)", () => {
     await act(async () => {});
     expect(screen.queryByTestId("task-check-in-t0")).toBeNull();
     expect(left()).toHaveTextContent("20:00");
-    expect(pill().props.accessibilityLabel).toBe("Pause timer: Walk, 20 minutes left");
+    expect(pill().props.accessibilityLabel).toBe("Timer, 20 minutes left");
     // No longer a 5-minute starter: its "Just start" line is gone.
     expect(screen.queryByText(/Just start/)).toBeNull();
   });
@@ -322,7 +322,7 @@ describe("One timer, on the task (real store)", () => {
     expect(options.tintColor).toMatch(/^#/);
     await act(async () => pick(1));
     await act(async () => {});
-    expect(pill().props.accessibilityValue).toEqual({ text: "Paused" });
+    expect(pill().props.accessibilityHint).toBe("Double-tap to resume");
     // Like the pill: felt and said.
     expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
     expect(said()).toContain("Paused");
