@@ -51,7 +51,18 @@ const TASK: Task = {
 let appStateListeners: ((status: string) => void)[] = [];
 let said: () => string[];
 
+// The window as jest's react-native preset gives it, restored after each test.
+const ORIGINAL_WINDOW = Dimensions.get("window");
+const ORIGINAL_SCREEN = Dimensions.get("screen");
+/** Sets the text size (Dimensions' fontScale) for the next render. */
+function setWindowFontScale(fontScale: number) {
+  Dimensions.set({ window: { ...ORIGINAL_WINDOW, fontScale }, screen: { ...ORIGINAL_SCREEN, fontScale } });
+}
+
 beforeEach(async () => {
+  // Explicit, not inherited: every test runs at fontScale 2 (an accessibility
+  // size, where the start line folds away) unless it sets its own.
+  setWindowFontScale(2);
   jest.useFakeTimers({ now: START });
   appStateListeners = [];
   jest.spyOn(AppState, "addEventListener").mockImplementation(((_type: string, listener: (s: string) => void) => {
@@ -67,6 +78,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  Dimensions.set({ window: ORIGINAL_WINDOW, screen: ORIGINAL_SCREEN });
   jest.useRealTimers();
   jest.restoreAllMocks();
   jest.clearAllMocks();
@@ -101,10 +113,9 @@ const pick = (name: string) => fireEvent.press(screen.getByRole("button", { name
 
 describe("FocusMode", () => {
   it("shows the task, its start line and its steps; a step calls onToggleStep with its id", async () => {
-    // At the default text size (the jest window's fontScale is 2, an AX size,
-    // where the start line folds away).
-    const original = Dimensions.get("window");
-    Dimensions.set({ window: { ...original, fontScale: 1 }, screen: { ...original, fontScale: 1 } });
+    // At the default text size (the suite's fontScale 2 is an AX size, where
+    // the start line folds away). Restored in afterEach, even on failure.
+    setWindowFontScale(1);
     const { onToggleStep } = await renderFocus();
     expect(screen.getByTestId("focus-mode")).toBeOnTheScreen();
     expect(screen.getByRole("header", { name: "Focus: Walk the dog" })).toHaveTextContent("Walk the dog");
@@ -115,7 +126,8 @@ describe("FocusMode", () => {
     await fireEvent.press(screen.getByRole("checkbox", { name: "Step 1 of 2: Find the lead" }));
     expect(onToggleStep).toHaveBeenCalledTimes(1);
     expect(onToggleStep).toHaveBeenCalledWith("s1");
-    Dimensions.set({ window: original, screen: original });
+    // Shown, so it isn't repeated in the title's hint.
+    expect(screen.getByTestId("focus-task-text").props.accessibilityHint).toBeUndefined();
   });
 
   it("says All steps done. once every step is ticked", async () => {
@@ -422,14 +434,8 @@ describe("FocusMode", () => {
 // PR #83: at the accessibility text sizes (fontScale 1.6 and up) the start line
 // folds away and the title stops at three lines, so the timer stays in view.
 describe("FocusMode at large text sizes", () => {
-  const original = Dimensions.get("window");
-  const setFontScale = (fontScale: number) =>
-    act(async () => {
-      Dimensions.set({ window: { ...original, fontScale }, screen: { ...original, fontScale } });
-    });
-  afterEach(async () => {
-    await setFontScale(original.fontScale);
-  });
+  // Restored by the suite's afterEach.
+  const setFontScale = (fontScale: number) => act(async () => setWindowFontScale(fontScale));
 
   it.each([
     [1, true],
@@ -440,6 +446,13 @@ describe("FocusMode at large text sizes", () => {
     await setFontScale(fontScale);
     await renderFocus();
     expect(screen.queryByTestId("focus-start-line") !== null).toBe(shown);
+  });
+
+  it("keeps the folded start line for VoiceOver, in the title's hint", async () => {
+    await setFontScale(3);
+    await renderFocus();
+    expect(screen.queryByTestId("focus-start-line")).toBeNull();
+    expect(screen.getByTestId("focus-task-text")).toHaveProp("accessibilityHint", "Find the lead by the door.");
   });
 
   it("the title stops at three lines (capped growth), with the full text in its label", async () => {

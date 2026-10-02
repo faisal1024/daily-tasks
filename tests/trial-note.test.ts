@@ -215,7 +215,7 @@ describe("trialNoteCopy", () => {
 
   it("says whether the trial renews", () => {
     expect(trialNoteCopy(none, TRIAL, now).body).toMatch(
-      / Your trial ends \w+, then Plus continues as your subscription\. If it's not for you, cancel at least a day before with Manage below\.$/,
+      / Your trial ends \w+, then Plus continues as your subscription\. Not for you\? Cancel at least 24 hours before with Manage below\.$/,
     );
     expect(trialNoteCopy(none, { ...TRIAL, willRenew: false }, now).body).toMatch(
       / Your trial ends \w+ and won't renew\. Your three tasks stay free after that\.$/,
@@ -238,63 +238,84 @@ describe("trialNoteCopy", () => {
   });
 });
 
-// PR #83: the renewing line names the price the store knows, and the day to
-// cancel by (the day before the end, in local calendar days).
+// PR #83: the renewing line names the price the store knows. Apple renews
+// unless cancelled at least 24 hours before the end, so the cancel line says
+// exactly that, and disappears inside the final 24 hours (no promise the
+// store can't keep).
 describe("trialNoteCopy with a renewal price", () => {
   const PRICE = { priceString: "$29.99", period: "year" };
-  const weekday = (date: Date) => date.toLocaleDateString(undefined, { weekday: "long" });
+  const CANCEL = "Not for you? Cancel at least 24 hours before with Manage below.";
   const endAt = (y: number, m: number, d: number, h: number, min = 0) => new Date(y, m, d, h, min).toISOString();
+  const copyAt = (end: string, now: number, price: typeof PRICE | null = PRICE) =>
+    trialNoteCopy(none, { ...TRIAL, endsAt: end }, now, price).body;
 
-  it("names the price and the weekday before the end; without a price, the old line", () => {
-    // Ends Thursday 8 Oct 09:00; on Monday 5 Oct the day to cancel by is Wednesday 7 Oct.
+  it("names the price and the 24-hour cancel rule; without a price, the same rule", () => {
     const monday = new Date(2026, 9, 5, 9, 0).getTime();
     const body = trialNoteCopy(none, TRIAL, monday, PRICE).body;
-    expect(body).toMatch(
-      new RegExp(
-        ` Your trial ends ${weekday(new Date(END))}, then Plus renews at \\$29\\.99/year\\. Not for you\\? Cancel by ${weekday(new Date(2026, 9, 7))} with Manage below\\.$`,
-      ),
+    expect(body.endsWith(
+      ` Your trial ends ${new Date(END).toLocaleDateString(undefined, { weekday: "long" })}, then Plus renews at $29.99/year. ${CANCEL}`,
+    )).toBe(true);
+    expect(trialNoteCopy(none, TRIAL, monday, null).body).toMatch(
+      /then Plus continues as your subscription\. Not for you\? Cancel at least 24 hours before with Manage below\.$/,
     );
-    expect(trialNoteCopy(none, TRIAL, monday, null).body).toMatch(/then Plus continues as your subscription\. If it's not for you, cancel at least a day before/);
     // A cancelled trial never names a price, even if one is passed.
     expect(trialNoteCopy(none, { ...TRIAL, willRenew: false }, monday, PRICE).body).toMatch(/won't renew\. Your three tasks stay free after that\.$/);
+    // Never names a "cancel by" day.
+    expect(body).not.toMatch(/Cancel by|Cancel today/);
   });
 
-  it("says Cancel by tomorrow / Cancel today around the end (local calendar days)", () => {
-    const copyAt = (end: string, now: Date) => trialNoteCopy(none, { ...TRIAL, endsAt: end }, now.getTime(), PRICE).body;
-    // Ends in two days: cancel by tomorrow.
-    expect(copyAt(endAt(2026, 9, 8, 9), new Date(2026, 9, 6, 20))).toContain("Not for you? Cancel by tomorrow with Manage below.");
-    // Ends tomorrow (even just after midnight): cancel today.
-    expect(copyAt(endAt(2026, 9, 8, 9), new Date(2026, 9, 7, 8))).toContain("Not for you? Cancel today with Manage below.");
-    expect(copyAt(endAt(2026, 9, 8, 0, 30), new Date(2026, 9, 7, 23, 50))).toContain("Cancel today with");
-    // Ends later today: still "today", never a past day.
-    expect(copyAt(endAt(2026, 9, 8, 23), new Date(2026, 9, 8, 8))).toContain("Cancel today with");
-    // A week or more away: the full date.
-    const far = copyAt(endAt(2026, 9, 20, 9), new Date(2026, 9, 5, 9));
-    expect(far).toContain(
-      `Cancel by ${new Date(2026, 9, 19).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} with`,
-    );
+  it("drops the cancel line inside the final 24 hours (price and no-price)", () => {
+    const end = endAt(2026, 9, 8, 9);
+    const endMs = new Date(end).getTime();
+    // Just over 24 hours before: still offered.
+    expect(copyAt(end, endMs - DAY - 60_000)).toContain(CANCEL);
+    expect(copyAt(end, endMs - DAY - 60_000, null)).toContain(CANCEL);
+    // Exactly 24 hours before, and later: no cancel promise.
+    for (const now of [endMs - DAY, endMs - DAY + 1, endMs - 60 * 60_000]) {
+      expect(copyAt(end, now)).not.toContain("Cancel");
+      expect(copyAt(end, now, null)).not.toContain("Cancel");
+    }
+    // Wording inside the window: ends tomorrow / today, then renews.
+    expect(copyAt(end, new Date(2026, 9, 7, 20).getTime())).toMatch(/ Your trial ends tomorrow, then Plus renews at \$29\.99\/year\.$/);
+    expect(copyAt(end, new Date(2026, 9, 8, 7).getTime())).toMatch(/ Your trial ends today, then Plus renews at \$29\.99\/year\.$/);
+    expect(copyAt(end, new Date(2026, 9, 8, 7).getTime(), null)).toMatch(/ Your trial ends today, then Plus continues as your subscription\.$/);
   });
 
-  it("counts the day before in calendar days across a daylight-saving change", () => {
+  it("on the end day, offers no cancel line even early in the morning", () => {
+    // Ends 23:00 today; at 08:00 it's 15 hours away.
+    expect(copyAt(endAt(2026, 9, 8, 23), new Date(2026, 9, 8, 8).getTime())).toMatch(/ends today, then Plus renews at \$29\.99\/year\.$/);
+  });
+
+  it("a 3-day trial: the cancel line on day 1 and 2, gone in the last 24 hours", () => {
+    const start = new Date(2026, 9, 5, 9).getTime();
+    const end = new Date(start + 3 * DAY).toISOString();
+    expect(copyAt(end, start + 60_000)).toContain(CANCEL);
+    expect(copyAt(end, start + DAY + 60 * 60_000)).toContain(CANCEL);
+    expect(copyAt(end, start + 2 * DAY + 60 * 60_000)).not.toContain("Cancel");
+  });
+
+  it("uses real elapsed time (not calendar days) across a daylight-saving change", () => {
     const original = process.env.TZ;
     process.env.TZ = "America/New_York";
     try {
       // The zone really changed (DST ends 1 Nov 2026 in New York), so this isn't vacuous.
       expect(new Date(2026, 10, 1, 0).getTimezoneOffset()).not.toBe(new Date(2026, 10, 2, 0).getTimezoneOffset());
-      const copyAt = (end: string, now: Date) =>
-        trialNoteCopy(none, { ...TRIAL, endsAt: end }, now.getTime(), PRICE).body;
-      // Fall back (a 25-hour Sun 1 Nov): ends Sun 1 Nov 23:30, so the day
-      // before is Sat 31 Oct (24 hours earlier would still be Sunday).
-      expect(copyAt(endAt(2026, 10, 1, 23, 30), new Date(2026, 9, 31, 10))).toContain("Cancel today with");
-      expect(copyAt(endAt(2026, 10, 1, 23, 30), new Date(2026, 9, 30, 10))).toContain("Cancel by tomorrow with");
-      // Spring forward (a 23-hour Sun 14 Mar 2027): ends Mon 15 Mar 00:30, so
-      // the day before is Sunday (24 hours earlier would be Saturday).
-      expect(copyAt(endAt(2027, 2, 15, 0, 30), new Date(2027, 2, 13, 9))).toContain("Cancel by tomorrow with");
-      expect(copyAt(endAt(2027, 2, 15, 0, 30), new Date(2027, 2, 14, 9))).toContain("Cancel today with");
-      // Ends 02:30 Mon: 02:30 on Sun 14 Mar doesn't exist, but it's still Sunday.
-      expect(copyAt(endAt(2027, 2, 15, 2, 30), new Date(2027, 2, 10, 9))).toContain(
-        `Cancel by ${weekday(new Date(2027, 2, 14, 12))} with`,
-      );
+      // Fall back (a 25-hour Sun 1 Nov): ends Mon 2 Nov 00:30. Sat 31 Oct
+      // 23:45 local is 25h45m before the end, so cancelling is still possible
+      // although the wall clock says less than a day plus an hour.
+      const fallEnd = endAt(2026, 10, 2, 0, 30);
+      expect(copyAt(fallEnd, new Date(2026, 9, 31, 23, 45).getTime())).toContain(CANCEL);
+      // Sun 1 Nov 00:15 local is 25h15m before: still offered; 01:45 (second, EST) isn't.
+      expect(copyAt(fallEnd, new Date(fallEnd).getTime() - DAY - 15 * 60_000)).toContain(CANCEL);
+      expect(copyAt(fallEnd, new Date(2026, 10, 1, 1, 0).getTime() + 2 * 60 * 60_000)).not.toContain("Cancel");
+      // Spring forward (a 23-hour Sun 14 Mar 2027): ends Mon 15 Mar 00:30.
+      // Sun 14 Mar 00:15 local is only 23h15m before: no cancel line, even
+      // though the wall-clock date is "the day before".
+      const springEnd = endAt(2027, 2, 15, 0, 30);
+      expect(copyAt(springEnd, new Date(2027, 2, 14, 0, 15).getTime())).not.toContain("Cancel");
+      // Sat 13 Mar 23:45 is 23h45m before too (the lost hour); 22:00 is 25h30m.
+      expect(copyAt(springEnd, new Date(2027, 2, 13, 23, 45).getTime())).not.toContain("Cancel");
+      expect(copyAt(springEnd, new Date(2027, 2, 13, 22, 0).getTime())).toContain(CANCEL);
     } finally {
       if (original === undefined) delete process.env.TZ;
       else process.env.TZ = original;

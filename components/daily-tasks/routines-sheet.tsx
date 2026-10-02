@@ -303,6 +303,9 @@ function SmallButton({
   );
 }
 
+/** Cancel and Save stop growing at 2x, so the title between them keeps its room. */
+const HEADER_BUTTON_MAX_FONT = 2;
+
 function RoutineEditor({
   initial,
   onCancel,
@@ -362,7 +365,7 @@ function RoutineEditor({
           hitSlop={10}
           style={{ minHeight: 44, justifyContent: "center", flexShrink: 0 }}
         >
-          <Text className="text-base" style={{ color: colors.primary }}>
+          <Text className="text-base" style={{ color: colors.primary }} maxFontSizeMultiplier={HEADER_BUTTON_MAX_FONT}>
             Cancel
           </Text>
         </Pressable>
@@ -398,6 +401,8 @@ function RoutineEditor({
             className="text-base font-bold"
             // Disabled reads as disabled: muted and dimmed, not a paler tint.
             style={{ color: canSave ? colors.primary : colors.muted, opacity: canSave ? 1 : 0.45 }}
+            maxFontSizeMultiplier={HEADER_BUTTON_MAX_FONT}
+            testID="routine-save-label"
           >
             Save
           </Text>

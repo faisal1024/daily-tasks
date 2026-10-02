@@ -92,6 +92,17 @@ describe("TomorrowDraftCard", () => {
     expect(onUse).not.toHaveBeenCalled();
   });
 
+  // PR #83 review: with one slot (radio buttons) and nothing picked, the
+  // prompt says "Pick one", not "Tick the ones you want".
+  it("with one slot and nothing picked, asks to pick one", async () => {
+    const draft = draftOf(["Walk", "Read"]);
+    const { props, rerender } = await renderCard(draft, 3);
+    await fireEvent.press(row("Walk"));
+    await fireEvent.press(row("Read"));
+    await rerender(<TomorrowDraftCard {...props} remainingSlots={1} />);
+    expect(hint()).toHaveTextContent("Pick one, or tap Change to start over.");
+  });
+
   it("after a toggle, room shrinking only trims (draft order) and growing ticks nothing back", async () => {
     const draft = draftOf(["Walk", "Read", "Stretch"]);
     const { onUse, props, rerender } = await renderCard(draft, 3);

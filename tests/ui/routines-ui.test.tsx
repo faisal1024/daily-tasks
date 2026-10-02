@@ -271,6 +271,9 @@ describe("RoutinesSheet: the day picker", () => {
   it("keeps the title to two lines (shrinking to fit) between Cancel and Save", async () => {
     await openEditor();
     expect(screen.getByRole("header", { name: "New routine" })).toHaveProp("numberOfLines", 2);
+    // Cancel and Save stop at 2x so the title keeps its room at AX sizes.
+    expect(screen.getByText("Cancel")).toHaveProp("maxFontSizeMultiplier", 2);
+    expect(screen.getByTestId("routine-save-label")).toHaveProp("maxFontSizeMultiplier", 2);
   });
 });
 

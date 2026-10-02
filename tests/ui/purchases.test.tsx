@@ -26,6 +26,7 @@ const mockSdk = {
   removeCustomerInfoUpdateListener: jest.fn(),
   presentCodeRedemptionSheet: jest.fn(),
   getProducts: jest.fn(),
+  PRODUCT_CATEGORY: { SUBSCRIPTION: "SUBSCRIPTION", NON_SUBSCRIPTION: "NON_SUBSCRIPTION" },
 };
 jest.mock("react-native-purchases", () => ({ __esModule: true, default: mockSdk }));
 
@@ -497,7 +498,19 @@ describe("fetchRenewalPrice (the trial note's price)", () => {
   it("otherwise asks the store for that product", async () => {
     mockSdk.getProducts.mockResolvedValue([product("other", "P1M", "$1"), product("plus_monthly", "P1M", "$4.99")]);
     expect(await fetchRenewalPrice("plus_monthly")).toEqual({ priceString: "$4.99", period: "month" });
-    expect(mockSdk.getProducts).toHaveBeenCalledWith(["plus_monthly"]);
+    // Looked up as a subscription on iOS.
+    expect(mockSdk.getProducts).toHaveBeenCalledWith(["plus_monthly"], "SUBSCRIPTION");
+  });
+
+  it("asks the store when the paywall's cached product has no subscription period", async () => {
+    mockSdk.getOfferings.mockResolvedValue({
+      current: { availablePackages: [{ ...ANNUAL, product: { ...ANNUAL.product, subscriptionPeriod: null } }] },
+    });
+    mockSdk.checkTrialOrIntroductoryPriceEligibility.mockResolvedValue({});
+    await loadPackages();
+    mockSdk.getProducts.mockResolvedValue([product("plus_annual", "P1Y", "$29.99")]);
+    expect(await fetchRenewalPrice("plus_annual")).toEqual({ priceString: "$29.99", period: "year" });
+    expect(mockSdk.getProducts).toHaveBeenCalledWith(["plus_annual"], "SUBSCRIPTION");
   });
 
   it.each([

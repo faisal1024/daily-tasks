@@ -44,7 +44,11 @@ interface FocusModeProps {
   otherTimerText?: string | null;
 }
 
-/** iOS's accessibility text sizes (AX1 and up) start around 1.6x. */
+/**
+ * The accessibility text sizes (AX1 and up). iOS's fontScale is about 1.35 at
+ * the largest standard size (xxxL) and about 1.79 at AX1, so 1.6 sits
+ * between them: AX1 and up, never xxxL.
+ */
 const FOCUS_AX_FONT_SCALE = 1.6;
 /** The title and footer never grow past this, so the timer stays in view. */
 const FOCUS_MAX_FONT_MULTIPLIER = 1.6;
@@ -180,6 +184,8 @@ export function FocusMode({
             <Text
               accessibilityRole="header"
               accessibilityLabel={`Focus: ${task.text}`}
+              // At the accessibility sizes the start line folds away; VoiceOver still hears it.
+              accessibilityHint={startLine && largeText ? startLine : undefined}
               style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 28, fontWeight: "700", lineHeight: 36 }}
               // Three lines at most (the full text is in its label), so a long
               // task at a large size can't push the timer off the screen.

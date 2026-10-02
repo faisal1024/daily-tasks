@@ -483,7 +483,8 @@ export function PaywallSheet({
             </Pressable>
           )}
 
-          <View className="flex-row justify-center gap-5">
+          {/* Wraps at large text sizes (a row gap between the lines) instead of clipping. */}
+          <View className="flex-row flex-wrap justify-center gap-x-5 gap-y-3" testID="paywall-footer">
             <Pressable
               onPress={() => void restore()}
               disabled={busy !== null}

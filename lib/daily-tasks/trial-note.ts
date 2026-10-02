@@ -114,12 +114,19 @@ export function trialEndDay(endsAt: string, now: number): string {
   return end.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 }
 
-/** "Not for you? Cancel by Friday with Manage below." (the day before the end). */
-function cancelBy(endsAt: string, now: number): string {
-  const end = new Date(endsAt);
-  const dayBefore = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1, end.getHours(), end.getMinutes());
-  const day = trialEndDay(dayBefore.toISOString(), now);
-  return day === "today" ? "Not for you? Cancel today with Manage below." : `Not for you? Cancel by ${day} with Manage below.`;
+/**
+ * Apple renews an auto-renewable subscription unless it's cancelled at least
+ * 24 hours before the period ends, so the note only offers a cancel line
+ * while that's still possible. Inside the final 24 hours it says nothing
+ * about cancelling (Manage stays on the note either way).
+ */
+const RENEWAL_CUTOFF_MS = 24 * 60 * 60_000;
+
+/** "Not for you? Cancel at least 24 hours before with Manage below.", or "" inside the final 24 hours. */
+function cancelLine(endsAt: string, now: number): string {
+  const end = new Date(endsAt).getTime();
+  if (!Number.isFinite(end) || now >= end - RENEWAL_CUTOFF_MS) return "";
+  return " Not for you? Cancel at least 24 hours before with Manage below.";
 }
 
 export interface TrialNoteCopy {
@@ -150,8 +157,8 @@ export function trialNoteCopy(
   const day = trialEndDay(trial.endsAt, now);
   const ends = trial.willRenew
     ? price
-      ? `Your trial ends ${day}, then Plus renews at ${price.priceString}/${price.period}. ${cancelBy(trial.endsAt, now)}`
-      : `Your trial ends ${day}, then Plus continues as your subscription. If it's not for you, cancel at least a day before with Manage below.`
+      ? `Your trial ends ${day}, then Plus renews at ${price.priceString}/${price.period}.${cancelLine(trial.endsAt, now)}`
+      : `Your trial ends ${day}, then Plus continues as your subscription.${cancelLine(trial.endsAt, now)}`
     : `Your trial ends ${day} and won't renew. Your three tasks stay free after that.`;
   return { title: "Your Plus trial", body: `${what} ${ends}` };
 }

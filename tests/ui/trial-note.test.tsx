@@ -182,15 +182,39 @@ describe("TrialNote: the renewal price", () => {
     fetchPrice.mockImplementation(async () => null);
   });
 
-  it("asks for the trial's product and names its price, with the day to cancel by", async () => {
+  it("asks for the trial's product and names its price, with the 24-hour cancel rule", async () => {
     mockTrial = { ...dayFiveTrial(), productId: "plus_annual" };
     fetchPrice.mockResolvedValueOnce({ priceString: "$29.99", period: "year" });
     await launch();
     expect(fetchPrice).toHaveBeenCalledWith("plus_annual");
-    // Ends in two days: the day before is tomorrow.
+    // Ends in two days: cancelling is still possible.
     expect(screen.getByTestId("trial-note")).toHaveTextContent(
-      /then Plus renews at \$29\.99\/year\. Not for you\? Cancel by tomorrow with Manage below\./,
+      /then Plus renews at \$29\.99\/year\. Not for you\? Cancel at least 24 hours before with Manage below\./,
     );
+  });
+
+  it("shows the no-price line at once and upgrades when the price arrives", async () => {
+    mockTrial = { ...dayFiveTrial(), productId: "plus_annual" };
+    let resolvePrice: (price: { priceString: string; period: string }) => void = () => {};
+    fetchPrice.mockImplementationOnce(() => new Promise((resolve) => (resolvePrice = resolve)));
+    await launch();
+    // The lookup hasn't answered: the note is already up, without a price.
+    expect(screen.getByTestId("trial-note")).toHaveTextContent(/then Plus continues as your subscription\./);
+    expect(shownEvents()).toHaveLength(1);
+    await act(async () => resolvePrice({ priceString: "$29.99", period: "year" }));
+    expect(screen.getByTestId("trial-note")).toHaveTextContent(/then Plus renews at \$29\.99\/year\./);
+    // Still counted once.
+    expect(shownEvents()).toHaveLength(1);
+  });
+
+  it("doesn't bring a dismissed note back when the price arrives late", async () => {
+    mockTrial = { ...dayFiveTrial(), productId: "plus_annual" };
+    let resolvePrice: (price: { priceString: string; period: string }) => void = () => {};
+    fetchPrice.mockImplementationOnce(() => new Promise((resolve) => (resolvePrice = resolve)));
+    await launch();
+    await fireEvent.press(screen.getByTestId("trial-note-manage"));
+    await act(async () => resolvePrice({ priceString: "$29.99", period: "year" }));
+    expect(screen.queryByTestId("trial-note")).toBeNull();
   });
 
   it("keeps the old line when the price is unknown or the lookup rejects", async () => {

@@ -316,18 +316,28 @@ function toRenewalPrice(product: { priceString?: string; subscriptionPeriod?: st
 
 /**
  * What the subscribed product renews at, for the trial note: from the
- * packages the paywall loaded when it's one of them, else the store (capped
+ * packages the paywall loaded when it's one of them (and that cached product
+ * carries a subscription period), else the store as a subscription (capped
  * at RENEWAL_PRICE_LOOKUP_MS). Never throws; null when unknown.
+ *
+ * Known, accepted gap: this is the product's current regular price. A
+ * pending downgrade/crossgrade (renews into a different product) or a price
+ * Apple preserved for this subscriber after a price change can differ, and
+ * the note would still name the current product's regular price.
  */
 export async function fetchRenewalPrice(productId: string | null | undefined): Promise<RenewalPrice | null> {
   if (!productId) return null;
   for (const pkg of sdkPackages.values()) {
-    if (pkg.product.identifier === productId) return toRenewalPrice(pkg.product);
+    // Only a cached product that knows its period; otherwise ask the store.
+    if (pkg.product.identifier === productId && pkg.product.subscriptionPeriod) return toRenewalPrice(pkg.product);
   }
   const sdk = loadSdk();
   if (!configured || !sdk || typeof sdk.default.getProducts !== "function") return null;
   try {
-    const products = await withTimeout(sdk.default.getProducts([productId]), RENEWAL_PRICE_LOOKUP_MS);
+    // As a subscription on iOS (the SDK's own default differs by platform).
+    const category = Platform.OS === "ios" ? sdk.default.PRODUCT_CATEGORY?.SUBSCRIPTION : undefined;
+    const lookup = category ? sdk.default.getProducts([productId], category) : sdk.default.getProducts([productId]);
+    const products = await withTimeout(lookup, RENEWAL_PRICE_LOOKUP_MS);
     return toRenewalPrice(products?.find((product) => product.identifier === productId));
   } catch {
     return null;

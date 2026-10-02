@@ -389,6 +389,14 @@ describe("TaskRow: steps and Break it down", () => {
     expect(screen.queryByText(repeat, hidden)).toBeNull();
   });
 
+  it("strikes through a completed routine task's words but not its repeat glyph", async () => {
+    const hidden = { includeHiddenElements: true };
+    await render(<TaskRow {...props()} task={{ ...base, routineId: "r1" }} completed />);
+    const glyph = screen.getByTestId("task-routine-t1", hidden);
+    expect(glyph).toHaveStyle({ textDecorationLine: "none" });
+    expect(glyph.parent).toHaveStyle({ textDecorationLine: "line-through" });
+  });
+
   it("hides the steps once the task is done", async () => {
     const { rerender } = await render(<TaskRow {...props()} task={withSteps} />);
     expect(screen.getByTestId("steps-t1")).toBeOnTheScreen();

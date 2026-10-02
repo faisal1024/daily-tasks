@@ -399,7 +399,8 @@ export function TaskRow({
                   {task.text}
                   {task.routineId ? (
                     // A small repeat glyph after the words, as in Ideas.
-                    <Text style={{ fontWeight: "400" }} testID={`task-routine-${task.id}`}>
+                    // Never struck through with a completed title (it's a marker, not words).
+                    <Text style={{ fontWeight: "400", textDecorationLine: "none" }} testID={`task-routine-${task.id}`}>
                       {" "}
                       <Ionicons name="repeat" size={Math.round(textSize * 0.8)} color={colors.muted} />
                     </Text>

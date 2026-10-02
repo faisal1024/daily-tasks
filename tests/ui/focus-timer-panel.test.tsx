@@ -259,7 +259,16 @@ describe("FocusTimerPanel: custom length", () => {
     expect(remaining()).toHaveTextContent("3:00:00");
   });
 
-  it("iOS: after the wheel mounts its value is nudged on a second, a frame later and again a moment later, never back (UIKit first-spin quirk)", async () => {
+  // PR #83 review: the settle nudge follows the wrapper's first layout (+ a
+  // frame) rather than a fixed 250 ms, so a slow native mount can't outlast it.
+  const layOut = async () =>
+    act(async () => {
+      fireEvent(screen.getByTestId("focus-timer-wheel-frame"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 216 } },
+      });
+    });
+
+  it("iOS: the wheel is nudged on a second a frame after mounting and a frame after its first layout, never back (UIKit first-spin quirk)", async () => {
     Platform.OS = "ios";
     const frames: FrameRequestCallback[] = [];
     jest.spyOn(global, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
@@ -275,8 +284,42 @@ describe("FocusTimerPanel: custom length", () => {
     await act(async () => frames.shift()?.(0));
     expect(wheelTime()).toBe(mounted + 1000);
     expect(frames).toHaveLength(0);
-    await advance(250);
+    // No fixed timer: however long the native mount takes, nothing moves until layout.
+    await advance(5000);
+    expect(wheelTime()).toBe(mounted + 1000);
+    // First layout, then one frame: the second nudge (forward again).
+    await layOut();
+    expect(wheelTime()).toBe(mounted + 1000);
+    expect(frames).toHaveLength(1);
+    await act(async () => frames.shift()?.(0));
     expect(wheelTime()).toBe(mounted + 2000);
+    // Later layouts (a size change) don't nudge again.
+    await layOut();
+    expect(frames).toHaveLength(0);
+    expect(wheelTime()).toBe(mounted + 2000);
+  });
+
+  it("iOS: a fast first spin before the layout nudge isn't fought (the late nudge stands down)", async () => {
+    Platform.OS = "ios";
+    const frames: FrameRequestCallback[] = [];
+    jest.spyOn(global, "requestAnimationFrame").mockImplementation((cb: FrameRequestCallback) => {
+      frames.push(cb);
+      return frames.length;
+    });
+    const { onStart } = await renderPanel();
+    await press("Custom timer");
+    const wheelTime = () => (screen.getByTestId("focus-timer-wheel").props.value as Date).getTime();
+    await act(async () => frames.shift()?.(0));
+    await layOut();
+    // The user spins to 0:40 before the layout frame lands.
+    await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(0, 40)));
+    const spun = wheelTime();
+    await act(async () => frames.shift()?.(0));
+    expect(wheelTime()).toBe(spun);
+    const value = screen.getByTestId("focus-timer-wheel").props.value as Date;
+    expect(value.getHours() * 60 + value.getMinutes()).toBe(40);
+    await press("Start");
+    expect(onStart).toHaveBeenCalledWith(40);
   });
 
   it("Android: a stepper instead of the wheel, in steps of 5 within 1–180", async () => {
@@ -653,8 +696,13 @@ describe("FocusTimerPanel: the custom wheel waits for the stored length (PR #83)
     expect(screen.queryByTestId("focus-timer-wheel-loading")).toBeNull();
     expect(wheelMinutes()).toBe(45);
     expect(startHint()).toBe("Starts a timer for 45 minutes");
-    // The mount frame and the 250 ms settle each move only the seconds.
+    // The mount frame and the layout frame each move only the seconds.
     const mounted = (screen.getByTestId("focus-timer-wheel").props.value as Date).getTime();
+    await act(async () => {
+      fireEvent(screen.getByTestId("focus-timer-wheel-frame"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 216 } },
+      });
+    });
     await advance(300);
     expect((screen.getByTestId("focus-timer-wheel").props.value as Date).getTime()).toBe(mounted + 2000);
     expect(wheelMinutes()).toBe(45);

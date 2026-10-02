@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { morningPerspective } from "@/lib/daily-tasks/evening";
+import { numberWord } from "@/lib/daily-tasks/number-word";
 import type { TomorrowDraft } from "@/lib/daily-tasks/types";
 
 /**
@@ -114,18 +115,18 @@ export function TomorrowDraftCard({
   // More drafted than there's room for: say so (above the list), and let them pick.
   const roomLine =
     draft.tasks.length > room ? (room === 1 ? "Room for one more today. Pick which." : `Room for ${room} more today. Pick which.`) : null;
-  const otherWords = ["", "one", "two", "three"];
   const savedLine =
     pickOne && count === 1 && skipped > 0
       ? skipped === 1
         ? "The other one is saved for later."
-        : `The other ${otherWords[skipped] ?? skipped} are saved for later.`
+        : `The other ${numberWord(skipped)} are saved for later.`
       : count === 0
-      ? "Tick the ones you want, or tap Change to start over."
+        ? pickOne
+          ? "Pick one, or tap Change to start over."
+          : "Tick the ones you want, or tap Change to start over."
       : skipped > 0
         ? `${skipped === 1 ? "The unticked one is saved for later." : "Unticked ones are saved for later."}${count < room ? " Fill the rest after." : ""}`
         : null;
-
 
   const toggle = (text: string) => {
     let next: string[];

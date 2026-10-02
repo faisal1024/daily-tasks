@@ -465,4 +465,11 @@ describe("PaywallSheet: price prominence and order (PR #83)", () => {
     expect(within(screen.getByTestId("paywall-plan-annual")).getByTestId("paywall-price-annual")).toBeOnTheScreen();
     expect(screen.getByRole("link", { name: "Terms of Use" })).toBeOnTheScreen();
   });
+
+  it("the footer links wrap (with a row gap) at large text sizes instead of clipping", async () => {
+    await renderSheet(setup());
+    const footer = screen.getByTestId("paywall-footer");
+    expect(footer).toHaveProp("className", expect.stringContaining("flex-wrap"));
+    expect(footer).toHaveProp("className", expect.stringContaining("gap-y-3"));
+  });
 });
