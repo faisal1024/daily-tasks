@@ -568,7 +568,7 @@ export default function SettingsScreen() {
         <Section
           icon="repeat-outline"
           title="Routines"
-          subtitle="Things you do on repeat, waiting in Ideas on their days."
+          subtitle="Things you do on repeat, shown on Today on their days."
         >
           <Pressable
             onPress={() => setRoutinesOpen(true)}
@@ -821,7 +821,7 @@ function HelpRow({
 }
 
 function routinesSummary(count: number, paused: number): string {
-  if (count === 0) return "Things you do on repeat, suggested in Ideas on their days.";
+  if (count === 0) return "Things you do on repeat, suggested on Today on their days.";
   const base = `${count} ${count === 1 ? "routine" : "routines"}`;
   return paused > 0 ? `${base} · ${paused} paused` : base;
 }

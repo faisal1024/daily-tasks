@@ -1,12 +1,13 @@
 // The routines sheet wired to the store and the paywall (1.3), so Settings
-// and Today (from the Ideas sheet) open the same thing. At the free limit
+// and Today (its routines card's Edit, and the Ideas sheet) open the same thing. At the free limit
 // "Add a routine" closes the sheet and opens the paywall; once that closes,
 // the sheet comes back: straight into "New routine" after a purchase,
 // otherwise the list the user was on.
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { RoutinesSheet } from "@/components/daily-tasks/routines-sheet";
 import { usePaywallGate } from "@/hooks/use-paywall-gate";
+import { useTodaysRoutines } from "@/hooks/use-todays-routines";
 import { track } from "@/lib/daily-tasks/analytics";
 import { FREE_ROUTINE_LIMIT } from "@/lib/daily-tasks/routines";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
@@ -26,7 +27,13 @@ export function RoutinesManager({
     updateRoutine,
     setRoutinePaused,
     removeRoutine,
+    today,
   } = useDailyTasks();
+  // For the line after a save: is it due today, and is Today's card showing
+  // it with Add on right now (the same selector the card uses)?
+  const todaysRoutines = useTodaysRoutines();
+  const dueTodayIds = useMemo(() => todaysRoutines.due.map((routine) => routine.id), [todaysRoutines.due]);
+  const canAddToToday = todaysRoutines.show && todaysRoutines.block === null;
   const [startNew, setStartNew] = useState(false);
   const showPaywall = usePaywallGate<"routines">(() => {
     // Plus as of now: bought means straight into a new routine.
@@ -55,6 +62,9 @@ export function RoutinesManager({
       onUpdate={updateRoutine}
       onSetPaused={setRoutinePaused}
       onRemove={removeRoutine}
+      dueTodayIds={dueTodayIds}
+      canAddToToday={canAddToToday}
+      today={today}
       onClose={() => {
         setStartNew(false);
         onVisibleChange(false);

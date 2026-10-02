@@ -120,7 +120,7 @@ describe("store: addRoutineToToday", () => {
 
     let landed: boolean | undefined;
     await act(async () => {
-      landed = result.current.addRoutineToToday("r1");
+      landed = result.current.addRoutineToToday("r1", "ideas");
     });
     expect(landed).toBe(true);
 
@@ -144,7 +144,7 @@ describe("store: addRoutineToToday", () => {
     const before = result.current.state;
     let landed: boolean | undefined;
     await act(async () => {
-      landed = result.current.addRoutineToToday(id);
+      landed = result.current.addRoutineToToday(id, "ideas");
     });
     expect(landed).toBe(false);
     expect(result.current.state).toBe(before);
@@ -153,18 +153,18 @@ describe("store: addRoutineToToday", () => {
 
   it("follows the store's day across midnight: refused on Friday, suggested again on Saturday", async () => {
     const { result } = await renderStore({ routines: [WALK] });
-    await act(async () => result.current.addRoutineToToday("r1"));
+    await act(async () => result.current.addRoutineToToday("r1", "ideas"));
     expect(result.current.state.tasks.map((t) => t.routineId)).toEqual(["r1"]);
 
     // Just after midnight, before any minute tick: the action runs the day change first.
     jest.setSystemTime(new Date(2026, 9, 2, 0, 0, 10));
-    await act(async () => result.current.addRoutineToToday("r1"));
+    await act(async () => result.current.addRoutineToToday("r1", "ideas"));
     expect(result.current.today).toBe(FRI);
     expect(result.current.state.tasks).toEqual([]);
     expect(due(result.current)).toEqual([]);
 
     jest.setSystemTime(new Date(2026, 9, 3, 0, 0, 10));
-    await act(async () => result.current.addRoutineToToday("r1"));
+    await act(async () => result.current.addRoutineToToday("r1", "ideas"));
     expect(result.current.today).toBe(SAT);
     expect(result.current.state.tasks.map((t) => [t.text, t.routineId])).toEqual([["Walk after lunch", "r1"]]);
     expect(trackedNames().filter((n) => n === "routine_added_today")).toHaveLength(2);
@@ -173,13 +173,13 @@ describe("store: addRoutineToToday", () => {
   it("judges the add on the new day after midnight: yesterday's copy doesn't block it", async () => {
     // Due Thursday and Friday; added Thursday, so Thursday's list has it.
     const { result } = await renderStore({ routines: [routine("r1", "Walk after lunch", [4, 5])] });
-    await act(async () => result.current.addRoutineToToday("r1"));
+    await act(async () => result.current.addRoutineToToday("r1", "ideas"));
     expect(due(result.current)).toEqual([]);
 
     jest.setSystemTime(new Date(2026, 9, 2, 0, 0, 10));
     let landed: boolean | undefined;
     await act(async () => {
-      landed = result.current.addRoutineToToday("r1");
+      landed = result.current.addRoutineToToday("r1", "ideas");
     });
     expect(result.current.today).toBe(FRI);
     expect(landed).toBe(true);
@@ -287,7 +287,7 @@ describe("store: routine analytics", () => {
     await act(async () => {
       result.current.addRoutine("Secret journal", [4]);
     });
-    await act(async () => result.current.addRoutineToToday("r1"));
+    await act(async () => result.current.addRoutineToToday("r1", "ideas"));
     const serialised = JSON.stringify((track as jest.Mock).mock.calls);
     expect(trackedNames()).toEqual(expect.arrayContaining(["routine_created", "routine_added_today"]));
     expect(serialised).not.toMatch(/Secret/i);

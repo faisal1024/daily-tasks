@@ -1068,6 +1068,9 @@ function reduce(state: AppState, action: Action): AppState {
   }
 }
 
+/** Where a routine was added to today from (analytics only). */
+export type RoutineAddSource = "today" | "ideas";
+
 interface StoreContextValue {
   ready: boolean;
   state: AppState;
@@ -1152,8 +1155,11 @@ interface StoreContextValue {
   updateRoutine: (id: string, text: string, days: number[]) => void;
   setRoutinePaused: (id: string, paused: boolean) => void;
   removeRoutine: (id: string) => void;
-  /** Add a routine that's due today to today's list, like an idea. True when it landed. */
-  addRoutineToToday: (id: string) => boolean;
+  /**
+   * Add a routine that's due today to today's list, like an idea. True when
+   * it landed. `source`: where it was tapped (Today's card or the Ideas sheet).
+   */
+  addRoutineToToday: (id: string, source: RoutineAddSource) => boolean;
   setTaskSteps: (taskId: TaskId, texts: string[], forText?: string) => void;
   toggleTaskStep: (taskId: TaskId, stepId: string) => void;
   clearTaskSteps: (taskId: TaskId) => void;
@@ -2043,18 +2049,26 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const removeRoutine = useCallback((id: string) => {
     dispatch({ type: "removeRoutine", id });
   }, []);
+  // The state right after this hook's own last add, until React renders it:
+  // a double-tapped Add must see the first one (and be refused, so it's
+  // neither tracked nor announced twice). Like addRoutine's routinesRef.
+  const routineAddRef = useRef<{ from: AppState; to: AppState } | null>(null);
   const addRoutineToToday = useCallback(
-    (id: string): boolean => {
+    (id: string, source: RoutineAddSource): boolean => {
       const before = todayRef.current;
       const day = ensureDay();
+      const current = stateRef.current;
+      // Not rendered yet since the last add: build on what it made.
+      const known = routineAddRef.current?.from === current ? routineAddRef.current.to : current;
       // Only count an add that will land (room, not set, due and not on
       // today), judged on the day it lands on: after a rollover ensureDay
       // just dispatched, which stateRef hasn't seen yet.
-      const base =
-        day === before ? stateRef.current : reducer(stateRef.current, { type: "rollover", today: day });
-      const lands = reducer(base, { type: "addRoutineToToday", id, today: day }) !== base;
+      const base = day === before ? known : reducer(known, { type: "rollover", today: day });
+      const next = reducer(base, { type: "addRoutineToToday", id, today: day });
+      const lands = next !== base;
+      if (lands) routineAddRef.current = { from: current, to: next };
       dispatch({ type: "addRoutineToToday", id, today: day });
-      if (lands) track("routine_added_today");
+      if (lands) track("routine_added_today", { source });
       return lands;
     },
     [ensureDay],

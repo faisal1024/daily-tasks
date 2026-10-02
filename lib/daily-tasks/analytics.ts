@@ -50,6 +50,7 @@ export type AnalyticsEvent =
   | "routine_created"
   | "routine_added_today"
   | "routine_limit_hit"
+  | "routines_card_shown"
   | "rating_prompt_requested"
   | "rate_row_tapped"
   | "feedback_row_tapped";
@@ -73,6 +74,7 @@ const ALLOWED_PROPS = [
   "minutes",
   "action",
   "offer",
+  "blocked",
 ] as const;
 type AllowedProp = (typeof ALLOWED_PROPS)[number];
 

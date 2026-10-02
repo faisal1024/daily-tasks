@@ -1,7 +1,8 @@
 // Routines (1.3) on screen: the "Today's routines" section of the Ideas sheet,
 // the routine editor's day picker, and Settings › Routines at the free limit.
+import { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Alert } from "react-native";
+import { AccessibilityInfo, Alert } from "react-native";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 
 import SettingsScreen from "@/app/(tabs)/settings";
@@ -87,19 +88,20 @@ describe("IdeasSheet: Today's routines", () => {
     await render(<IdeasSheet {...p} routines={ROUTINES} />);
     expect(screen.getByText("Today's routines")).toBeOnTheScreen();
     expect(screen.queryByTestId("todays-routines-blocked")).toBeNull();
-    await fireEvent.press(screen.getByRole("button", { name: "Add Stretch" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Add Stretch to today" }));
     expect(p.onAddRoutine).toHaveBeenCalledWith("r1");
     expect(p.onAdd).not.toHaveBeenCalled();
   });
 
   it.each([
-    ["full", { remainingSlots: 0 }, "Today's three are picked. Free a slot to add one."],
+    // Same full-day line as Today's card (PR #86).
+    ["full", { remainingSlots: 0 }, "Your three are picked. Free a slot to add one."],
     ["set", { remainingSlots: 2, locked: true }, "Today is set. Change it on Today to add one."],
   ])("disables the rows and says why when today is %s", async (_label, overrides, reason) => {
     const p = props();
     await render(<IdeasSheet {...p} routines={ROUTINES} {...overrides} />);
     expect(screen.getByTestId("todays-routines-blocked")).toHaveTextContent(reason);
-    const row = screen.getByRole("button", { name: "Add Stretch" });
+    const row = screen.getByRole("button", { name: "Add Stretch to today" });
     expect(row).toBeDisabled();
     expect(row.props.accessibilityHint).toBe(reason);
     await fireEvent.press(row);
@@ -109,7 +111,7 @@ describe("IdeasSheet: Today's routines", () => {
   it("lists an idea with the same words as a due routine once, as the routine", async () => {
     const p = props();
     await render(<IdeasSheet {...p} routines={[{ id: "r1", text: "walk 20 minutes" }]} />);
-    expect(screen.getByRole("button", { name: "Add walk 20 minutes" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Add walk 20 minutes to today" })).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Add Walk 20 minutes" })).toBeNull();
   });
 
@@ -144,6 +146,28 @@ describe("IdeasSheet: Today's routines", () => {
     // Once there are routines (due today or not), it's gone.
     await rerender(<IdeasSheet {...props()} routines={[]} hasRoutines onManageRoutines={onManageRoutines} />);
     expect(screen.queryByTestId("ideas-make-routine")).toBeNull();
+  });
+
+  // Simulator UAT (PR #86): with routines, Ideas always has a way back to them.
+  it("with routines, a small Routines link opens the sheet; with none due it says which is next", async () => {
+    const onManageRoutines = jest.fn();
+    const next = { text: "Long run", when: "on Saturday" };
+    const { rerender } = await render(
+      <IdeasSheet {...props()} routines={[]} hasRoutines onManageRoutines={onManageRoutines} nextRoutine={next} />,
+    );
+    const link = screen.getByTestId("ideas-routines-link");
+    expect(link).toHaveTextContent(/Next: Long run on Saturday ·\s*Routines$/);
+    expect(link.props.accessibilityLabel).toBe("Routines. Next: Long run on Saturday");
+    await fireEvent.press(link);
+    expect(onManageRoutines).toHaveBeenCalledTimes(1);
+    // Something due: still the link, without the "Next" part.
+    await rerender(
+      <IdeasSheet {...props()} routines={ROUTINES} hasRoutines onManageRoutines={onManageRoutines} nextRoutine={next} />,
+    );
+    expect(screen.getByTestId("ideas-routines-link")).toHaveTextContent(/^\W*Routines$/);
+    // Saved for later: no routines link.
+    await rerender(<IdeasSheet {...props()} savedOnly hasRoutines onManageRoutines={onManageRoutines} />);
+    expect(screen.queryByTestId("ideas-routines-link")).toBeNull();
   });
 });
 
@@ -196,16 +220,36 @@ describe("RoutinesSheet: the day picker", () => {
     expect(day("Monday")).not.toBeChecked();
     expect(day("Sunday")).toBeChecked();
 
-    // Choosing Custom days stays picked until a day is toggled; a toggle that
-    // lands on a preset's days picks that preset.
+    // Choosing Custom days from a preset starts with no days (Save waits for
+    // one); a toggle that lands on a preset's days picks that preset.
     await fireEvent.press(preset("Every day"));
     await fireEvent.press(preset("Custom days"));
     expect(isOn("Custom days")).toBe(true);
+    for (const name of ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]) {
+      expect(day(name)).not.toBeChecked();
+    }
     await fireEvent.press(day("Sunday"));
     expect(isOn("Custom days")).toBe(true);
-    await fireEvent.press(day("Sunday"));
-    expect(isOn("Every day")).toBe(true);
+    // Tapping Custom days again keeps the days picked.
+    await fireEvent.press(preset("Custom days"));
+    expect(day("Sunday")).toBeChecked();
+    await fireEvent.press(day("Saturday"));
+    expect(isOn("Weekends")).toBe(true);
     expect(isOn("Custom days")).toBe(false);
+  });
+
+  it("Custom days from a preset: Save stays off until a day is picked", async () => {
+    const p = await openEditor();
+    await fireEvent.changeText(screen.getByLabelText("Routine"), "Stretch");
+    await fireEvent.press(preset("Custom days"));
+    const save = screen.getByRole("button", { name: "Save routine" });
+    expect(save).toBeDisabled();
+    expect(screen.getByText("Pick at least one day.")).toBeOnTheScreen();
+    await fireEvent.press(save);
+    expect(p.onAdd).not.toHaveBeenCalled();
+    await fireEvent.press(day("Wednesday"));
+    await fireEvent.press(screen.getByRole("button", { name: "Save routine" }));
+    expect(p.onAdd).toHaveBeenCalledWith("Stretch", [3]);
   });
 
   it("Save is disabled with no words or no days, then saves the words and days", async () => {
@@ -294,7 +338,7 @@ describe("RoutinesSheet: the list", () => {
     const { rerender } = await render(<RoutinesSheet {...props()} />);
     expect(screen.getByTestId("routines-explainer")).toHaveTextContent(ROUTINES_EXPLAINER);
     await rerender(<RoutinesSheet {...props()} routines={[routine("r1", "Walk", [1])]} />);
-    expect(screen.getByTestId("routines-explainer")).toHaveTextContent("They wait in Ideas on their days.");
+    expect(screen.getByTestId("routines-explainer")).toHaveTextContent("They show on Today on their days.");
   });
 
   it("at the free limit, says so under Add a routine before the tap", async () => {
@@ -311,6 +355,100 @@ describe("RoutinesSheet: the list", () => {
     const { rerender } = await render(<RoutinesSheet {...p} visible={false} startInEditor />);
     await rerender(<RoutinesSheet {...p} visible startInEditor />);
     expect(screen.getByRole("header", { name: "New routine" })).toBeOnTheScreen();
+  });
+});
+
+// PR #86: after a save, one line under that routine says when it shows on Today.
+describe("RoutinesSheet: the note after a save", () => {
+  const props = () => ({
+    visible: true,
+    routines: [routine("r1", "Walk", [1])] as Routine[],
+    canAdd: true,
+    onAdd: jest.fn(() => "added" as const),
+    onLimit: jest.fn(),
+    onUpdate: jest.fn(),
+    onSetPaused: jest.fn(),
+    onRemove: jest.fn(),
+    onClose: jest.fn(),
+  });
+  const notes = () => screen.queryAllByTestId(/^routine-saved-note-/);
+  let announce: jest.SpyInstance;
+  beforeEach(() => {
+    announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => {});
+  });
+  afterEach(() => announce.mockRestore());
+  const saidSaved = () => announce.mock.calls.filter(([text]) => /^Saved\./.test(text));
+
+  /** Saves a new "walk" on weekends next to an existing "Walk" on Mondays; the store adds it as r2. */
+  async function saveSecondWalk(p = props()) {
+    const { rerender } = await render(<RoutinesSheet {...p} />);
+    await fireEvent.press(screen.getByRole("button", { name: "Add a routine" }));
+    await fireEvent.changeText(screen.getByLabelText("Routine"), " walk ");
+    await fireEvent.press(screen.getByRole("radio", { name: "Weekends" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Save routine" }));
+    const after = { ...p, routines: [...p.routines, routine("r2", "walk", [0, 6])] };
+    await rerender(<RoutinesSheet {...after} />);
+    return { rerender, after };
+  }
+
+  it("same words on other days: the note goes on the new routine, not the old one, and is said once", async () => {
+    const { rerender, after } = await saveSecondWalk();
+    expect(notes()).toHaveLength(1);
+    expect(within(screen.getByTestId("routine-row-r2")).getByTestId("routine-saved-note-r2")).toHaveTextContent(
+      /Shows on Today on weekends\.$/,
+    );
+    expect(saidSaved()).toEqual([["Saved. Shows on Today on weekends."]]);
+    // A later render (the store catching up) doesn't say it again.
+    await rerender(<RoutinesSheet {...after} canAddToToday />);
+    expect(saidSaved()).toHaveLength(1);
+  });
+
+  it("an edit: due today but today is full or set, so just its days (Mondays and Thursdays)", async () => {
+    // A stand-in store: the update lands in the same render as the save, as with the real one.
+    function Harness() {
+      const [routines, setRoutines] = useState([routine("r1", "Walk", [1])]);
+      return (
+        <RoutinesSheet
+          {...props()}
+          routines={routines}
+          onUpdate={(id, text, days) => setRoutines((all) => all.map((r) => (r.id === id ? { ...r, text, days } : r)))}
+          dueTodayIds={["r1"]}
+          canAddToToday={false}
+        />
+      );
+    }
+    await render(<Harness />);
+    await fireEvent.press(screen.getByRole("button", { name: "Walk, Monday" }));
+    await fireEvent.press(screen.getByRole("checkbox", { name: "Thursday" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Save routine" }));
+    expect(screen.getByTestId("routine-saved-note-r1")).toHaveTextContent(/Shows on Today on Mondays and Thursdays\.$/);
+    expect(saidSaved()).toEqual([["Saved. Shows on Today on Mondays and Thursdays."]]);
+  });
+
+  it("not due today: says the next day it shows (Friday 2 Oct 2026 → Monday; Thursday → tomorrow)", async () => {
+    const { rerender, after } = await saveSecondWalk({ ...props(), today: "2026-10-02" } as ReturnType<typeof props>);
+    expect(screen.getByTestId("routine-saved-note-r2")).toHaveTextContent(/Shows on Today on weekends — next tomorrow\.$/);
+    await rerender(<RoutinesSheet {...after} today="2026-10-01" />);
+    expect(screen.getByTestId("routine-saved-note-r2")).toHaveTextContent(/Shows on Today on weekends — next on Saturday\.$/);
+  });
+
+  it.each([
+    ["Add a routine is tapped", async () => fireEvent.press(screen.getByRole("button", { name: "Add a routine" }))],
+    ["another routine is opened to edit", async () => fireEvent.press(screen.getByRole("button", { name: "Walk, Monday" }))],
+  ])("clears when %s (and stays gone after Cancel)", async (_label, act) => {
+    await saveSecondWalk();
+    expect(notes()).toHaveLength(1);
+    await act();
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+    expect(notes()).toHaveLength(0);
+  });
+
+  it("clears when the sheet is closed and opened again", async () => {
+    const { rerender, after } = await saveSecondWalk();
+    expect(notes()).toHaveLength(1);
+    await rerender(<RoutinesSheet {...after} visible={false} />);
+    await rerender(<RoutinesSheet {...after} visible />);
+    expect(notes()).toHaveLength(0);
   });
 });
 

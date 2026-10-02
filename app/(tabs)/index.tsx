@@ -5,6 +5,7 @@ import {
   Alert,
   AppState as RNAppState,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Platform,
   Pressable,
   ScrollView,
@@ -15,8 +16,10 @@ import {
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useReducedMotion } from "react-native-reanimated";
 
 import { useColors } from "@/hooks/use-colors";
+import { useRoutinesCardShownEvent, useTodaysRoutines } from "@/hooks/use-todays-routines";
 import { ScreenContainer } from "@/components/screen-container";
 import { AddTaskRow } from "@/components/daily-tasks/add-task-row";
 import { BrainDumpSheet } from "@/components/daily-tasks/brain-dump-sheet";
@@ -39,6 +42,7 @@ import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { TaskRow } from "@/components/daily-tasks/task-row";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
+import { TodaysRoutinesCard } from "@/components/daily-tasks/todays-routines-card";
 import { TrialNote } from "@/components/daily-tasks/trial-note";
 import { UpdateBanner } from "@/components/daily-tasks/update-banner";
 import { WeekRow } from "@/components/daily-tasks/week-row";
@@ -91,7 +95,6 @@ import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-stor
 import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
-import { routinesDueToday } from "@/lib/daily-tasks/routines";
 import {
   achievementOnFirstTick,
   reviewDueStatus,
@@ -99,7 +102,8 @@ import {
   type ReviewTrigger,
 } from "@/lib/daily-tasks/review-prompt";
 import { countShowedUpDays } from "@/lib/daily-tasks/streaks";
-import { useDailyTasks } from "@/lib/daily-tasks/store";
+import { nextDayPhrase, nextRoutineUp } from "@/lib/daily-tasks/routines";
+import { useDailyTasks, type RoutineAddSource } from "@/lib/daily-tasks/store";
 import {
   brainDumpToast,
   clockTimeOf,
@@ -374,11 +378,34 @@ export default function HomeScreen() {
   const coachTasksReady = coachTasksSet(total, state.todayLocked);
   const coachAi = coachAiUser && coachTasksReady;
   const coachTexts = useMemo(() => state.tasks.map((task) => task.text), [state.tasks]);
-  // Routines due today and not on the list yet (1.3): offered in Ideas.
-  const dueRoutines = useMemo(
-    () => routinesDueToday(state.routines, state.tasks, today),
-    [state.routines, state.tasks, today],
-  );
+  // Routines due today and not on the list yet (1.3): suggested on Today
+  // (under the task card) and in Ideas. One selector for both (and for the
+  // routines sheet's save note), so an added routine leaves both at once.
+  const todaysRoutines = useTodaysRoutines();
+  const dueRoutines = todaysRoutines.due;
+  const routinesBlock = todaysRoutines.block;
+  // Hidden once every task is done, the day is closed, or while last night's
+  // draft leads (it comes back once the draft is used or dismissed).
+  const showRoutinesCard = ready && todaysRoutines.show;
+  useRoutinesCardShownEvent({ show: showRoutinesCard, today, count: dueRoutines.length, block: routinesBlock });
+  // Ideas' footer, when nothing is due today: "Next: Stretch on Monday".
+  const nextRoutine = useMemo(() => {
+    const next = nextRoutineUp(state.routines, today);
+    return next ? { text: next.routine.text, when: nextDayPhrase(next) } : null;
+  }, [state.routines, today]);
+  const reduceMotion = useReducedMotion();
+  const handleAddRoutine = (id: string, source: RoutineAddSource) => {
+    const text = dueRoutines.find((routine) => routine.id === id)?.text;
+    // The last row leaving takes the card with it: ease it out rather than jump.
+    const lastOnCard = showRoutinesCard && dueRoutines.length === 1 && dueRoutines[0].id === id;
+    if (lastOnCard && routinesBlock === null && !reduceMotion) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
+    if (!addRoutineToToday(id, source)) return;
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    // The row just disappears: say what happened.
+    if (text) AccessibilityInfo.announceForAccessibility(`Added ${text} to today`);
+  };
   const coachDue = coachAi && needsCoachRequest(state.coachNotes, today, coachTexts);
   // A ref, not just state: re-renders mid-request must never start a second call.
   const coachInFlight = useRef(false);
@@ -1232,6 +1259,16 @@ export default function HomeScreen() {
                 }}
               />
               )}
+              {/* Routines due today (1.3): right under the day's card, so
+                  they're seen without opening Ideas. */}
+              {showRoutinesCard && (
+                <TodaysRoutinesCard
+                  routines={dueRoutines}
+                  block={routinesBlock}
+                  onAdd={(id) => handleAddRoutine(id, "today")}
+                  onEdit={() => setRoutinesOpen(true)}
+                />
+              )}
               {/* A full or set day hides the ideas entry, but saved items
                   must stay reachable (to view, remove, or swap in later). */}
               {(state.todayLocked || remainingSlots === 0) && state.parkedTasks.length > 0 && (
@@ -1506,17 +1543,11 @@ export default function HomeScreen() {
         onRemoveParked={removeParkedTask}
         onLock={total > 0 ? confirmLock : undefined}
         routines={dueRoutines}
-        onAddRoutine={(id) => {
-          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-          const text = dueRoutines.find((routine) => routine.id === id)?.text;
-          // The row just disappears: say what happened.
-          if (addRoutineToToday(id) && text) {
-            AccessibilityInfo.announceForAccessibility(`Added ${text} to today`);
-          }
-        }}
+        onAddRoutine={(id) => handleAddRoutine(id, "ideas")}
         locked={state.todayLocked}
         hasRoutines={state.routines.length > 0}
         onManageRoutines={openRoutinesFromIdeas}
+        nextRoutine={nextRoutine}
       />
 
       <RoutinesManager visible={routinesOpen} onVisibleChange={setRoutinesOpen} />

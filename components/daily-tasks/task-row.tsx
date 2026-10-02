@@ -398,7 +398,7 @@ export function TaskRow({
                 >
                   {task.text}
                   {task.routineId ? (
-                    // A small repeat glyph after the words, as in Ideas.
+                    // A small repeat glyph after the words, as on Today's routines and in Ideas.
                     // Never struck through with a completed title (it's a marker, not words).
                     <Text style={{ fontWeight: "400", textDecorationLine: "none" }} testID={`task-routine-${task.id}`}>
                       {" "}
