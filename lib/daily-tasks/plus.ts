@@ -12,7 +12,7 @@ export const PLUS_ENTITLEMENT = "plus";
  */
 export const GRANDFATHER_BEFORE_VERSION = "1.1.0";
 
-export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas";
+export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "calendar" | "routines";
 
 export type PaywallSource =
   | "onboarding"
@@ -23,7 +23,8 @@ export type PaywallSource =
   | "calendar"
   | "win_back"
   // The gentle second paywall after a first real "aha" (lib/daily-tasks/aha-paywall.ts).
-  | "aha";
+  | "aha"
+  | "routines";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -181,6 +182,11 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
     detail: "Your three fit around today's events and reminders.",
   },
   {
+    icon: "repeat-outline",
+    title: "Unlimited routines",
+    detail: "Keep every routine, not just two.",
+  },
+  {
     icon: "apps-outline",
     title: "Tick off from your Home Screen",
     detail: "Check tasks off right from the widget, without opening the app.",
@@ -211,6 +217,8 @@ export function paywallHeadline(source: PaywallSource, options: { taskCount?: nu
       return "Plan your three around your day";
     case "win_back":
       return "Want the AI helpers back?";
+    case "routines":
+      return "Keep all your routines";
     default:
       return "A little extra help, when you want it";
   }
@@ -227,6 +235,8 @@ export function paywallSubhead(source: PaywallSource, options: { taskCount?: num
       return "Plus sorts a messy brain dump, breaks big tasks into steps and plans around your calendar. Your three stay free either way.";
     case "win_back":
       return "Your three tasks stay free. Plus brings back AI sorting, break it down and calendar planning.";
+    case "routines":
+      return "Two routines are free, and they keep working. Plus keeps as many as you like, with the AI helpers too.";
     default:
       return "Your three tasks stay free forever. Plus adds the AI helpers.";
   }

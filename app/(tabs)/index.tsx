@@ -29,6 +29,7 @@ import {
 } from "@/components/daily-tasks/ritual-cards";
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
+import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
 import { NextPathLink } from "@/components/daily-tasks/next-path-link";
 import { FirstRun } from "@/components/daily-tasks/first-run";
 import type { FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
@@ -41,6 +42,7 @@ import { TodayHeader } from "@/components/daily-tasks/today-header";
 import { UpdateBanner } from "@/components/daily-tasks/update-banner";
 import { WeekRow } from "@/components/daily-tasks/week-row";
 import { useAppUpdate } from "@/hooks/use-app-update";
+import { SHEET_SWAP_DELAY_MS, usePaywallGate } from "@/hooks/use-paywall-gate";
 import { useHour } from "@/hooks/use-hour";
 import { useAppActive } from "@/hooks/use-app-active";
 import { useFocusSessionCues } from "@/hooks/use-focus-session-cues";
@@ -67,7 +69,6 @@ import {
 } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
 import { AHA_PAYWALL_DELAY_MS, fillsDay, shouldOfferAhaPaywall } from "@/lib/daily-tasks/aha-paywall";
-import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import {
@@ -88,6 +89,7 @@ import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-stor
 import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
+import { routinesDueToday } from "@/lib/daily-tasks/routines";
 import {
   achievementOnFirstTick,
   reviewDueStatus,
@@ -174,6 +176,7 @@ export default function HomeScreen() {
     parkTasks,
     removeParkedTask,
     addParkedTask,
+    addRoutineToToday,
     setTaskSteps,
     toggleTaskStep,
     clearTaskSteps,
@@ -212,42 +215,10 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, state.hasSeenOnboarding, state.pendingRollover]);
 
-  // What to pick back up once the paywall closes (bought or not).
-  const pendingUnlock = useRef<Unlock | null>(null);
-  // iOS shows one modal at a time: when a sheet is closing first, wait for it
-  // to animate away before bringing up the paywall.
-  const paywallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showPaywall = (
-    source: PaywallSource,
-    options: { feature?: PlusFeature; afterSheet?: boolean; resume?: Unlock; taskCount?: number } = {},
-  ) => {
-    if (options.feature) track("plus_gate_hit", { feature: options.feature });
-    const unlock = options.resume ?? null;
-    if (paywallTimer.current) clearTimeout(paywallTimer.current);
-    const open = () => {
-      pendingUnlock.current = unlock;
-      // Didn't open (e.g. a paywall is already up elsewhere): nothing to resume.
-      const opened =
-        options.taskCount === undefined ? openPaywall(source) : openPaywall(source, { taskCount: options.taskCount });
-      if (!opened) pendingUnlock.current = null;
-    };
-    if (!options.afterSheet) {
-      open();
-      return;
-    }
-    paywallTimer.current = setTimeout(() => {
-      paywallTimer.current = null;
-      open();
-    }, 650);
-  };
-  const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (paywallTimer.current) clearTimeout(paywallTimer.current);
-      if (resumeTimer.current) clearTimeout(resumeTimer.current);
-    },
-    [],
-  );
+  // What to pick back up once the paywall closes (bought or not): see
+  // resume.current below.
+  const resume = useRef<(unlock: Unlock) => void>(() => {});
+  const showPaywall = usePaywallGate<Unlock>((unlock) => resume.current(unlock));
   const { update, dismiss: dismissUpdate } = useAppUpdate();
   // iPad (and large landscape phones): tasks on the left, ideas and the
   // evening check-in on the right, centred with a comfortable max width.
@@ -267,6 +238,24 @@ export default function HomeScreen() {
     if (!ideasOpen) setIdeasSavedOnly(false);
   }, [ideasOpen]);
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
+  // Routines (1.3), reached from the Ideas sheet's footer when there are none
+  // yet: Ideas closes first (one modal at a time on iOS).
+  const [routinesOpen, setRoutinesOpen] = useState(false);
+  const routinesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (routinesTimer.current) clearTimeout(routinesTimer.current);
+    },
+    [],
+  );
+  const openRoutinesFromIdeas = () => {
+    setIdeasOpen(false);
+    if (routinesTimer.current) clearTimeout(routinesTimer.current);
+    routinesTimer.current = setTimeout(() => {
+      routinesTimer.current = null;
+      setRoutinesOpen(true);
+    }, SHEET_SWAP_DELAY_MS);
+  };
   // Free users: how many AI sorts are left, read each time the sheet opens.
   const [freeAiLeft, setFreeAiLeft] = useState<number | null>(null);
   useEffect(() => {
@@ -374,6 +363,11 @@ export default function HomeScreen() {
   const coachTasksReady = coachTasksSet(total, state.todayLocked);
   const coachAi = coachAiUser && coachTasksReady;
   const coachTexts = useMemo(() => state.tasks.map((task) => task.text), [state.tasks]);
+  // Routines due today and not on the list yet (1.3): offered in Ideas.
+  const dueRoutines = useMemo(
+    () => routinesDueToday(state.routines, state.tasks, today),
+    [state.routines, state.tasks, today],
+  );
   const coachDue = coachAi && needsCoachRequest(state.coachNotes, today, coachTexts);
   // A ref, not just state: re-renders mid-request must never start a second call.
   const coachInFlight = useRef(false);
@@ -735,6 +729,7 @@ export default function HomeScreen() {
     paywallSource !== null ||
     ideasOpen ||
     brainDumpOpen ||
+    routinesOpen ||
     focusTaskId !== null ||
     // No rating ask over a focus session: running, paused or at its check-in.
     focusSession !== null ||
@@ -900,7 +895,6 @@ export default function HomeScreen() {
 
   // When the paywall closes, pick up where the user was: run the break-down
   // they asked for (if they now have Plus), or reopen the sheet they were in.
-  const resume = useRef<(unlock: Unlock) => void>(() => {});
   resume.current = (unlock) => {
     if (unlock.kind === "break_down") {
       const task = state.tasks.find((t) => t.id === unlock.taskId);
@@ -917,32 +911,6 @@ export default function HomeScreen() {
     setIdeasOpen(true);
     if (hasPlus) void requestMomentumPlan();
   };
-  const paywallWasOpen = useRef(false);
-  useEffect(() => {
-    if (paywallSource) {
-      paywallWasOpen.current = true;
-      return;
-    }
-    if (!paywallWasOpen.current) return;
-    paywallWasOpen.current = false;
-    const unlock = pendingUnlock.current;
-    pendingUnlock.current = null;
-    if (!unlock) return;
-    // Let the paywall animate away before presenting another sheet.
-    if (resumeTimer.current) clearTimeout(resumeTimer.current);
-    resumeTimer.current = setTimeout(() => {
-      resumeTimer.current = null;
-      // A paywall came back up meanwhile: keep the unlock for when it closes.
-      if (paywallOpenRef.current) {
-        pendingUnlock.current = unlock;
-        paywallWasOpen.current = true;
-        return;
-      }
-      resume.current(unlock);
-    }, 650);
-  }, [paywallSource]);
-  const paywallOpenRef = useRef(false);
-  paywallOpenRef.current = paywallSource !== null;
 
   // Thank-you note after an actual purchase (not when a subscriber's status
   // simply loads at launch, and not on restore, which has its own message).
@@ -1504,7 +1472,21 @@ export default function HomeScreen() {
         }}
         onRemoveParked={removeParkedTask}
         onLock={total > 0 ? confirmLock : undefined}
+        routines={dueRoutines}
+        onAddRoutine={(id) => {
+          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+          const text = dueRoutines.find((routine) => routine.id === id)?.text;
+          // The row just disappears: say what happened.
+          if (addRoutineToToday(id) && text) {
+            AccessibilityInfo.announceForAccessibility(`Added ${text} to today`);
+          }
+        }}
+        locked={state.todayLocked}
+        hasRoutines={state.routines.length > 0}
+        onManageRoutines={openRoutinesFromIdeas}
       />
+
+      <RoutinesManager visible={routinesOpen} onVisibleChange={setRoutinesOpen} />
 
       <BrainDumpSheet
         visible={brainDumpOpen}

@@ -123,6 +123,15 @@ import {
 import { getCurrentVersion } from "./app-update";
 import { GRANDFATHER_BEFORE_VERSION, hasPlusAccess } from "./plus";
 import { compareVersions } from "./version";
+import {
+  canCreateRoutine,
+  cleanDays,
+  cleanRoutineText,
+  FREE_ROUTINE_LIMIT,
+  routinesDueToday,
+  withRoutineAdded,
+  type AddRoutineResult,
+} from "./routines";
 import { usePlus } from "./plus-context";
 import {
   buildInitialState,
@@ -167,6 +176,7 @@ import type {
   NotificationPermissionState,
   NotificationKey,
   ReflectionResult,
+  Routine,
   ReviewTrigger,
   TaskId,
 } from "./types";
@@ -175,7 +185,7 @@ import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
 type Action =
   | { type: "hydrate"; state: AppState }
   | { type: "rollover"; today: string }
-  | { type: "addTask"; text: string; today: string }
+  | { type: "addTask"; text: string; today: string; routineId?: string }
   | { type: "addTasks"; texts: string[]; today: string }
   | { type: "editTask"; id: TaskId; text: string; today: string }
   | { type: "deleteTask"; id: TaskId; today: string }
@@ -212,6 +222,11 @@ type Action =
   | { type: "parkTasks"; texts: string[]; at: string }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
+  | { type: "addRoutine"; routine: Routine; max: number | null }
+  | { type: "updateRoutine"; id: string; text: string; days: number[] }
+  | { type: "setRoutinePaused"; id: string; paused: boolean }
+  | { type: "removeRoutine"; id: string }
+  | { type: "addRoutineToToday"; id: string; today: string }
   | {
       type: "setTaskSteps";
       taskId: TaskId;
@@ -573,6 +588,46 @@ function reduce(state: AppState, action: Action): AppState {
       const withTask = reducer(state, { type: "addTask", text: parked.text, today: action.today });
       return withTask === state ? state : removeParkedTask(withTask, action.id);
     }
+    case "addRoutine": {
+      // Free users stop at the limit; routines kept from a lapsed Plus stay.
+      const routines = withRoutineAdded(state.routines, action.routine, action.max);
+      return routines ? { ...state, routines } : state;
+    }
+    case "updateRoutine": {
+      const text = cleanRoutineText(action.text);
+      const days = cleanDays(action.days);
+      const current = state.routines.find((r) => r.id === action.id);
+      if (!current || !text || days.length === 0) return state;
+      if (current.text === text && current.days.join() === days.join()) return state;
+      return {
+        ...state,
+        routines: state.routines.map((r) => (r.id === action.id ? { ...r, text, days } : r)),
+      };
+    }
+    case "setRoutinePaused": {
+      const current = state.routines.find((r) => r.id === action.id);
+      if (!current || current.paused === action.paused) return state;
+      return {
+        ...state,
+        routines: state.routines.map((r) => (r.id === action.id ? { ...r, paused: action.paused } : r)),
+      };
+    }
+    case "removeRoutine":
+      // Tasks already added from it stay today (a normal task); only the
+      // suggestion goes.
+      return state.routines.some((r) => r.id === action.id)
+        ? { ...state, routines: state.routines.filter((r) => r.id !== action.id) }
+        : state;
+    case "addRoutineToToday": {
+      // Same room and lock rules as an idea or a saved item, and only a
+      // routine that's due today and not already on the list.
+      if (!canTakeParkedTask(state)) return state;
+      const routine = routinesDueToday(state.routines, state.tasks, action.today).find(
+        (r) => r.id === action.id,
+      );
+      if (!routine) return state;
+      return reducer(state, { type: "addTask", text: routine.text, today: action.today, routineId: routine.id });
+    }
     // Step changes also sync today's history record: tomorrow's carry-over is
     // built from it, so it must hold the current steps and their progress.
     case "setTaskSteps": {
@@ -643,7 +698,13 @@ function reduce(state: AppState, action: Action): AppState {
           ...state,
           tasks: [
             ...state.tasks,
-            { id: makeId(), text, createdAt: new Date().toISOString(), carriedOver: false },
+            {
+              id: makeId(),
+              text,
+              createdAt: new Date().toISOString(),
+              carriedOver: false,
+              ...(action.routineId ? { routineId: action.routineId } : {}),
+            },
           ],
           // Planning counts as showing up (no need to finish anything first).
           journey: registerShowedUp(state.journey, action.today),
@@ -1080,6 +1141,19 @@ interface StoreContextValue {
   parkTasks: (texts: string[]) => void;
   removeParkedTask: (id: string) => void;
   addParkedTask: (id: string) => void;
+  /**
+   * Create a routine (1.3). "limit": a free user already has
+   * FREE_ROUTINE_LIMIT (open the paywall); "exists": the same routine is
+   * already there (e.g. a double-tapped Save); "invalid": no text or no days.
+   */
+  addRoutine: (text: string, days: number[]) => AddRoutineResult;
+  /** A new routine is allowed right now (Plus, or under the free limit). */
+  canAddRoutine: boolean;
+  updateRoutine: (id: string, text: string, days: number[]) => void;
+  setRoutinePaused: (id: string, paused: boolean) => void;
+  removeRoutine: (id: string) => void;
+  /** Add a routine that's due today to today's list, like an idea. True when it landed. */
+  addRoutineToToday: (id: string) => boolean;
   setTaskSteps: (taskId: TaskId, texts: string[], forText?: string) => void;
   toggleTaskStep: (taskId: TaskId, stepId: string) => void;
   clearTaskSteps: (taskId: TaskId) => void;
@@ -1924,6 +1998,66 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const addParkedTask = useCallback((id: string) => {
     dispatch({ type: "addParkedTask", id, today: ensureDay() });
   }, [ensureDay]);
+  // Routines as of the last add, before React has rendered it: a
+  // double-tapped Save must see the first one (and be refused).
+  const routinesRef = useRef(state.routines);
+  routinesRef.current = state.routines;
+  const addRoutine = useCallback(
+    (rawText: string, rawDays: number[]): AddRoutineResult => {
+      const text = cleanRoutineText(rawText);
+      const days = cleanDays(rawDays);
+      if (!text || days.length === 0) return "invalid";
+      const current = routinesRef.current;
+      // hasPlus includes the window before RevenueCat answers, so a free user
+      // can make a third routine then. Intentional: a subscriber is never
+      // gated by a slow check, and an extra routine keeps working like one
+      // kept from a lapsed Plus.
+      // (routine_limit_hit is tracked by the screen that opens the paywall.)
+      if (!canCreateRoutine(current.length, hasPlus)) return "limit";
+      const max = hasPlus ? null : FREE_ROUTINE_LIMIT;
+      const routine: Routine = {
+        id: `r${makeId().slice(1)}`,
+        text,
+        days,
+        paused: false,
+        createdAt: new Date().toISOString(),
+      };
+      // Same check the reducer makes, so the result (and the event) match it.
+      const next = withRoutineAdded(current, routine, max);
+      if (!next) return "exists";
+      routinesRef.current = next;
+      dispatch({ type: "addRoutine", routine, max });
+      track("routine_created", { count: next.length });
+      return "added";
+    },
+    [hasPlus],
+  );
+  const updateRoutine = useCallback((id: string, text: string, days: number[]) => {
+    dispatch({ type: "updateRoutine", id, text, days });
+  }, []);
+  const setRoutinePaused = useCallback((id: string, paused: boolean) => {
+    dispatch({ type: "setRoutinePaused", id, paused });
+  }, []);
+  const removeRoutine = useCallback((id: string) => {
+    dispatch({ type: "removeRoutine", id });
+  }, []);
+  const addRoutineToToday = useCallback(
+    (id: string): boolean => {
+      const before = todayRef.current;
+      const day = ensureDay();
+      // Only count an add that will land (room, not set, due and not on
+      // today), judged on the day it lands on: after a rollover ensureDay
+      // just dispatched, which stateRef hasn't seen yet.
+      const base =
+        day === before ? stateRef.current : reducer(stateRef.current, { type: "rollover", today: day });
+      const lands = reducer(base, { type: "addRoutineToToday", id, today: day }) !== base;
+      dispatch({ type: "addRoutineToToday", id, today: day });
+      if (lands) track("routine_added_today");
+      return lands;
+    },
+    [ensureDay],
+  );
+  const canAddRoutine = canCreateRoutine(state.routines.length, hasPlus);
   const setTaskStepsCb = useCallback((taskId: TaskId, texts: string[], forText?: string) => {
     dispatch({
       type: "setTaskSteps",
@@ -2200,6 +2334,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       parkTasks: parkTasksCb,
       removeParkedTask: removeParkedTaskCb,
       addParkedTask,
+      addRoutine,
+      canAddRoutine,
+      updateRoutine,
+      setRoutinePaused,
+      removeRoutine,
+      addRoutineToToday,
       setTaskSteps: setTaskStepsCb,
       toggleTaskStep: toggleTaskStepCb,
       clearTaskSteps: clearTaskStepsCb,
@@ -2274,6 +2414,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       parkTasksCb,
       removeParkedTaskCb,
       addParkedTask,
+      addRoutine,
+      canAddRoutine,
+      updateRoutine,
+      setRoutinePaused,
+      removeRoutine,
+      addRoutineToToday,
       setTaskStepsCb,
       toggleTaskStepCb,
       clearTaskStepsCb,

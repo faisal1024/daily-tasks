@@ -15,9 +15,11 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
+import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { TimePickerRow } from "@/components/daily-tasks/time-picker-row";
 import { useColors } from "@/hooks/use-colors";
+import { usePaywallGate } from "@/hooks/use-paywall-gate";
 import { Fonts } from "@/constants/theme";
 import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { requestAgendaAccess } from "@/lib/daily-tasks/agenda";
@@ -83,6 +85,10 @@ export default function SettingsScreen() {
     setAnalyticsEnabled,
   } = useDailyTasks();
   const plus = usePlus();
+  // Nothing to resume from these gates: the toggle or button is right there.
+  const showPaywall = usePaywallGate<never>(() => {});
+  const [routinesOpen, setRoutinesOpen] = useState(false);
+  const pausedRoutines = state.routines.filter((routine) => routine.paused).length;
   const [restoring, setRestoring] = useState(false);
 
   const handleRestore = async () => {
@@ -138,8 +144,7 @@ export default function SettingsScreen() {
   const handleAgendaEnabled = async (value: boolean) => {
     // Only Plus requests use it: don't ask for access a free user can't use.
     if (value && !hasPlus) {
-      track("plus_gate_hit", { feature: "calendar" });
-      plus.openPaywall("calendar");
+      showPaywall("calendar", { feature: "calendar" });
       return;
     }
     if (!value) {
@@ -499,8 +504,7 @@ export default function SettingsScreen() {
                   void requestMomentumPlan();
                   return;
                 }
-                track("plus_gate_hit", { feature: "ai_ideas" });
-                plus.openPaywall("new_ideas");
+                showPaywall("new_ideas", { feature: "ai_ideas" });
               }}
               disabled={state.momentumPlanStatus === "loading"}
               className="self-start rounded-full px-4 py-2"
@@ -559,6 +563,33 @@ export default function SettingsScreen() {
               onChange={setAutoLockTime}
             />
           </View>
+        </Section>
+
+        <Section icon="repeat-outline" title="Routines">
+          <Pressable
+            onPress={() => setRoutinesOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Routines"
+            accessibilityHint="Add, edit, pause or delete routines"
+            accessibilityValue={{ text: routinesSummary(state.routines.length, pausedRoutines) }}
+            className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3"
+            style={{ minHeight: 44 }}
+            testID="settings-routines"
+          >
+            <View
+              className="w-9 h-9 rounded-full items-center justify-center"
+              style={{ backgroundColor: `${colors.primary}16` }}
+            >
+              <Ionicons name="repeat-outline" size={18} color={colors.primary} />
+            </View>
+            <View className="flex-1">
+              <Text className="text-base font-semibold text-foreground">Routines</Text>
+              <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                {routinesSummary(state.routines.length, pausedRoutines)}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+          </Pressable>
         </Section>
 
         <Section
@@ -736,6 +767,7 @@ export default function SettingsScreen() {
         </Text>
       </ScrollView>
       </KeyboardAvoidingView>
+      <RoutinesManager visible={routinesOpen} onVisibleChange={setRoutinesOpen} />
       <OnboardingModal
         visible={profileModalVisible}
         initialProfile={state.momentumProfile}
@@ -781,6 +813,12 @@ function HelpRow({
       <Ionicons name="chevron-forward" size={18} color={colors.muted} />
     </Pressable>
   );
+}
+
+function routinesSummary(count: number, paused: number): string {
+  if (count === 0) return "Things you do on repeat, suggested in Ideas on their days.";
+  const base = `${count} ${count === 1 ? "routine" : "routines"}`;
+  return paused > 0 ? `${base} · ${paused} paused` : base;
 }
 
 function permissionDescription(state: NotificationPermissionState): string {
