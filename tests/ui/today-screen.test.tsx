@@ -470,7 +470,7 @@ describe("Need ideas sheet: routines", () => {
     await fireEvent.press(screen.getByTestId("need-ideas"));
     expect(screen.queryByTestId("ideas-make-routine")).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "Add Stretch" }));
-    expect(mockStore.addRoutineToToday).toHaveBeenCalledWith("r1");
+    expect(mockStore.addRoutineToToday).toHaveBeenCalledWith("r1", "ideas");
     expect(announce).toHaveBeenCalledWith("Added Stretch to today");
     announce.mockRestore();
   });

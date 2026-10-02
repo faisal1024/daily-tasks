@@ -294,7 +294,7 @@ describe("RoutinesSheet: the list", () => {
     const { rerender } = await render(<RoutinesSheet {...props()} />);
     expect(screen.getByTestId("routines-explainer")).toHaveTextContent(ROUTINES_EXPLAINER);
     await rerender(<RoutinesSheet {...props()} routines={[routine("r1", "Walk", [1])]} />);
-    expect(screen.getByTestId("routines-explainer")).toHaveTextContent("They wait in Ideas on their days.");
+    expect(screen.getByTestId("routines-explainer")).toHaveTextContent("They show on Today on their days.");
   });
 
   it("at the free limit, says so under Add a routine before the tap", async () => {

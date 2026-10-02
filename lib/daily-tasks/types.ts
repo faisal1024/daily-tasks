@@ -273,7 +273,7 @@ export interface AppState {
   // Which happy moment earned it (rating_prompt_requested's source), or null.
   reviewDueSource: ReviewTrigger | null;
   parkedTasks: ParkedTask[];
-  // Repeating tasks suggested in Ideas on their days (1.3). See routines.ts.
+  // Repeating tasks suggested on Today (and in Ideas) on their days (1.3). See routines.ts.
   routines: Routine[];
   // Used the app before the paywall shipped: keeps every Plus feature free.
   plusGrandfathered: boolean;

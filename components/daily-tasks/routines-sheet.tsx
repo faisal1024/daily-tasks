@@ -1,8 +1,10 @@
-// Manage routines (1.3), opened from Settings › Routines or the Ideas sheet
-// (see RoutinesManager): add one (words + days), edit, pause/resume, delete. Routines never fill a slot by
-// themselves; on their days they wait in the Ideas sheet.
-import { useState } from "react";
+// Manage routines (1.3), opened from Settings › Routines, Today's routines
+// or the Ideas sheet (see RoutinesManager): add one (words + days), edit,
+// pause/resume, delete. Routines never fill a slot by themselves; on their
+// days they're suggested on Today (and in Ideas).
+import { useEffect, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -31,6 +33,7 @@ import {
   describeDays,
   PICKER_ORDER,
   presetFor,
+  routineSavedNote,
   type AddRoutineResult,
   type DaysPreset,
 } from "@/lib/daily-tasks/routines";
@@ -38,9 +41,9 @@ import type { Routine } from "@/lib/daily-tasks/types";
 
 /** The full explainer, shown while there are no routines yet. */
 export const ROUTINES_EXPLAINER =
-  "Things you do on repeat. They'll wait in Ideas on their days — you choose if they make today's three.";
+  "Things you do on repeat. They show on Today on their days — you choose if they make today's three.";
 /** The short reminder once there are some. */
-export const ROUTINES_EXPLAINER_SHORT = "They wait in Ideas on their days.";
+export const ROUTINES_EXPLAINER_SHORT = "They show on Today on their days.";
 export const ROUTINES_FREE_LIMIT_NOTE = "Free keeps two routines. Plus keeps as many as you like.";
 
 interface RoutinesSheetProps {
@@ -59,9 +62,22 @@ interface RoutinesSheetProps {
   onSetPaused: (id: string, paused: boolean) => void;
   onRemove: (id: string) => void;
   onClose: () => void;
+  /** Routines due today and not on today's list yet (for the note after a save). */
+  dueTodayIds?: readonly string[];
+  /** Today has room and isn't set: a routine due today can be added right now. */
+  canAddToToday?: boolean;
 }
 
 type Editing = { kind: "new" } | { kind: "edit"; routine: Routine } | null;
+
+/** The routine just saved, to say when it shows (a new one is found by its words and days). */
+type JustSaved = { key: number; id: string | null; text: string; days: number[] };
+
+const looseText = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+const sameRoutine = (routine: Routine, saved: JustSaved) =>
+  saved.id !== null
+    ? routine.id === saved.id
+    : looseText(routine.text) === looseText(saved.text) && routine.days.join() === saved.days.join();
 
 export function RoutinesSheet({
   visible,
@@ -75,6 +91,8 @@ export function RoutinesSheet({
   onSetPaused,
   onRemove,
   onClose,
+  dueTodayIds = [],
+  canAddToToday = false,
 }: RoutinesSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -82,10 +100,34 @@ export function RoutinesSheet({
   const [editing, setEditing] = useState<Editing>(startInEditor && visible ? { kind: "new" } : null);
   // Each time it opens: the list, or "New routine" when asked.
   const [wasVisible, setWasVisible] = useState(visible);
+  // After a save: a line under that routine saying when it shows on Today.
+  const [justSaved, setJustSaved] = useState<JustSaved | null>(null);
   if (visible !== wasVisible) {
     setWasVisible(visible);
+    setJustSaved(null);
     if (visible) setEditing(startInEditor ? { kind: "new" } : null);
   }
+  const savedRoutine = justSaved && !editing ? routines.find((r) => sameRoutine(r, justSaved)) : undefined;
+  const savedNote = savedRoutine
+    ? routineSavedNote({
+        days: savedRoutine.days,
+        paused: savedRoutine.paused,
+        dueToday: dueTodayIds.includes(savedRoutine.id),
+        canAddNow: canAddToToday,
+      })
+    : null;
+  // Said once per save, when the line first appears.
+  const announcedKey = useRef<number | null>(null);
+  useEffect(() => {
+    if (!savedNote || !justSaved || announcedKey.current === justSaved.key) return;
+    announcedKey.current = justSaved.key;
+    AccessibilityInfo.announceForAccessibility(`Saved. ${savedNote}`);
+  }, [savedNote, justSaved]);
+  const markSaved = (id: string | null, text: string, days: number[]) => {
+    const clean = cleanRoutineText(text);
+    if (!clean) return;
+    setJustSaved({ key: Date.now(), id, text: clean, days: cleanDays(days) });
+  };
 
   const close = () => {
     setEditing(null);
@@ -93,6 +135,7 @@ export function RoutinesSheet({
   };
 
   const startAdd = () => {
+    setJustSaved(null);
     if (!canAdd) {
       setEditing(null);
       onLimit();
@@ -132,6 +175,7 @@ export function RoutinesSheet({
             onSave={(text, days) => {
               if (editing.kind === "edit") {
                 onUpdate(editing.routine.id, text, days);
+                markSaved(editing.routine.id, text, days);
                 setEditing(null);
                 return;
               }
@@ -142,7 +186,10 @@ export function RoutinesSheet({
                 return;
               }
               // "exists": the same one is already there (a double tap): done too.
-              if (result === "added" || result === "exists") setEditing(null);
+              if (result === "added" || result === "exists") {
+                markSaved(null, text, days);
+                setEditing(null);
+              }
             }}
           />
         ) : (
@@ -188,7 +235,11 @@ export function RoutinesSheet({
                 <RoutineRow
                   key={routine.id}
                   routine={routine}
-                  onEdit={() => setEditing({ kind: "edit", routine })}
+                  savedNote={routine === savedRoutine ? savedNote : null}
+                  onEdit={() => {
+                    setJustSaved(null);
+                    setEditing({ kind: "edit", routine });
+                  }}
                   onTogglePaused={() => onSetPaused(routine.id, !routine.paused)}
                   onRemove={() => confirmRemove(routine)}
                 />
@@ -224,11 +275,14 @@ export function RoutinesSheet({
 
 function RoutineRow({
   routine,
+  savedNote = null,
   onEdit,
   onTogglePaused,
   onRemove,
 }: {
   routine: Routine;
+  /** Just saved: when it shows on Today. */
+  savedNote?: string | null;
   onEdit: () => void;
   onTogglePaused: () => void;
   onRemove: () => void;
@@ -257,6 +311,25 @@ function RoutineRow({
           {routine.paused ? " · Paused" : ""}
         </Text>
       </Pressable>
+      {savedNote && (
+        <View
+          className="flex-row items-start gap-1.5"
+          accessibilityLiveRegion="polite"
+          testID={`routine-saved-note-${routine.id}`}
+        >
+          <Ionicons
+            name="checkmark-circle-outline"
+            size={16}
+            color={colors.primary}
+            style={{ marginTop: 2 }}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+          <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
+            {savedNote}
+          </Text>
+        </View>
+      )}
       <View className="flex-row flex-wrap gap-2">
         <SmallButton
           icon={routine.paused ? "play-outline" : "pause-outline"}

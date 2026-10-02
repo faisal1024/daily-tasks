@@ -1068,6 +1068,9 @@ function reduce(state: AppState, action: Action): AppState {
   }
 }
 
+/** Where a routine was added to today from (analytics only). */
+export type RoutineAddSource = "today" | "ideas";
+
 interface StoreContextValue {
   ready: boolean;
   state: AppState;
@@ -1152,8 +1155,11 @@ interface StoreContextValue {
   updateRoutine: (id: string, text: string, days: number[]) => void;
   setRoutinePaused: (id: string, paused: boolean) => void;
   removeRoutine: (id: string) => void;
-  /** Add a routine that's due today to today's list, like an idea. True when it landed. */
-  addRoutineToToday: (id: string) => boolean;
+  /**
+   * Add a routine that's due today to today's list, like an idea. True when
+   * it landed. `source`: where it was tapped (Today's card or the Ideas sheet).
+   */
+  addRoutineToToday: (id: string, source?: RoutineAddSource) => boolean;
   setTaskSteps: (taskId: TaskId, texts: string[], forText?: string) => void;
   toggleTaskStep: (taskId: TaskId, stepId: string) => void;
   clearTaskSteps: (taskId: TaskId) => void;
@@ -2044,7 +2050,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "removeRoutine", id });
   }, []);
   const addRoutineToToday = useCallback(
-    (id: string): boolean => {
+    (id: string, source: RoutineAddSource = "ideas"): boolean => {
       const before = todayRef.current;
       const day = ensureDay();
       // Only count an add that will land (room, not set, due and not on
@@ -2054,7 +2060,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         day === before ? stateRef.current : reducer(stateRef.current, { type: "rollover", today: day });
       const lands = reducer(base, { type: "addRoutineToToday", id, today: day }) !== base;
       dispatch({ type: "addRoutineToToday", id, today: day });
-      if (lands) track("routine_added_today");
+      if (lands) track("routine_added_today", { source });
       return lands;
     },
     [ensureDay],

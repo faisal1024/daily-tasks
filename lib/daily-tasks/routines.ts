@@ -1,6 +1,6 @@
 // Routines (1.3): things you do on repeat. A routine never fills a slot by
-// itself; on its days it waits in the Ideas sheet and you choose whether it
-// makes today's three. A day it isn't picked leaves no trace (no "missed",
+// itself; on its days it's suggested on Today (and in the Ideas sheet) and
+// you choose whether it makes today's three. A day it isn't picked leaves no trace (no "missed",
 // no streak, nothing overdue).
 //
 // Pure helpers, kept out of the React store so they're unit-tested directly.
@@ -128,6 +128,68 @@ export function routinesDueToday(
       !onTodayIds.has(routine.id) &&
       !onTodayTexts.has(looseKey(routine.text)),
   );
+}
+
+/** Why routines can't be added to today right now (null: they can). */
+export type RoutineBlock = "set" | "full" | null;
+
+/** Same room and lock rules as the store's addRoutineToToday. */
+export function routineBlock(input: { locked: boolean; remainingSlots: number }): RoutineBlock {
+  if (input.locked) return "set";
+  if (input.remainingSlots <= 0) return "full";
+  return null;
+}
+
+/** The one muted line under "Today's routines" on Today when its Add buttons are off. */
+export function routineBlockedLine(block: RoutineBlock): string | null {
+  if (block === "set") return "Today is set. Change it to add one.";
+  if (block === "full") return "Your three are picked. Free a slot to add one.";
+  return null;
+}
+
+/**
+ * Whether Today shows its "Today's routines" card: only with something due
+ * and not yet on the list, and never once the day's tasks are all done (no
+ * nagging after a finished day). Only ever about today: a past day's
+ * routines are never mentioned.
+ */
+export function showTodaysRoutinesCard(input: { dueCount: number; allDone: boolean }): boolean {
+  return input.dueCount > 0 && !input.allDone;
+}
+
+const listWithAnd = (items: string[]) =>
+  items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+
+/**
+ * A routine's days inside a sentence: "every day", "on weekdays", "on
+ * weekends", "on Mondays and Thursdays" (built on describeDays' presets).
+ */
+export function daysPhrase(days: readonly number[]): string {
+  const clean = cleanDays([...days]);
+  const preset = presetFor(clean);
+  if (preset === "every_day") return "every day";
+  if (preset === "weekdays") return "on weekdays";
+  if (preset === "weekends") return "on weekends";
+  const names = PICKER_ORDER.filter((day) => clean.includes(day)).map((day) => `${DAY_NAMES[day]}s`);
+  return names.length ? `on ${listWithAnd(names)}` : describeDays(clean).toLowerCase();
+}
+
+/**
+ * What the routines sheet says after a routine is saved, so it's clear when
+ * it shows up: "Shows on Today on weekdays.", or, when it's due today and can
+ * be added right now, "Shows on Today — you can add it now."
+ */
+export function routineSavedNote(input: {
+  days: readonly number[];
+  paused?: boolean;
+  /** Due today and not on today's list yet. */
+  dueToday: boolean;
+  /** Today has room and isn't set. */
+  canAddNow: boolean;
+}): string {
+  if (input.paused) return "Paused. It won't show on Today until you resume it.";
+  if (input.dueToday && input.canAddNow) return "Shows on Today — you can add it now.";
+  return `Shows on Today ${daysPhrase(input.days)}.`;
 }
 
 /** Whether a user can create another routine (free: FREE_ROUTINE_LIMIT; Plus: unlimited). */
