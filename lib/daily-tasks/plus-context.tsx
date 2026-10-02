@@ -325,12 +325,17 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       // Also covers a paywall reopened while this purchase was running.
       closePaywallRef.current();
     }
-    track(result.outcome === "purchased" ? "purchase_completed" : "purchase_failed", {
-      plan: pkg.kind,
-      source,
-      outcome: result.outcome,
-      trial: pkg.trialDays != null,
-    });
+    if (result.outcome === "cancelled") {
+      // Backed out of Apple's purchase sheet: not an error, a funnel drop-off.
+      track("purchase_cancelled", { plan: pkg.kind, source, trial: pkg.trialDays != null });
+    } else {
+      track(result.outcome === "purchased" ? "purchase_completed" : "purchase_failed", {
+        plan: pkg.kind,
+        source,
+        outcome: result.outcome,
+        trial: pkg.trialDays != null,
+      });
+    }
     return result.outcome;
   }, [applyStatus]);
 

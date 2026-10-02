@@ -26,6 +26,7 @@ export type AnalyticsEvent =
   | "purchase_started"
   | "purchase_completed"
   | "purchase_failed"
+  | "purchase_cancelled"
   | "restore_completed"
   | "redeem_code_opened"
   | "path_edited"
