@@ -15,6 +15,7 @@ import { FocusTimerPanel } from "@/components/daily-tasks/focus-timer-panel";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useSessionEnded } from "@/hooks/use-focus-clock";
+import { useFocusKeepAwake } from "@/hooks/use-focus-keep-awake";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { sessionMinutes, type FocusSession } from "@/lib/daily-tasks/focus-session";
 import type { Task } from "@/lib/daily-tasks/types";
@@ -68,6 +69,9 @@ export function FocusMode({
   // At time's up the check-in's Take a break is the way out (never both).
   const timesUp = useSessionEnded(session);
   const timerActive = session !== null && !timesUp;
+  // The screen stays on while this is open with the timer counting down
+  // (never paused, at time's up or in the background); closing releases it.
+  useFocusKeepAwake(session?.status === "running" && !timesUp);
   // The custom wheel waits until the sheet has finished sliding in: its
   // first-spin fix (see CountdownWheel) only works once it's on screen.
   const [shown, setShown] = useState(false);

@@ -15,7 +15,8 @@ const draftOf = (tasks: string[], because = ""): TomorrowDraft => ({
   source: "local",
 });
 
-const row = (name: string) => screen.getByRole("checkbox", { name });
+// A checkbox, or a radio button when one slot makes it a pick-one choice.
+const row = (name: string) => screen.getByRole(/^(checkbox|radio)$/, { name });
 const checked = (name: string) => row(name).props.accessibilityState?.checked === true;
 const disabled = (name: string) => row(name).props.accessibilityState?.disabled === true;
 const useButton = () => screen.getByTestId("tomorrow-draft-use");
@@ -57,7 +58,8 @@ describe("TomorrowDraftCard", () => {
     expect(checked("Walk")).toBe(true);
     // Nothing greyed out: any row can be the one.
     expect(disabled("Read")).toBe(false);
-    expect(row("Read").props.accessibilityHint).toBe("Room for one more today. Pick which.");
+    expect(row("Read").props.accessibilityHint).toBe("Picks this one instead.");
+    expect(row("Walk").props.accessibilityHint).toBeUndefined();
     expect(screen.getByTestId("tomorrow-draft-room")).toHaveTextContent("Room for one more today. Pick which.");
     expect(useButton()).toHaveTextContent("Use this");
     expect(hint()).toHaveTextContent("Unticked ones are saved for later.");
@@ -122,5 +124,75 @@ describe("TomorrowDraftCard", () => {
   it("shows the because line from the morning's side", async () => {
     await renderCard(draftOf(["Walk"], "Because today worked well, tomorrow builds on it."), 3);
     expect(screen.getByTestId("tomorrow-draft")).toHaveTextContent(/Because yesterday worked well, today builds on it\./);
+  });
+
+  // 1.3 polish (PR #82): one slot and a choice is a pick-one group for VoiceOver.
+  describe("roles: radio buttons only for a pick-one choice", () => {
+    const list = () => screen.getByTestId("tomorrow-draft-list");
+    const roles = () => screen.queryAllByRole(/^(checkbox|radio)$/).map((node) => node.props.accessibilityRole);
+
+    it("one slot, three rows: a radiogroup ('Pick one for today') of radio buttons, and swapping still works", async () => {
+      const { onUse } = await renderCard(draftOf(["Walk", "Read", "Stretch"]), 1);
+      expect(list().props.accessibilityRole).toBe("radiogroup");
+      expect(list().props.accessibilityLabel).toBe("Pick one for today");
+      expect(roles()).toEqual(["radio", "radio", "radio"]);
+      expect(screen.getByRole("radio", { name: "Walk" })).toBeChecked();
+      await fireEvent.press(screen.getByRole("radio", { name: "Read" }));
+      expect(screen.getByRole("radio", { name: "Read" })).toBeChecked();
+      expect(screen.getByRole("radio", { name: "Walk" })).not.toBeChecked();
+      expect(screen.getByRole("radio", { name: "Stretch" })).not.toBeChecked();
+      await fireEvent.press(useButton());
+      expect(onUse).toHaveBeenCalledWith(["Read"]);
+    });
+
+    it("re-tapping the picked radio button does nothing (a radio can't be unticked)", async () => {
+      const { onUse } = await renderCard(draftOf(["Walk", "Read", "Stretch"]), 1);
+      await fireEvent.press(screen.getByRole("radio", { name: "Walk" }));
+      expect(screen.getByRole("radio", { name: "Walk" })).toBeChecked();
+      expect(useButton()).toHaveTextContent("Use this");
+      // After a swap too.
+      await fireEvent.press(screen.getByRole("radio", { name: "Read" }));
+      await fireEvent.press(screen.getByRole("radio", { name: "Read" }));
+      expect(screen.getByRole("radio", { name: "Read" })).toBeChecked();
+      expect(screen.getByRole("radio", { name: "Read" }).props.accessibilityHint).toBeUndefined();
+      expect(screen.getByRole("radio", { name: "Walk" }).props.accessibilityHint).toBe("Picks this one instead.");
+      await fireEvent.press(useButton());
+      expect(onUse).toHaveBeenCalledWith(["Read"]);
+    });
+
+    it("one slot, one row is a checkbox that can still be unticked", async () => {
+      await renderCard(draftOf(["Walk"]), 1);
+      await fireEvent.press(row("Walk"));
+      expect(checked("Walk")).toBe(false);
+    });
+
+    it("one slot, two rows is still a pick-one group", async () => {
+      await renderCard(draftOf(["Walk", "Read"]), 1);
+      expect(list().props.accessibilityRole).toBe("radiogroup");
+      expect(roles()).toEqual(["radio", "radio"]);
+    });
+
+    it.each([
+      ["one slot, one row", ["Walk"], 1],
+      ["two slots", ["Walk", "Read", "Stretch"], 2],
+      ["three slots", ["Walk", "Read", "Stretch"], 3],
+      ["more slots than rows", ["Walk", "Read"], 3],
+    ] as const)("%s: checkboxes in a plain list (no group role or label)", async (_name, tasks, slots) => {
+      await renderCard(draftOf([...tasks]), slots);
+      expect(list().props.accessibilityRole).toBeUndefined();
+      expect(list().props.accessibilityLabel).toBeUndefined();
+      expect(roles()).toEqual(tasks.map(() => "checkbox"));
+    });
+
+    it("room going from two to one turns the checkboxes into radio buttons (and back)", async () => {
+      const { props, rerender } = await renderCard(draftOf(["Walk", "Read", "Stretch"]), 2);
+      expect(roles()).toEqual(["checkbox", "checkbox", "checkbox"]);
+      await rerender(<TomorrowDraftCard {...props} remainingSlots={1} />);
+      expect(list().props.accessibilityRole).toBe("radiogroup");
+      expect(roles()).toEqual(["radio", "radio", "radio"]);
+      await rerender(<TomorrowDraftCard {...props} remainingSlots={2} />);
+      expect(list().props.accessibilityRole).toBeUndefined();
+      expect(roles()).toEqual(["checkbox", "checkbox", "checkbox"]);
+    });
   });
 });

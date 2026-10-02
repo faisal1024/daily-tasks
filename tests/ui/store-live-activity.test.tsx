@@ -21,7 +21,11 @@ import {
   FINAL_DISMISS_SECONDS,
   syncLiveActivity,
 } from "@/lib/daily-tasks/live-activity";
-import { dismissFocusTimerNotification } from "@/lib/daily-tasks/notifications";
+import {
+  dismissFocusTimerNotification,
+  subscribeFocusResponses,
+  type FocusNotificationResponse,
+} from "@/lib/daily-tasks/notifications";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import {
   __resetStorageForTests,
@@ -1117,4 +1121,77 @@ describe("start my next task: links and the App Group request", () => {
       expect(events("focus_session_ended")).toEqual([]);
     },
   );
+});
+
+// --- 1.3 polish (PR #82) ------------------------------------------------------
+
+describe("Live Activity: the notification's Take a break", () => {
+  /** The store's notification listener (the mock records what it subscribed). */
+  const respond = (response: FocusNotificationResponse) => {
+    const listener = (subscribeFocusResponses as jest.Mock).mock.calls[0][0] as (
+      r: FocusNotificationResponse,
+    ) => void;
+    return act(async () => listener(response));
+  };
+
+  it("at time's up it ends the activity as a break (Timer ended), never Done, and the task stays open", async () => {
+    const { result } = await renderStore();
+    await act(async () =>
+      result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }),
+    );
+    await flush();
+    const id = result.current.state.focusSession!.id;
+    await act(async () => {
+      jest.advanceTimersByTime(10 * MIN + 100);
+    });
+    await flush();
+    tracked.mockClear();
+    await respond({ action: "break", sessionId: id });
+    await flush();
+    expect(result.current.state.focusSession).toBeNull();
+    expect(result.current.isCompleted("t0")).toBe(false);
+    expect(native.end).toHaveBeenCalledTimes(1);
+    expect(native.end).toHaveBeenLastCalledWith(id, "break", FINAL_DISMISS_SECONDS);
+    expect(events("focus_session_ended")).toEqual([
+      ["focus_session_ended", { outcome: "break", minutes: 10 }],
+    ]);
+    expect(events("task_completed")).toEqual([]);
+    // Not a Live Activity button: no live_activity_action.
+    expect(events("live_activity_action")).toEqual([]);
+  });
+});
+
+describe("Live Activity: a session the module won't start (dismissed before)", () => {
+  it("one false start: asked once, no retry loop, and not remembered as shown", async () => {
+    native.start.mockResolvedValue(false);
+    const { result } = await renderStore();
+    await act(async () =>
+      result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }),
+    );
+    await flush();
+    expect(native.start).toHaveBeenCalledTimes(1);
+    // Time passing (a minute's ticks, no change) asks nothing more.
+    await act(async () => {
+      jest.advanceTimersByTime(3 * MIN);
+    });
+    await flush();
+    expect(native.start).toHaveBeenCalledTimes(1);
+    expect(native.update).not.toHaveBeenCalled();
+  });
+
+  it("syncLiveActivity: after a false start the next sync asks the module again (it decides), and one that then shows is updated", async () => {
+    native.start.mockResolvedValue(false);
+    const live = session();
+    await syncLiveActivity(live);
+    expect(native.start).toHaveBeenCalledTimes(1);
+    expect(native.update).not.toHaveBeenCalled();
+    // Same content again: not "already shown", so it isn't skipped as sent.
+    await syncLiveActivity(live);
+    expect(native.start).toHaveBeenCalledTimes(2);
+    // The activity is there after all: its content is sent (never assumed shown).
+    mockActivities = ["saved"];
+    await syncLiveActivity(live);
+    expect(native.update).toHaveBeenCalledTimes(1);
+    expect(native.start).toHaveBeenCalledTimes(2);
+  });
 });

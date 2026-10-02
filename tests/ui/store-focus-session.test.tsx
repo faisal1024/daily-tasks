@@ -586,6 +586,103 @@ describe("store: the end notification's buttons", () => {
   });
 });
 
+// 1.3 polish (PR #82): the notification's Take a break (a starter's Stop for now).
+describe("store: the end notification's Take a break", () => {
+  async function endedSession(kind: "timer" | "starter" = "timer") {
+    const hook = await renderStore();
+    const minutes = kind === "starter" ? 5 : 10;
+    await act(async () => hook.result.current.startFocusSession("t0", { kind, minutes, source: "row" }));
+    await act(async () => {
+      jest.advanceTimersByTime(minutes * MIN + 100);
+    });
+    expect(hook.result.current.state.focusSession).toMatchObject({ status: "ended" });
+    return { ...hook, id: hook.result.current.state.focusSession!.id };
+  }
+  const completions = () => tracked.mock.calls.filter((call) => call[0] === "task_completed");
+
+  it.each(["timer", "starter"] as const)(
+    "at time's up a %s's break clears the session as a break, once; the task stays open",
+    async (kind) => {
+      const { result, id } = await endedSession(kind);
+      tracked.mockClear();
+      await act(async () => mockResponder!({ action: "break", sessionId: id }));
+      await flush();
+      expect(result.current.state.focusSession).toBeNull();
+      expect(await savedSession()).toBeNull();
+      expect(result.current.state.todayCompletions).toEqual([]);
+      expect(result.current.isCompleted("t0")).toBe(false);
+      expect(endedEvents()).toEqual([["focus_session_ended", { outcome: "break", minutes: kind === "starter" ? 5 : 10 }]]);
+      expect(completions()).toEqual([]);
+      expect(navigateToToday).toHaveBeenCalledTimes(1);
+      // Tapped again (or the launch copy arriving too): nothing more.
+      await act(async () => mockResponder!({ action: "break", sessionId: id }));
+      await flush();
+      expect(endedEvents()).toHaveLength(1);
+      expect(completions()).toEqual([]);
+    },
+  );
+
+  it("a stale break (the session extended meanwhile, so it's counting down again) changes nothing", async () => {
+    const { result, id } = await endedSession();
+    await act(async () => mockResponder!({ action: "extend", sessionId: id }));
+    tracked.mockClear();
+    await act(async () => mockResponder!({ action: "break", sessionId: id }));
+    await flush();
+    expect(result.current.state.focusSession).toMatchObject({ id, status: "running", durationMs: 15 * MIN });
+    expect(endedEvents()).toEqual([]);
+    expect(completions()).toEqual([]);
+  });
+
+  it("a break while running or paused (not at time's up) changes nothing", async () => {
+    const hook = await renderStore();
+    await act(async () => hook.result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
+    const id = hook.result.current.state.focusSession!.id;
+    tracked.mockClear();
+    await act(async () => mockResponder!({ action: "break", sessionId: id }));
+    expect(hook.result.current.state.focusSession).toMatchObject({ id, status: "running" });
+    await act(async () => hook.result.current.pauseFocusSession());
+    await act(async () => {
+      jest.advanceTimersByTime(30 * MIN);
+    });
+    await act(async () => mockResponder!({ action: "break", sessionId: id }));
+    await flush();
+    expect(hook.result.current.state.focusSession).toMatchObject({ id, status: "paused" });
+    expect(endedEvents()).toEqual([]);
+  });
+
+  it("a break for another session (an old notification) is ignored", async () => {
+    const { result, id } = await endedSession();
+    tracked.mockClear();
+    await act(async () => mockResponder!({ action: "break", sessionId: "old" }));
+    await flush();
+    expect(result.current.state.focusSession).toMatchObject({ id, status: "ended" });
+    expect(endedEvents()).toEqual([]);
+    expect(completions()).toEqual([]);
+  });
+
+  it("a break that launched the app waits for saved state, then clears the saved session as a break", async () => {
+    mockLaunchResponse = { action: "break", sessionId: "saved" };
+    jest.setSystemTime(START.getTime() + 20 * MIN);
+    const { result } = await renderStore({ focusSession: session() });
+    await flush();
+    expect(result.current.state.focusSession).toBeNull();
+    expect(result.current.state.todayCompletions).toEqual([]);
+    expect(endedEvents()).toEqual([["focus_session_ended", { outcome: "break", minutes: 10 }]]);
+    expect(completions()).toEqual([]);
+  });
+
+  it("a break that launched the app for a saved session still running (extended from the lock screen) changes nothing", async () => {
+    mockLaunchResponse = { action: "break", sessionId: "saved" };
+    jest.setSystemTime(START.getTime() + 20 * MIN);
+    const { result } = await renderStore({
+      focusSession: session({ durationMs: 25 * MIN, endAt: START.getTime() + 25 * MIN }),
+    });
+    await flush();
+    expect(result.current.state.focusSession).toMatchObject({ id: "saved", status: "running" });
+    expect(endedEvents()).toEqual([]);
+  });
+});
+
 describe("store: at launch (reconcile)", () => {
   it("a session cleared while loading (its task ticked in the widget) has its stale end notification cancelled", async () => {
     const { result } = await renderStore({ focusSession: session(), todayCompletions: ["t0"] }, START, {
