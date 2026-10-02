@@ -226,3 +226,20 @@ describe("normalizeState: coachNotes (1.2)", () => {
     expect(restore({ coachNotes: { date: "2026-09-26", requests: -3 } }).coachNotes?.requests).toBe(0);
   });
 });
+
+describe("normalizeState: reviewDueSource (1.3)", () => {
+  const due = "2026-09-25T20:00:00.000Z";
+
+  it("an ask saved before 1.3 (no source) came from a perfect day", () => {
+    const legacy = JSON.parse(JSON.stringify({ ...base(), reviewDueAt: due }));
+    delete legacy.reviewDueSource;
+    expect(normalizeState(legacy)?.reviewDueSource).toBe("perfect_day");
+  });
+
+  it("keeps a valid source, normalises an invalid one, and has none without an ask", () => {
+    expect(restore({ reviewDueAt: due, reviewDueSource: "milestone" }).reviewDueSource).toBe("milestone");
+    expect(restore({ reviewDueAt: due, reviewDueSource: "bogus" }).reviewDueSource).toBe("perfect_day");
+    expect(restore({ reviewDueAt: due, reviewDueSource: 7 }).reviewDueSource).toBe("perfect_day");
+    expect(restore({ reviewDueAt: null, reviewDueSource: "milestone" }).reviewDueSource).toBeNull();
+  });
+});

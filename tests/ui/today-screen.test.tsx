@@ -9,6 +9,8 @@ import { closeDay } from "@/lib/daily-tasks/evening";
 import { MomentumAiError } from "@/lib/daily-tasks/ai-status";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import { coachTaskKey, localCoachLine, requestCoachNotes } from "@/lib/daily-tasks/coach-note";
+import { addDays } from "@/lib/daily-tasks/date";
+import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import { themeColors } from "@/theme.config";
 import type { AppState, DayRecord, Task } from "@/lib/daily-tasks/types";
@@ -3076,5 +3078,170 @@ describe("Timer on your tasks (1.3)", () => {
     } as MockStore;
     await view.rerender(<HomeScreen />);
     expect(focusEvents()).toEqual([["focus_opened", { source: "siri" }]]);
+  });
+});
+
+// --- 1.3: rating asks at happy moments (PR #78) --------------------------------
+
+describe("rating moments (1.3)", () => {
+  const appState = RNAppState as unknown as { currentState: unknown };
+  let original: unknown;
+  beforeEach(() => {
+    original = appState.currentState;
+  });
+  afterEach(() => {
+    appState.currentState = original;
+  });
+
+  /** A showed-up day (a task on it), as the store saves it. */
+  const shownUp = (date: string): DayRecord => ({ ...perfectDay(date), total: 1, completed: 0, locked: false, lockSource: null });
+  /** Showed-up days `offsets` days before `today`. */
+  const pastDays = (today: string, offsets: number[]) =>
+    Object.fromEntries(offsets.map((n) => [addDays(today, -n), shownUp(addDays(today, -n))]));
+
+  /** The store on `today`, its history synced with today's tasks as the reducer does. */
+  function storeOn(today: string, history: AppState["history"], taskTexts: string[], extra: Record<string, unknown> = {}) {
+    const store = makeStore({ history, tasks: tasks(...taskTexts), lastOpenedDate: today });
+    return { ...store, state: syncTodayHistory(store.state, today), today, focusDoneCount: 0, ...extra } as MockStore;
+  }
+
+  /** Mount with today empty, then add today's first task. */
+  async function addFirstTask(history: AppState["history"]) {
+    mockStore = storeOn(TODAY, history, []);
+    const view = await render(<HomeScreen />);
+    expect(mockStore.markReviewDue).not.toHaveBeenCalled();
+    mockStore = storeOn(TODAY, history, ["Walk"]);
+    await view.rerender(<HomeScreen />);
+    return view;
+  }
+
+  describe("a showed-up milestone", () => {
+    it("is a happy moment when today's first task makes it day 7", async () => {
+      await addFirstTask(pastDays(TODAY, [1, 2, 3, 4, 5, 6]));
+      expect(mockStore.markReviewDue).toHaveBeenCalledTimes(1);
+      expect(mockStore.markReviewDue).toHaveBeenCalledWith("milestone");
+    });
+
+    it("isn't one when the app opens already on day 7", async () => {
+      mockStore = storeOn(TODAY, pastDays(TODAY, [1, 2, 3, 4, 5, 6]), ["Walk"]);
+      await render(<HomeScreen />);
+      expect(mockStore.markReviewDue).not.toHaveBeenCalled();
+    });
+
+    it("isn't one when a new day carries the count to 7", async () => {
+      const yesterday = addDays(TODAY, -1);
+      mockStore = storeOn(yesterday, pastDays(yesterday, [1, 2, 3, 4, 5]), ["Walk"]);
+      const view = await render(<HomeScreen />);
+      // Midnight: yesterday is saved, its task carried over to today (count 6 → 7).
+      mockStore = storeOn(TODAY, pastDays(TODAY, [1, 2, 3, 4, 5, 6]), ["Walk"]);
+      await view.rerender(<HomeScreen />);
+      expect(mockStore.markReviewDue).not.toHaveBeenCalled();
+    });
+
+    it("isn't one in a background launch", async () => {
+      appState.currentState = "background";
+      await addFirstTask(pastDays(TODAY, [1, 2, 3, 4, 5, 6]));
+      expect(mockStore.markReviewDue).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("a good week", () => {
+    it("is the step to 5 of the last 7 days", async () => {
+      // 4 of the last 6 days, 9 days in all (no milestone at 10).
+      await addFirstTask(pastDays(TODAY, [1, 2, 4, 5, 20, 21, 22, 23, 24]));
+      expect(mockStore.markReviewDue).toHaveBeenCalledTimes(1);
+      expect(mockStore.markReviewDue).toHaveBeenCalledWith("good_week");
+    });
+
+    it("isn't 5 → 6", async () => {
+      await addFirstTask(pastDays(TODAY, [1, 2, 3, 4, 5, 20, 21, 22, 23]));
+      expect(mockStore.markReviewDue).not.toHaveBeenCalled();
+    });
+
+    it("gives way to a milestone reached on the same step", async () => {
+      // 4 of the last 6 days and 6 in all: today is day 7 AND a good week.
+      await addFirstTask(pastDays(TODAY, [1, 2, 4, 5, 20, 21]));
+      expect(mockStore.markReviewDue).toHaveBeenCalledTimes(1);
+      expect(mockStore.markReviewDue).toHaveBeenCalledWith("milestone");
+    });
+  });
+
+  describe("a focus session ended with its task done", () => {
+    async function focusDone(extra: Record<string, unknown> = {}) {
+      const history = pastDays(TODAY, [1]);
+      mockStore = storeOn(TODAY, history, ["Walk", "Read"], extra);
+      const view = await render(<HomeScreen />);
+      mockStore = storeOn(TODAY, history, ["Walk", "Read"], { todayCompletions: ["t0"], focusDoneCount: 1, ...extra });
+      await view.rerender(<HomeScreen />);
+    }
+
+    it("is a happy moment", async () => {
+      await focusDone();
+      expect(mockStore.markReviewDue).toHaveBeenCalledTimes(1);
+      expect(mockStore.markReviewDue).toHaveBeenCalledWith("focus_done");
+    });
+
+    it("isn't one on mount (an earlier session), in a background launch, or with the paywall open", async () => {
+      mockStore = storeOn(TODAY, pastDays(TODAY, [1]), ["Walk"], { focusDoneCount: 3 });
+      await render(<HomeScreen />);
+      expect(mockStore.markReviewDue).not.toHaveBeenCalled();
+
+      appState.currentState = "background";
+      await focusDone();
+      expect(mockStore.markReviewDue).not.toHaveBeenCalled();
+
+      appState.currentState = original;
+      mockPaywall = { paywallSource: "focus", entitlementActive: false };
+      await focusDone();
+      expect(mockStore.markReviewDue).not.toHaveBeenCalled();
+    });
+  });
+
+  it("nothing is asked on the install's first day", async () => {
+    await addFirstTask({});
+    expect(mockStore.markReviewDue).not.toHaveBeenCalled();
+  });
+});
+
+describe("rating_prompt_requested's source (1.3)", () => {
+  const appState = RNAppState as unknown as { currentState: unknown };
+  let original: unknown;
+  beforeEach(() => {
+    jest.useFakeTimers({ now: new Date(2026, 8, 26, 20, 0) });
+    original = appState.currentState;
+    appState.currentState = "active";
+  });
+  afterEach(() => {
+    appState.currentState = original;
+  });
+
+  const ratingEvents = () => mockTrack.mock.calls.filter((call) => call[0] === "rating_prompt_requested");
+  async function openWithDue(source: AppState["reviewDueSource"]) {
+    mockStore = makeStore({
+      tasks: tasks("Walk"),
+      reviewDueAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      reviewDueSource: source,
+    });
+    await render(<HomeScreen />);
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(requestAppReview).toHaveBeenCalledTimes(1);
+  }
+
+  it("carries the moment that earned the ask", async () => {
+    await openWithDue("milestone");
+    expect(ratingEvents()).toEqual([["rating_prompt_requested", { source: "milestone" }]]);
+  });
+
+  it("says perfect_day for an ask with no source (saved before 1.3)", async () => {
+    await openWithDue(null);
+    expect(ratingEvents()).toEqual([["rating_prompt_requested", { source: "perfect_day" }]]);
+  });
+
+  it("isn't sent when the prompt wasn't requested", async () => {
+    (requestAppReview as jest.Mock).mockResolvedValueOnce(false);
+    await openWithDue("focus_done");
+    expect(ratingEvents()).toEqual([]);
   });
 });

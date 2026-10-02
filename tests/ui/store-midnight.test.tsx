@@ -258,6 +258,18 @@ describe("store: rating due", () => {
   });
 });
 
+describe("store: the rating ask's source (1.3)", () => {
+  it("keeps the first happy moment's source, saves it, and clears it with the ask", async () => {
+    const { result } = await renderOnDay({}, new Date());
+    await act(async () => result.current.markReviewDue("milestone"));
+    await act(async () => result.current.markReviewDue("good_week"));
+    expect(result.current.state.reviewDueSource).toBe("milestone");
+    await act(async () => result.current.markReviewPrompted());
+    expect(result.current.state.reviewDueAt).toBeNull();
+    expect(result.current.state.reviewDueSource).toBeNull();
+  });
+});
+
 describe("store: the Coach's note cache over midnight (1.2)", () => {
   it("the day change drops yesterday's coachNotes, and a late reply or mark for yesterday doesn't recreate them", async () => {
     fakeClockAt(new Date(2026, 8, 25, 23, 59, 50));
