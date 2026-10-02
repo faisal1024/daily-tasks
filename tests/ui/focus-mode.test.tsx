@@ -418,3 +418,37 @@ describe("FocusMode", () => {
     expect(schedule).not.toHaveBeenCalled();
   });
 });
+
+// PR #83: at the accessibility text sizes (fontScale 1.6 and up) the start line
+// folds away and the title stops at three lines, so the timer stays in view.
+describe("FocusMode at large text sizes", () => {
+  const original = Dimensions.get("window");
+  const setFontScale = (fontScale: number) =>
+    act(async () => {
+      Dimensions.set({ window: { ...original, fontScale }, screen: { ...original, fontScale } });
+    });
+  afterEach(async () => {
+    await setFontScale(original.fontScale);
+  });
+
+  it.each([
+    [1, true],
+    [1.59, true],
+    [1.6, false],
+    [3, false],
+  ])("at fontScale %s the start line shows: %s", async (fontScale, shown) => {
+    await setFontScale(fontScale);
+    await renderFocus();
+    expect(screen.queryByTestId("focus-start-line") !== null).toBe(shown);
+  });
+
+  it("the title stops at three lines (capped growth), with the full text in its label", async () => {
+    const long = "Write the quarterly report for the board, including the appendix and every chart they asked for";
+    await setFontScale(3);
+    await renderFocus({}, { ...TASK, id: "t0", text: long });
+    const title = screen.getByTestId("focus-task-text");
+    expect(title).toHaveProp("numberOfLines", 3);
+    expect(title).toHaveProp("maxFontSizeMultiplier", 1.6);
+    expect(title).toHaveProp("accessibilityLabel", `Focus: ${long}`);
+  });
+});

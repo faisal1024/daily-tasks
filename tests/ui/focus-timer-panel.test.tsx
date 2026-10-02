@@ -22,6 +22,7 @@ import {
   startSession,
   type FocusSession,
 } from "@/lib/daily-tasks/focus-session";
+import * as timerStorage from "@/lib/daily-tasks/focus-timer-storage";
 import { LAST_CUSTOM_TIMER_KEY } from "@/lib/daily-tasks/focus-timer-storage";
 import { getNotificationPermissionStatus } from "@/lib/daily-tasks/notifications";
 
@@ -624,5 +625,67 @@ describe("FocusTimerPanel: 1.3 polish", () => {
     await fireEvent.press(screen.getByRole("button", { name: "Take a break" }));
     expect(controls.takeBreak).toHaveBeenCalledTimes(1);
     expect(controls.stop).not.toHaveBeenCalled();
+  });
+});
+
+// PR #83: the iOS wheel mounts only once the stored last length has loaded, so
+// it never shows the default and changes under the user; its nudges only move
+// the seconds, so the wheel and Start always mean the same length.
+describe("FocusTimerPanel: the custom wheel waits for the stored length (PR #83)", () => {
+  const wheelMinutes = () => {
+    const value = screen.getByTestId("focus-timer-wheel").props.value as Date;
+    return value.getHours() * 60 + value.getMinutes();
+  };
+  const startHint = () => screen.getByRole("button", { name: "Start" }).props.accessibilityHint as string;
+
+  it("shows a placeholder until the stored 45 loads, then the wheel at 45; nudges never change it and Start uses it", async () => {
+    Platform.OS = "ios";
+    let release!: (minutes: number | null) => void;
+    jest.spyOn(timerStorage, "loadLastCustomTimer").mockImplementation(
+      () => new Promise<number | null>((resolve) => (release = resolve)),
+    );
+    const { onStart } = await renderPanel();
+    await press("Custom timer");
+    expect(screen.getByTestId("focus-timer-wheel-loading")).toBeOnTheScreen();
+    expect(screen.queryByTestId("focus-timer-wheel")).toBeNull();
+
+    await act(async () => release(45));
+    expect(screen.queryByTestId("focus-timer-wheel-loading")).toBeNull();
+    expect(wheelMinutes()).toBe(45);
+    expect(startHint()).toBe("Starts a timer for 45 minutes");
+    // The mount frame and the 250 ms settle each move only the seconds.
+    const mounted = (screen.getByTestId("focus-timer-wheel").props.value as Date).getTime();
+    await advance(300);
+    expect((screen.getByTestId("focus-timer-wheel").props.value as Date).getTime()).toBe(mounted + 2000);
+    expect(wheelMinutes()).toBe(45);
+    expect(startHint()).toBe("Starts a timer for 45 minutes");
+    // A clamp's nudge, too: past the cap it reads (and starts) 3 hours.
+    await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(3, 30)));
+    expect(wheelMinutes()).toBe(180);
+    expect(startHint()).toBe("Starts a timer for 3 hours");
+    await act(async () => screen.getByTestId("focus-timer-wheel").props.onChange({ type: "set" }, wheelAt(0, 45)));
+    expect(wheelMinutes()).toBe(45);
+    await press("Start");
+    expect(onStart).toHaveBeenCalledWith(45);
+  });
+
+  it("with nothing stored, mounts at the default 15 once the read finishes", async () => {
+    Platform.OS = "ios";
+    const { onStart } = await renderPanel();
+    await press("Custom timer");
+    expect(wheelMinutes()).toBe(15);
+    await advance(300);
+    expect(wheelMinutes()).toBe(15);
+    await press("Start");
+    expect(onStart).toHaveBeenCalledWith(15);
+  });
+
+  it("a failed read still mounts the wheel (at the default)", async () => {
+    Platform.OS = "ios";
+    jest.spyOn(timerStorage, "loadLastCustomTimer").mockRejectedValue(new Error("disk"));
+    await renderPanel();
+    await press("Custom timer");
+    expect(screen.queryByTestId("focus-timer-wheel-loading")).toBeNull();
+    expect(wheelMinutes()).toBe(15);
   });
 });

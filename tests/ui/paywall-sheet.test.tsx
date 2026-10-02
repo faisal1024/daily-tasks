@@ -1,8 +1,10 @@
 // Paywall sheet: plans load with annual selected, buying closes only on success,
 // failures and pending purchases explain themselves, and restore/retry work.
-import { act, fireEvent, screen } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
+import { act, fireEvent, screen, within } from "@testing-library/react-native";
 
 import { PaywallSheet } from "@/components/daily-tasks/paywall-sheet";
+import { ThemeColors } from "@/constants/theme";
 import { announcePolitely } from "@/lib/daily-tasks/announce";
 import type { PlusPackage } from "@/lib/daily-tasks/plus";
 import type { PurchaseOutcome } from "@/lib/daily-tasks/purchases";
@@ -419,5 +421,48 @@ describe("PaywallSheet: a win-back offer purchase that fails", () => {
     await act(async () => {});
     expect(loadPackages).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("paywall-message")).toHaveTextContent(/didn't go through/);
+  });
+});
+
+// PR #83 (App Review 3.1.2): the billed price is the most prominent thing on a
+// plan (a tinted badge, never filled), what the button bills sits right under
+// it (above the monthly line), and the link says "Terms of Use".
+describe("PaywallSheet: price prominence and order (PR #83)", () => {
+  /** testIDs in render order. */
+  const order = () => {
+    const ids: string[] = [];
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach(walk);
+      const { props, children } = node as { props?: { testID?: string }; children?: unknown };
+      if (props?.testID) ids.push(props.testID);
+      walk(children);
+    };
+    walk(screen.toJSON());
+    return ids;
+  };
+
+  it("the button, then its terms, then the monthly line", async () => {
+    const props = setup({ onPurchase: jest.fn(async (): Promise<PurchaseOutcome> => "cancelled") });
+    await renderSheet(props);
+    await fireEvent.press(screen.getByTestId("paywall-buy"));
+    const ids = order();
+    const [buy, terms, nudge] = ["paywall-buy", "paywall-terms", "paywall-monthly-nudge"].map((id) => ids.indexOf(id));
+    expect(buy).toBeGreaterThan(-1);
+    expect(terms).toBeGreaterThan(buy);
+    expect(nudge).toBeGreaterThan(terms);
+  });
+
+  it("the badge is a tinted chip; the price is bold, by plan testID; the link reads Terms of Use", async () => {
+    await renderSheet(setup());
+    const badge = screen.getByText("7-day free trial");
+    expect(badge).toHaveStyle({ color: ThemeColors.primaryInk.light });
+    expect(StyleSheet.flatten(badge.parent!.props.style).backgroundColor).toBe(`${ThemeColors.primary.light}1F`);
+    const price = screen.getByTestId("paywall-price-annual");
+    expect(price).toHaveTextContent("$29.99/year");
+    expect(price).toHaveProp("className", expect.stringContaining("font-bold"));
+    expect(screen.getByTestId("paywall-price-monthly")).toHaveTextContent("$4.99/month");
+    expect(within(screen.getByTestId("paywall-plan-annual")).getByTestId("paywall-price-annual")).toBeOnTheScreen();
+    expect(screen.getByRole("link", { name: "Terms of Use" })).toBeOnTheScreen();
   });
 });

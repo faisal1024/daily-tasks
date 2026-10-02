@@ -1,6 +1,7 @@
 // The morning card (PR #69): last night's draft as ticked rows, the first that
 // fit preselected, and the because line read from the morning's side.
-import { fireEvent, screen } from "@testing-library/react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { fireEvent, screen, within } from "@testing-library/react-native";
 
 import { TomorrowDraftCard } from "@/components/daily-tasks/ritual-cards";
 import type { TomorrowDraft } from "@/lib/daily-tasks/types";
@@ -194,5 +195,63 @@ describe("TomorrowDraftCard", () => {
       expect(list().props.accessibilityRole).toBeUndefined();
       expect(roles()).toEqual(["checkbox", "checkbox", "checkbox"]);
     });
+  });
+});
+
+// PR #83: with exactly one slot and two or more drafted, the rows are radio
+// buttons (icons too), the rest are "the other one/two", and the room line
+// sits above the list; any other shape keeps the checkbox icons.
+describe("TomorrowDraftCard: pick one", () => {
+  const glyph = (name: keyof typeof Ionicons.glyphMap) => String.fromCodePoint(Ionicons.glyphMap[name] as number);
+  const icon = (name: string) => {
+    const r = row(name);
+    for (const candidate of ["radio-button-on", "radio-button-off", "checkmark-circle", "ellipse-outline"] as const) {
+      if (within(r).queryByText(glyph(candidate), { includeHiddenElements: true })) return candidate;
+    }
+    return null;
+  };
+  /** testIDs in render order. */
+  const order = () => {
+    const ids: string[] = [];
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach(walk);
+      const { props, children } = node as { props?: { testID?: string }; children?: unknown };
+      if (props?.testID) ids.push(props.testID);
+      walk(children);
+    };
+    walk(screen.toJSON());
+    return ids;
+  };
+
+  it("radio icons only with exactly one slot and two or more drafted", async () => {
+    const first = await render(
+      <TomorrowDraftCard draft={draftOf(["Walk", "Read"])} remainingSlots={1} onUse={jest.fn()} onChange={jest.fn()} onDismiss={jest.fn()} />,
+    );
+    expect(icon("Walk")).toBe("radio-button-on");
+    expect(icon("Read")).toBe("radio-button-off");
+    await fireEvent.press(row("Read"));
+    expect(icon("Read")).toBe("radio-button-on");
+    expect(icon("Walk")).toBe("radio-button-off");
+    // One drafted with one slot: a checkbox, not a choice.
+    await first.unmount();
+    await renderCard(draftOf(["Solo"]), 1);
+    expect(screen.getByRole("checkbox", { name: "Solo" })).toBeOnTheScreen();
+    expect(icon("Solo")).toBe("checkmark-circle");
+    // Two slots of three: checkboxes.
+    await renderCard(draftOf(["Walk", "Read", "Stretch"]), 2);
+    expect(icon("Walk")).toBe("checkmark-circle");
+    expect(icon("Stretch")).toBe("ellipse-outline");
+  });
+
+  it("says the other one / the other two are saved, with the room line above the list", async () => {
+    const { rerender, props } = await renderCard(draftOf(["Walk", "Read"]), 1);
+    expect(hint()).toHaveTextContent("The other one is saved for later.");
+    await rerender(<TomorrowDraftCard {...props} draft={draftOf(["Walk", "Read", "Stretch"])} />);
+    expect(hint()).toHaveTextContent("The other two are saved for later.");
+    const ids = order();
+    expect(ids.indexOf("tomorrow-draft-room")).toBeGreaterThan(-1);
+    expect(ids.indexOf("tomorrow-draft-room")).toBeLessThan(ids.indexOf("tomorrow-draft-list"));
+    expect(ids.indexOf("tomorrow-draft-list")).toBeLessThan(ids.indexOf("tomorrow-draft-hint"));
   });
 });

@@ -304,6 +304,33 @@ describe("IdeasSheet", () => {
     expect(screen.getByText("Room for three more today.")).toBeOnTheScreen();
     expect(screen.queryByText(/Add all/)).toBeNull();
   });
+
+  // PR #83: the hint counts today's open slots; with an adaptation reason, the
+  // reason leads (text-base) and the slot count is the smaller line under it.
+  it("the helper: open-slot count, and the size swap with an adaptation reason", async () => {
+    const reason = "Lighter ideas, since yesterday was a lot.";
+    const hint = () => screen.getByTestId("ideas-hint");
+    // One idea showing, two open slots: the count is the slots.
+    const { rerender } = await render(<IdeasSheet {...props()} ideas={ideas.slice(0, 1)} remainingSlots={2} />);
+    expect(hint()).toHaveTextContent("Room for two more today.");
+    expect(hint()).toHaveProp("className", expect.stringContaining("text-base"));
+    expect(screen.queryByTestId("ideas-reason")).toBeNull();
+
+    await rerender(<IdeasSheet {...props()} ideas={ideas.slice(0, 1)} remainingSlots={2} adaptationReason={reason} />);
+    expect(screen.getByTestId("ideas-reason")).toHaveTextContent(reason);
+    expect(screen.getByTestId("ideas-reason")).toHaveProp("className", expect.stringContaining("text-base"));
+    expect(hint()).toHaveTextContent("Room for two more today.");
+    expect(hint()).toHaveProp("className", expect.stringContaining("text-xs"));
+
+    await rerender(<IdeasSheet {...props()} remainingSlots={1} adaptationReason={reason} />);
+    expect(hint()).toHaveTextContent("Room for one more today.");
+
+    // Full: no reason, just the picked line at full size.
+    await rerender(<IdeasSheet {...props()} remainingSlots={0} adaptationReason={reason} />);
+    expect(screen.queryByTestId("ideas-reason")).toBeNull();
+    expect(hint()).toHaveTextContent("Today's three are picked. Nice.");
+    expect(hint()).toHaveProp("className", expect.stringContaining("text-base"));
+  });
 });
 
 // R6 (1.3 polish): the coach's Open (its task's timer is on) is tinted, not a

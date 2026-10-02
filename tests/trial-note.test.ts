@@ -238,6 +238,70 @@ describe("trialNoteCopy", () => {
   });
 });
 
+// PR #83: the renewing line names the price the store knows, and the day to
+// cancel by (the day before the end, in local calendar days).
+describe("trialNoteCopy with a renewal price", () => {
+  const PRICE = { priceString: "$29.99", period: "year" };
+  const weekday = (date: Date) => date.toLocaleDateString(undefined, { weekday: "long" });
+  const endAt = (y: number, m: number, d: number, h: number, min = 0) => new Date(y, m, d, h, min).toISOString();
+
+  it("names the price and the weekday before the end; without a price, the old line", () => {
+    // Ends Thursday 8 Oct 09:00; on Monday 5 Oct the day to cancel by is Wednesday 7 Oct.
+    const monday = new Date(2026, 9, 5, 9, 0).getTime();
+    const body = trialNoteCopy(none, TRIAL, monday, PRICE).body;
+    expect(body).toMatch(
+      new RegExp(
+        ` Your trial ends ${weekday(new Date(END))}, then Plus renews at \\$29\\.99/year\\. Not for you\\? Cancel by ${weekday(new Date(2026, 9, 7))} with Manage below\\.$`,
+      ),
+    );
+    expect(trialNoteCopy(none, TRIAL, monday, null).body).toMatch(/then Plus continues as your subscription\. If it's not for you, cancel at least a day before/);
+    // A cancelled trial never names a price, even if one is passed.
+    expect(trialNoteCopy(none, { ...TRIAL, willRenew: false }, monday, PRICE).body).toMatch(/won't renew\. Your three tasks stay free after that\.$/);
+  });
+
+  it("says Cancel by tomorrow / Cancel today around the end (local calendar days)", () => {
+    const copyAt = (end: string, now: Date) => trialNoteCopy(none, { ...TRIAL, endsAt: end }, now.getTime(), PRICE).body;
+    // Ends in two days: cancel by tomorrow.
+    expect(copyAt(endAt(2026, 9, 8, 9), new Date(2026, 9, 6, 20))).toContain("Not for you? Cancel by tomorrow with Manage below.");
+    // Ends tomorrow (even just after midnight): cancel today.
+    expect(copyAt(endAt(2026, 9, 8, 9), new Date(2026, 9, 7, 8))).toContain("Not for you? Cancel today with Manage below.");
+    expect(copyAt(endAt(2026, 9, 8, 0, 30), new Date(2026, 9, 7, 23, 50))).toContain("Cancel today with");
+    // Ends later today: still "today", never a past day.
+    expect(copyAt(endAt(2026, 9, 8, 23), new Date(2026, 9, 8, 8))).toContain("Cancel today with");
+    // A week or more away: the full date.
+    const far = copyAt(endAt(2026, 9, 20, 9), new Date(2026, 9, 5, 9));
+    expect(far).toContain(
+      `Cancel by ${new Date(2026, 9, 19).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} with`,
+    );
+  });
+
+  it("counts the day before in calendar days across a daylight-saving change", () => {
+    const original = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      // The zone really changed (DST ends 1 Nov 2026 in New York), so this isn't vacuous.
+      expect(new Date(2026, 10, 1, 0).getTimezoneOffset()).not.toBe(new Date(2026, 10, 2, 0).getTimezoneOffset());
+      const copyAt = (end: string, now: Date) =>
+        trialNoteCopy(none, { ...TRIAL, endsAt: end }, now.getTime(), PRICE).body;
+      // Fall back (a 25-hour Sun 1 Nov): ends Sun 1 Nov 23:30, so the day
+      // before is Sat 31 Oct (24 hours earlier would still be Sunday).
+      expect(copyAt(endAt(2026, 10, 1, 23, 30), new Date(2026, 9, 31, 10))).toContain("Cancel today with");
+      expect(copyAt(endAt(2026, 10, 1, 23, 30), new Date(2026, 9, 30, 10))).toContain("Cancel by tomorrow with");
+      // Spring forward (a 23-hour Sun 14 Mar 2027): ends Mon 15 Mar 00:30, so
+      // the day before is Sunday (24 hours earlier would be Saturday).
+      expect(copyAt(endAt(2027, 2, 15, 0, 30), new Date(2027, 2, 13, 9))).toContain("Cancel by tomorrow with");
+      expect(copyAt(endAt(2027, 2, 15, 0, 30), new Date(2027, 2, 14, 9))).toContain("Cancel today with");
+      // Ends 02:30 Mon: 02:30 on Sun 14 Mar doesn't exist, but it's still Sunday.
+      expect(copyAt(endAt(2027, 2, 15, 2, 30), new Date(2027, 2, 10, 9))).toContain(
+        `Cancel by ${weekday(new Date(2027, 2, 14, 12))} with`,
+      );
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
+});
+
 describe("recordPlusUse (the on-device counter)", () => {
   it("stores only the kind and the time, never any text", async () => {
     await recordPlusUse("break_down", START);
