@@ -88,6 +88,7 @@ import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import { shouldRequestReview } from "@/lib/daily-tasks/review-prompt";
+import { routinesDueToday } from "@/lib/daily-tasks/routines";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import {
   brainDumpToast,
@@ -166,6 +167,7 @@ export default function HomeScreen() {
     parkTasks,
     removeParkedTask,
     addParkedTask,
+    addRoutineToToday,
     setTaskSteps,
     toggleTaskStep,
     clearTaskSteps,
@@ -364,6 +366,11 @@ export default function HomeScreen() {
   const coachTasksReady = coachTasksSet(total, state.todayLocked);
   const coachAi = coachAiUser && coachTasksReady;
   const coachTexts = useMemo(() => state.tasks.map((task) => task.text), [state.tasks]);
+  // Routines due today and not on the list yet (1.3): offered in Ideas.
+  const dueRoutines = useMemo(
+    () => routinesDueToday(state.routines, state.tasks, today),
+    [state.routines, state.tasks, today],
+  );
   const coachDue = coachAi && needsCoachRequest(state.coachNotes, today, coachTexts);
   // A ref, not just state: re-renders mid-request must never start a second call.
   const coachInFlight = useRef(false);
@@ -1374,6 +1381,12 @@ export default function HomeScreen() {
         }}
         onRemoveParked={removeParkedTask}
         onLock={total > 0 ? confirmLock : undefined}
+        routines={dueRoutines}
+        onAddRoutine={(id) => {
+          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+          addRoutineToToday(id);
+        }}
+        locked={state.todayLocked}
       />
 
       <BrainDumpSheet

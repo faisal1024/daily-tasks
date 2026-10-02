@@ -5,6 +5,7 @@ import { todayKey } from "./date";
 import { migrateCompletedMilestoneIds, migrateMilestoneId } from "./milestones";
 import { DEFAULT_JOURNEY, type Journey } from "./journey";
 import { MAX_SESSION_MS, type FocusSession } from "./focus-session";
+import { normalizeRoutines } from "./routines";
 import type {
   AppState,
   AutoLockConfig,
@@ -72,6 +73,7 @@ function normalizeTasks(value: unknown): Task[] {
       createdAt: typeof item.createdAt === "string" ? item.createdAt : "",
       carriedOver: item.carriedOver === true,
     };
+    if (typeof item.routineId === "string" && item.routineId) task.routineId = item.routineId;
     tasks.push({ ...task, ...normalizeStepsField(item.steps) });
   }
   return tasks;
@@ -506,6 +508,8 @@ export function normalizeState(value: unknown): AppState | null {
       typeof value.lastReviewPromptAt === "string" ? value.lastReviewPromptAt : null,
     reviewDueAt: typeof value.reviewDueAt === "string" ? value.reviewDueAt : null,
     parkedTasks: normalizeParkedTasks(value.parkedTasks),
+    // Older saves have none.
+    routines: normalizeRoutines(value.routines),
     // Saved state without this flag was written by a build from before the
     // paywall, so its owner is an early user: grandfather them.
     plusGrandfathered:
@@ -682,6 +686,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     lastReviewPromptAt: null,
     reviewDueAt: null,
     parkedTasks: [],
+    routines: [],
     plusGrandfathered: false,
     analyticsEnabled: true,
     coachMemory: null,

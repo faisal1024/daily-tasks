@@ -42,7 +42,10 @@ export type AnalyticsEvent =
   | "focus_completed"
   | "focus_session_started"
   | "focus_session_ended"
-  | "live_activity_action";
+  | "live_activity_action"
+  | "routine_created"
+  | "routine_added_today"
+  | "routine_limit_hit";
 
 type PropValue = string | number | boolean;
 export type AnalyticsProps = Partial<Record<AllowedProp, PropValue>>;

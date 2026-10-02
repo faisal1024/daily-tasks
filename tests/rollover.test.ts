@@ -48,6 +48,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     lastReviewPromptAt: null,
     reviewDueAt: null,
     parkedTasks: [],
+    routines: [],
     plusGrandfathered: false,
     analyticsEnabled: true,
     coachMemory: null,

@@ -123,6 +123,14 @@ import {
 import { getCurrentVersion } from "./app-update";
 import { GRANDFATHER_BEFORE_VERSION, hasPlusAccess } from "./plus";
 import { compareVersions } from "./version";
+import {
+  canCreateRoutine,
+  cleanDays,
+  cleanRoutineText,
+  FREE_ROUTINE_LIMIT,
+  MAX_ROUTINES,
+  routinesDueToday,
+} from "./routines";
 import { usePlus } from "./plus-context";
 import {
   buildInitialState,
@@ -173,7 +181,7 @@ import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
 type Action =
   | { type: "hydrate"; state: AppState }
   | { type: "rollover"; today: string }
-  | { type: "addTask"; text: string; today: string }
+  | { type: "addTask"; text: string; today: string; routineId?: string }
   | { type: "addTasks"; texts: string[]; today: string }
   | { type: "editTask"; id: TaskId; text: string; today: string }
   | { type: "deleteTask"; id: TaskId; today: string }
@@ -209,6 +217,11 @@ type Action =
   | { type: "parkTasks"; texts: string[]; at: string }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
+  | { type: "addRoutine"; id: string; text: string; days: number[]; at: string; max: number | null }
+  | { type: "updateRoutine"; id: string; text: string; days: number[] }
+  | { type: "setRoutinePaused"; id: string; paused: boolean }
+  | { type: "removeRoutine"; id: string }
+  | { type: "addRoutineToToday"; id: string; today: string }
   | {
       type: "setTaskSteps";
       taskId: TaskId;
@@ -569,6 +582,53 @@ function reduce(state: AppState, action: Action): AppState {
       const withTask = reducer(state, { type: "addTask", text: parked.text, today: action.today });
       return withTask === state ? state : removeParkedTask(withTask, action.id);
     }
+    case "addRoutine": {
+      const text = cleanRoutineText(action.text);
+      const days = cleanDays(action.days);
+      if (!text || days.length === 0 || state.routines.some((r) => r.id === action.id)) return state;
+      // Free users stop at the limit; routines kept from a lapsed Plus stay.
+      if (state.routines.length >= MAX_ROUTINES) return state;
+      if (action.max !== null && state.routines.length >= action.max) return state;
+      return {
+        ...state,
+        routines: [...state.routines, { id: action.id, text, days, paused: false, createdAt: action.at }],
+      };
+    }
+    case "updateRoutine": {
+      const text = cleanRoutineText(action.text);
+      const days = cleanDays(action.days);
+      const current = state.routines.find((r) => r.id === action.id);
+      if (!current || !text || days.length === 0) return state;
+      if (current.text === text && current.days.join() === days.join()) return state;
+      return {
+        ...state,
+        routines: state.routines.map((r) => (r.id === action.id ? { ...r, text, days } : r)),
+      };
+    }
+    case "setRoutinePaused": {
+      const current = state.routines.find((r) => r.id === action.id);
+      if (!current || current.paused === action.paused) return state;
+      return {
+        ...state,
+        routines: state.routines.map((r) => (r.id === action.id ? { ...r, paused: action.paused } : r)),
+      };
+    }
+    case "removeRoutine":
+      // Tasks already added from it stay today (a normal task); only the
+      // suggestion goes.
+      return state.routines.some((r) => r.id === action.id)
+        ? { ...state, routines: state.routines.filter((r) => r.id !== action.id) }
+        : state;
+    case "addRoutineToToday": {
+      // Same room and lock rules as an idea or a saved item, and only a
+      // routine that's due today and not already on the list.
+      if (!canTakeParkedTask(state)) return state;
+      const routine = routinesDueToday(state.routines, state.tasks, action.today).find(
+        (r) => r.id === action.id,
+      );
+      if (!routine) return state;
+      return reducer(state, { type: "addTask", text: routine.text, today: action.today, routineId: routine.id });
+    }
     // Step changes also sync today's history record: tomorrow's carry-over is
     // built from it, so it must hold the current steps and their progress.
     case "setTaskSteps": {
@@ -639,7 +699,13 @@ function reduce(state: AppState, action: Action): AppState {
           ...state,
           tasks: [
             ...state.tasks,
-            { id: makeId(), text, createdAt: new Date().toISOString(), carriedOver: false },
+            {
+              id: makeId(),
+              text,
+              createdAt: new Date().toISOString(),
+              carriedOver: false,
+              ...(action.routineId ? { routineId: action.routineId } : {}),
+            },
           ],
           // Planning counts as showing up (no need to finish anything first).
           journey: registerShowedUp(state.journey, action.today),
@@ -1068,6 +1134,18 @@ interface StoreContextValue {
   parkTasks: (texts: string[]) => void;
   removeParkedTask: (id: string) => void;
   addParkedTask: (id: string) => void;
+  /**
+   * Create a routine (1.3). "limit": a free user already has
+   * FREE_ROUTINE_LIMIT (open the paywall); "invalid": no text or no days.
+   */
+  addRoutine: (text: string, days: number[]) => "added" | "limit" | "invalid";
+  /** A new routine is allowed right now (Plus, or under the free limit). */
+  canAddRoutine: boolean;
+  updateRoutine: (id: string, text: string, days: number[]) => void;
+  setRoutinePaused: (id: string, paused: boolean) => void;
+  removeRoutine: (id: string) => void;
+  /** Add a routine that's due today to today's list, like an idea. */
+  addRoutineToToday: (id: string) => void;
   setTaskSteps: (taskId: TaskId, texts: string[], forText?: string) => void;
   toggleTaskStep: (taskId: TaskId, stepId: string) => void;
   clearTaskSteps: (taskId: TaskId) => void;
@@ -1906,6 +1984,50 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const addParkedTask = useCallback((id: string) => {
     dispatch({ type: "addParkedTask", id, today: ensureDay() });
   }, [ensureDay]);
+  const addRoutine = useCallback(
+    (text: string, days: number[]): "added" | "limit" | "invalid" => {
+      if (!cleanRoutineText(text) || cleanDays(days).length === 0) return "invalid";
+      const count = stateRef.current.routines.length;
+      if (!canCreateRoutine(count, hasPlus)) {
+        track("routine_limit_hit", { count });
+        return "limit";
+      }
+      dispatch({
+        type: "addRoutine",
+        id: `r${makeId().slice(1)}`,
+        text,
+        days,
+        at: new Date().toISOString(),
+        max: hasPlus ? null : FREE_ROUTINE_LIMIT,
+      });
+      track("routine_created", { count: count + 1 });
+      return "added";
+    },
+    [hasPlus],
+  );
+  const updateRoutine = useCallback((id: string, text: string, days: number[]) => {
+    dispatch({ type: "updateRoutine", id, text, days });
+  }, []);
+  const setRoutinePaused = useCallback((id: string, paused: boolean) => {
+    dispatch({ type: "setRoutinePaused", id, paused });
+  }, []);
+  const removeRoutine = useCallback((id: string) => {
+    dispatch({ type: "removeRoutine", id });
+  }, []);
+  const addRoutineToToday = useCallback(
+    (id: string) => {
+      const day = ensureDay();
+      const current = stateRef.current;
+      // Only count an add that will land (room, not set, due and not on today).
+      const lands =
+        canTakeParkedTask(current) &&
+        routinesDueToday(current.routines, current.tasks, day).some((r) => r.id === id);
+      dispatch({ type: "addRoutineToToday", id, today: day });
+      if (lands) track("routine_added_today");
+    },
+    [ensureDay],
+  );
+  const canAddRoutine = canCreateRoutine(state.routines.length, hasPlus);
   const setTaskStepsCb = useCallback((taskId: TaskId, texts: string[], forText?: string) => {
     dispatch({
       type: "setTaskSteps",
@@ -2180,6 +2302,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       parkTasks: parkTasksCb,
       removeParkedTask: removeParkedTaskCb,
       addParkedTask,
+      addRoutine,
+      canAddRoutine,
+      updateRoutine,
+      setRoutinePaused,
+      removeRoutine,
+      addRoutineToToday,
       setTaskSteps: setTaskStepsCb,
       toggleTaskStep: toggleTaskStepCb,
       clearTaskSteps: clearTaskStepsCb,
@@ -2252,6 +2380,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       parkTasksCb,
       removeParkedTaskCb,
       addParkedTask,
+      addRoutine,
+      canAddRoutine,
+      updateRoutine,
+      setRoutinePaused,
+      removeRoutine,
+      addRoutineToToday,
       setTaskStepsCb,
       toggleTaskStepCb,
       clearTaskStepsCb,

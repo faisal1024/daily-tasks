@@ -10,11 +10,12 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
+import { RoutinesSheet } from "@/components/daily-tasks/routines-sheet";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { TimePickerRow } from "@/components/daily-tasks/time-picker-row";
 import { useColors } from "@/hooks/use-colors";
@@ -74,8 +75,34 @@ export default function SettingsScreen() {
     resetAll,
     hasPlus,
     setAnalyticsEnabled,
+    addRoutine,
+    canAddRoutine,
+    updateRoutine,
+    setRoutinePaused,
+    removeRoutine,
   } = useDailyTasks();
   const plus = usePlus();
+  const [routinesOpen, setRoutinesOpen] = useState(false);
+  // iOS shows one modal at a time: the routines sheet animates away before
+  // the paywall comes up.
+  const paywallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (paywallTimer.current) clearTimeout(paywallTimer.current);
+    },
+    [],
+  );
+  const handleRoutineLimit = () => {
+    track("routine_limit_hit", { count: state.routines.length });
+    track("plus_gate_hit", { feature: "routines" });
+    setRoutinesOpen(false);
+    if (paywallTimer.current) clearTimeout(paywallTimer.current);
+    paywallTimer.current = setTimeout(() => {
+      paywallTimer.current = null;
+      plus.openPaywall("routines");
+    }, 650);
+  };
+  const pausedRoutines = state.routines.filter((routine) => routine.paused).length;
   const [restoring, setRestoring] = useState(false);
 
   const handleRestore = async () => {
@@ -536,6 +563,33 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
+        <Section icon="repeat-outline" title="Routines">
+          <Pressable
+            onPress={() => setRoutinesOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Routines"
+            accessibilityHint="Add, edit, pause or delete routines"
+            accessibilityValue={{ text: routinesSummary(state.routines.length, pausedRoutines) }}
+            className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3"
+            style={{ minHeight: 44 }}
+            testID="settings-routines"
+          >
+            <View
+              className="w-9 h-9 rounded-full items-center justify-center"
+              style={{ backgroundColor: `${colors.primary}16` }}
+            >
+              <Ionicons name="repeat-outline" size={18} color={colors.primary} />
+            </View>
+            <View className="flex-1">
+              <Text className="text-base font-semibold text-foreground">Routines</Text>
+              <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                {routinesSummary(state.routines.length, pausedRoutines)}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+          </Pressable>
+        </Section>
+
         <Section
           icon="notifications-outline"
           title="Reminders"
@@ -693,6 +747,17 @@ export default function SettingsScreen() {
         </Text>
       </ScrollView>
       </KeyboardAvoidingView>
+      <RoutinesSheet
+        visible={routinesOpen}
+        routines={state.routines}
+        canAdd={canAddRoutine}
+        onAdd={addRoutine}
+        onLimit={handleRoutineLimit}
+        onUpdate={updateRoutine}
+        onSetPaused={setRoutinePaused}
+        onRemove={removeRoutine}
+        onClose={() => setRoutinesOpen(false)}
+      />
       <OnboardingModal
         visible={profileModalVisible}
         initialProfile={state.momentumProfile}
@@ -735,6 +800,12 @@ function HelpRow({
       <Ionicons name="chevron-forward" size={18} color={colors.muted} />
     </Pressable>
   );
+}
+
+function routinesSummary(count: number, paused: number): string {
+  if (count === 0) return "Things you do on repeat, suggested in Ideas on their days.";
+  const base = `${count} ${count === 1 ? "routine" : "routines"}`;
+  return paused > 0 ? `${base} · ${paused} paused` : base;
 }
 
 function permissionDescription(state: NotificationPermissionState): string {
