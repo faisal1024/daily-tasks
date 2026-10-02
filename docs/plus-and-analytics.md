@@ -98,7 +98,11 @@ Analytics: a lapsed subscriber's `paywall_viewed` carries `feature` = `offer` or
 `brain_dump_sorted`, `break_down_used`, `plus_gate_hit`, `paywall_viewed`,
 `paywall_closed`, `purchase_started`, `purchase_completed`, `purchase_failed`
 (failed or pending/Ask to Buy, with `outcome`), `purchase_cancelled` (the user backed
-out of Apple's purchase sheet; `plan`, `source`, `trial`), `restore_completed`, `redeem_code_opened`, `path_edited`, `path_regenerated`,
+out of Apple's purchase sheet; `plan`, `source`, `trial`), `restore_completed`,
+`redeem_code_opened`, `path_edited`, `path_regenerated`,
+`rating_prompt_requested` (the system rating prompt was requested; `source` is the happy
+moment that earned it: `focus_done`, `milestone`, `good_week` or `perfect_day`),
+`rate_row_tapped` and `feedback_row_tapped` (Settings › Feedback),
 `trial_note_shown` (`count` = Plus uses during the trial), `trial_note_dismissed`
 (`action` = close or manage). Properties are limited to `source`, `plan`, `outcome`, `trial`,
 `count`, `skipped`, `feature`, `active`, `plus`, `step`, `timer` with short enum/number/boolean values. Never

@@ -246,15 +246,49 @@ describe("store: rating due", () => {
   it("marks a rating due once and clears it when the prompt is shown", async () => {
     const { result } = await renderOnDay({}, new Date());
     expect(result.current.state.reviewDueAt).toBeNull();
-    await act(async () => result.current.markReviewDue());
+    await act(async () => result.current.markReviewDue("perfect_day"));
     const due = result.current.state.reviewDueAt;
     expect(due).not.toBeNull();
     // A second perfect day doesn't push the ask further out.
-    await act(async () => result.current.markReviewDue());
+    await act(async () => result.current.markReviewDue("perfect_day"));
     expect(result.current.state.reviewDueAt).toBe(due);
     await act(async () => result.current.markReviewPrompted());
     expect(result.current.state.reviewDueAt).toBeNull();
     expect(result.current.state.lastReviewPromptAt).not.toBeNull();
+  });
+});
+
+describe("store: an ask that was never shown (PR #78 review)", () => {
+  it("an expired or corrupt ask is replaced by the next happy moment, and can be cleared", async () => {
+    const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000).toISOString();
+    const { result } = await renderOnDay({ reviewDueAt: eightDaysAgo, reviewDueSource: "perfect_day" }, new Date());
+    await act(async () => result.current.markReviewDue("milestone"));
+    expect(result.current.state.reviewDueAt).not.toBe(eightDaysAgo);
+    expect(Date.now() - Date.parse(result.current.state.reviewDueAt!)).toBeLessThan(60_000);
+    expect(result.current.state.reviewDueSource).toBe("milestone");
+
+    await act(async () => result.current.clearReviewDue());
+    expect(result.current.state.reviewDueAt).toBeNull();
+    expect(result.current.state.reviewDueSource).toBeNull();
+  });
+
+  it("a corrupt saved ask doesn't block a new one", async () => {
+    const { result } = await renderOnDay({ reviewDueAt: "garbage", reviewDueSource: "perfect_day" }, new Date());
+    await act(async () => result.current.markReviewDue("good_week"));
+    expect(Number.isNaN(Date.parse(result.current.state.reviewDueAt!))).toBe(false);
+    expect(result.current.state.reviewDueSource).toBe("good_week");
+  });
+});
+
+describe("store: the rating ask's source (1.3)", () => {
+  it("keeps the first happy moment's source, saves it, and clears it with the ask", async () => {
+    const { result } = await renderOnDay({}, new Date());
+    await act(async () => result.current.markReviewDue("milestone"));
+    await act(async () => result.current.markReviewDue("good_week"));
+    expect(result.current.state.reviewDueSource).toBe("milestone");
+    await act(async () => result.current.markReviewPrompted());
+    expect(result.current.state.reviewDueAt).toBeNull();
+    expect(result.current.state.reviewDueSource).toBeNull();
   });
 });
 
