@@ -46,6 +46,15 @@ interface IdeasSheetProps {
   onRemoveParked?: (id: string) => void;
   /** Offered in the "full" state so the next step is one tap away. */
   onLock?: () => void;
+  /** Routines due today and not on today's list yet (1.3). Nothing shows when empty. */
+  routines?: { id: string; text: string }[];
+  onAddRoutine?: (id: string) => void;
+  /** Today is set: nothing can be added until it's changed. */
+  locked?: boolean;
+  /** The user has routines (due today or not); without any, a quiet footer offers one. */
+  hasRoutines?: boolean;
+  /** Opens the routines sheet (the footer's "Make it a routine"). */
+  onManageRoutines?: () => void;
 }
 
 const keyOf = (text: string) => text.trim().toLowerCase();
@@ -70,12 +79,22 @@ export function IdeasSheet({
   onAddParked,
   onRemoveParked,
   onLock,
+  routines = [],
+  onAddRoutine,
+  locked = false,
+  hasRoutines = true,
+  onManageRoutines,
 }: IdeasSheetProps) {
   const colors = useColors();
   const sheetAnimation = useSheetAnimation();
   const insets = useSafeAreaInsets();
   const stillThinking = useStillThinking(regenerating);
-  const available = ideas.filter((idea) => !addedTexts.has(keyOf(idea.text)));
+  // The saved-only view is just the saved items: no routines there.
+  const shownRoutines = savedOnly ? [] : routines;
+  // An idea with the same words as a routine due today is listed once, as the routine.
+  const routineKeys = new Set(shownRoutines.map((routine) => keyOf(routine.text)));
+  const shownIdeas = routineKeys.size > 0 ? ideas.filter((idea) => !routineKeys.has(keyOf(idea.text))) : ideas;
+  const available = shownIdeas.filter((idea) => !addedTexts.has(keyOf(idea.text)));
   const full = remainingSlots <= 0;
 
   // Live regions are Android-only; announce new failure notes on iOS too.
@@ -122,6 +141,20 @@ export function IdeasSheet({
         <ScrollView
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 14 }}
         >
+          {shownRoutines.length > 0 && (
+            <TodaysRoutines
+              routines={shownRoutines}
+              onAdd={onAddRoutine}
+              blockedReason={
+                locked
+                  ? "Today is set. Change it on Today to add one."
+                  : full
+                    ? "Today's three are picked. Free a slot to add one."
+                    : null
+              }
+            />
+          )}
+
           <View className="flex-row items-center justify-between">
             <View
               className="flex-row items-center gap-1.5 rounded-full px-3 py-1"
@@ -193,7 +226,7 @@ export function IdeasSheet({
 
           {!savedOnly && (
           <View className="gap-2">
-            {ideas.map((idea) => {
+            {shownIdeas.map((idea) => {
               const added = addedTexts.has(keyOf(idea.text));
               const disabled = added || full;
               return (
@@ -329,9 +362,85 @@ export function IdeasSheet({
               </Pressable>
             </View>
           )}
+
+          {!savedOnly && !hasRoutines && onManageRoutines && (
+            <Pressable
+              onPress={onManageRoutines}
+              accessibilityRole="button"
+              accessibilityHint="Opens routines"
+              className="flex-row items-center justify-center gap-1.5 mt-2"
+              style={{ minHeight: 44 }}
+              testID="ideas-make-routine"
+            >
+              <Ionicons name="repeat" size={14} color={colors.muted} />
+              <Text className="text-sm" style={{ color: colors.muted }}>
+                Do something on repeat?{" "}
+                <Text style={{ color: colors.primary, fontWeight: "600" }}>Make it a routine.</Text>
+              </Text>
+            </Pressable>
+          )}
         </ScrollView>
       </View>
     </Modal>
+  );
+}
+
+/**
+ * Routines due today, at the top of the sheet. Same one-tap add as an idea;
+ * when today is full or set, the rows are disabled and say why. A routine
+ * that isn't added simply isn't: nothing is marked missed.
+ */
+function TodaysRoutines({
+  routines,
+  onAdd,
+  blockedReason,
+}: {
+  routines: { id: string; text: string }[];
+  onAdd?: (id: string) => void;
+  blockedReason: string | null;
+}) {
+  const colors = useColors();
+  const disabled = blockedReason !== null;
+  return (
+    <View className="gap-2" testID="todays-routines">
+      <Text
+        accessibilityRole="header"
+        className="text-sm font-semibold uppercase tracking-wide"
+        style={{ color: colors.muted }}
+      >
+        Today&apos;s routines
+      </Text>
+      {blockedReason && (
+        <Text className="text-sm" style={{ color: colors.muted }} testID="todays-routines-blocked">
+          {blockedReason}
+        </Text>
+      )}
+      {routines.map((routine) => (
+        <Pressable
+          key={routine.id}
+          onPress={() => onAdd?.(routine.id)}
+          disabled={disabled}
+          accessibilityRole="button"
+          accessibilityLabel={`Add ${routine.text}`}
+          accessibilityHint={blockedReason ?? "Adds this routine to today's three"}
+          accessibilityState={{ disabled }}
+          className="rounded-2xl border p-4 flex-row items-center gap-3"
+          style={{
+            minHeight: 44,
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            opacity: disabled ? 0.5 : 1,
+          }}
+          testID={`routine-suggestion-${routine.id}`}
+        >
+          <Ionicons name="add-circle-outline" size={26} color={colors.primary} />
+          <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "700" }}>
+            {routine.text}
+          </Text>
+          <Ionicons name="repeat" size={16} color={colors.muted} accessibilityElementsHidden importantForAccessibility="no" />
+        </Pressable>
+      ))}
+    </View>
   );
 }
 

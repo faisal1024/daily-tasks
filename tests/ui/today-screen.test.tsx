@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { AccessibilityInfo, ActionSheetIOS, Alert, AppState as RNAppState } from "react-native";
-import { act, fireEvent, screen, within } from "@testing-library/react-native";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
@@ -185,6 +185,12 @@ function makeStore(overrides: Partial<AppState> = {}) {
     extendFocusSession: jest.fn(),
     keepGoingFocusSession: jest.fn(),
     stopFocusSession: jest.fn(),
+    addRoutineToToday: jest.fn(() => true),
+    addRoutine: jest.fn(() => "added"),
+    canAddRoutine: true,
+    updateRoutine: jest.fn(),
+    setRoutinePaused: jest.fn(),
+    removeRoutine: jest.fn(),
     hasPlus: true,
   };
 }
@@ -433,6 +439,33 @@ describe("Need ideas sheet", () => {
         "Smart suggestions are taking a break for today. Your ideas below still work.",
       ),
     ).toBeOnTheScreen();
+  });
+});
+
+describe("Need ideas sheet: routines", () => {
+  it("with no routines, the footer closes Ideas and opens the routines sheet", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("need-ideas"));
+    await fireEvent.press(screen.getByTestId("ideas-make-routine"));
+    expect(screen.queryByTestId("ideas-sheet")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("routines-sheet")).toBeOnTheScreen(), { timeout: 2000 });
+  });
+
+  it("says what happened when a routine is added from Ideas", async () => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    // TODAY is a Saturday (6).
+    mockStore = makeStore({
+      tasks: tasks("Walk"),
+      routines: [{ id: "r1", text: "Stretch", days: [6], paused: false, createdAt: "" }],
+    });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("need-ideas"));
+    expect(screen.queryByTestId("ideas-make-routine")).toBeNull();
+    await fireEvent.press(screen.getByRole("button", { name: "Add Stretch" }));
+    expect(mockStore.addRoutineToToday).toHaveBeenCalledWith("r1");
+    expect(announce).toHaveBeenCalledWith("Added Stretch to today");
+    announce.mockRestore();
   });
 });
 

@@ -12,7 +12,7 @@ export const PLUS_ENTITLEMENT = "plus";
  */
 export const GRANDFATHER_BEFORE_VERSION = "1.1.0";
 
-export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas";
+export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "calendar" | "routines";
 
 export type PaywallSource =
   | "onboarding"
@@ -21,7 +21,8 @@ export type PaywallSource =
   | "break_down"
   | "new_ideas"
   | "calendar"
-  | "win_back";
+  | "win_back"
+  | "routines";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -170,6 +171,11 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
     detail: "Your three fit around today's events and reminders.",
   },
   {
+    icon: "repeat-outline",
+    title: "Unlimited routines",
+    detail: "Keep every routine, not just two.",
+  },
+  {
     icon: "apps-outline",
     title: "Tick off from your Home Screen",
     detail: "Check tasks off right from the widget, without opening the app.",
@@ -189,6 +195,8 @@ export function paywallHeadline(source: PaywallSource): string {
       return "Plan your three around your day";
     case "win_back":
       return "Want the AI helpers back?";
+    case "routines":
+      return "Keep all your routines";
     default:
       return "A little extra help, when you want it";
   }

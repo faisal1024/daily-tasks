@@ -19,6 +19,21 @@ export interface Task {
   carriedOver: boolean;
   /** Optional "break it down" checklist; doesn't change the task's own status. */
   steps?: TaskStep[];
+  /** Added from a routine (1.3): that routine isn't suggested again today. */
+  routineId?: string;
+}
+
+/**
+ * Something done on repeat (1.3). Never fills a slot by itself: on its days
+ * it's suggested in the Ideas sheet. A day it isn't picked leaves no trace.
+ */
+export interface Routine {
+  id: string;
+  text: string;
+  /** Local weekdays it's suggested on, Sunday = 0; deduped and sorted. */
+  days: number[];
+  paused: boolean;
+  createdAt: string;
 }
 
 /** Tomorrow's three, drafted at the evening close (shown the next morning). */
@@ -92,6 +107,8 @@ export interface DayTaskRecord {
   rolloverOutcome: RolloverOutcome | null;
   /** Step checklist, kept so a carried-over (stuck) task keeps its steps. */
   steps?: TaskStep[];
+  /** Added from a routine (1.3): kept when carried so it isn't suggested twice. */
+  routineId?: string;
 }
 
 export interface DayRecord {
@@ -256,6 +273,8 @@ export interface AppState {
   // Which happy moment earned it (rating_prompt_requested's source), or null.
   reviewDueSource: ReviewTrigger | null;
   parkedTasks: ParkedTask[];
+  // Repeating tasks suggested in Ideas on their days (1.3). See routines.ts.
+  routines: Routine[];
   // Used the app before the paywall shipped: keeps every Plus feature free.
   plusGrandfathered: boolean;
   // Anonymous usage stats (Settings toggle). Only sent when the build has a key.

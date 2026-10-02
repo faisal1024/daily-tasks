@@ -49,6 +49,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     reviewDueAt: null,
     reviewDueSource: null,
     parkedTasks: [],
+    routines: [],
     plusGrandfathered: false,
     analyticsEnabled: true,
     coachMemory: null,
@@ -249,6 +250,19 @@ describe("resolvePendingRollover", () => {
     expect(resolved.history["2026-04-17"]?.tasks.find((task) => task.id === "c")?.rolloverOutcome).toBe(
       "dropped",
     );
+  });
+
+  it("keeps a routine task's routineId through the pending card and the carry", () => {
+    const rolled = applyRollover(
+      makeState({
+        tasks: [{ id: "w", text: "Walk", createdAt: "x", carriedOver: false, routineId: "r1" }],
+        todayCompletions: [],
+      }),
+      "2026-04-18",
+    );
+    expect(rolled.pendingRollover?.tasks[0]).toMatchObject({ id: "w", routineId: "r1" });
+    const resolved = resolvePendingRollover(rolled, ["w"], new Date("2026-04-18T09:00:00Z"));
+    expect(resolved.tasks[0]).toMatchObject({ text: "Walk", carriedOver: true, routineId: "r1" });
   });
 
   it("respects the 3-task cap when carrying tasks", () => {
