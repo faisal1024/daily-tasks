@@ -15,7 +15,7 @@ import { addDays } from "@/lib/daily-tasks/date";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import { themeColors } from "@/theme.config";
-import type { AppState, DayRecord, Task } from "@/lib/daily-tasks/types";
+import type { AppState, DayRecord, Routine, Task } from "@/lib/daily-tasks/types";
 import type { AhaPaywallState } from "@/lib/daily-tasks/aha-paywall";
 
 import { renderWithProviders as render } from "./render";
@@ -473,6 +473,105 @@ describe("Need ideas sheet: routines", () => {
     expect(mockStore.addRoutineToToday).toHaveBeenCalledWith("r1", "ideas");
     expect(announce).toHaveBeenCalledWith("Added Stretch to today");
     announce.mockRestore();
+  });
+});
+
+describe("Today's routines card (1.3, PR #86)", () => {
+  // TODAY (2026-09-26) is a Saturday (6).
+  const stretch = (overrides: Partial<Routine> = {}): Routine => ({
+    id: "r1",
+    text: "Stretch",
+    days: [6],
+    paused: false,
+    createdAt: "",
+    ...overrides,
+  });
+  const addStretch = () => screen.getByRole("button", { name: "Add Stretch to today" });
+
+  it.each([
+    { label: "nothing is due today", saved: { routines: [stretch({ days: [1] })] } },
+    { label: "the only due routine is paused", saved: { routines: [stretch({ paused: true })] } },
+    {
+      label: "every task is done",
+      saved: { tasks: tasks("Walk"), todayCompletions: ["t0"], routines: [stretch()] },
+    },
+  ])("is hidden when $label", async ({ saved }) => {
+    mockStore = makeStore(saved as Partial<AppState>);
+    await render(<HomeScreen />);
+    expect(screen.queryByTestId("today-routines")).toBeNull();
+  });
+
+  it("shows with no tasks yet, Add on and no blocked line", async () => {
+    mockStore = makeStore({ routines: [stretch()] });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("today-routines")).toBeOnTheScreen();
+    expect(screen.queryByTestId("today-routines-blocked")).toBeNull();
+    expect(addStretch()).not.toBeDisabled();
+  });
+
+  it.each([
+    { label: "full (three picked)", saved: { tasks: tasks("A", "B", "C") }, line: "Your three are picked. Free a slot to add one." },
+    { label: "set", saved: { tasks: tasks("A"), ...SET }, line: "Today is set. Change it to add one." },
+    { label: "set and full (set wins)", saved: { tasks: tasks("A", "B", "C"), ...SET }, line: "Today is set. Change it to add one." },
+  ])("today $label: still shown, Add off with the reason as its hint, one muted line", async ({ saved, line }) => {
+    mockStore = makeStore({ ...saved, routines: [stretch()] });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("today-routines-blocked")).toHaveTextContent(line);
+    expect(addStretch()).toBeDisabled();
+    expect(addStretch().props.accessibilityHint).toBe(line);
+    await fireEvent.press(addStretch());
+    expect(mockStore.addRoutineToToday).not.toHaveBeenCalled();
+  });
+
+  it("an add the store refuses (e.g. the day just changed) isn't announced or tracked by the screen", async () => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    mockStore = makeStore({ tasks: tasks("Walk"), routines: [stretch()] });
+    mockStore.addRoutineToToday.mockReturnValue(false);
+    await render(<HomeScreen />);
+    await fireEvent.press(addStretch());
+    expect(mockStore.addRoutineToToday).toHaveBeenCalledWith("r1", "today");
+    expect(announce).not.toHaveBeenCalledWith("Added Stretch to today");
+    expect(mockTrack).not.toHaveBeenCalledWith("routine_added_today", expect.anything());
+    announce.mockRestore();
+  });
+
+  it("follows the store's day, not the clock: at 1 am Saturday on Friday's day, Friday's routines", async () => {
+    // A day the store hasn't rolled over yet (a day that runs past midnight):
+    // the clock says Saturday 3 Oct, the store is still on Friday 2 Oct.
+    jest.setSystemTime(new Date(2026, 9, 3, 1, 0));
+    mockStore = {
+      ...makeStore({
+        tasks: tasks("Walk"),
+        routines: [
+          stretch({ id: "r1", text: "Stand-up notes", days: [1, 2, 3, 4, 5] }),
+          stretch({ id: "r2", text: "Long run", days: [0, 6] }),
+        ],
+      }),
+      today: "2026-10-02",
+    };
+    await render(<HomeScreen />);
+    expect(screen.getByRole("button", { name: "Add Stand-up notes to today" })).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Add Long run to today" })).toBeNull();
+  });
+
+  it("VoiceOver: a header, Edit with a hint, Add says the words once, with a hint and its state", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk"), routines: [stretch()] });
+    await render(<HomeScreen />);
+    const card = within(screen.getByTestId("today-routines"));
+    expect(card.getByRole("header", { name: "Today's routines" })).toBeOnTheScreen();
+    expect(card.getByRole("button", { name: "Edit routines" }).props.accessibilityHint).toBe("Opens routines");
+    expect(addStretch().props.accessibilityHint).toBe("Adds this routine to today's three");
+    expect(addStretch().props.accessibilityState).toEqual({ disabled: false });
+    // The row's words are hidden from VoiceOver (the button says them).
+    expect(card.queryByText("Stretch")).toBeNull();
+    expect(card.getByText("Stretch", { includeHiddenElements: true })).toHaveProp("accessibilityElementsHidden", true);
+  });
+
+  it("Edit opens the routines sheet", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk"), routines: [stretch()] });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Edit routines" }));
+    await waitFor(() => expect(screen.getByTestId("routines-sheet")).toBeOnTheScreen(), { timeout: 2000 });
   });
 });
 

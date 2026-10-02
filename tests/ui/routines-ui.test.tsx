@@ -1,7 +1,8 @@
 // Routines (1.3) on screen: the "Today's routines" section of the Ideas sheet,
 // the routine editor's day picker, and Settings › Routines at the free limit.
+import { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Alert } from "react-native";
+import { AccessibilityInfo, Alert } from "react-native";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 
 import SettingsScreen from "@/app/(tabs)/settings";
@@ -311,6 +312,93 @@ describe("RoutinesSheet: the list", () => {
     const { rerender } = await render(<RoutinesSheet {...p} visible={false} startInEditor />);
     await rerender(<RoutinesSheet {...p} visible startInEditor />);
     expect(screen.getByRole("header", { name: "New routine" })).toBeOnTheScreen();
+  });
+});
+
+// PR #86: after a save, one line under that routine says when it shows on Today.
+describe("RoutinesSheet: the note after a save", () => {
+  const props = () => ({
+    visible: true,
+    routines: [routine("r1", "Walk", [1])] as Routine[],
+    canAdd: true,
+    onAdd: jest.fn(() => "added" as const),
+    onLimit: jest.fn(),
+    onUpdate: jest.fn(),
+    onSetPaused: jest.fn(),
+    onRemove: jest.fn(),
+    onClose: jest.fn(),
+  });
+  const notes = () => screen.queryAllByTestId(/^routine-saved-note-/);
+  let announce: jest.SpyInstance;
+  beforeEach(() => {
+    announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => {});
+  });
+  afterEach(() => announce.mockRestore());
+  const saidSaved = () => announce.mock.calls.filter(([text]) => /^Saved\./.test(text));
+
+  /** Saves a new "walk" on weekends next to an existing "Walk" on Mondays; the store adds it as r2. */
+  async function saveSecondWalk(p = props()) {
+    const { rerender } = await render(<RoutinesSheet {...p} />);
+    await fireEvent.press(screen.getByRole("button", { name: "Add a routine" }));
+    await fireEvent.changeText(screen.getByLabelText("Routine"), " walk ");
+    await fireEvent.press(screen.getByRole("radio", { name: "Weekends" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Save routine" }));
+    const after = { ...p, routines: [...p.routines, routine("r2", "walk", [0, 6])] };
+    await rerender(<RoutinesSheet {...after} />);
+    return { rerender, after };
+  }
+
+  it("same words on other days: the note goes on the new routine, not the old one, and is said once", async () => {
+    const { rerender, after } = await saveSecondWalk();
+    expect(notes()).toHaveLength(1);
+    expect(within(screen.getByTestId("routine-row-r2")).getByTestId("routine-saved-note-r2")).toHaveTextContent(
+      /Shows on Today on weekends\.$/,
+    );
+    expect(saidSaved()).toEqual([["Saved. Shows on Today on weekends."]]);
+    // A later render (the store catching up) doesn't say it again.
+    await rerender(<RoutinesSheet {...after} canAddToToday />);
+    expect(saidSaved()).toHaveLength(1);
+  });
+
+  it("an edit: due today but today is full or set, so just its days (Mondays and Thursdays)", async () => {
+    // A stand-in store: the update lands in the same render as the save, as with the real one.
+    function Harness() {
+      const [routines, setRoutines] = useState([routine("r1", "Walk", [1])]);
+      return (
+        <RoutinesSheet
+          {...props()}
+          routines={routines}
+          onUpdate={(id, text, days) => setRoutines((all) => all.map((r) => (r.id === id ? { ...r, text, days } : r)))}
+          dueTodayIds={["r1"]}
+          canAddToToday={false}
+        />
+      );
+    }
+    await render(<Harness />);
+    await fireEvent.press(screen.getByRole("button", { name: "Walk, Monday" }));
+    await fireEvent.press(screen.getByRole("checkbox", { name: "Thursday" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Save routine" }));
+    expect(screen.getByTestId("routine-saved-note-r1")).toHaveTextContent(/Shows on Today on Mondays and Thursdays\.$/);
+    expect(saidSaved()).toEqual([["Saved. Shows on Today on Mondays and Thursdays."]]);
+  });
+
+  it.each([
+    ["Add a routine is tapped", async () => fireEvent.press(screen.getByRole("button", { name: "Add a routine" }))],
+    ["another routine is opened to edit", async () => fireEvent.press(screen.getByRole("button", { name: "Walk, Monday" }))],
+  ])("clears when %s (and stays gone after Cancel)", async (_label, act) => {
+    await saveSecondWalk();
+    expect(notes()).toHaveLength(1);
+    await act();
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+    expect(notes()).toHaveLength(0);
+  });
+
+  it("clears when the sheet is closed and opened again", async () => {
+    const { rerender, after } = await saveSecondWalk();
+    expect(notes()).toHaveLength(1);
+    await rerender(<RoutinesSheet {...after} visible={false} />);
+    await rerender(<RoutinesSheet {...after} visible />);
+    expect(notes()).toHaveLength(0);
   });
 });
 

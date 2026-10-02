@@ -5,12 +5,15 @@ import { describe, expect, it } from "vitest";
 import {
   canCreateRoutine,
   capVisibleChars,
+  daysPhrase,
   cleanRoutineText,
   describeDays,
   FREE_ROUTINE_LIMIT,
   MAX_ROUTINE_TEXT,
   MAX_ROUTINES,
   normalizeRoutines,
+  routineBlock,
+  routineSavedNote,
   routinesDueToday,
   weekdayOf,
   withRoutineAdded,
@@ -217,5 +220,40 @@ describe("withRoutineAdded", () => {
     expect(withRoutineAdded(one, routine({ id: "r2", text: " walk  AFTER lunch" }), null)).toBeNull();
     // Same words on other days is a different routine.
     expect(withRoutineAdded(one, routine({ id: "r2", days: [6] }), null)).toHaveLength(2);
+  });
+});
+
+// PR #86: the line under a routine just saved, and why Today's Add is off.
+describe("routines: the note after a save", () => {
+  it("names presets in a sentence, and custom days in full, Monday first and Sunday last", () => {
+    expect(daysPhrase([0, 1, 2, 3, 4, 5, 6])).toBe("every day");
+    expect(daysPhrase([5, 1, 2, 3, 4])).toBe("on weekdays");
+    expect(daysPhrase([6, 0])).toBe("on weekends");
+    expect(daysPhrase([1, 4])).toBe("on Mondays and Thursdays");
+    expect(daysPhrase([3])).toBe("on Wednesdays");
+    expect(daysPhrase([0, 1, 3])).toBe("on Mondays, Wednesdays and Sundays");
+  });
+
+  it("due today with room: add it now; due but today is full or set: just its days; paused: until resumed", () => {
+    const weekdays = [1, 2, 3, 4, 5];
+    expect(routineSavedNote({ days: weekdays, dueToday: true, canAddNow: true })).toBe(
+      "Shows on Today — you can add it now.",
+    );
+    expect(routineSavedNote({ days: weekdays, dueToday: true, canAddNow: false })).toBe(
+      "Shows on Today on weekdays.",
+    );
+    expect(routineSavedNote({ days: [1, 4], dueToday: false, canAddNow: true })).toBe(
+      "Shows on Today on Mondays and Thursdays.",
+    );
+    expect(routineSavedNote({ days: weekdays, paused: true, dueToday: true, canAddNow: true })).toBe(
+      "Paused. It won't show on Today until you resume it.",
+    );
+  });
+
+  it("Add is off when today is set (even when also full) or has no room", () => {
+    expect(routineBlock({ locked: false, remainingSlots: 1 })).toBeNull();
+    expect(routineBlock({ locked: false, remainingSlots: 0 })).toBe("full");
+    expect(routineBlock({ locked: true, remainingSlots: 2 })).toBe("set");
+    expect(routineBlock({ locked: true, remainingSlots: 0 })).toBe("set");
   });
 });
