@@ -14,7 +14,11 @@ import {
   INSTALL_DAY_KEY,
   LAST_PAYWALL_KEY,
   PlusProvider,
+  VIEWED_CAP_MS,
+  WIN_BACK_CHECK_KEY,
   WIN_BACK_DELAY_MS,
+  WIN_BACK_KEY,
+  WIN_BACK_OFFER_KEY,
   usePlus,
 } from "@/lib/daily-tasks/plus-context";
 import {
@@ -32,7 +36,7 @@ import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 jest.mock("@/lib/daily-tasks/purchases", () => ({
   isPaywallConfigured: () => true,
   configurePurchases: () => true,
-  fetchPlusStatus: jest.fn(async () => ({ active: false, trialEndsAt: null, lapsedAt: null })),
+  fetchPlusStatus: jest.fn(async () => ({ active: false, lapsedAt: null })),
   onPlusStatusChange: jest.fn(() => () => {}),
   loadPackages: jest.fn(async () => []),
   purchase: jest.fn(),
@@ -57,12 +61,11 @@ jest.mock("expo-notifications", () => ({
   SchedulableTriggerInputTypes: { DAILY: "daily", DATE: "date", TIME_INTERVAL: "timeInterval" },
 }));
 
-const FREE: PlusStatus = { active: false, trialEndsAt: null, lapsedAt: null };
+const FREE: PlusStatus = { active: false, lapsedAt: null };
 const DAY = 24 * 60 * 60_000;
 /** A lapse that ended `ms` ago. */
 const lapsed = (ms: number): PlusStatus => ({
   active: false,
-  trialEndsAt: null,
   lapsedAt: new Date(Date.now() - ms).toISOString(),
 });
 
@@ -403,7 +406,11 @@ describe("PlusProvider: win-back after Plus lapses", () => {
 });
 
 describe("PlusProvider: trial-ending reminder", () => {
-  const TRIAL: PlusStatus = { active: true, trialEndsAt: "2026-10-04T12:00:00Z", lapsedAt: null };
+  const TRIAL: PlusStatus = {
+    active: true,
+    lapsedAt: null,
+    trial: { startedAt: "2026-09-27T12:00:00Z", endsAt: "2026-10-04T12:00:00Z", willRenew: true },
+  };
 
   it("syncs the reminder with RevenueCat's trial end on launch", async () => {
     (fetchPlusStatus as jest.Mock).mockResolvedValue(TRIAL);
@@ -416,6 +423,13 @@ describe("PlusProvider: trial-ending reminder", () => {
     await waitFor(() => expect(syncTrialReminder).toHaveBeenCalledWith(null));
     await change(TRIAL);
     expect(syncTrialReminder).toHaveBeenLastCalledWith("2026-10-04T12:00:00Z");
+  });
+
+  it("is derived from the trial: a cancelled trial clears it", async () => {
+    (fetchPlusStatus as jest.Mock).mockResolvedValue({ ...TRIAL, trial: { ...TRIAL.trial!, willRenew: false } });
+    await renderWithListener();
+    await waitFor(() => expect(syncTrialReminder).toHaveBeenCalledWith(null));
+    expect(syncTrialReminder).not.toHaveBeenCalledWith("2026-10-04T12:00:00Z");
   });
 
   it("doesn't touch the reminder when RevenueCat can't be reached", async () => {
@@ -470,7 +484,7 @@ describe("PlusProvider: redeem a code", () => {
       await result.current.redeemCode();
     });
     expect(result.current.entitlementActive).toBe(false);
-    await act(async () => listener?.({ active: true, trialEndsAt: null, lapsedAt: null }));
+    await act(async () => listener?.({ active: true, lapsedAt: null }));
     expect(result.current.entitlementActive).toBe(true);
   });
 
@@ -518,7 +532,7 @@ describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
     });
     let loading!: Promise<PlusPackage[]>;
     await act(async () => {
-      loading = result.current.loadPackages();
+      loading = result.current.loadPaywallPackages();
     });
     expect(loadSdkPackages).toHaveBeenCalledWith({ winBack: true });
     await act(async () => result.current.markPaywallShown());
@@ -529,7 +543,7 @@ describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
     });
     await act(async () => result.current.closePaywall());
     expect(paywallEvents()).toEqual([
-      ["paywall_viewed", { source: "win_back", feature: "offer" }],
+      ["paywall_viewed", { source: "win_back", offer: true }],
       ["paywall_closed", { source: "win_back" }],
     ]);
   });
@@ -541,12 +555,12 @@ describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
       result.current.openPaywall("break_down");
     });
     await act(async () => {
-      await result.current.loadPackages();
+      await result.current.loadPaywallPackages();
     });
     expect(paywallEvents()).toEqual([]);
     await act(async () => result.current.markPaywallShown());
     await act(async () => result.current.markPaywallShown()); // a second onShow
-    expect(paywallEvents()).toEqual([["paywall_viewed", { source: "break_down", feature: "plain" }]]);
+    expect(paywallEvents()).toEqual([["paywall_viewed", { source: "break_down", offer: false }]]);
   });
 
   it("a failed lookup counts as plain", async () => {
@@ -557,9 +571,9 @@ describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
     });
     await act(async () => result.current.markPaywallShown());
     await act(async () => {
-      await result.current.loadPackages().catch(() => {});
+      await result.current.loadPaywallPackages().catch(() => {});
     });
-    expect(paywallEvents()).toEqual([["paywall_viewed", { source: "break_down", feature: "plain" }]]);
+    expect(paywallEvents()).toEqual([["paywall_viewed", { source: "break_down", offer: false }]]);
   });
 
   it("closed before the lookup answers: paywall_viewed plain, then paywall_closed, and the late answer adds nothing", async () => {
@@ -571,7 +585,7 @@ describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
     });
     let loading!: Promise<PlusPackage[]>;
     await act(async () => {
-      loading = result.current.loadPackages();
+      loading = result.current.loadPaywallPackages();
     });
     await act(async () => result.current.markPaywallShown());
     await act(async () => result.current.closePaywall());
@@ -580,7 +594,7 @@ describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
       await loading;
     });
     expect(paywallEvents()).toEqual([
-      ["paywall_viewed", { source: "win_back", feature: "plain" }],
+      ["paywall_viewed", { source: "win_back", offer: false }],
       ["paywall_closed", { source: "win_back" }],
     ]);
   });
@@ -596,7 +610,7 @@ describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
     });
     let firstLoad!: Promise<PlusPackage[]>;
     await act(async () => {
-      firstLoad = result.current.loadPackages();
+      firstLoad = result.current.loadPaywallPackages();
     });
     await act(async () => result.current.closePaywall());
     // Second open: shown, its own lookup still running.
@@ -605,7 +619,7 @@ describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
     });
     let secondLoad!: Promise<PlusPackage[]>;
     await act(async () => {
-      secondLoad = result.current.loadPackages();
+      secondLoad = result.current.loadPaywallPackages();
     });
     await act(async () => result.current.markPaywallShown());
     // The first open's late "offer" answer must not decide the second's event.
@@ -618,7 +632,7 @@ describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
       second.resolve([ANNUAL]);
       await secondLoad;
     });
-    expect(paywallEvents()).toEqual([["paywall_viewed", { source: "brain_dump", feature: "plain" }]]);
+    expect(paywallEvents()).toEqual([["paywall_viewed", { source: "brain_dump", offer: false }]]);
   });
 
   it("someone who never lapsed: no lookup, and exactly { source } on show", async () => {
@@ -629,7 +643,7 @@ describe("PlusProvider: paywall_viewed with a win-back offer lookup", () => {
       result.current.openPaywall("break_down");
     });
     await act(async () => {
-      await result.current.loadPackages();
+      await result.current.loadPaywallPackages();
     });
     expect((loadSdkPackages as jest.Mock).mock.calls).toEqual([[]]);
     await act(async () => result.current.markPaywallShown());
@@ -653,12 +667,12 @@ describe("PlusProvider: buying with a win-back offer", () => {
       await result.current.purchase(OFFERED);
     });
     expect((purchasePackage as jest.Mock).mock.calls).toEqual([["$rc_annual", { winBack: true }]]);
-    expect(track).toHaveBeenCalledWith("purchase_started", { plan: "annual", source: "win_back", feature: "offer" });
+    expect(track).toHaveBeenCalledWith("purchase_started", { plan: "annual", source: "win_back", offer: true });
     expect(track).toHaveBeenCalledWith("purchase_cancelled", {
       plan: "annual",
       source: "win_back",
       trial: false,
-      feature: "offer",
+      offer: true,
     });
   });
 
@@ -673,7 +687,7 @@ describe("PlusProvider: buying with a win-back offer", () => {
       await result.current.purchase(pkg);
     });
     expect((purchasePackage as jest.Mock).mock.calls).toEqual([[pkg.id]]);
-    expect(track).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ feature: "offer" }));
+    expect(track).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ offer: true }));
   });
 });
 
@@ -813,5 +827,203 @@ describe("PlusProvider: aha paywall state", () => {
     } finally {
       getItem.mockImplementation(real);
     }
+  });
+});
+
+// --- PR #81 review: a second, offer-only win-back showing per lapse ------------
+
+describe("PlusProvider: win-back's two showings per lapse", () => {
+  const OFFERED: PlusPackage = {
+    ...ANNUAL,
+    winBackOffer: { price: 9.99, priceString: "$9.99", cycles: 1, periodUnit: "YEAR", periodNumberOfUnits: 1 },
+  };
+  const NOW = new Date(2026, 9, 1, 10, 0);
+  // One fixed lapse, 40 days before NOW (the clock moves in these tests).
+  const status = (): PlusStatus => ({ active: false, lapsedAt: new Date(NOW.getTime() - 40 * DAY).toISOString() });
+
+  beforeEach(() => {
+    // Fake only the clock (dates), so "once a day" can move to tomorrow.
+    jest.useFakeTimers({
+      now: NOW,
+      doNotFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "queueMicrotask", "nextTick"],
+    });
+  });
+
+  async function renderLapsed() {
+    (fetchPlusStatus as jest.Mock).mockResolvedValue(status());
+    const hook = await renderWithListener();
+    await waitFor(() => expect(hook.result.current.entitlementKnown).toBe(true));
+    await act(async () => {});
+    return hook;
+  }
+
+  /** Open win_back and let iOS show it, with `packages` from the lookup. */
+  async function showWinBack(result: { current: ReturnType<typeof usePlus> }, packages: PlusPackage[]) {
+    (loadSdkPackages as jest.Mock).mockResolvedValueOnce(packages);
+    await act(async () => {
+      result.current.openPaywall("win_back");
+    });
+    await act(async () => {
+      await result.current.loadPaywallPackages();
+    });
+    await act(async () => result.current.markPaywallShown());
+    await act(async () => result.current.closePaywall());
+  }
+
+  it("after the plain showing, looks for an offer at most once a day and shows win_back once more when there is one", async () => {
+    const { result } = await renderLapsed();
+    expect(result.current.winBackDue).toBe(true);
+    expect(result.current.winBackOfferPending).toBe(false);
+    await showWinBack(result, [ANNUAL]); // the plain showing: no offer yet
+    expect(result.current.winBackDue).toBe(false);
+    expect(result.current.winBackOfferPending).toBe(true);
+
+    // Today: no offer. The check is spent for today (and remembered).
+    (loadSdkPackages as jest.Mock).mockClear().mockResolvedValueOnce([ANNUAL]);
+    let available: boolean | undefined;
+    await act(async () => {
+      available = await result.current.checkWinBackOffer();
+    });
+    expect(available).toBe(false);
+    expect(loadSdkPackages).toHaveBeenCalledWith({ winBack: true });
+    expect(result.current.winBackOfferPending).toBe(true);
+    expect(JSON.parse((await AsyncStorage.getItem(WIN_BACK_CHECK_KEY))!)).toEqual({
+      lapse: status().lapsedAt,
+      day: todayKey(NOW),
+    });
+    await act(async () => {
+      available = await result.current.checkWinBackOffer();
+    });
+    expect(available).toBe(false);
+    expect(loadSdkPackages).toHaveBeenCalledTimes(1);
+
+    // Tomorrow: Apple has an offer now.
+    jest.setSystemTime(new Date(NOW.getTime() + DAY));
+    (loadSdkPackages as jest.Mock).mockResolvedValueOnce([OFFERED]);
+    await act(async () => {
+      available = await result.current.checkWinBackOffer();
+    });
+    expect(available).toBe(true);
+
+    // The offer showing: once shown, never again this lapse (persisted).
+    await showWinBack(result, [OFFERED]);
+    expect(await AsyncStorage.getItem(WIN_BACK_OFFER_KEY)).toBe(status().lapsedAt);
+    jest.setSystemTime(new Date(NOW.getTime() + 3 * DAY));
+    await act(async () => {});
+    expect(result.current.winBackDue).toBe(false);
+    expect(result.current.winBackOfferPending).toBe(false);
+    (loadSdkPackages as jest.Mock).mockClear();
+    await act(async () => {
+      available = await result.current.checkWinBackOffer();
+    });
+    expect(available).toBe(false);
+    expect(loadSdkPackages).not.toHaveBeenCalled();
+  });
+
+  it("a plain showing that already had the offer on screen spends both", async () => {
+    const { result } = await renderLapsed();
+    await showWinBack(result, [OFFERED]);
+    expect(await AsyncStorage.getItem(WIN_BACK_KEY)).toBe(status().lapsedAt);
+    expect(await AsyncStorage.getItem(WIN_BACK_OFFER_KEY)).toBe(status().lapsedAt);
+    expect(result.current.winBackOfferPending).toBe(false);
+  });
+
+  it("the offer seen on any other paywall spends the offer showing", async () => {
+    const { result } = await renderLapsed();
+    await showWinBack(result, [ANNUAL]);
+    (loadSdkPackages as jest.Mock).mockResolvedValueOnce([OFFERED]);
+    await act(async () => {
+      result.current.openPaywall("brain_dump");
+    });
+    await act(async () => {
+      await result.current.loadPaywallPackages();
+    });
+    await act(async () => result.current.markPaywallShown());
+    expect(result.current.winBackOfferPending).toBe(false);
+  });
+
+  it("remembers both showings and today's check across launches", async () => {
+    const lapse = status().lapsedAt!;
+    await AsyncStorage.setItem(WIN_BACK_KEY, lapse);
+    await AsyncStorage.setItem(WIN_BACK_CHECK_KEY, JSON.stringify({ lapse, day: todayKey(NOW) }));
+    const first = await renderLapsed();
+    expect(first.result.current.winBackDue).toBe(false);
+    expect(first.result.current.winBackOfferPending).toBe(true);
+    // Today's look already happened on the earlier run.
+    (loadSdkPackages as jest.Mock).mockClear();
+    let available: boolean | undefined;
+    await act(async () => {
+      available = await first.result.current.checkWinBackOffer();
+    });
+    expect(available).toBe(false);
+    expect(loadSdkPackages).not.toHaveBeenCalled();
+    first.unmount();
+
+    await AsyncStorage.setItem(WIN_BACK_OFFER_KEY, lapse);
+    jest.setSystemTime(new Date(NOW.getTime() + DAY));
+    const second = await renderLapsed();
+    expect(second.result.current.winBackOfferPending).toBe(false);
+  });
+
+  it("doesn't look while a paywall is up, and a failed look just means no offer today", async () => {
+    const { result } = await renderLapsed();
+    await showWinBack(result, [ANNUAL]);
+    (loadSdkPackages as jest.Mock).mockClear();
+    await act(async () => {
+      result.current.openPaywall("settings");
+    });
+    let available: boolean | undefined;
+    await act(async () => {
+      available = await result.current.checkWinBackOffer();
+    });
+    expect(available).toBe(false);
+    expect(loadSdkPackages).not.toHaveBeenCalled();
+    await act(async () => result.current.closePaywall());
+
+    (loadSdkPackages as jest.Mock).mockRejectedValueOnce(new Error("offline"));
+    await act(async () => {
+      available = await result.current.checkWinBackOffer();
+    });
+    expect(available).toBe(false);
+    // Today's look is spent even though it failed.
+    (loadSdkPackages as jest.Mock).mockClear();
+    await act(async () => {
+      available = await result.current.checkWinBackOffer();
+    });
+    expect(loadSdkPackages).not.toHaveBeenCalled();
+  });
+});
+
+describe("PlusProvider: paywall_viewed never waits on a hung lookup", () => {
+  it("is sent with offer: false after the cap, and the late answer adds nothing", async () => {
+    (fetchPlusStatus as jest.Mock).mockResolvedValue(lapsed(3 * DAY));
+    const { result } = await renderWithListener();
+    await waitFor(() => expect(result.current.winBackDue).toBe(true));
+    jest.useFakeTimers();
+    (track as jest.Mock).mockClear();
+    let resolve!: (value: PlusPackage[]) => void;
+    (loadSdkPackages as jest.Mock).mockReturnValueOnce(new Promise<PlusPackage[]>((res) => (resolve = res)));
+    await act(async () => {
+      result.current.openPaywall("break_down");
+    });
+    let loading!: Promise<PlusPackage[]>;
+    await act(async () => {
+      loading = result.current.loadPaywallPackages();
+    });
+    await act(async () => result.current.markPaywallShown());
+    const viewed = () => (track as jest.Mock).mock.calls.filter(([name]) => name === "paywall_viewed");
+    await act(async () => {
+      jest.advanceTimersByTime(VIEWED_CAP_MS - 1);
+    });
+    expect(viewed()).toEqual([]);
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(viewed()).toEqual([["paywall_viewed", { source: "break_down", offer: false }]]);
+    await act(async () => {
+      resolve([ANNUAL]);
+      await loading;
+    });
+    expect(viewed()).toHaveLength(1);
   });
 });

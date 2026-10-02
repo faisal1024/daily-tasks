@@ -7,7 +7,7 @@ import { act, fireEvent, screen } from "@testing-library/react-native";
 import { TrialNote } from "@/components/daily-tasks/trial-note";
 import { track } from "@/lib/daily-tasks/analytics";
 import { manageSubscriptions } from "@/lib/daily-tasks/purchases";
-import { recordPlusUse, trialKey, type PlusTrial } from "@/lib/daily-tasks/trial-note";
+import { recordPlusUse, setTrialActiveForUses, trialKey, type PlusTrial } from "@/lib/daily-tasks/trial-note";
 
 import { renderWithProviders as render } from "./render";
 
@@ -53,6 +53,7 @@ async function launch(active = true) {
 beforeEach(async () => {
   await AsyncStorage.clear();
   mockTrial = dayFiveTrial();
+  setTrialActiveForUses(true);
 });
 
 afterEach(() => {
@@ -105,7 +106,12 @@ describe("TrialNote", () => {
   });
 
   it("shows nothing before day 5 or without a trial", async () => {
-    mockTrial = { ...dayFiveTrial(), startedAt: new Date(Date.now() - 3 * DAY).toISOString() };
+    // Day 4 of a 7-day trial.
+    mockTrial = {
+      ...dayFiveTrial(),
+      startedAt: new Date(Date.now() - 3 * DAY).toISOString(),
+      endsAt: new Date(Date.now() + 4 * DAY).toISOString(),
+    };
     const early = await launch();
     expect(screen.queryByTestId("trial-note")).toBeNull();
     await early.unmount();
@@ -113,5 +119,56 @@ describe("TrialNote", () => {
     await launch();
     expect(screen.queryByTestId("trial-note")).toBeNull();
     expect(shownEvents()).toEqual([]);
+  });
+
+  it("keeps its words in place while it re-checks (a new day, a foreground): no layout jump", async () => {
+    const { rerender } = await launch();
+    expect(screen.getByTestId("trial-note")).toBeOnTheScreen();
+    // A new day starts a re-check; the note doesn't blink out meanwhile.
+    await rerender(<TrialNote today="2026-10-02" active />);
+    expect(screen.getByTestId("trial-note")).toBeOnTheScreen();
+    await rerender(<TrialNote today="2026-10-02" active={false} />);
+    expect(screen.getByTestId("trial-note")).toBeOnTheScreen();
+    await settle();
+    expect(screen.getByTestId("trial-note")).toBeOnTheScreen();
+    expect(shownEvents()).toHaveLength(1);
+  });
+
+  it("goes when it's ruled out (the trial ended) or the trial changes", async () => {
+    const { rerender } = await launch();
+    expect(screen.getByTestId("trial-note")).toBeOnTheScreen();
+    // A different trial (already past its end): the old words don't carry over to it.
+    mockTrial = { ...dayFiveTrial(), endsAt: new Date(Date.now() - 60_000).toISOString() };
+    await rerender(<TrialNote today={TODAY} active />);
+    await settle();
+    expect(screen.queryByTestId("trial-note")).toBeNull();
+    // No trial at all.
+    mockTrial = dayFiveTrial();
+    await rerender(<TrialNote today={TODAY} active />);
+    await settle();
+    expect(screen.getByTestId("trial-note")).toBeOnTheScreen();
+    mockTrial = null;
+    await rerender(<TrialNote today={TODAY} active />);
+    await settle();
+    expect(screen.queryByTestId("trial-note")).toBeNull();
+  });
+
+  it("keeps the same note when RevenueCat's start date differs between launches", async () => {
+    const first = await launch();
+    await fireEvent.press(screen.getByTestId("trial-note-dismiss"));
+    await first.unmount();
+    mockTrial = { ...mockTrial!, startedAt: new Date(Date.now() - 4 * DAY).toISOString() };
+    await launch();
+    expect(screen.queryByTestId("trial-note")).toBeNull();
+  });
+
+  it("is legible and easy to hit: body text-sm, a 44 pt close, and Manage says where it goes", async () => {
+    await launch();
+    expect(screen.getByText(/Your trial ends/)).toHaveProp("className", expect.stringContaining("text-sm"));
+    expect(screen.getByTestId("trial-note-dismiss")).toHaveStyle({ width: 44, height: 44 });
+    expect(screen.getByRole("button", { name: "Manage subscription" })).toHaveProp(
+      "accessibilityHint",
+      "Opens your App Store subscription settings",
+    );
   });
 });

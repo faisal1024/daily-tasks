@@ -17,9 +17,10 @@ import {
   planKind,
   PLUS_ENTITLEMENT,
   type PlusPackage,
+  type PlusTrial,
+  trialReminderEnd,
   type WinBackOffer,
 } from "./plus";
-import type { PlusTrial } from "./trial-note";
 
 type PurchasesModule = typeof import("react-native-purchases");
 type SdkPackage = import("react-native-purchases").PurchasesPackage;
@@ -95,14 +96,9 @@ export function isPlusActive(info: SdkCustomerInfo | null | undefined): boolean 
   return Boolean(info?.entitlements?.active?.[PLUS_ENTITLEMENT]);
 }
 
-/** When a free trial of Plus ends (ISO), or null when not on a trial. */
+/** When a free trial of Plus that will renew ends (ISO; the reminder's date), else null. */
 export function trialEndsAt(info: SdkCustomerInfo | null | undefined): string | null {
-  const entitlement = info?.entitlements?.active?.[PLUS_ENTITLEMENT];
-  if (!entitlement || entitlement.periodType !== "TRIAL") return null;
-  // Already cancelled, or shared by family (they can't cancel it): no reminder.
-  if (entitlement.willRenew === false || entitlement.unsubscribeDetectedAt) return null;
-  if (entitlement.ownershipType === "FAMILY_SHARED") return null;
-  return entitlement.expirationDate ?? null;
+  return trialReminderEnd(currentTrial(info));
 }
 
 /**
@@ -121,9 +117,8 @@ export function lapsedAt(info: SdkCustomerInfo | null | undefined, now: number =
 }
 
 /**
- * The free trial this install is in, cancelled or not (unlike trialEndsAt,
- * which is only for the reminder). Null when not on a trial, or when the
- * trial is family-shared (only the purchaser can manage it).
+ * The free trial this install is in, cancelled or not. Null when not on a
+ * trial, or when the trial is family-shared (only the purchaser can manage it).
  */
 export function currentTrial(info: SdkCustomerInfo | null | undefined): PlusTrial | null {
   const entitlement = info?.entitlements?.active?.[PLUS_ENTITLEMENT];
@@ -141,7 +136,6 @@ export function currentTrial(info: SdkCustomerInfo | null | undefined): PlusTria
 
 export interface PlusStatus {
   active: boolean;
-  trialEndsAt: string | null;
   lapsedAt: string | null;
   /** The current free trial (for the day-5 note); null otherwise. */
   trial?: PlusTrial | null;
@@ -150,7 +144,6 @@ export interface PlusStatus {
 function toStatus(info: SdkCustomerInfo): PlusStatus {
   return {
     active: isPlusActive(info),
-    trialEndsAt: trialEndsAt(info),
     lapsedAt: lapsedAt(info),
     trial: currentTrial(info),
   };

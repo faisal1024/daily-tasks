@@ -5,6 +5,8 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-
 
 import HomeScreen from "@/app/(tabs)/index";
 import { requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import type { PlusTrial } from "@/lib/daily-tasks/plus";
+import { setTrialActiveForUses } from "@/lib/daily-tasks/trial-note";
 import { closeDay } from "@/lib/daily-tasks/evening";
 import { MomentumAiError } from "@/lib/daily-tasks/ai-status";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
@@ -67,6 +69,9 @@ let mockPaywall: {
   entitlementActive: boolean;
   purchaseCount?: number;
   winBackDue?: boolean;
+  winBackOfferPending?: boolean;
+  checkWinBackOffer?: () => Promise<boolean>;
+  trial?: PlusTrial | null;
   ahaPaywallState?: AhaPaywallState | null;
 } = {
   paywallSource: null,
@@ -1488,6 +1493,66 @@ describe("Win-back paywall on Today", () => {
       jest.advanceTimersByTime(2000);
     });
     expect(mockOpenPaywall).not.toHaveBeenCalledWith("win_back");
+  });
+
+  describe("the later offer showing", () => {
+    const offerCheckDue = (available: boolean) => {
+      const check = jest.fn(async () => available);
+      mockPaywall = {
+        paywallSource: null,
+        entitlementActive: false,
+        winBackDue: false,
+        winBackOfferPending: true,
+        checkWinBackOffer: check,
+      };
+      mockStore = { ...makeStore({ ...SET, tasks: tasks("Walk", "Read") }), hasPlus: false };
+      return check;
+    };
+
+    it("checks for an offer at the post-tick moment and opens win_back when one is available", async () => {
+      jest.useFakeTimers({ now: MORNING });
+      const check = offerCheckDue(true);
+      await render(<HomeScreen />);
+      expect(check).not.toHaveBeenCalled();
+      await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+      expect(check).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        jest.advanceTimersByTime(1100);
+      });
+      expect(mockOpenPaywall).not.toHaveBeenCalled();
+      await act(async () => {
+        jest.advanceTimersByTime(200);
+      });
+      expect(mockOpenPaywall).toHaveBeenCalledWith("win_back");
+    });
+
+    it("stays shut when Apple has no offer", async () => {
+      jest.useFakeTimers({ now: MORNING });
+      const check = offerCheckDue(false);
+      await render(<HomeScreen />);
+      await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(check).toHaveBeenCalledTimes(1);
+      expect(mockOpenPaywall).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["the user has Plus", () => (mockStore = { ...mockStore, hasPlus: true })],
+      ["a task is unticked", () => (mockStore = { ...mockStore, isCompleted: () => true })],
+    ])("doesn't check when %s", async (_why, tweak) => {
+      jest.useFakeTimers({ now: MORNING });
+      const check = offerCheckDue(true);
+      tweak();
+      await render(<HomeScreen />);
+      await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(check).not.toHaveBeenCalled();
+      expect(mockOpenPaywall).not.toHaveBeenCalled();
+    });
   });
 
   it.each([
@@ -3134,7 +3199,9 @@ describe("Plus use counter (day-5 trial note)", () => {
 
   beforeEach(async () => {
     await AsyncStorage.clear();
+    setTrialActiveForUses(true);
   });
+  afterEach(() => setTrialActiveForUses(false));
 
   async function sortDump(text: string) {
     await openBrainDump();
@@ -3183,6 +3250,28 @@ describe("Plus use counter (day-5 trial note)", () => {
     await fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
     expect(mockStore.applyTomorrowDraft).toHaveBeenCalled();
     expect(await storedUses()).toEqual(expected);
+  });
+
+  it("counts a break-down off its result (steps came back), not off a remembered Plus flag", async () => {
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    (requestBreakDown as jest.Mock).mockResolvedValue(["Clear counter", "Wipe"]);
+    mockStore = makeStore({ ...SET, tasks: tasks("Clean kitchen") });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
+    expect(await storedUses()).toEqual([{ kind: "break_down", at: MORNING.getTime() }]);
+  });
+
+  it("counts nothing outside a free trial", async () => {
+    setTrialActiveForUses(false);
+    (sortBrainDump as jest.Mock).mockResolvedValue({
+      result: { picks: ["Finish report"], parked: [], source: "ai" },
+      notice: null,
+    });
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await sortDump("finish report");
+    expect(mockTrack).toHaveBeenCalledWith("brain_dump_sorted", expect.objectContaining({ source: "ai" }));
+    expect(await storedUses()).toBeNull();
   });
 });
 
@@ -3579,5 +3668,50 @@ describe("rating_prompt_requested's source (1.3)", () => {
     (requestAppReview as jest.Mock).mockResolvedValueOnce(false);
     await openWithDue("focus_done");
     expect(ratingEvents()).toEqual([]);
+  });
+});
+
+// --- 1.3: where the day-5 trial note sits (PR #81 review) ---------------------
+
+describe("Day-5 trial note placement", () => {
+  // Started four days before MORNING's day: day 5 today, ends in three days.
+  const dayFive = (): PlusTrial => {
+    const start = new Date(2026, 8, 22, 8, 0).getTime();
+    return {
+      startedAt: new Date(start).toISOString(),
+      endsAt: new Date(start + 7 * 24 * 60 * 60_000).toISOString(),
+      willRenew: true,
+    };
+  };
+  const order = (...ids: string[]) => {
+    const json = JSON.stringify(screen.toJSON());
+    return ids.map((id) => json.indexOf(`"testID":"${id}"`));
+  };
+
+  it("sits under the task card and status line, not above the three tasks", async () => {
+    mockPaywall = { paywallSource: null, entitlementActive: true, trial: dayFive() };
+    mockStore = makeStore({ tasks: tasks("Walk", "Stretch") });
+    await render(<HomeScreen />);
+    expect(await screen.findByTestId("trial-note")).toBeOnTheScreen();
+    const [cardAt, noteAt] = order("today-tasks", "trial-note");
+    expect(cardAt).toBeGreaterThanOrEqual(0);
+    expect(noteAt).toBeGreaterThan(cardAt);
+  });
+
+  it("stays away from the rollover card when that leads the day", async () => {
+    mockPaywall = { paywallSource: null, entitlementActive: true, trial: dayFive() };
+    mockStore = makeStore({
+      tasks: tasks("Walk"),
+      pendingRollover: {
+        sourceDate: "2026-09-25",
+        tasks: [{ id: "x", text: "Old", completed: false, carriedOver: false, rolloverOutcome: "unresolved" }],
+      },
+    });
+    await render(<HomeScreen />);
+    expect(await screen.findByTestId("trial-note")).toBeOnTheScreen();
+    const [rolloverAt, cardAt, noteAt] = order("rollover-card", "today-tasks", "trial-note");
+    expect(rolloverAt).toBeGreaterThanOrEqual(0);
+    expect(rolloverAt).toBeLessThan(cardAt);
+    expect(noteAt).toBeGreaterThan(cardAt);
   });
 });

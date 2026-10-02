@@ -29,6 +29,7 @@ import {
   PLUS_BENEFITS,
   purchaseButtonLabel,
   purchaseTerms,
+  shownWinBackOffer,
   sortPackages,
   trialTimeline,
   trialTimelineLabel,
@@ -58,6 +59,9 @@ interface PaywallSheetProps {
   /** The monthly nudge was tapped (analytics live in plus-context). */
   onMonthlyNudge?: () => void;
 }
+
+/** After an offer purchase fails: the plans are reloaded, never bought at full price. */
+export const OFFER_GONE_MESSAGE = "That offer isn't available any more. Here are the current prices.";
 
 /** Said a moment after StoreKit's sheet goes, so its dismissal doesn't cut it off. */
 const NUDGE_ANNOUNCE_DELAY_MS = 500;
@@ -105,7 +109,8 @@ export function PaywallSheet({
     [],
   );
 
-  const fetchPackages = async () => {
+  /** `notice`: said once the plans are back (e.g. why they were reloaded). */
+  const fetchPackages = async (notice: string | null = null) => {
     const mine = ++session.current;
     setLoad("loading");
     setMessage(null);
@@ -123,6 +128,7 @@ export function PaywallSheet({
       setPackages(loaded);
       setSelectedId(defaultPackageId(loaded));
       setLoad("ready");
+      if (notice) setMessage(notice);
     } catch {
       if (mine === session.current) setLoad("error");
     }
@@ -196,6 +202,11 @@ export function PaywallSheet({
       }
     } else if (outcome === "pending") {
       setMessage("Your purchase is waiting for approval. Plus unlocks as soon as it goes through.");
+    } else if (outcome === "failed" && shownWinBackOffer(selected)) {
+      // The offer may have lapsed (eligibility changes): show today's prices
+      // again and let them choose; never retry at full price on their behalf.
+      // (The plans are cleared while they reload, so nothing can be bought meanwhile.)
+      await fetchPackages(OFFER_GONE_MESSAGE);
     } else if (outcome === "failed") {
       setMessage("The purchase didn't go through. If you were charged, tap Restore purchases.");
     }
@@ -517,7 +528,7 @@ export function PaywallHost() {
       onClose={plus.closePaywall}
       onShown={plus.markPaywallShown}
       purchasing={plus.purchasing}
-      loadPackages={plus.loadPackages}
+      loadPackages={plus.loadPaywallPackages}
       onPurchase={plus.purchase}
       onRestore={plus.restore}
       taskCount={plus.paywallTaskCount}

@@ -50,6 +50,24 @@ export interface PlusPackage {
   winBackOffer?: WinBackOffer | null;
 }
 
+/** A free trial of Plus, as RevenueCat reports it. */
+export interface PlusTrial {
+  /** When the trial started (ISO), when known. */
+  startedAt: string | null;
+  /** When the trial ends (ISO). */
+  endsAt: string;
+  /** False once the trial was cancelled (it won't turn into a subscription). */
+  willRenew: boolean;
+}
+
+/**
+ * When the trial-ending reminder is for: the trial's end, unless it was
+ * already cancelled (nothing to warn about).
+ */
+export function trialReminderEnd(trial: PlusTrial | null | undefined): string | null {
+  return trial && trial.willRenew ? trial.endsAt : null;
+}
+
 /** SDK-independent view of an Apple win-back offer (a discount, not a separate product). */
 export interface WinBackOffer {
   /** Price per billing period in the local currency, e.g. 9.99 (0 = free). */
@@ -141,19 +159,21 @@ function duration(count: number, unit: string): string {
   return `${count} ${unit}${count === 1 ? "" : "s"}`;
 }
 
-/** The offer is something we can describe honestly (otherwise it's ignored). */
+/**
+ * The offer has a shape we can describe honestly; anything unexpected is
+ * dropped (the plan shows its plain price): a missing or unknown period,
+ * fewer than one cycle, a negative or missing price, no price text, or a free
+ * offer spread over several cycles (Apple's free offers are one period).
+ */
 export function isUsableWinBackOffer(offer: WinBackOffer | null | undefined): offer is WinBackOffer {
-  return Boolean(
-    offer &&
-      UNIT_WORDS[offer.periodUnit] &&
-      Number.isInteger(offer.cycles) &&
-      offer.cycles > 0 &&
-      Number.isInteger(offer.periodNumberOfUnits) &&
-      offer.periodNumberOfUnits > 0 &&
-      Number.isFinite(offer.price) &&
-      offer.price >= 0 &&
-      offer.priceString,
-  );
+  if (!offer) return false;
+  if (typeof offer.periodUnit !== "string" || !UNIT_WORDS[offer.periodUnit]) return false;
+  if (!Number.isInteger(offer.cycles) || offer.cycles < 1) return false;
+  if (!Number.isInteger(offer.periodNumberOfUnits) || offer.periodNumberOfUnits < 1) return false;
+  if (typeof offer.price !== "number" || !Number.isFinite(offer.price) || offer.price < 0) return false;
+  if (typeof offer.priceString !== "string" || offer.priceString.trim() === "") return false;
+  if (offer.price === 0 && offer.cycles > 1) return false;
+  return true;
 }
 
 /**
@@ -214,7 +234,7 @@ export function planLabel(pkg: PlusPackage): PlanLabel {
 /** Main button text for the selected plan. */
 export function purchaseButtonLabel(pkg: PlusPackage | null): string {
   if (!pkg) return "Continue";
-  if (shownWinBackOffer(pkg)) return "Subscribe with offer";
+  if (shownWinBackOffer(pkg)) return "Continue with offer";
   if (pkg.trialDays) return `Start ${pkg.trialDays}-day free trial`;
   return pkg.kind === "lifetime" ? "Buy lifetime" : "Subscribe";
 }

@@ -201,7 +201,16 @@ export default function HomeScreen() {
     focusPrompt,
     clearFocusPrompt,
   } = useDailyTasks();
-  const { paywallEnabled, paywallSource, purchaseCount, openPaywall, winBackDue, ahaPaywallState } = usePlus();
+  const {
+    paywallEnabled,
+    paywallSource,
+    purchaseCount,
+    openPaywall,
+    winBackDue,
+    winBackOfferPending,
+    checkWinBackOffer,
+    ahaPaywallState,
+  } = usePlus();
   const winBackDueRef = useRef(winBackDue);
   winBackDueRef.current = winBackDue;
 
@@ -886,7 +895,8 @@ export default function HomeScreen() {
       // Only if the task still reads the same (it may have been edited meanwhile).
       setTaskSteps(taskId, steps, text);
       track("break_down_used", { count: steps.length });
-      if (hasPlus) void recordPlusUse("break_down");
+      // Break it down is Plus-only and AI-only: steps back means Plus was used.
+      if (steps.length > 0) void recordPlusUse("break_down");
       // The store keeps steps trimmed: match it, so the starter names the step.
       const first = steps.map((step) => step.trim()).find(Boolean);
       if (starter && first) offerStarter(taskId, first);
@@ -980,6 +990,13 @@ export default function HomeScreen() {
       setTimeout(() => {
         if (!busyRef.current && !ratingRecent() && winBackDueRef.current) openPaywall("win_back");
       }, 1200);
+    } else if (completing && winBackOfferPending && paywallEnabled && !hasPlus) {
+      // Later in the lapse: once Apple has a win-back offer for them, one more
+      // showing (the check runs at most once a day, at this same moment).
+      const wait = new Promise((resolve) => setTimeout(resolve, 1200));
+      void Promise.all([checkWinBackOffer(), wait]).then(([available]) => {
+        if (available && !busyRef.current && !ratingRecent()) openPaywall("win_back");
+      });
     }
   };
 
@@ -1121,7 +1138,6 @@ export default function HomeScreen() {
           >
             <View style={twoColumn ? { flex: 1.25, gap: 14 } : { gap: 14 }}>
               {update ? <UpdateBanner update={update} onDismiss={dismissUpdate} /> : null}
-              {ready && !firstRunActive && <TrialNote today={today} active={appActive} />}
               {toast && (
                 <View
                   className="flex-row items-center gap-2 rounded-2xl p-3"
@@ -1230,6 +1246,8 @@ export default function HomeScreen() {
                   </Text>
                 </Pressable>
               )}
+              {/* The day-5 trial note: under the day's card and status, away from the rollover. */}
+              {ready && !firstRunActive && <TrialNote today={today} active={appActive} />}
             </View>
 
             {rightHasContent && (
@@ -1632,7 +1650,6 @@ export default function HomeScreen() {
             else sorted = { ...sorted, notice: freeAiDumpNotice(freeLeft), freeSortUsed: true };
           }
           track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
-          if (hasPlus && sorted.result.source === "ai") void recordPlusUse("brain_dump");
           return sorted;
         }}
         onSet={(picks, parked) => {

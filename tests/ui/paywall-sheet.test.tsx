@@ -342,3 +342,45 @@ describe("PaywallSheet: the trial timeline and onboarding headline", () => {
     expect(screen.getByText(headline)).toBeOnTheScreen();
   });
 });
+
+// --- PR #81 review: a failed offer purchase never falls back to full price -----
+
+describe("PaywallSheet: a win-back offer purchase that fails", () => {
+  const OFFERED: PlusPackage = {
+    ...ANNUAL,
+    trialDays: null,
+    winBackOffer: { price: 9.99, priceString: "$9.99", cycles: 1, periodUnit: "YEAR", periodNumberOfUnits: 1 },
+  };
+
+  it("reloads the plans (asking for offers again) and says the offer is gone; nothing is bought at full price", async () => {
+    const loadPackages = jest
+      .fn()
+      .mockResolvedValueOnce([MONTHLY, OFFERED])
+      .mockResolvedValueOnce([MONTHLY, { ...ANNUAL, trialDays: null }]);
+    const onPurchase = jest.fn(async (): Promise<PurchaseOutcome> => "failed");
+    const props = setup({ loadPackages, onPurchase });
+    await render(<PaywallSheet source="win_back" {...props} />);
+    await act(async () => {});
+    expect(screen.getByRole("button", { name: "Continue with offer" })).toBeOnTheScreen();
+    await fireEvent.press(screen.getByTestId("paywall-buy"));
+    await act(async () => {});
+    expect(onPurchase).toHaveBeenCalledTimes(1);
+    expect(onPurchase).toHaveBeenCalledWith(OFFERED);
+    expect(loadPackages).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("paywall-message")).toHaveTextContent(
+      "That offer isn't available any more. Here are the current prices.",
+    );
+    expect(screen.getByRole("button", { name: "Subscribe" })).toBeOnTheScreen();
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  it("a plain purchase that fails keeps today's message and doesn't reload", async () => {
+    const loadPackages = jest.fn(async () => [MONTHLY, ANNUAL]);
+    const props = setup({ loadPackages, onPurchase: jest.fn(async (): Promise<PurchaseOutcome> => "failed") });
+    await renderSheet(props);
+    await fireEvent.press(screen.getByTestId("paywall-buy"));
+    await act(async () => {});
+    expect(loadPackages).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("paywall-message")).toHaveTextContent(/didn't go through/);
+  });
+});

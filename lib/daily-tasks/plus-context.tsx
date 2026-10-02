@@ -12,7 +12,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { AhaPaywallState } from "./aha-paywall";
 import { flush, track } from "./analytics";
 import { todayKey } from "./date";
-import { shownWinBackOffer, type PaywallSource, type PlusPackage } from "./plus";
+import { shownWinBackOffer, trialReminderEnd, type PaywallSource, type PlusPackage, type PlusTrial } from "./plus";
 import {
   configurePurchases,
   fetchPlusStatus,
@@ -25,13 +25,39 @@ import {
   restore as restorePurchases,
   type PurchaseOutcome,
 } from "./purchases";
-import type { PlusTrial } from "./trial-note";
+import { setTrialActiveForUses } from "./trial-note";
 import { syncTrialReminder } from "./trial-reminder";
 
-// Win-back: which lapse (by its expiry) was already offered, so each is offered once.
-const WIN_BACK_KEY = "daily-tasks/plus-win-back-offered-for";
+// Win-back, per lapse (keyed by its expiry), at most two showings:
+// 1. the plain one, once, 2+ days after the lapse (whatever Apple offers then);
+// 2. later, one more, only once Apple has a win-back offer for this subscriber
+//    (Apple's eligibility usually needs a longer lapse), checked at most once a day.
+// Seeing the offer on any paywall spends the second showing.
+export const WIN_BACK_KEY = "daily-tasks/plus-win-back-offered-for";
+export const WIN_BACK_OFFER_KEY = "daily-tasks/plus-win-back-offer-shown-for";
+export const WIN_BACK_CHECK_KEY = "daily-tasks/plus-win-back-offer-checked";
 /** Let a lapse settle before offering Plus back (people who just cancelled meant it). */
 export const WIN_BACK_DELAY_MS = 2 * 24 * 60 * 60_000;
+/** paywall_viewed is sent by now even if the offer lookup hasn't answered. */
+export const VIEWED_CAP_MS = 3000;
+
+/** The day an offer was last looked for, for which lapse. */
+interface OfferCheck {
+  lapse: string;
+  day: string;
+}
+
+function parseOfferCheck(raw: string | null): OfferCheck | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<OfferCheck>;
+    return typeof parsed?.lapse === "string" && typeof parsed.day === "string"
+      ? { lapse: parsed.lapse, day: parsed.day }
+      : null;
+  } catch {
+    return null;
+  }
+}
 // The aha paywall (aha-paywall.ts): first launch day, once-per-install flag,
 // and when any paywall was last shown. Own keys, so "Reset all data" keeps them.
 export const INSTALL_DAY_KEY = "daily-tasks/install-day";
@@ -92,13 +118,24 @@ export interface PlusContextValue {
   closePaywall: () => void;
   /** The paywall sheet reports that iOS actually presented it. */
   markPaywallShown: () => void;
-  loadPackages: () => Promise<PlusPackage[]>;
+  /** The open paywall's plans (with a win-back offer lookup for a lapsed subscriber). */
+  loadPaywallPackages: () => Promise<PlusPackage[]>;
   purchase: (pkg: PlusPackage) => Promise<PurchaseOutcome>;
   restore: () => Promise<boolean | null>;
   /** Ask for Apple's offer-code sheet. False when it can't be requested here. */
   redeemCode: () => Promise<boolean>;
   /** Plus lapsed over two days ago and this lapse hasn't been offered back yet. */
   winBackDue: boolean;
+  /**
+   * The plain win-back was shown and no offer has been yet this lapse: at the
+   * next small win, call checkWinBackOffer (it looks at most once a day).
+   */
+  winBackOfferPending: boolean;
+  /**
+   * Today's one look for an Apple win-back offer (recorded before it runs).
+   * True when one is available: open the win_back paywall again.
+   */
+  checkWinBackOffer: () => Promise<boolean>;
   /** The free trial of Plus this install is in (for the day-5 note), or null. */
   trial: PlusTrial | null;
   /** What the aha paywall rule needs; null while loading or unreadable (no offer). */
@@ -118,11 +155,13 @@ const noPaywall: PlusContextValue = {
   trackMonthlyNudge: () => {},
   closePaywall: () => {},
   markPaywallShown: () => {},
-  loadPackages: async () => [],
+  loadPaywallPackages: async () => [],
   purchase: async () => "failed",
   restore: async () => null,
   redeemCode: async () => false,
   winBackDue: false,
+  winBackOfferPending: false,
+  checkWinBackOffer: async () => false,
   trial: null,
   ahaPaywallState: null,
 };
@@ -148,18 +187,59 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const purchasingRef = useRef(false);
   const [purchaseCount, setPurchaseCount] = useState(0);
   const [lapsedAt, setLapsedAt] = useState<string | null>(null);
-  const [offeredFor, setOfferedFor] = useState<string | null>(null);
   const [trial, setTrial] = useState<PlusTrial | null>(null);
+  // The win-back flags (see WIN_BACK_KEY), read once at launch. Nothing is due
+  // until they're read (or unreadable), so a spent showing isn't repeated.
+  const [winBack, setWinBack] = useState<{
+    loaded: boolean;
+    offeredFor: string | null;
+    offerShownFor: string | null;
+    check: OfferCheck | null;
+  }>({ loaded: false, offeredFor: null, offerShownFor: null, check: null });
+  const winBackRef = useRef(winBack);
+  winBackRef.current = winBack;
   useEffect(() => {
-    AsyncStorage.getItem(WIN_BACK_KEY)
-      .then((value) => setOfferedFor(value))
-      .catch(() => {});
+    let cancelled = false;
+    Promise.all([
+      AsyncStorage.getItem(WIN_BACK_KEY),
+      AsyncStorage.getItem(WIN_BACK_OFFER_KEY),
+      AsyncStorage.getItem(WIN_BACK_CHECK_KEY),
+    ])
+      .then(([offeredFor, offerShownFor, check]) => ({ offeredFor, offerShownFor, check: parseOfferCheck(check) }))
+      .catch(() => ({ offeredFor: null, offerShownFor: null, check: null }))
+      .then((loaded) => {
+        if (cancelled) return;
+        // Something marked while loading wins over the stored value.
+        setWinBack((current) => ({
+          loaded: true,
+          offeredFor: current.offeredFor ?? loaded.offeredFor,
+          offerShownFor: current.offerShownFor ?? loaded.offerShownFor,
+          check: current.check ?? loaded.check,
+        }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const markWinBack = useCallback((field: "offeredFor" | "offerShownFor", lapse: string) => {
+    if (winBackRef.current[field] === lapse) return;
+    const next = { ...winBackRef.current, [field]: lapse };
+    winBackRef.current = next;
+    setWinBack(next);
+    void AsyncStorage.setItem(field === "offeredFor" ? WIN_BACK_KEY : WIN_BACK_OFFER_KEY, lapse).catch(() => {});
   }, []);
   const winBackDue =
+    winBack.loaded &&
     lapsedAt !== null &&
     !entitlementActive &&
-    offeredFor !== lapsedAt &&
+    winBack.offeredFor !== lapsedAt &&
     Date.now() - Date.parse(lapsedAt) >= WIN_BACK_DELAY_MS;
+  const winBackOfferPending =
+    winBack.loaded &&
+    lapsedAt !== null &&
+    !entitlementActive &&
+    winBack.offeredFor === lapsedAt &&
+    winBack.offerShownFor !== lapsedAt;
   const [ahaPaywallState, setAhaPaywallState] = useState<AhaPaywallState | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -188,15 +268,20 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const lapsedRef = useRef<string | null>(null);
   lapsedRef.current = lapsedAt;
+  const entitlementRef = useRef(false);
+  entitlementRef.current = entitlementActive;
 
   // One place applies what RevenueCat says: entitlement, lapse, trial reminder.
   const applyStatus = useCallback((status: PlusStatus) => {
     setEntitlementActive(status.active);
     setEntitlementAnswered(true);
     setLapsedAt(status.active ? null : status.lapsedAt);
-    setTrial(status.active ? (status.trial ?? null) : null);
-    // A heads-up two days before a free trial ends (cleared otherwise).
-    void syncTrialReminder(status.trialEndsAt);
+    const trialNow = status.active ? (status.trial ?? null) : null;
+    setTrial(trialNow);
+    // Plus uses are only counted (for the day-5 note) during a free trial.
+    setTrialActiveForUses(trialNow !== null);
+    // A heads-up two days before a free trial that will renew ends (cleared otherwise).
+    void syncTrialReminder(trialReminderEnd(trialNow));
   }, []);
 
   // Don't wait for RevenueCat forever: if it can't be reached (blocked domain,
@@ -249,28 +334,50 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const shownRef = useRef(false);
   const openedAt = useRef(0);
   // Each open gets a number. For a lapsed subscriber the paywall looks up an
-  // Apple win-back offer; paywall_viewed waits for that answer (bounded by
-  // WIN_BACK_LOOKUP_MS) so it can say whether the offer was on screen.
+  // Apple win-back offer; paywall_viewed waits for that answer (at most
+  // VIEWED_CAP_MS) so it can say whether the offer was on screen. The open
+  // decides once whether it's a lapsed subscriber's (so whether its plans
+  // look for an offer); loading, reloading and marking follow that decision.
   const openSeq = useRef(0);
-  const offerLookup = useRef<{ seq: number; offer: boolean | null; viewPending: boolean } | null>(null);
+  const offerLookup = useRef<{
+    seq: number;
+    lapse: string;
+    offer: boolean | null;
+    viewPending: boolean;
+  } | null>(null);
+  const viewedCapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearViewedCap = useCallback(() => {
+    if (viewedCapTimer.current) clearTimeout(viewedCapTimer.current);
+    viewedCapTimer.current = null;
+  }, []);
   const beginOpen = useCallback((source: PaywallSource, taskCount: number | undefined) => {
     sourceRef.current = source;
     shownRef.current = false;
     openedAt.current = Date.now();
     openSeq.current += 1;
-    offerLookup.current = lapsedRef.current ? { seq: openSeq.current, offer: null, viewPending: false } : null;
+    clearViewedCap();
+    const lapse = lapsedRef.current;
+    offerLookup.current = lapse ? { seq: openSeq.current, lapse, offer: null, viewPending: false } : null;
     setPaywallTaskCount(taskCount);
     setPaywallSource(source);
-  }, []);
-  const trackViewed = useCallback((source: PaywallSource, offer: boolean | null) => {
-    track("paywall_viewed", offer === null ? { source } : { source, feature: offer ? "offer" : "plain" });
-  }, []);
+  }, [clearViewedCap]);
+  const trackViewed = useCallback(
+    (source: PaywallSource, offer: boolean | null) => {
+      clearViewedCap();
+      track("paywall_viewed", offer === null ? { source } : { source, offer });
+      // An offer on screen spends this lapse's offer showing (from any paywall).
+      const lapse = offerLookup.current?.lapse;
+      if (offer && lapse) markWinBack("offerShownFor", lapse);
+    },
+    [markWinBack, clearViewedCap],
+  );
   const reopenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
       if (reopenTimer.current) clearTimeout(reopenTimer.current);
+      clearViewedCap();
     },
-    [],
+    [clearViewedCap],
   );
 
   const openPaywall = useCallback(
@@ -305,8 +412,18 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     shownRef.current = true;
     const source = sourceRef.current;
     const lookup = offerLookup.current;
-    if (lookup && lookup.seq === openSeq.current && lookup.offer === null) lookup.viewPending = true;
-    else trackViewed(source, lookup ? lookup.offer : null);
+    if (lookup && lookup.seq === openSeq.current && lookup.offer === null) {
+      lookup.viewPending = true;
+      // Never hold paywall_viewed back for long: a hung lookup counts as no offer.
+      clearViewedCap();
+      viewedCapTimer.current = setTimeout(() => {
+        viewedCapTimer.current = null;
+        if (!lookup.viewPending || offerLookup.current !== lookup || !sourceRef.current) return;
+        lookup.viewPending = false;
+        lookup.offer = false;
+        trackViewed(sourceRef.current, false);
+      }, VIEWED_CAP_MS);
+    } else trackViewed(source, lookup ? lookup.offer : null);
     // Any paywall shown starts the aha paywall's 24-hour gap; the aha one is once per install.
     const now = Date.now();
     void AsyncStorage.setItem(LAST_PAYWALL_KEY, String(now)).catch(() => {});
@@ -317,13 +434,13 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
         : // Still loading: no install day yet (so no offer); the load fills it in.
           { installDay: "", lastPaywallShownAt: now, ahaShown: source === "aha" },
     );
-    // The win-back offer counts as used only once iOS has actually shown it.
-    const lapse = lapsedRef.current;
-    if (sourceRef.current === "win_back" && lapse) {
-      setOfferedFor(lapse);
-      void AsyncStorage.setItem(WIN_BACK_KEY, lapse).catch(() => {});
+    // A win-back showing counts as used only once iOS has actually shown it:
+    // the first (plain) one, else the later offer one.
+    const lapse = lookup?.lapse ?? lapsedRef.current;
+    if (source === "win_back" && lapse) {
+      markWinBack(winBackRef.current.offeredFor === lapse ? "offerShownFor" : "offeredFor", lapse);
     }
-  }, [trackViewed]);
+  }, [trackViewed, markWinBack, clearViewedCap]);
 
   const closePaywall = useCallback(() => {
     if (!sourceRef.current) return;
@@ -335,12 +452,13 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       trackViewed(sourceRef.current, false);
     }
     offerLookup.current = null;
+    clearViewedCap();
     if (shownRef.current) track("paywall_closed", { source: sourceRef.current });
     sourceRef.current = null;
     shownRef.current = false;
     setPaywallSource(null);
     setPaywallTaskCount(undefined);
-  }, [trackViewed]);
+  }, [trackViewed, clearViewedCap]);
   const trackMonthlyNudge = useCallback(() => {
     if (sourceRef.current) track("paywall_monthly_nudge_tapped", { source: sourceRef.current });
   }, []);
@@ -348,9 +466,11 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const closePaywallRef = useRef(closePaywall);
   closePaywallRef.current = closePaywall;
 
-  // A lapsed subscriber's paywall also asks Apple for a win-back offer.
-  const loadPackages = useCallback(async (): Promise<PlusPackage[]> => {
+  // A lapsed subscriber's paywall (decided when it opened) also asks Apple
+  // for a win-back offer; a reload (e.g. after a failed offer purchase) asks again.
+  const loadPaywallPackages = useCallback(async (): Promise<PlusPackage[]> => {
     const seq = openSeq.current;
+    const forOpen = offerLookup.current?.seq === seq ? offerLookup.current : null;
     const settle = (offer: boolean) => {
       const lookup = offerLookup.current;
       if (!lookup || lookup.seq !== seq) return;
@@ -360,7 +480,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
         trackViewed(sourceRef.current, offer);
       }
     };
-    if (!lapsedRef.current) return loadSdkPackages();
+    if (!forOpen) return loadSdkPackages();
     try {
       const packages = await loadSdkPackages({ winBack: true });
       settle(packages.some((pkg) => shownWinBackOffer(pkg) !== null));
@@ -371,15 +491,48 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     }
   }, [trackViewed]);
 
+  // Today's one look for a win-back offer (see WIN_BACK_KEY). Recorded first,
+  // so a slow or failed answer still counts as today's check.
+  const checking = useRef(false);
+  const checkWinBackOffer = useCallback(async (): Promise<boolean> => {
+    const lapse = lapsedRef.current;
+    const flags = winBackRef.current;
+    const today = todayKey();
+    if (!paywallEnabled || checking.current || !lapse || entitlementRef.current || !flags.loaded) return false;
+    if (flags.offeredFor !== lapse || flags.offerShownFor === lapse) return false;
+    if (flags.check?.lapse === lapse && flags.check.day === today) return false;
+    // Not while a paywall is up (its plans would be replaced under it).
+    if (sourceRef.current) return false;
+    checking.current = true;
+    const check = { lapse, day: today };
+    const next = { ...flags, check };
+    winBackRef.current = next;
+    setWinBack(next);
+    void AsyncStorage.setItem(WIN_BACK_CHECK_KEY, JSON.stringify(check)).catch(() => {});
+    try {
+      const packages = await loadSdkPackages({ winBack: true });
+      // Still the same lapse, still free, and nothing else opened meanwhile.
+      return (
+        lapsedRef.current === lapse &&
+        !entitlementRef.current &&
+        packages.some((pkg) => shownWinBackOffer(pkg) !== null)
+      );
+    } catch {
+      return false;
+    } finally {
+      checking.current = false;
+    }
+  }, [paywallEnabled]);
+
   const purchase = useCallback(async (pkg: PlusPackage): Promise<PurchaseOutcome> => {
     // RevenueCat rejects a second purchase while one is running.
     if (purchasingRef.current) return "pending";
     purchasingRef.current = true;
     setPurchasing(true);
     const source = sourceRef.current ?? "settings";
-    // Bought with an Apple win-back offer (shown on the plan): marked "offer".
+    // Bought with an Apple win-back offer (shown on the plan): marked offer: true.
     const withOffer = shownWinBackOffer(pkg) !== null;
-    const offer = withOffer ? { feature: "offer" } : {};
+    const offer = withOffer ? { offer: true } : {};
     track("purchase_started", { plan: pkg.kind, source, ...offer });
     const buying = withOffer ? purchasePackage(pkg.id, { winBack: true }) : purchasePackage(pkg.id);
     const result = await buying.finally(() => {
@@ -450,11 +603,13 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       trackMonthlyNudge,
       closePaywall,
       markPaywallShown,
-      loadPackages,
+      loadPaywallPackages,
       purchase,
       restore,
       redeemCode,
       winBackDue,
+      winBackOfferPending,
+      checkWinBackOffer,
       trial,
       ahaPaywallState,
     }),
@@ -471,11 +626,13 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       trackMonthlyNudge,
       closePaywall,
       markPaywallShown,
-      loadPackages,
+      loadPaywallPackages,
       purchase,
       restore,
       redeemCode,
       winBackDue,
+      winBackOfferPending,
+      checkWinBackOffer,
       trial,
       ahaPaywallState,
     ],

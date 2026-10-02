@@ -26,22 +26,32 @@ import {
 export function TrialNote({ today, active = true }: { today: string; active?: boolean }) {
   const colors = useColors();
   const { trial } = usePlus();
-  const [copy, setCopy] = useState<TrialNoteCopy | null>(null);
+  // The copy is tagged with its trial, so a different trial never shows it.
+  const [shown, setShown] = useState<{ key: string; copy: TrialNoteCopy } | null>(null);
   const key = trial ? trialKey(trial) : null;
+  const copy = shown && shown.key === key ? shown.copy : null;
 
   // Checked when the trial changes, each new day and on coming to the
-  // foreground (never during a background launch).
+  // foreground (never during a background launch). While it re-checks, the
+  // current copy stays put (no layout jump); it only goes when ruled out.
   useEffect(() => {
-    setCopy(null);
-    if (!trial || !key || !active) return;
+    if (!trial || !key) {
+      setShown(null);
+      return;
+    }
+    if (!active) return;
     let cancelled = false;
     void (async () => {
       const record = await loadTrialNoteRecord();
       const now = Date.now();
-      if (cancelled || !shouldShowTrialNote({ trial, record, now })) return;
+      if (cancelled) return;
+      if (!shouldShowTrialNote({ trial, record, now })) {
+        setShown(null);
+        return;
+      }
       const usage = usageDuring(await loadPlusUses(), trial, now);
       if (cancelled) return;
-      setCopy(trialNoteCopy(usage, trial, now));
+      setShown({ key, copy: trialNoteCopy(usage, trial, now) });
       // trial_note_shown once per trial (it may stay up across launches).
       if (record?.key !== key) {
         track("trial_note_shown", { count: usage.brain_dump + usage.break_down + usage.coach_note + usage.tomorrow_draft });
@@ -58,7 +68,7 @@ export function TrialNote({ today, active = true }: { today: string; active?: bo
   if (!copy || !key) return null;
 
   const dismiss = (action: "close" | "manage") => {
-    setCopy(null);
+    setShown(null);
     track("trial_note_dismissed", { action });
     void saveTrialNoteRecord({ key, dismissed: true });
   };
@@ -75,7 +85,7 @@ export function TrialNote({ today, active = true }: { today: string; active?: bo
           <Text className="text-sm font-semibold text-foreground" accessibilityRole="header">
             {copy.title}
           </Text>
-          <Text className="text-xs text-muted">{copy.body}</Text>
+          <Text className="text-sm text-muted">{copy.body}</Text>
           <View className="flex-row gap-2 mt-2">
             <Pressable
               onPress={() => {
@@ -84,19 +94,22 @@ export function TrialNote({ today, active = true }: { today: string; active?: bo
               }}
               accessibilityRole="button"
               accessibilityLabel="Manage subscription"
-              className="rounded-full px-4 py-2 border"
-              style={{ borderColor: colors.border }}
+              accessibilityHint="Opens your App Store subscription settings"
+              className="rounded-full px-4 border justify-center"
+              style={{ borderColor: colors.border, minHeight: 44 }}
               testID="trial-note-manage"
             >
-              <Text className="text-xs font-semibold text-muted">Manage</Text>
+              <Text className="text-sm font-semibold text-muted">Manage</Text>
             </Pressable>
           </View>
         </View>
         <Pressable
           onPress={() => dismiss("close")}
-          hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel="Dismiss trial note"
+          // A full 44 pt target, pulled into the card's corner padding.
+          className="items-center justify-center"
+          style={{ width: 44, height: 44, marginTop: -12, marginRight: -12 }}
           testID="trial-note-dismiss"
         >
           <Ionicons name="close" size={18} color={colors.muted} />

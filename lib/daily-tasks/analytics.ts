@@ -72,6 +72,7 @@ const ALLOWED_PROPS = [
   "kind",
   "minutes",
   "action",
+  "offer",
 ] as const;
 type AllowedProp = (typeof ALLOWED_PROPS)[number];
 

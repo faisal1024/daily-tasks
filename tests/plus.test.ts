@@ -157,7 +157,7 @@ describe("win-back offer wording", () => {
       detail: "Then $29.99/year",
       badge: "Welcome back",
     });
-    expect(purchaseButtonLabel(annual)).toBe("Subscribe with offer");
+    expect(purchaseButtonLabel(annual)).toBe("Continue with offer");
     const terms = purchaseTerms(annual);
     expect(terms).toMatch(/^Welcome-back offer: 1 year for \$9\.99, then \$29\.99\/year\. /);
     expect(terms).toContain("Renews automatically at $29.99/year until you cancel.");
@@ -174,6 +174,12 @@ describe("win-back offer wording", () => {
     ["a negative price", { price: -1 }],
     ["a NaN price", { price: Number.NaN }],
     ["no price string", { priceString: "" }],
+    ["a blank price string", { priceString: "  " }],
+    ["free over several cycles", { price: 0, cycles: 3 }],
+    ["no period", { periodUnit: undefined }],
+    ["no period length", { periodNumberOfUnits: undefined }],
+    ["negative cycles", { cycles: -1 }],
+    ["no price", { price: undefined }],
   ])("ignores a malformed offer (%s): the plain plan, trial and terms stay", (_why, bad) => {
     const plan = pkg({ trialDays: 7, winBackOffer: offer(bad as Partial<WinBackOffer>) });
     expect(shownWinBackOffer(plan)).toBeNull();

@@ -62,36 +62,62 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
   never buys. Once per paywall open; hidden once monthly is selected.
 - **Trial reminder:** a local notification ~48 h before a free trial ends (daytime),
   skipped if the trial was cancelled or is family-shared.
-- **Win-back:** once per lapse (RevenueCat's own expiry), at least 2 days after it,
-  right after the user ticks a task on Today; counted as offered only when shown.
-  With an Apple win-back offer set up (see below) the paywall shows the offer price.
+- **Win-back:** at most two showings per lapse (RevenueCat's own expiry), each right
+  after the user ticks a task on Today and counted only once iOS shows it:
+  1. **Plain**, once, at least 2 days after the lapse. Apple's offer usually isn't
+     eligible yet (see the lapse rule below), so this one normally shows the normal prices
+     (if an offer is already eligible it shows it, and that spends showing 2 as well).
+  2. **Offer**, once, later: for a lapsed user the app checks Apple's eligibility at most
+     once a day, at that same post-tick moment, and opens the win-back paywall again only
+     when an offer is available and no offer has been shown this lapse. No offer, no
+     second showing. Seeing the offer on any paywall also spends it.
+  The flags (plain shown, offer shown, last check day) are stored per lapse and survive
+  "Reset all data", so neither showing is repeated.
 - **Day-5 note:** during a free trial, from day 5 until it ends, Today shows one calm,
   dismissible note with what Plus did during the trial (counts only: brain dumps sorted,
-  tasks broken down, coach's notes, evening plans; `lib/daily-tasks/trial-note.ts`), the
+  tasks broken down, coach notes, evening plans; `lib/daily-tasks/trial-note.ts`), the
   day the trial ends, and **Manage** (Apple's subscription sheet). Once per trial, in-app
-  only (never a notification); nothing to set up.
+  only (never a notification); nothing to set up. Day 5 = local midnight of the start day
+  + 4 days, but never later than 4/7 of the trial (so a 3-minute sandbox trial shows it
+  after ~2 minutes). Uses are counted only while a trial is running (kind and time only,
+  kept 14 days, on this device); "Reset all data" removes them and the note's record.
 
 ## Win-back offer (App Store Connect, owner)
 
 The app asks Apple (through RevenueCat, iOS 18+) whether a lapsed subscriber is eligible
 for a win-back offer. If one exists, the paywall shows it, e.g. "3 months for $9.99, then
 $34.99/year", and buys with it. With no offer (not created yet, iOS 17, not eligible, or
-no answer within 1.5 s) the paywall shows the normal prices, exactly as before.
+no answer within 1.5 s) the paywall shows the normal prices, exactly as before. An offer
+with an unexpected shape (e.g. free for several cycles, no period, under one cycle) is
+ignored and the plan shows its plain price. If buying with the offer fails (it may have
+expired meanwhile) the paywall reloads the plans and says "That offer isn't available any
+more. Here are the current prices."; it never buys at full price on the user's behalf.
 
 1. App Store Connect › Three Today › Subscriptions › Three Today Plus › **plus_annual** ›
    Subscription Prices › Win-Back Offers › **Create** (the Paid Apps agreement must be active).
 2. Suggested defaults (all editable later; change them any time in App Store Connect):
    - Reference name `winback_annual_3m`, offer ID `winback_annual_3m`.
    - Payment: **Pay up front**, **3 months** for **$9.99** (then the normal $34.99/year).
-   - Eligibility: paid for at least **1 month** before; lapsed at least **1 month**;
-     can redeem again after **1 year**. Leave "Promotion in the App Store" off at first.
+   - Eligibility: paid for at least **1 month** before; lapsed for the **shortest time
+     App Store Connect allows that you're comfortable with; we suggest 1 week** (the
+     plain win-back has already shown at day 2, so the offer is the second showing, and a
+     long wait like 1 month means most lapsed users never see it while they still open
+     the app); can redeem again after **1 year**. Leave "Promotion in the App Store" off
+     at first.
    - Start now, no end date; all territories.
 3. Optional: the same on `plus_monthly` (e.g. 2 months at $1.99/month, pay as you go).
-4. RevenueCat picks offers up automatically (StoreKit 2): no dashboard change, no app
-   update. Test with a sandbox account whose Plus has expired, on iOS 18+.
+4. RevenueCat: confirm the **In-App Purchase Key** is uploaded (Project settings › Apps ›
+   Three Today › In-app purchase key configuration). StoreKit 2 purchases, and so
+   win-back offers, need it. Otherwise RevenueCat picks offers up automatically: no
+   offering change, no app update.
+5. **Before relying on it:** buy the offer once in an iOS 18 sandbox (an account whose
+   Plus has expired and meets the eligibility) and check the paywall's wording ("3 months
+   for $9.99, then $34.99/year", the terms line, "Continue with offer") matches what
+   Apple's sheet charges.
 
-Analytics: a lapsed subscriber's `paywall_viewed` carries `feature` = `offer` or `plain`
-(whether an offer was on screen); purchase events bought with it carry `feature: "offer"`.
+Analytics: a lapsed subscriber's `paywall_viewed` carries `offer` = true or false (whether
+an offer was on screen; sent at the latest 3 s after the sheet shows); purchase events
+bought with it carry `offer: true`.
 - The AI proxy's Plus check (RevenueCat REST, `ENTITLEMENT_MODE`) arrives in Phase 11b.
 
 ## Code map
@@ -109,8 +135,8 @@ Analytics: a lapsed subscriber's `paywall_viewed` carries `feature` = `offer` or
    subscription group "Three Today Plus" with `plus_annual` ($34.99/yr, 7-day free-trial
    introductory offer) and `plus_monthly` ($4.99/mo, 7-day free trial); plus a non-consumable
    `plus_lifetime` ($79.99, shown only from Settings). Enrol in the Small Business Program.
-2. **RevenueCat:** create the project + iOS app (App Store Connect API key / in-app
-   purchase key), entitlement **`plus`** attached to all three products, and a
+2. **RevenueCat:** create the project + iOS app (App Store Connect API key, and upload the
+   **In-App Purchase Key**: needed for StoreKit 2 and win-back offers), entitlement **`plus`** attached to all three products, and a
    current offering with the `$rc_annual`, `$rc_monthly` and `$rc_lifetime` packages.
 3. **PostHog:** create a project (US cloud), turn on *Discard client IP data*, copy the
    project API key. (Done: project 630531; key is in EAS production env.)
@@ -141,7 +167,7 @@ moment that earned it: `focus_done`, `milestone`, `good_week` or `perfect_day`),
 `rate_row_tapped` and `feedback_row_tapped` (Settings › Feedback),
 `trial_note_shown` (`count` = Plus uses during the trial), `trial_note_dismissed`
 (`action` = close or manage). Properties are limited to `source`, `plan`, `outcome`, `trial`,
-`count`, `skipped`, `feature`, `active`, `plus`, `step`, `timer` with short enum/number/boolean values. Never
+`count`, `skipped`, `feature`, `active`, `plus`, `step`, `timer`, `offer` with short enum/number/boolean values. Never
 task, goal or brain-dump text; no person profiles; `$ip` null, `$geoip_disable`, and
 the project discards client IPs. Analytics starts off and is only enabled once the
 saved Settings choice is loaded; resetting data keeps an opt-out and forgets the id.

@@ -118,4 +118,16 @@ describe("loadState safety", () => {
     await clearState();
     expect(await AsyncStorage.getAllKeys()).toEqual(["daily-tasks/analytics-id"]);
   });
+
+  it("Reset all data removes the trial note's use counts and record, but keeps the win-back flags", async () => {
+    await AsyncStorage.setItem(KEY, savedJson("Main"));
+    await AsyncStorage.setItem("daily-tasks/plus-uses", JSON.stringify([{ kind: "brain_dump", at: 1 }]));
+    await AsyncStorage.setItem("daily-tasks/trial-note", JSON.stringify({ key: "2026-10-08", dismissed: true }));
+    await AsyncStorage.setItem("daily-tasks/plus-win-back-offered-for", "2026-08-01T00:00:00Z");
+
+    await clearState();
+    expect(await AsyncStorage.getItem("daily-tasks/plus-uses")).toBeNull();
+    expect(await AsyncStorage.getItem("daily-tasks/trial-note")).toBeNull();
+    expect(await AsyncStorage.getAllKeys()).toEqual(["daily-tasks/plus-win-back-offered-for"]);
+  });
 });

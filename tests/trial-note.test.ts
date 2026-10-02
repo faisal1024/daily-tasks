@@ -8,6 +8,7 @@ import {
   loadPlusUses,
   loadTrialNoteRecord,
   recordPlusUse,
+  setTrialActiveForUses,
   shouldShowTrialNote,
   trialEndDay,
   trialKey,
@@ -48,7 +49,11 @@ const NO_START: PlusTrial = { ...TRIAL, startedAt: null };
 
 const none: TrialUsage = { brain_dump: 0, break_down: 0, coach_note: 0, tomorrow_draft: 0 };
 
+/** Day 5: local midnight of the start day + 4 days (09:00 start: before start + 4 × 24 h). */
+const DAY_FIVE = new Date(2026, 9, 5).getTime();
+
 beforeEach(() => {
+  setTrialActiveForUses(true);
   store.data.clear();
   store.getItem.mockImplementation(async (key: string) => store.data.get(key) ?? null);
   store.setItem.mockImplementation(async (key: string, value: string) => {
@@ -57,12 +62,46 @@ beforeEach(() => {
 });
 
 describe("trialNoteDueAt", () => {
-  it("is day 5 (start + 4 days), or 3 days before the end without a usable start", () => {
-    expect(trialNoteDueAt(TRIAL)).toBe(START + 4 * DAY);
+  it("is day 5 (start day's midnight + 4 days), or 3 days before the end without a usable start", () => {
+    expect(trialNoteDueAt(TRIAL)).toBe(DAY_FIVE);
     expect(trialNoteDueAt(NO_START)).toBe(END - 3 * DAY);
     expect(trialNoteDueAt({ ...TRIAL, startedAt: "not a date" })).toBe(END - 3 * DAY);
     // A start at/after the end is nonsense: fall back to the end.
     expect(trialNoteDueAt({ ...TRIAL, startedAt: TRIAL.endsAt })).toBe(END - 3 * DAY);
+  });
+
+  it("is capped at 4/7 of the trial, so a 3-minute sandbox trial gets it after ~103 s", () => {
+    const start = new Date(2026, 9, 1, 9, 0).getTime();
+    const sandbox: PlusTrial = {
+      startedAt: new Date(start).toISOString(),
+      endsAt: new Date(start + 3 * 60_000).toISOString(),
+      willRenew: true,
+    };
+    expect(trialNoteDueAt(sandbox)).toBe(start + (3 * 60_000 * 4) / 7);
+    expect(shouldShowTrialNote({ trial: sandbox, record: null, now: start + 2 * 60_000 })).toBe(true);
+    // A real 7-day trial: midnight + 4 days is always before the cap, even for a late start.
+    const late = new Date(2026, 9, 1, 23, 30).getTime();
+    expect(
+      trialNoteDueAt({ startedAt: new Date(late).toISOString(), endsAt: new Date(late + 7 * DAY).toISOString(), willRenew: true }),
+    ).toBe(new Date(2026, 9, 5).getTime());
+  });
+
+  it("counts calendar days, so a clock change mid-trial still lands on local midnight", () => {
+    // Spans the end of daylight saving in the US (1 Nov 2026) and Europe (25 Oct 2026).
+    for (const [y, m, d] of [
+      [2026, 9, 29],
+      [2026, 9, 23],
+    ]) {
+      const start = new Date(y, m, d, 10, 0).getTime();
+      const trial: PlusTrial = {
+        startedAt: new Date(start).toISOString(),
+        endsAt: new Date(start + 7 * DAY).toISOString(),
+        willRenew: true,
+      };
+      const due = new Date(trialNoteDueAt(trial)!);
+      expect(due.getTime()).toBe(new Date(y, m, d + 4).getTime());
+      expect([due.getHours(), due.getMinutes()]).toEqual([0, 0]);
+    }
   });
 
   it("is null when the end date is unusable", () => {
@@ -71,8 +110,16 @@ describe("trialNoteDueAt", () => {
   });
 });
 
+describe("trialKey", () => {
+  it("is the trial's end, so a start date that differs between launches keeps the same note", () => {
+    expect(trialKey(TRIAL)).toBe(TRIAL.endsAt);
+    expect(trialKey(NO_START)).toBe(trialKey(TRIAL));
+    expect(trialKey({ ...TRIAL, startedAt: new Date(START + 60_000).toISOString() })).toBe(trialKey(TRIAL));
+  });
+});
+
 describe("shouldShowTrialNote", () => {
-  const due = START + 4 * DAY;
+  const due = DAY_FIVE;
 
   it("shows from day 5 until the trial ends (exclusive)", () => {
     expect(shouldShowTrialNote({ trial: TRIAL, record: null, now: due - 1 })).toBe(false);
@@ -146,7 +193,9 @@ describe("trialNoteCopy", () => {
   it("with nothing used, describes what Plus can do (no zero counts)", () => {
     const copy = trialNoteCopy(none, TRIAL, now);
     expect(copy.title).toBe("Your Plus trial");
-    expect(copy.body).toMatch(/^Plus can sort a brain dump into today's three/);
+    expect(copy.body).toMatch(
+      /^Plus is here when you want it: sorting a brain dump, breaking down a stuck task, a coach's note\. /,
+    );
     expect(copy.body).not.toMatch(/\b0\b/);
   });
 
@@ -155,19 +204,21 @@ describe("trialNoteCopy", () => {
       /^Plus broke down 1 task during your trial\./,
     );
     expect(trialNoteCopy({ ...none, brain_dump: 2, coach_note: 1 }, TRIAL, now).body).toMatch(
-      /^Plus sorted 2 brain dumps and wrote 1 coach's note during your trial\./,
+      /^Plus sorted 2 brain dumps and wrote 1 coach note during your trial\./,
     );
     expect(
       trialNoteCopy({ brain_dump: 1, break_down: 3, coach_note: 2, tomorrow_draft: 1 }, TRIAL, now).body,
     ).toMatch(
-      /^Plus sorted 1 brain dump, broke down 3 tasks, wrote 2 coach's notes and drafted 1 evening plan during your trial\./,
+      /^Plus sorted 1 brain dump, broke down 3 tasks, wrote 2 coach notes and drafted 1 evening plan during your trial\./,
     );
   });
 
   it("says whether the trial renews", () => {
-    expect(trialNoteCopy(none, TRIAL, now).body).toMatch(/you can cancel anytime in Settings\.$/);
+    expect(trialNoteCopy(none, TRIAL, now).body).toMatch(
+      / Your trial ends \w+, then Plus continues as your subscription\. If it's not for you, cancel at least a day before with Manage below\.$/,
+    );
     expect(trialNoteCopy(none, { ...TRIAL, willRenew: false }, now).body).toMatch(
-      /and won't renew\. Your three tasks stay free either way\.$/,
+      / Your trial ends \w+ and won't renew\. Your three tasks stay free after that\.$/,
     );
   });
 
@@ -182,7 +233,7 @@ describe("trialNoteCopy", () => {
     const inThree = endAt(2026, 9, 8, 9);
     expect(trialEndDay(inThree, morning)).toBe(new Date(inThree).toLocaleDateString(undefined, { weekday: "long" }));
     expect(trialNoteCopy(none, { ...TRIAL, endsAt: inThree }, morning).body).toContain(
-      `ends ${new Date(inThree).toLocaleDateString(undefined, { weekday: "long" })};`,
+      `ends ${new Date(inThree).toLocaleDateString(undefined, { weekday: "long" })}, then`,
     );
   });
 });
@@ -203,8 +254,17 @@ describe("recordPlusUse (the on-device counter)", () => {
     ]);
   });
 
-  it("is capped at 300 entries and drops uses older than 30 days", async () => {
-    const old = { kind: "brain_dump", at: START - 31 * DAY };
+  it("counts nothing outside a free trial (nothing is kept about anyone else)", async () => {
+    setTrialActiveForUses(false);
+    await recordPlusUse("break_down", START);
+    expect(store.data.has(USES_KEY)).toBe(false);
+    setTrialActiveForUses(true);
+    await recordPlusUse("break_down", START);
+    expect(await loadPlusUses()).toEqual([{ kind: "break_down", at: START }]);
+  });
+
+  it("is capped at 300 entries and drops uses older than 14 days", async () => {
+    const old = { kind: "brain_dump", at: START - 14 * DAY };
     const recent = Array.from({ length: 300 }, (_, i) => ({ kind: "break_down", at: START - 300 + i }));
     store.data.set(USES_KEY, JSON.stringify([old, ...recent]));
     await recordPlusUse("coach_note", START);

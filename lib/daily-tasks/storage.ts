@@ -7,6 +7,7 @@ import { DEFAULT_JOURNEY, type Journey } from "./journey";
 import { MAX_SESSION_MS, type FocusSession } from "./focus-session";
 import { normalizeRoutines } from "./routines";
 import { isReviewTrigger } from "./review-prompt";
+import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
 import type {
   AppState,
   AutoLockConfig,
@@ -798,7 +799,8 @@ export async function clearState(): Promise<void> {
   // "Reset all data" is deliberate: drop the backup too, and allow writes again.
   writesBlocked = false;
   try {
-    await AsyncStorage.multiRemove([STORAGE_KEY, BACKUP_KEY]);
+    // The trial note's local counts and record go too (they're about this data).
+    await AsyncStorage.multiRemove([STORAGE_KEY, BACKUP_KEY, PLUS_USES_KEY, TRIAL_NOTE_KEY]);
   } catch (err) {
     console.warn("[daily-tasks] failed to clear state", err);
   }

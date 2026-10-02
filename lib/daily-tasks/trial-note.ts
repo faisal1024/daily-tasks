@@ -4,15 +4,9 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-/** A free trial of Plus, as RevenueCat reports it. */
-export interface PlusTrial {
-  /** When the trial started (ISO), when known. */
-  startedAt: string | null;
-  /** When the trial ends (ISO). */
-  endsAt: string;
-  /** False once the trial was cancelled (it won't turn into a subscription). */
-  willRenew: boolean;
-}
+import type { PlusTrial } from "./plus";
+
+export type { PlusTrial } from "./plus";
 
 /** Plus helpers counted for the note (only counts, only on this device). */
 export type PlusUseKind = "brain_dump" | "break_down" | "coach_note" | "tomorrow_draft";
@@ -20,28 +14,42 @@ export type PlusUseKind = "brain_dump" | "break_down" | "coach_note" | "tomorrow
 export type TrialUsage = Record<PlusUseKind, number>;
 
 const DAY_MS = 24 * 60 * 60_000;
-/** Day 5 of the trial: four full days after it started. */
-export const TRIAL_NOTE_AFTER_MS = 4 * DAY_MS;
+/** Day 5 of the trial: four calendar days after the day it started. */
+const NOTE_AFTER_DAYS = 4;
+/** ...but never later than 4/7 of the way through (so short sandbox trials get it too). */
+const NOTE_FRACTION = 4 / 7;
 /** Without a start date, assume Plus's 7-day trial: day 5 is 3 days before the end. */
 const FALLBACK_BEFORE_END_MS = 3 * DAY_MS;
 /** Uses older than this are dropped (a trial is a week). */
-const KEEP_USES_MS = 30 * DAY_MS;
+const KEEP_USES_MS = 14 * DAY_MS;
 const MAX_USES = 300;
 
-const USES_KEY = "daily-tasks/plus-uses";
-const NOTE_KEY = "daily-tasks/trial-note";
+export const USES_KEY = "daily-tasks/plus-uses";
+export const NOTE_KEY = "daily-tasks/trial-note";
 
-/** Identifies one trial (a new trial gets a new note). */
+/**
+ * Identifies one trial (a new trial gets a new note). The end date: it's
+ * fixed for a trial, while RevenueCat's start date can differ between launches.
+ */
 export function trialKey(trial: PlusTrial): string {
-  return trial.startedAt ?? trial.endsAt;
+  return trial.endsAt;
 }
 
-/** When the note becomes due: day 5 of the trial. Null if the dates are unusable. */
+/**
+ * When the note becomes due: day 5 of the trial, i.e. local midnight of the
+ * start day plus four calendar days (setDate, so a DST change doesn't move it
+ * an hour), capped at 4/7 of the trial's length so a 3-minute sandbox trial
+ * gets it too. Null if the dates are unusable.
+ */
 export function trialNoteDueAt(trial: PlusTrial): number | null {
   const end = Date.parse(trial.endsAt);
   if (!Number.isFinite(end)) return null;
   const start = trial.startedAt ? Date.parse(trial.startedAt) : Number.NaN;
-  if (Number.isFinite(start) && start < end) return start + TRIAL_NOTE_AFTER_MS;
+  if (Number.isFinite(start) && start < end) {
+    const day = new Date(start);
+    const dayFive = new Date(day.getFullYear(), day.getMonth(), day.getDate() + NOTE_AFTER_DAYS).getTime();
+    return Math.min(dayFive, start + (end - start) * NOTE_FRACTION);
+  }
   return end - FALLBACK_BEFORE_END_MS;
 }
 
@@ -116,16 +124,16 @@ export function trialNoteCopy(usage: TrialUsage, trial: PlusTrial, now: number):
   const did: string[] = [];
   if (usage.brain_dump > 0) did.push(`sorted ${plural(usage.brain_dump, "brain dump", "brain dumps")}`);
   if (usage.break_down > 0) did.push(`broke down ${plural(usage.break_down, "task", "tasks")}`);
-  if (usage.coach_note > 0) did.push(`wrote ${plural(usage.coach_note, "coach's note", "coach's notes")}`);
+  if (usage.coach_note > 0) did.push(`wrote ${plural(usage.coach_note, "coach note", "coach notes")}`);
   if (usage.tomorrow_draft > 0) did.push(`drafted ${plural(usage.tomorrow_draft, "evening plan", "evening plans")}`);
   const what =
     did.length > 0
       ? `Plus ${joinList(did)} during your trial.`
-      : "Plus can sort a brain dump into today's three, break a stuck task into tiny steps, and write your coach's note.";
+      : "Plus is here when you want it: sorting a brain dump, breaking down a stuck task, a coach's note.";
   const day = trialEndDay(trial.endsAt, now);
   const ends = trial.willRenew
-    ? `Your trial ends ${day}; you can cancel anytime in Settings.`
-    : `Your trial ends ${day} and won't renew. Your three tasks stay free either way.`;
+    ? `Your trial ends ${day}, then Plus continues as your subscription. If it's not for you, cancel at least a day before with Manage below.`
+    : `Your trial ends ${day} and won't renew. Your three tasks stay free after that.`;
   return { title: "Your Plus trial", body: `${what} ${ends}` };
 }
 
@@ -151,8 +159,21 @@ function parseUses(raw: string | null): { kind: PlusUseKind; at: number }[] {
 // Writes run one at a time so two quick uses can't overwrite each other.
 let queue: Promise<unknown> = Promise.resolve();
 
-/** Count one use of a Plus helper (kind and time only). Call only when it used Plus. */
+// Whether this install is in a free trial right now (set by PlusProvider).
+// Uses are only counted then: nothing is kept about anyone else.
+let inTrial = false;
+
+/** PlusProvider reports whether a free trial is running (counting is off otherwise). */
+export function setTrialActiveForUses(active: boolean): void {
+  inTrial = active;
+}
+
+/**
+ * Count one use of a Plus helper (kind and time only), only during a free
+ * trial. Call only when the helper actually used Plus.
+ */
 export function recordPlusUse(kind: PlusUseKind, now: number = Date.now()): Promise<void> {
+  if (!inTrial) return Promise.resolve();
   const next = queue.then(async () => {
     try {
       const uses = parseUses(await AsyncStorage.getItem(USES_KEY)).filter((use) => now - use.at < KEEP_USES_MS);

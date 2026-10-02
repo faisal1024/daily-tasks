@@ -125,7 +125,7 @@ describe("purchases", () => {
     expect(await purchase("$rc_annual")).toEqual({ outcome, active: false });
   });
 
-  it("fetchPlusStatus reports the entitlement, trial end and lapse, or null when it can't check", async () => {
+  it("fetchPlusStatus reports the entitlement, trial and lapse, or null when it can't check", async () => {
     expect(await fetchPlusStatus()).toBeNull(); // not configured
     process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
     configurePurchases();
@@ -133,7 +133,6 @@ describe("purchases", () => {
     mockSdk.getCustomerInfo.mockResolvedValueOnce({ entitlements: { active: { plus: trial }, all: { plus: trial } } });
     expect(await fetchPlusStatus()).toEqual({
       active: true,
-      trialEndsAt: "2099-10-04T12:00:00Z",
       lapsedAt: null,
       trial: { startedAt: null, endsAt: "2099-10-04T12:00:00Z", willRenew: true },
     });
@@ -141,7 +140,6 @@ describe("purchases", () => {
     mockSdk.getCustomerInfo.mockResolvedValueOnce({ entitlements: { active: {}, all: { plus: expired } } });
     expect(await fetchPlusStatus()).toEqual({
       active: false,
-      trialEndsAt: null,
       lapsedAt: "2020-01-01T00:00:00Z",
       trial: null,
     });
@@ -158,7 +156,7 @@ describe("purchases", () => {
     const off = onPlusStatusChange(listener);
     const handler = mockSdk.addCustomerInfoUpdateListener.mock.calls[0][0];
     handler(ACTIVE);
-    expect(listener).toHaveBeenCalledWith({ active: true, trialEndsAt: null, lapsedAt: null, trial: null });
+    expect(listener).toHaveBeenCalledWith({ active: true, lapsedAt: null, trial: null });
     off();
     expect(mockSdk.removeCustomerInfoUpdateListener).toHaveBeenCalledWith(handler);
   });
@@ -362,6 +360,10 @@ describe("win-back offers", () => {
     ["answers empty", () => jest.fn(async () => [])],
     ["answers undefined", () => jest.fn(async () => undefined)],
     ["offers only malformed offers", () => jest.fn(async () => [{ ...OFFER, periodUnit: "FORTNIGHT" }, { ...OFFER, cycles: 0 }])],
+    [
+      "offers only unexpected shapes (free over several cycles, no period)",
+      () => jest.fn(async () => [{ ...OFFER, price: 0, cycles: 3 }, { ...OFFER, periodUnit: undefined }]),
+    ],
     ["is missing (older native build)", () => undefined],
   ])("when the lookup %s, the packages are exactly today's (trial kept, no offer)", async (_why, make) => {
     const plain = await plainPackages();
