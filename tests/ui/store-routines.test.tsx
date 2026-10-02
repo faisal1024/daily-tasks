@@ -118,7 +118,11 @@ describe("store: addRoutineToToday", () => {
     expect(result.current.today).toBe(THU);
     expect(due(result.current)).toEqual(["r1"]);
 
-    await act(async () => result.current.addRoutineToToday("r1"));
+    let landed: boolean | undefined;
+    await act(async () => {
+      landed = result.current.addRoutineToToday("r1");
+    });
+    expect(landed).toBe(true);
 
     const added = result.current.state.tasks.find((t) => t.text === "Walk after lunch");
     expect(added).toMatchObject({ routineId: "r1", carriedOver: false });
@@ -138,7 +142,11 @@ describe("store: addRoutineToToday", () => {
   ])("is refused when %s (no change, no analytics)", async (_label, saved, id) => {
     const { result } = await renderStore({ routines: [WALK], ...saved });
     const before = result.current.state;
-    await act(async () => result.current.addRoutineToToday(id));
+    let landed: boolean | undefined;
+    await act(async () => {
+      landed = result.current.addRoutineToToday(id);
+    });
+    expect(landed).toBe(false);
     expect(result.current.state).toBe(before);
     expect(trackedNames()).not.toContain("routine_added_today");
   });
@@ -161,10 +169,27 @@ describe("store: addRoutineToToday", () => {
     expect(result.current.state.tasks.map((t) => [t.text, t.routineId])).toEqual([["Walk after lunch", "r1"]]);
     expect(trackedNames().filter((n) => n === "routine_added_today")).toHaveLength(2);
   });
+
+  it("judges the add on the new day after midnight: yesterday's copy doesn't block it", async () => {
+    // Due Thursday and Friday; added Thursday, so Thursday's list has it.
+    const { result } = await renderStore({ routines: [routine("r1", "Walk after lunch", [4, 5])] });
+    await act(async () => result.current.addRoutineToToday("r1"));
+    expect(due(result.current)).toEqual([]);
+
+    jest.setSystemTime(new Date(2026, 9, 2, 0, 0, 10));
+    let landed: boolean | undefined;
+    await act(async () => {
+      landed = result.current.addRoutineToToday("r1");
+    });
+    expect(result.current.today).toBe(FRI);
+    expect(landed).toBe(true);
+    expect(result.current.state.tasks.map((t) => t.routineId)).toEqual(["r1"]);
+    expect(trackedNames().filter((n) => n === "routine_added_today")).toHaveLength(2);
+  });
 });
 
 describe("store: the free routine limit", () => {
-  it("a free user at two is refused with \"limit\" and routine_limit_hit (count only)", async () => {
+  it("a free user at two is refused with \"limit\" (the screen tracks routine_limit_hit)", async () => {
     const { result } = await renderStore({
       routines: [routine("r1", "Secret walk", [1]), routine("r2", "Secret read", [2])],
     });
@@ -176,18 +201,33 @@ describe("store: the free routine limit", () => {
     });
     expect(outcome).toBe("limit");
     expect(result.current.state.routines).toHaveLength(2);
-    expect(track).toHaveBeenCalledWith("routine_limit_hit", { count: 2 });
+    expect(trackedNames()).not.toContain("routine_limit_hit");
     expect(trackedNames()).not.toContain("routine_created");
   });
 
-  it("the reducer refuses a third even when two adds race past the free check", async () => {
+  it("two adds in one render (a double tap) see each other: the second is refused, tracked once", async () => {
     const { result } = await renderStore({ routines: [routine("r1", "Walk", [1])] });
+    let outcomes: string[] = [];
     await act(async () => {
-      // Same render: both see one routine, so only the reducer can stop the second.
-      result.current.addRoutine("Read", [2]);
-      result.current.addRoutine("Stretch", [3]);
+      outcomes = [result.current.addRoutine("Read", [2]), result.current.addRoutine("Stretch", [3])];
     });
+    expect(outcomes).toEqual(["added", "limit"]);
     expect(result.current.state.routines.map((r) => r.text)).toEqual(["Walk", "Read"]);
+    expect((track as jest.Mock).mock.calls.filter(([name]) => name === "routine_created")).toEqual([
+      ["routine_created", { count: 2 }],
+    ]);
+  });
+
+  it("Plus: a double-tapped Save adds the routine once (\"exists\")", async () => {
+    mockPlus = { ...PLUS };
+    const { result } = await renderStore({});
+    let outcomes: string[] = [];
+    await act(async () => {
+      outcomes = [result.current.addRoutine("Read", [2]), result.current.addRoutine("Read", [2])];
+    });
+    expect(outcomes).toEqual(["added", "exists"]);
+    expect(result.current.state.routines).toHaveLength(1);
+    expect(trackedNames().filter((n) => n === "routine_created")).toHaveLength(1);
   });
 
   it("Plus adds past two; a created routine is cleaned and logs its count, never its text", async () => {

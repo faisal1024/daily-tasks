@@ -51,6 +51,10 @@ interface IdeasSheetProps {
   onAddRoutine?: (id: string) => void;
   /** Today is set: nothing can be added until it's changed. */
   locked?: boolean;
+  /** The user has routines (due today or not); without any, a quiet footer offers one. */
+  hasRoutines?: boolean;
+  /** Opens the routines sheet (the footer's "Make it a routine"). */
+  onManageRoutines?: () => void;
 }
 
 const keyOf = (text: string) => text.trim().toLowerCase();
@@ -78,12 +82,19 @@ export function IdeasSheet({
   routines = [],
   onAddRoutine,
   locked = false,
+  hasRoutines = true,
+  onManageRoutines,
 }: IdeasSheetProps) {
   const colors = useColors();
   const sheetAnimation = useSheetAnimation();
   const insets = useSafeAreaInsets();
   const stillThinking = useStillThinking(regenerating);
-  const available = ideas.filter((idea) => !addedTexts.has(keyOf(idea.text)));
+  // The saved-only view is just the saved items: no routines there.
+  const shownRoutines = savedOnly ? [] : routines;
+  // An idea with the same words as a routine due today is listed once, as the routine.
+  const routineKeys = new Set(shownRoutines.map((routine) => keyOf(routine.text)));
+  const shownIdeas = routineKeys.size > 0 ? ideas.filter((idea) => !routineKeys.has(keyOf(idea.text))) : ideas;
+  const available = shownIdeas.filter((idea) => !addedTexts.has(keyOf(idea.text)));
   const full = remainingSlots <= 0;
 
   // Live regions are Android-only; announce new failure notes on iOS too.
@@ -130,9 +141,9 @@ export function IdeasSheet({
         <ScrollView
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 14 }}
         >
-          {routines.length > 0 && (
+          {shownRoutines.length > 0 && (
             <TodaysRoutines
-              routines={routines}
+              routines={shownRoutines}
               onAdd={onAddRoutine}
               blockedReason={
                 locked
@@ -215,7 +226,7 @@ export function IdeasSheet({
 
           {!savedOnly && (
           <View className="gap-2">
-            {ideas.map((idea) => {
+            {shownIdeas.map((idea) => {
               const added = addedTexts.has(keyOf(idea.text));
               const disabled = added || full;
               return (
@@ -350,6 +361,23 @@ export function IdeasSheet({
                 </Text>
               </Pressable>
             </View>
+          )}
+
+          {!savedOnly && !hasRoutines && onManageRoutines && (
+            <Pressable
+              onPress={onManageRoutines}
+              accessibilityRole="button"
+              accessibilityHint="Opens routines"
+              className="flex-row items-center justify-center gap-1.5 mt-2"
+              style={{ minHeight: 44 }}
+              testID="ideas-make-routine"
+            >
+              <Ionicons name="repeat" size={14} color={colors.muted} />
+              <Text className="text-sm" style={{ color: colors.muted }}>
+                Do something on repeat?{" "}
+                <Text style={{ color: colors.primary, fontWeight: "600" }}>Make it a routine.</Text>
+              </Text>
+            </Pressable>
           )}
         </ScrollView>
       </View>

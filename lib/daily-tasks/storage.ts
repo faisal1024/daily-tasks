@@ -111,6 +111,7 @@ function normalizeDayTaskRecord(value: unknown): DayTaskRecord | null {
         ? value.rolloverOutcome
         : null,
     ...normalizeStepsField(value.steps),
+    ...(typeof value.routineId === "string" && value.routineId ? { routineId: value.routineId } : {}),
   };
 }
 

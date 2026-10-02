@@ -1,5 +1,5 @@
-// Manage routines (1.3), opened from Settings › Routines: add one (words +
-// days), edit, pause/resume, delete. Routines never fill a slot by
+// Manage routines (1.3), opened from Settings › Routines or the Ideas sheet
+// (see RoutinesManager): add one (words + days), edit, pause/resume, delete. Routines never fill a slot by
 // themselves; on their days they wait in the Ideas sheet.
 import { useState } from "react";
 import {
@@ -21,29 +21,37 @@ import { useColors } from "@/hooks/use-colors";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import {
   ALL_DAYS,
+  capVisibleChars,
   cleanDays,
   cleanRoutineText,
   DAY_NAMES,
   DAY_PRESETS,
   DAY_SHORT,
   describeDays,
-  describeDaysForAccessibility,
-  MAX_ROUTINE_TEXT,
   PICKER_ORDER,
   presetFor,
+  type AddRoutineResult,
   type DaysPreset,
 } from "@/lib/daily-tasks/routines";
 import type { Routine } from "@/lib/daily-tasks/types";
 
-export const ROUTINES_EMPTY_COPY =
+/** The full explainer, shown while there are no routines yet. */
+export const ROUTINES_EXPLAINER =
   "Things you do on repeat. They'll wait in Ideas on their days — you choose if they make today's three.";
+/** The short reminder once there are some. */
+export const ROUTINES_EXPLAINER_SHORT = "They wait in Ideas on their days.";
+export const ROUTINES_FREE_LIMIT_NOTE = "Free keeps two routines. Plus keeps as many as you like.";
 
 interface RoutinesSheetProps {
   visible: boolean;
   routines: Routine[];
   /** False when a free user is at the limit: "Add a routine" asks for Plus instead. */
   canAdd: boolean;
-  onAdd: (text: string, days: number[]) => "added" | "limit" | "invalid";
+  /** A free user at the free limit: say so under "Add a routine" before the tap. */
+  atFreeLimit?: boolean;
+  /** Open straight into "New routine" (e.g. right after buying Plus). */
+  startInEditor?: boolean;
+  onAdd: (text: string, days: number[]) => AddRoutineResult;
   /** Tapped "Add a routine" at the free limit (the sheet closes, then the paywall opens). */
   onLimit: () => void;
   onUpdate: (id: string, text: string, days: number[]) => void;
@@ -58,6 +66,8 @@ export function RoutinesSheet({
   visible,
   routines,
   canAdd,
+  atFreeLimit = false,
+  startInEditor = false,
   onAdd,
   onLimit,
   onUpdate,
@@ -68,7 +78,13 @@ export function RoutinesSheet({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const sheetAnimation = useSheetAnimation();
-  const [editing, setEditing] = useState<Editing>(null);
+  const [editing, setEditing] = useState<Editing>(startInEditor && visible ? { kind: "new" } : null);
+  // Each time it opens: the list, or "New routine" when asked.
+  const [wasVisible, setWasVisible] = useState(visible);
+  if (visible !== wasVisible) {
+    setWasVisible(visible);
+    if (visible) setEditing(startInEditor ? { kind: "new" } : null);
+  }
 
   const close = () => {
     setEditing(null);
@@ -124,7 +140,8 @@ export function RoutinesSheet({
                 onLimit();
                 return;
               }
-              if (result === "added") setEditing(null);
+              // "exists": the same one is already there (a double tap): done too.
+              if (result === "added" || result === "exists") setEditing(null);
             }}
           />
         ) : (
@@ -163,7 +180,7 @@ export function RoutinesSheet({
               }}
             >
               <Text className="text-base" style={{ color: colors.muted }} testID="routines-explainer">
-                {ROUTINES_EMPTY_COPY}
+                {routines.length === 0 ? ROUTINES_EXPLAINER : ROUTINES_EXPLAINER_SHORT}
               </Text>
 
               {routines.map((routine) => (
@@ -190,6 +207,12 @@ export function RoutinesSheet({
                   Add a routine
                 </Text>
               </Pressable>
+              {atFreeLimit && (
+                // Said up front, before the tap opens Plus.
+                <Text className="text-sm text-center" style={{ color: colors.muted }} testID="routines-limit-note">
+                  {ROUTINES_FREE_LIMIT_NOTE}
+                </Text>
+              )}
             </ScrollView>
           </>
         )}
@@ -210,7 +233,7 @@ function RoutineRow({
   onRemove: () => void;
 }) {
   const colors = useColors();
-  const spokenDays = describeDaysForAccessibility(routine.days);
+  const spokenDays = describeDays(routine.days, { spoken: true });
   return (
     <View
       className="rounded-2xl border p-3 gap-2"
@@ -297,6 +320,10 @@ function RoutineEditor({
   const [custom, setCustom] = useState(presetFor(startDays) === "custom");
   const selected: DaysPreset = custom ? "custom" : presetFor(days);
   const canSave = cleanRoutineText(text) !== null && days.length > 0;
+  // A second tap before the editor closes is refused by the store ("exists").
+  const save = () => {
+    if (canSave) onSave(text, days);
+  };
 
   const pickPreset = (preset: DaysPreset) => {
     if (preset === "custom") {
@@ -329,7 +356,7 @@ function RoutineEditor({
           accessibilityRole="button"
           accessibilityLabel="Cancel"
           hitSlop={10}
-          style={{ minHeight: 44, justifyContent: "center" }}
+          style={{ minHeight: 44, justifyContent: "center", flexShrink: 0 }}
         >
           <Text className="text-base" style={{ color: colors.primary }}>
             Cancel
@@ -337,18 +364,28 @@ function RoutineEditor({
         </Pressable>
         <Text
           accessibilityRole="header"
-          style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 18, fontWeight: "700" }}
+          numberOfLines={1}
+          // Takes what's left between Cancel and Save, so they never collide at large text sizes.
+          style={{
+            flex: 1,
+            textAlign: "center",
+            marginHorizontal: 12,
+            color: colors.foreground,
+            fontFamily: Fonts.rounded,
+            fontSize: 18,
+            fontWeight: "700",
+          }}
         >
           {initial ? "Edit routine" : "New routine"}
         </Text>
         <Pressable
-          onPress={() => canSave && onSave(text, days)}
+          onPress={save}
           disabled={!canSave}
           accessibilityRole="button"
           accessibilityLabel="Save routine"
           accessibilityState={{ disabled: !canSave }}
           hitSlop={10}
-          style={{ minHeight: 44, justifyContent: "center" }}
+          style={{ minHeight: 44, justifyContent: "center", flexShrink: 0 }}
           testID="routine-save"
         >
           <Text className="text-base font-bold" style={{ color: colors.primary, opacity: canSave ? 1 : 0.4 }}>
@@ -370,10 +407,12 @@ function RoutineEditor({
       >
         <TextInput
           value={text}
-          onChangeText={setText}
+          // Capped by visible character, like the saved text (maxLength counts
+          // UTF-16 units, so emoji would hit it early).
+          onChangeText={(value) => setText(capVisibleChars(value))}
+          onSubmitEditing={save}
           placeholder="e.g. Walk after lunch"
           placeholderTextColor={colors.muted}
-          maxLength={MAX_ROUTINE_TEXT}
           autoFocus={!initial}
           returnKeyType="done"
           accessibilityLabel="Routine"
@@ -424,11 +463,9 @@ function RoutineEditor({
                 <Pressable
                   key={day}
                   onPress={() => toggleDay(day)}
-                  accessibilityRole="button"
-                  // Spoken state in the label ("Monday, selected"), not a trait,
-                  // so it's read once and the same way on every platform.
-                  accessibilityLabel={`${DAY_NAMES[day]}, ${on ? "selected" : "not selected"}`}
-                  accessibilityHint={on ? "Removes this day" : "Adds this day"}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={DAY_NAMES[day]}
+                  accessibilityState={{ checked: on }}
                   className="rounded-full border items-center justify-center px-2"
                   style={{
                     minWidth: 44,

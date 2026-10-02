@@ -6,7 +6,8 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react-nativ
 
 import SettingsScreen from "@/app/(tabs)/settings";
 import { IdeasSheet } from "@/components/daily-tasks/ideas-sheet";
-import { RoutinesSheet } from "@/components/daily-tasks/routines-sheet";
+import { ROUTINES_EXPLAINER, RoutinesSheet } from "@/components/daily-tasks/routines-sheet";
+import { MAX_ROUTINE_TEXT } from "@/lib/daily-tasks/routines";
 import { track } from "@/lib/daily-tasks/analytics";
 import type { PlusContextValue } from "@/lib/daily-tasks/plus-context";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
@@ -104,6 +105,34 @@ describe("IdeasSheet: Today's routines", () => {
     await fireEvent.press(row);
     expect(p.onAddRoutine).not.toHaveBeenCalled();
   });
+
+  it("lists an idea with the same words as a due routine once, as the routine", async () => {
+    const p = props();
+    await render(<IdeasSheet {...p} routines={[{ id: "r1", text: "walk 20 minutes" }]} />);
+    expect(screen.getByRole("button", { name: "Add walk 20 minutes" })).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Add Walk 20 minutes" })).toBeNull();
+  });
+
+  it("the Saved for later view shows no routines and no routine footer", async () => {
+    await render(
+      <IdeasSheet {...props()} savedOnly routines={ROUTINES} hasRoutines={false} onManageRoutines={jest.fn()} />,
+    );
+    expect(screen.queryByTestId("todays-routines")).toBeNull();
+    expect(screen.queryByTestId("ideas-make-routine")).toBeNull();
+  });
+
+  it("with no routines at all, a quiet footer opens the routines sheet", async () => {
+    const onManageRoutines = jest.fn();
+    const { rerender } = await render(
+      <IdeasSheet {...props()} routines={[]} hasRoutines={false} onManageRoutines={onManageRoutines} />,
+    );
+    await fireEvent.press(screen.getByTestId("ideas-make-routine"));
+    expect(onManageRoutines).toHaveBeenCalled();
+    expect(screen.getByText(/Do something on repeat\?/)).toBeOnTheScreen();
+    // Once there are routines (due today or not), it's gone.
+    await rerender(<IdeasSheet {...props()} routines={[]} hasRoutines onManageRoutines={onManageRoutines} />);
+    expect(screen.queryByTestId("ideas-make-routine")).toBeNull();
+  });
 });
 
 describe("RoutinesSheet: the day picker", () => {
@@ -120,7 +149,7 @@ describe("RoutinesSheet: the day picker", () => {
   });
   const preset = (name: string) => screen.getByRole("radio", { name });
   const isOn = (name: string) => preset(name).props.accessibilityState?.checked === true;
-  const day = (name: string) => screen.getByTestId(`routine-day-${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].indexOf(name)}`);
+  const day = (name: string) => screen.getByRole("checkbox", { name });
 
   async function openEditor(p = props()) {
     await render(<RoutinesSheet {...p} />);
@@ -128,32 +157,32 @@ describe("RoutinesSheet: the day picker", () => {
     return p;
   }
 
-  it("keeps presets and day toggles in sync, with the state in each day's label", async () => {
+  it("keeps presets and day toggles (checkboxes) in sync", async () => {
     await openEditor();
     // New routine: every day.
     expect(isOn("Every day")).toBe(true);
-    expect(day("Monday")).toHaveProp("accessibilityLabel", "Monday, selected");
+    expect(day("Monday")).toBeChecked();
 
     await fireEvent.press(preset("Weekdays"));
     expect(isOn("Weekdays")).toBe(true);
     expect(isOn("Every day")).toBe(false);
-    expect(day("Monday")).toHaveProp("accessibilityLabel", "Monday, selected");
-    expect(day("Saturday")).toHaveProp("accessibilityLabel", "Saturday, not selected");
-    expect(day("Sunday")).toHaveProp("accessibilityLabel", "Sunday, not selected");
+    expect(day("Monday")).toBeChecked();
+    expect(day("Saturday")).not.toBeChecked();
+    expect(day("Sunday")).not.toBeChecked();
 
     // A toggle off a preset's days switches to Custom days...
     await fireEvent.press(day("Saturday"));
     expect(isOn("Custom days")).toBe(true);
     expect(isOn("Weekdays")).toBe(false);
-    expect(day("Saturday")).toHaveProp("accessibilityLabel", "Saturday, selected");
+    expect(day("Saturday")).toBeChecked();
 
     // ...and back onto one picks that preset again.
     await fireEvent.press(day("Sunday"));
     expect(isOn("Every day")).toBe(true);
 
     await fireEvent.press(preset("Weekends"));
-    expect(day("Monday")).toHaveProp("accessibilityLabel", "Monday, not selected");
-    expect(day("Sunday")).toHaveProp("accessibilityLabel", "Sunday, selected");
+    expect(day("Monday")).not.toBeChecked();
+    expect(day("Sunday")).toBeChecked();
 
     // Choosing Custom days stays picked until a day is toggled; a toggle that
     // lands on a preset's days picks that preset.
@@ -189,6 +218,65 @@ describe("RoutinesSheet: the day picker", () => {
     await fireEvent.press(save());
     expect(p.onAdd).toHaveBeenCalledWith("Stretch", [3]);
   });
+
+  it("the return key saves when the routine is valid, and does nothing when not", async () => {
+    const p = await openEditor();
+    await fireEvent(screen.getByLabelText("Routine"), "submitEditing");
+    expect(p.onAdd).not.toHaveBeenCalled();
+    await fireEvent.changeText(screen.getByLabelText("Routine"), "Stretch");
+    await fireEvent(screen.getByLabelText("Routine"), "submitEditing");
+    expect(p.onAdd).toHaveBeenCalledWith("Stretch", [0, 1, 2, 3, 4, 5, 6]);
+    expect(screen.queryByLabelText("Routine")).toBeNull();
+  });
+
+  it("caps typing by visible characters (an emoji counts once)", async () => {
+    await openEditor();
+    const long = "😀".repeat(MAX_ROUTINE_TEXT + 5);
+    await fireEvent.changeText(screen.getByLabelText("Routine"), long);
+    expect(screen.getByLabelText("Routine")).toHaveProp("value", "😀".repeat(MAX_ROUTINE_TEXT));
+  });
+
+  it("keeps the title to one line between Cancel and Save", async () => {
+    await openEditor();
+    expect(screen.getByRole("header", { name: "New routine" })).toHaveProp("numberOfLines", 1);
+  });
+});
+
+describe("RoutinesSheet: the list", () => {
+  const props = () => ({
+    visible: true,
+    routines: [] as Routine[],
+    canAdd: true,
+    onAdd: jest.fn(() => "added" as const),
+    onLimit: jest.fn(),
+    onUpdate: jest.fn(),
+    onSetPaused: jest.fn(),
+    onRemove: jest.fn(),
+    onClose: jest.fn(),
+  });
+
+  it("the full explainer only while empty, then the short one", async () => {
+    const { rerender } = await render(<RoutinesSheet {...props()} />);
+    expect(screen.getByTestId("routines-explainer")).toHaveTextContent(ROUTINES_EXPLAINER);
+    await rerender(<RoutinesSheet {...props()} routines={[routine("r1", "Walk", [1])]} />);
+    expect(screen.getByTestId("routines-explainer")).toHaveTextContent("They wait in Ideas on their days.");
+  });
+
+  it("at the free limit, says so under Add a routine before the tap", async () => {
+    const { rerender } = await render(<RoutinesSheet {...props()} />);
+    expect(screen.queryByTestId("routines-limit-note")).toBeNull();
+    await rerender(<RoutinesSheet {...props()} canAdd={false} atFreeLimit />);
+    expect(screen.getByTestId("routines-limit-note")).toHaveTextContent(
+      "Free keeps two routines. Plus keeps as many as you like.",
+    );
+  });
+
+  it("opens straight into New routine when asked", async () => {
+    const p = props();
+    const { rerender } = await render(<RoutinesSheet {...p} visible={false} startInEditor />);
+    await rerender(<RoutinesSheet {...p} visible startInEditor />);
+    expect(screen.getByRole("header", { name: "New routine" })).toBeOnTheScreen();
+  });
 });
 
 describe("Settings › Routines at the free limit", () => {
@@ -197,17 +285,47 @@ describe("Settings › Routines at the free limit", () => {
       "daily-tasks/state/v1",
       JSON.stringify({ ...buildInitialState(), hasSeenOnboarding: true, plusGrandfathered: false, ...saved }),
     );
-    await render(
+    // A fresh element each time, so a rerender re-renders (and reads the new Plus mock).
+    const ui = () => (
       <DailyTasksProvider>
         <SettingsScreen />
-      </DailyTasksProvider>,
+      </DailyTasksProvider>
     );
+    const { rerender } = await render(ui());
     await waitFor(() => expect(screen.getByTestId("settings-routines")).toBeOnTheScreen());
     await fireEvent.press(screen.getByTestId("settings-routines"));
+    return () => rerender(ui());
+  }
+  const TWO = [routine("r1", "Walk", [1]), routine("r2", "Read", [2])];
+
+  async function hitLimitThenClosePaywall(after: Partial<PlusContextValue>) {
+    const rerender = await renderSettings({ routines: TWO });
+    expect(screen.getByTestId("routines-limit-note")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Add a routine" }));
+    await waitFor(() => expect(mockOpenPaywall).toHaveBeenCalledWith("routines"), { timeout: 2000 });
+    expect(screen.queryByTestId("routines-sheet")).toBeNull();
+    // The paywall shows, then closes.
+    mockPlus = { ...FREE, paywallSource: "routines" };
+    await rerender();
+    mockPlus = { ...FREE, ...after, paywallSource: null };
+    await rerender();
   }
 
+  it("after buying Plus, the sheet comes back straight into New routine", async () => {
+    await hitLimitThenClosePaywall({ entitlementActive: true });
+    await waitFor(() => expect(screen.getByRole("header", { name: "New routine" })).toBeOnTheScreen(), {
+      timeout: 2000,
+    });
+  });
+
+  it("closing the paywall without buying brings back the list", async () => {
+    await hitLimitThenClosePaywall({});
+    await waitFor(() => expect(screen.getByTestId("routines-sheet")).toBeOnTheScreen(), { timeout: 2000 });
+    expect(screen.queryByRole("header", { name: "New routine" })).toBeNull();
+  });
+
   it("a free user with two gets the routines paywall instead of the editor", async () => {
-    await renderSettings({ routines: [routine("r1", "Walk", [1]), routine("r2", "Read", [2])] });
+    await renderSettings({ routines: TWO });
     await fireEvent.press(screen.getByRole("button", { name: "Add a routine" }));
     expect(screen.queryByRole("button", { name: "Save routine" })).toBeNull();
     expect(track).toHaveBeenCalledWith("routine_limit_hit", { count: 2 });

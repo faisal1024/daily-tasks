@@ -12,7 +12,7 @@ export const PLUS_ENTITLEMENT = "plus";
  */
 export const GRANDFATHER_BEFORE_VERSION = "1.1.0";
 
-export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas";
+export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "calendar" | "routines";
 
 export type PaywallSource =
   | "onboarding"
@@ -173,7 +173,7 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
   {
     icon: "repeat-outline",
     title: "Unlimited routines",
-    detail: "Keep every routine you do on repeat, not just two.",
+    detail: "Keep every routine, not just two.",
   },
   {
     icon: "apps-outline",

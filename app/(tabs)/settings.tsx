@@ -10,15 +10,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
-import { RoutinesSheet } from "@/components/daily-tasks/routines-sheet";
+import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { TimePickerRow } from "@/components/daily-tasks/time-picker-row";
 import { useColors } from "@/hooks/use-colors";
+import { usePaywallGate } from "@/hooks/use-paywall-gate";
 import { Fonts } from "@/constants/theme";
 import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { requestAgendaAccess } from "@/lib/daily-tasks/agenda";
@@ -75,33 +76,11 @@ export default function SettingsScreen() {
     resetAll,
     hasPlus,
     setAnalyticsEnabled,
-    addRoutine,
-    canAddRoutine,
-    updateRoutine,
-    setRoutinePaused,
-    removeRoutine,
   } = useDailyTasks();
   const plus = usePlus();
+  // Nothing to resume from these gates: the toggle or button is right there.
+  const showPaywall = usePaywallGate<never>(() => {});
   const [routinesOpen, setRoutinesOpen] = useState(false);
-  // iOS shows one modal at a time: the routines sheet animates away before
-  // the paywall comes up.
-  const paywallTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (paywallTimer.current) clearTimeout(paywallTimer.current);
-    },
-    [],
-  );
-  const handleRoutineLimit = () => {
-    track("routine_limit_hit", { count: state.routines.length });
-    track("plus_gate_hit", { feature: "routines" });
-    setRoutinesOpen(false);
-    if (paywallTimer.current) clearTimeout(paywallTimer.current);
-    paywallTimer.current = setTimeout(() => {
-      paywallTimer.current = null;
-      plus.openPaywall("routines");
-    }, 650);
-  };
   const pausedRoutines = state.routines.filter((routine) => routine.paused).length;
   const [restoring, setRestoring] = useState(false);
 
@@ -158,8 +137,7 @@ export default function SettingsScreen() {
   const handleAgendaEnabled = async (value: boolean) => {
     // Only Plus requests use it: don't ask for access a free user can't use.
     if (value && !hasPlus) {
-      track("plus_gate_hit", { feature: "calendar" });
-      plus.openPaywall("calendar");
+      showPaywall("calendar", { feature: "calendar" });
       return;
     }
     if (!value) {
@@ -501,8 +479,7 @@ export default function SettingsScreen() {
                   void requestMomentumPlan();
                   return;
                 }
-                track("plus_gate_hit", { feature: "ai_ideas" });
-                plus.openPaywall("new_ideas");
+                showPaywall("new_ideas", { feature: "ai_ideas" });
               }}
               disabled={state.momentumPlanStatus === "loading"}
               className="self-start rounded-full px-4 py-2"
@@ -747,17 +724,7 @@ export default function SettingsScreen() {
         </Text>
       </ScrollView>
       </KeyboardAvoidingView>
-      <RoutinesSheet
-        visible={routinesOpen}
-        routines={state.routines}
-        canAdd={canAddRoutine}
-        onAdd={addRoutine}
-        onLimit={handleRoutineLimit}
-        onUpdate={updateRoutine}
-        onSetPaused={setRoutinePaused}
-        onRemove={removeRoutine}
-        onClose={() => setRoutinesOpen(false)}
-      />
+      <RoutinesManager visible={routinesOpen} onVisibleChange={setRoutinesOpen} />
       <OnboardingModal
         visible={profileModalVisible}
         initialProfile={state.momentumProfile}

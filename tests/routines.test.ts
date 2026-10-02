@@ -4,12 +4,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   canCreateRoutine,
+  capVisibleChars,
+  cleanRoutineText,
+  describeDays,
   FREE_ROUTINE_LIMIT,
   MAX_ROUTINE_TEXT,
   MAX_ROUTINES,
   normalizeRoutines,
   routinesDueToday,
   weekdayOf,
+  withRoutineAdded,
 } from "../lib/daily-tasks/routines";
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
 import type { Routine } from "../lib/daily-tasks/types";
@@ -163,5 +167,55 @@ describe("normalizeState: routines in a save", () => {
     expect(state.tasks[0].routineId).toBe("r1");
     // A broken routineId is dropped, not kept as junk.
     expect(state.tasks[1]).not.toHaveProperty("routineId");
+  });
+});
+
+describe("routines: the text cap counts visible characters", () => {
+  const FAMILY = "👨‍👩‍👧"; // one visible character, five code points
+  const FLAG = "🇬🇧"; // one visible character, two code points
+
+  it("keeps a family emoji or a flag whole and counts it once", () => {
+    const text = `${"a".repeat(MAX_ROUTINE_TEXT - 2)}${FAMILY}${FLAG}tail`;
+    expect(cleanRoutineText(text)).toBe(`${"a".repeat(MAX_ROUTINE_TEXT - 2)}${FAMILY}${FLAG}`);
+    expect(capVisibleChars(`${FAMILY}${FLAG}x`, 2)).toBe(`${FAMILY}${FLAG}`);
+  });
+
+  it("the text field's cap doesn't trim, so typing a space mid-word works", () => {
+    expect(capVisibleChars("Walk ")).toBe("Walk ");
+  });
+
+  it("without Intl.Segmenter, falls back to code points (never half an emoji)", () => {
+    const intl = Intl as unknown as { Segmenter?: unknown };
+    const saved = intl.Segmenter;
+    delete intl.Segmenter;
+    try {
+      expect(capVisibleChars("😀😀😀", 2)).toBe("😀😀");
+    } finally {
+      intl.Segmenter = saved;
+    }
+  });
+});
+
+describe("routines: describing days", () => {
+  it("short names on screen, full names when spoken, preset labels either way", () => {
+    expect(describeDays([1, 3, 5])).toBe("Mon, Wed, Fri");
+    expect(describeDays([0, 1], { spoken: true })).toBe("Monday, Sunday");
+    expect(describeDays([1, 2, 3, 4, 5], { spoken: true })).toBe("Weekdays");
+  });
+});
+
+describe("withRoutineAdded", () => {
+  const one = [routine()];
+  it("adds under the limit, and refuses at it (null: no limit, Plus)", () => {
+    expect(withRoutineAdded(one, routine({ id: "r2", text: "Read" }), 2)).toHaveLength(2);
+    expect(withRoutineAdded([...one, routine({ id: "r2", text: "Read" })], routine({ id: "r3", text: "X" }), 2)).toBeNull();
+    expect(withRoutineAdded([...one, routine({ id: "r2", text: "Read" })], routine({ id: "r3", text: "X" }), null)).toHaveLength(3);
+  });
+
+  it("refuses a taken id or the same words and days (a double-tapped Save)", () => {
+    expect(withRoutineAdded(one, routine({ text: "Other" }), null)).toBeNull();
+    expect(withRoutineAdded(one, routine({ id: "r2", text: " walk  AFTER lunch" }), null)).toBeNull();
+    // Same words on other days is a different routine.
+    expect(withRoutineAdded(one, routine({ id: "r2", days: [6] }), null)).toHaveLength(2);
   });
 });

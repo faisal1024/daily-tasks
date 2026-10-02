@@ -107,6 +107,8 @@ export interface DayTaskRecord {
   rolloverOutcome: RolloverOutcome | null;
   /** Step checklist, kept so a carried-over (stuck) task keeps its steps. */
   steps?: TaskStep[];
+  /** Added from a routine (1.3): kept when carried so it isn't suggested twice. */
+  routineId?: string;
 }
 
 export interface DayRecord {

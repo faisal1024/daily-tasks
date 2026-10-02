@@ -27,6 +27,7 @@ function buildDayTaskRecords(
       carriedOver: task.carriedOver,
       rolloverOutcome: completed ? null : incompleteOutcome,
       ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
+      ...(task.routineId ? { routineId: task.routineId } : {}),
     };
   });
 }
@@ -85,6 +86,7 @@ function restoreTasksFromRecord(record: DayRecord): Task[] {
     createdAt,
     carriedOver: task.carriedOver,
     ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
+    ...(task.routineId ? { routineId: task.routineId } : {}),
   }));
 }
 
@@ -243,6 +245,8 @@ export function resolvePendingRollover(
       carriedOver: true,
       // A carried task is usually the stuck one: keep its steps (and progress).
       ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
+      // Still that routine's task: it isn't suggested again today.
+      ...(task.routineId ? { routineId: task.routineId } : {}),
     })),
   ];
 

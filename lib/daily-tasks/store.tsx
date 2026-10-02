@@ -128,8 +128,9 @@ import {
   cleanDays,
   cleanRoutineText,
   FREE_ROUTINE_LIMIT,
-  MAX_ROUTINES,
   routinesDueToday,
+  withRoutineAdded,
+  type AddRoutineResult,
 } from "./routines";
 import { usePlus } from "./plus-context";
 import {
@@ -174,6 +175,7 @@ import type {
   NotificationPermissionState,
   NotificationKey,
   ReflectionResult,
+  Routine,
   TaskId,
 } from "./types";
 import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
@@ -217,7 +219,7 @@ type Action =
   | { type: "parkTasks"; texts: string[]; at: string }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
-  | { type: "addRoutine"; id: string; text: string; days: number[]; at: string; max: number | null }
+  | { type: "addRoutine"; routine: Routine; max: number | null }
   | { type: "updateRoutine"; id: string; text: string; days: number[] }
   | { type: "setRoutinePaused"; id: string; paused: boolean }
   | { type: "removeRoutine"; id: string }
@@ -583,16 +585,9 @@ function reduce(state: AppState, action: Action): AppState {
       return withTask === state ? state : removeParkedTask(withTask, action.id);
     }
     case "addRoutine": {
-      const text = cleanRoutineText(action.text);
-      const days = cleanDays(action.days);
-      if (!text || days.length === 0 || state.routines.some((r) => r.id === action.id)) return state;
       // Free users stop at the limit; routines kept from a lapsed Plus stay.
-      if (state.routines.length >= MAX_ROUTINES) return state;
-      if (action.max !== null && state.routines.length >= action.max) return state;
-      return {
-        ...state,
-        routines: [...state.routines, { id: action.id, text, days, paused: false, createdAt: action.at }],
-      };
+      const routines = withRoutineAdded(state.routines, action.routine, action.max);
+      return routines ? { ...state, routines } : state;
     }
     case "updateRoutine": {
       const text = cleanRoutineText(action.text);
@@ -1136,16 +1131,17 @@ interface StoreContextValue {
   addParkedTask: (id: string) => void;
   /**
    * Create a routine (1.3). "limit": a free user already has
-   * FREE_ROUTINE_LIMIT (open the paywall); "invalid": no text or no days.
+   * FREE_ROUTINE_LIMIT (open the paywall); "exists": the same routine is
+   * already there (e.g. a double-tapped Save); "invalid": no text or no days.
    */
-  addRoutine: (text: string, days: number[]) => "added" | "limit" | "invalid";
+  addRoutine: (text: string, days: number[]) => AddRoutineResult;
   /** A new routine is allowed right now (Plus, or under the free limit). */
   canAddRoutine: boolean;
   updateRoutine: (id: string, text: string, days: number[]) => void;
   setRoutinePaused: (id: string, paused: boolean) => void;
   removeRoutine: (id: string) => void;
-  /** Add a routine that's due today to today's list, like an idea. */
-  addRoutineToToday: (id: string) => void;
+  /** Add a routine that's due today to today's list, like an idea. True when it landed. */
+  addRoutineToToday: (id: string) => boolean;
   setTaskSteps: (taskId: TaskId, texts: string[], forText?: string) => void;
   toggleTaskStep: (taskId: TaskId, stepId: string) => void;
   clearTaskSteps: (taskId: TaskId) => void;
@@ -1984,23 +1980,36 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const addParkedTask = useCallback((id: string) => {
     dispatch({ type: "addParkedTask", id, today: ensureDay() });
   }, [ensureDay]);
+  // Routines as of the last add, before React has rendered it: a
+  // double-tapped Save must see the first one (and be refused).
+  const routinesRef = useRef(state.routines);
+  routinesRef.current = state.routines;
   const addRoutine = useCallback(
-    (text: string, days: number[]): "added" | "limit" | "invalid" => {
-      if (!cleanRoutineText(text) || cleanDays(days).length === 0) return "invalid";
-      const count = stateRef.current.routines.length;
-      if (!canCreateRoutine(count, hasPlus)) {
-        track("routine_limit_hit", { count });
-        return "limit";
-      }
-      dispatch({
-        type: "addRoutine",
+    (rawText: string, rawDays: number[]): AddRoutineResult => {
+      const text = cleanRoutineText(rawText);
+      const days = cleanDays(rawDays);
+      if (!text || days.length === 0) return "invalid";
+      const current = routinesRef.current;
+      // hasPlus includes the window before RevenueCat answers, so a free user
+      // can make a third routine then. Intentional: a subscriber is never
+      // gated by a slow check, and an extra routine keeps working like one
+      // kept from a lapsed Plus.
+      // (routine_limit_hit is tracked by the screen that opens the paywall.)
+      if (!canCreateRoutine(current.length, hasPlus)) return "limit";
+      const max = hasPlus ? null : FREE_ROUTINE_LIMIT;
+      const routine: Routine = {
         id: `r${makeId().slice(1)}`,
         text,
         days,
-        at: new Date().toISOString(),
-        max: hasPlus ? null : FREE_ROUTINE_LIMIT,
-      });
-      track("routine_created", { count: count + 1 });
+        paused: false,
+        createdAt: new Date().toISOString(),
+      };
+      // Same check the reducer makes, so the result (and the event) match it.
+      const next = withRoutineAdded(current, routine, max);
+      if (!next) return "exists";
+      routinesRef.current = next;
+      dispatch({ type: "addRoutine", routine, max });
+      track("routine_created", { count: next.length });
       return "added";
     },
     [hasPlus],
@@ -2015,15 +2024,18 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "removeRoutine", id });
   }, []);
   const addRoutineToToday = useCallback(
-    (id: string) => {
+    (id: string): boolean => {
+      const before = todayRef.current;
       const day = ensureDay();
-      const current = stateRef.current;
-      // Only count an add that will land (room, not set, due and not on today).
-      const lands =
-        canTakeParkedTask(current) &&
-        routinesDueToday(current.routines, current.tasks, day).some((r) => r.id === id);
+      // Only count an add that will land (room, not set, due and not on
+      // today), judged on the day it lands on: after a rollover ensureDay
+      // just dispatched, which stateRef hasn't seen yet.
+      const base =
+        day === before ? stateRef.current : reducer(stateRef.current, { type: "rollover", today: day });
+      const lands = reducer(base, { type: "addRoutineToToday", id, today: day }) !== base;
       dispatch({ type: "addRoutineToToday", id, today: day });
       if (lands) track("routine_added_today");
+      return lands;
     },
     [ensureDay],
   );

@@ -19,6 +19,9 @@ export const ALL_DAYS: readonly number[] = [0, 1, 2, 3, 4, 5, 6];
 export const WEEKDAYS: readonly number[] = [1, 2, 3, 4, 5];
 export const WEEKENDS: readonly number[] = [0, 6];
 
+/** What creating a routine did: see the store's addRoutine. */
+export type AddRoutineResult = "added" | "exists" | "limit" | "invalid";
+
 export type DaysPreset = "every_day" | "weekdays" | "weekends" | "custom";
 
 export const DAY_PRESETS: { id: Exclude<DaysPreset, "custom">; label: string; days: readonly number[] }[] = [
@@ -33,13 +36,34 @@ export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Toggle order in the picker: Monday first, Sunday last. */
 export const PICKER_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
-/** Trim and cap by whole characters (never splitting an emoji); null when empty. */
+type GraphemeSegmenter = { segment(text: string): Iterable<{ segment: string }> };
+type SegmenterCtor = new (locale?: string, options?: { granularity: "grapheme" }) => GraphemeSegmenter;
+
+/**
+ * The visible characters of `text`: grapheme clusters where Intl.Segmenter
+ * exists (so a family emoji or a flag is one), code points otherwise (never
+ * half a surrogate pair).
+ */
+export function visibleChars(text: string): string[] {
+  const Segmenter = (Intl as unknown as { Segmenter?: SegmenterCtor }).Segmenter;
+  if (typeof Segmenter === "function") {
+    return Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
+  }
+  return Array.from(text);
+}
+
+/** Cut to at most `max` visible characters (no trimming): what the text field keeps. */
+export function capVisibleChars(text: string, max: number = MAX_ROUTINE_TEXT): string {
+  const chars = visibleChars(text);
+  return chars.length > max ? chars.slice(0, max).join("") : text;
+}
+
+/** Trim and cap by visible characters (never splitting an emoji); null when empty. */
 export function cleanRoutineText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const text = value.trim();
   if (!text) return null;
-  const chars = Array.from(text);
-  return chars.length > MAX_ROUTINE_TEXT ? chars.slice(0, MAX_ROUTINE_TEXT).join("").trim() : text;
+  return capVisibleChars(text).trim();
 }
 
 /** Whole numbers 0–6 only, deduped and sorted; [] when none are valid. */
@@ -61,25 +85,18 @@ export function presetFor(days: readonly number[]): DaysPreset {
   return DAY_PRESETS.find((preset) => sameDays(preset.days, clean))?.id ?? "custom";
 }
 
-/** Short, plain description of a routine's days, e.g. "Weekdays" or "Mon, Wed, Fri". */
-export function describeDays(days: readonly number[]): string {
+/**
+ * Short, plain description of a routine's days, e.g. "Weekdays" or
+ * "Mon, Wed, Fri". `spoken`: full day names, for VoiceOver.
+ */
+export function describeDays(days: readonly number[], options: { spoken?: boolean } = {}): string {
   const clean = cleanDays([...days]);
   const preset = presetFor(clean);
   if (preset !== "custom") return DAY_PRESETS.find((p) => p.id === preset)!.label;
   if (clean.length === 0) return "No days";
+  const names = options.spoken ? DAY_NAMES : DAY_SHORT;
   return PICKER_ORDER.filter((day) => clean.includes(day))
-    .map((day) => DAY_SHORT[day])
-    .join(", ");
-}
-
-/** Spoken version of describeDays, with full day names. */
-export function describeDaysForAccessibility(days: readonly number[]): string {
-  const clean = cleanDays([...days]);
-  const preset = presetFor(clean);
-  if (preset !== "custom") return DAY_PRESETS.find((p) => p.id === preset)!.label;
-  if (clean.length === 0) return "No days";
-  return PICKER_ORDER.filter((day) => clean.includes(day))
-    .map((day) => DAY_NAMES[day])
+    .map((day) => names[day])
     .join(", ");
 }
 
@@ -117,6 +134,26 @@ export function routinesDueToday(
 export function canCreateRoutine(count: number, hasPlus: boolean): boolean {
   if (count >= MAX_ROUTINES) return false;
   return hasPlus || count < FREE_ROUTINE_LIMIT;
+}
+
+/**
+ * `routines` with `routine` added, or null when it can't be: at `max` (null:
+ * no free limit) or MAX_ROUTINES, its id is taken, or one with the same words
+ * and days is already there (a double-tapped Save).
+ */
+export function withRoutineAdded(
+  routines: readonly Routine[],
+  routine: Routine,
+  max: number | null,
+): Routine[] | null {
+  if (routines.length >= MAX_ROUTINES) return null;
+  if (max !== null && routines.length >= max) return null;
+  const key = looseKey(routine.text);
+  const days = routine.days.join();
+  if (routines.some((r) => r.id === routine.id || (looseKey(r.text) === key && r.days.join() === days))) {
+    return null;
+  }
+  return [...routines, routine];
 }
 
 /** Validate saved routines: drop broken entries and ones with no valid days. */
