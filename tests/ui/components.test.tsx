@@ -68,6 +68,38 @@ describe("AddTaskRow", () => {
     expect(screen.queryByText("Today is set.")).toBeNull();
   });
 
+  it("a locked slot the screen listens to can be tapped (to say why), and still opens no field (1.4)", async () => {
+    const onAdd = jest.fn();
+    const onLockedPress = jest.fn();
+    await render(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} disabled onLockedPress={onLockedPress} />);
+    const openSlot = screen.getByRole("button", { name: "Left open on purpose" });
+    expect(openSlot).toBeEnabled();
+    expect(openSlot.props.accessibilityHint).toBe("Unlock in Settings");
+    await fireEvent.press(openSlot);
+    expect(onLockedPress).toHaveBeenCalledTimes(1);
+    expect(screen.queryByPlaceholderText("What's one thing for today?")).toBeNull();
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it("hands over what was being typed when the day is set meanwhile, once, instead of dropping it (1.4)", async () => {
+    const onAdd = jest.fn();
+    const onLockedText = jest.fn();
+    const props = { remainingSlots: 2, slotNumber: 2, onAdd, onLockedText };
+    const { rerender } = await render(<AddTaskRow {...props} />);
+    await fireEvent.press(screen.getByText("Add a task"));
+    const input = screen.getByPlaceholderText("What's one thing for today?");
+    await fireEvent.changeText(input, "  Call the bank ");
+    await rerender(<AddTaskRow {...props} disabled />);
+    expect(onLockedText.mock.calls).toEqual([["Call the bank"]]);
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(screen.queryByPlaceholderText("What's one thing for today?")).toBeNull();
+    // Nothing typed: nothing handed over.
+    await rerender(<AddTaskRow {...props} />);
+    await fireEvent.press(screen.getByText("Add a task"));
+    await rerender(<AddTaskRow {...props} disabled />);
+    expect(onLockedText).toHaveBeenCalledTimes(1);
+  });
+
   it("adds trimmed text typed into the slot", async () => {
     const onAdd = jest.fn();
     await render(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} />);
@@ -143,18 +175,17 @@ describe("StatusLine", () => {
     expect(screen.queryByRole("button", { name: "Set today's tasks" })).toBeNull();
   });
 
-  it("offers Change once the day is set, and calls onUnlock", async () => {
-    const onUnlock = jest.fn();
+  it("shows a quiet locked state once the day is set, with no Change (1.4)", async () => {
     await render(
       <StatusLine
         status={todayStatus({ locked: true, lockSource: "manual", taskCount: 2, completedCount: 0 })}
         onLock={jest.fn()}
-        onUnlock={onUnlock}
       />,
     );
-    expect(screen.getByText("Change")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "Change today's tasks" }));
-    expect(onUnlock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Change")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText("Unlock in Settings")).toBeOnTheScreen();
+    expect(screen.getByTestId("status-line").props.accessibilityHint).toBe("Unlock in Settings");
   });
 
   it("hides Set today once the day is set, and for an empty day", async () => {

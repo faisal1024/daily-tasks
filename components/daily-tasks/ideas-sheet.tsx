@@ -50,7 +50,7 @@ interface IdeasSheetProps {
   /** Routines due today and not on today's list yet (1.3). Nothing shows when empty. */
   routines?: { id: string; text: string }[];
   onAddRoutine?: (id: string) => void;
-  /** Today is set: nothing can be added until it's changed. */
+  /** Today is set: nothing can be added until it's unlocked in Settings. */
   locked?: boolean;
   /** The user has routines (due today or not); without any, a quiet footer offers one. */
   hasRoutines?: boolean;
@@ -113,6 +113,8 @@ export function IdeasSheet({
   const shownIdeas = routineKeys.size > 0 ? ideas.filter((idea) => !routineKeys.has(keyOf(idea.text))) : ideas;
   const available = shownIdeas.filter((idea) => !addedTexts.has(keyOf(idea.text)));
   const full = remainingSlots <= 0;
+  // Saved items can't move onto a full day, or a set one.
+  const parkedBlocked = full || locked;
   // The saved-only view is just the saved items: no milestone group either.
   const shownMilestone = !savedOnly && milestoneGroup && milestoneGroup.ideas.length > 0 ? milestoneGroup : null;
   // Opened for the milestone group: scroll to it once it has been laid out.
@@ -233,7 +235,7 @@ export function IdeasSheet({
           )}
 
           {/* The reason leads; the slot count under it is the smaller helper. */}
-          {adaptationReason && !full && !savedOnly ? (
+          {adaptationReason && !full && !savedOnly && !locked ? (
             <>
               <Text className="text-base" style={{ color: colors.muted }} testID="ideas-reason">
                 {adaptationReason}
@@ -244,11 +246,13 @@ export function IdeasSheet({
             </>
           ) : (
             <Text className="text-base" style={{ color: colors.muted }} testID="ideas-hint">
-              {savedOnly
-                ? "Your day is full. Free a slot to swap one of these in."
-                : full
-                  ? "Today's three are picked. Nice."
-                  : suggestionsHint(remainingSlots)}
+              {locked
+                ? "Today is set. Unlock it in Settings to add one."
+                : savedOnly
+                  ? "Your day is full. Free a slot to swap one of these in."
+                  : full
+                    ? "Today's three are picked. Nice."
+                    : suggestionsHint(remainingSlots)}
             </Text>
           )}
 
@@ -287,7 +291,8 @@ export function IdeasSheet({
           <View className="gap-2" testID="general-ideas">
             {shownIdeas.map((idea) => {
               const added = addedTexts.has(keyOf(idea.text));
-              const disabled = added || full;
+              // A day set while the sheet was open takes nothing more.
+              const disabled = added || full || locked;
               return (
                 <Pressable
                   key={idea.id}
@@ -325,7 +330,7 @@ export function IdeasSheet({
           )}
 
           {/* The general list only: never routines or the milestone group. */}
-          {!savedOnly && available.length > 1 && !full && (
+          {!savedOnly && available.length > 1 && !full && !locked && (
             <Pressable
               onPress={() => onAddAll(available.slice(0, remainingSlots).map((idea) => idea.text))}
               accessibilityRole="button"
@@ -365,13 +370,13 @@ export function IdeasSheet({
                 >
                   <Pressable
                     onPress={() => onAddParked?.(item.id)}
-                    disabled={full}
+                    disabled={parkedBlocked}
                     accessibilityRole="button"
                     accessibilityLabel={`Add ${item.text}`}
-                    accessibilityState={{ disabled: full }}
+                    accessibilityState={{ disabled: parkedBlocked }}
                     hitSlop={6}
                     className="flex-1 flex-row items-center gap-3"
-                    style={{ opacity: full ? 0.5 : 1 }}
+                    style={{ opacity: parkedBlocked ? 0.5 : 1 }}
                   >
                     <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
                     <Text className="flex-1 text-base text-foreground">{item.text}</Text>

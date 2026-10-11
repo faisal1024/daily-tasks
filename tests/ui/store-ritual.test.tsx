@@ -291,15 +291,15 @@ describe("store: Not today (Phase 10a)", () => {
     expect(result.current.remainingSlots).toBe(2);
   });
 
-  it("works on a set day too (letting go isn't changing the plan)", async () => {
+  it("is refused on a set day (1.4: unlock in Settings first)", async () => {
     const { result } = await renderStore({
       tasks: [task("t0", "Walk"), task("t1", "Read")],
       todayLocked: true,
       todayLockSource: "manual",
     });
     await act(async () => result.current.notToday("t1"));
-    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Walk"]);
-    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Read"]);
+    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Walk", "Read"]);
+    expect(result.current.state.parkedTasks).toEqual([]);
     expect(result.current.state.todayLocked).toBe(true);
   });
 

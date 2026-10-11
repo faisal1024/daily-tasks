@@ -773,8 +773,9 @@ function reduce(state: AppState, action: Action): AppState {
       );
     }
     case "notToday": {
-      // Save an open task for later. Allowed on a set day too: letting go of
-      // one task is part of keeping the day honest, not changing the plan.
+      // Save an open task for later. Not on a set day (1.4): it changes the
+      // three, so the day is unlocked in Settings first.
+      if (state.todayLocked) return state;
       const task = state.tasks.find((item) => item.id === action.id);
       if (!task || state.todayCompletions.includes(action.id)) return state;
       // Off the list first: parkTasks skips anything still on today's list.
@@ -833,7 +834,8 @@ function reduce(state: AppState, action: Action): AppState {
           todayLocked: false,
           todayLockSource: null,
           todayLockedAt: null,
-          // Don't let auto-lock immediately re-lock the rest of today.
+          // An explicit unlock holds for the rest of today: auto-set must not
+          // re-lock it (see autoLockToday). A manual "Set today" still can.
           manualUnlockDate: action.today,
         },
         action.today,
@@ -1096,11 +1098,16 @@ interface StoreContextValue {
   addSuggestions: (texts: string[]) => number;
   editTask: (id: TaskId, text: string) => void;
   deleteTask: (id: TaskId) => void;
-  /** Take an open task off today and save it for later (works on a set day). */
+  /** Take an open task off today and save it for later (not on a set day: unlock it in Settings first). */
   notToday: (id: TaskId) => void;
   toggleTask: (id: TaskId) => void;
   lockToday: () => void;
-  unlockToday: () => void;
+  /**
+   * Unlock a set day (Settings only, 1.4). True only when it really unlocked
+   * something: false when today wasn't set (e.g. the confirm was left open
+   * past midnight and the new day isn't set).
+   */
+  unlockToday: () => boolean;
   resolveRollover: (carriedTaskIds: TaskId[]) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
@@ -1763,8 +1770,16 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const lockToday = useCallback(() => {
     dispatch({ type: "lockToday", today: ensureDay(), at: new Date().toISOString() });
   }, [ensureDay]);
-  const unlockToday = useCallback(() => {
-    dispatch({ type: "unlockToday", today: ensureDay() });
+  const unlockToday = useCallback((): boolean => {
+    const before = todayRef.current;
+    const day = ensureDay();
+    const current = stateRef.current;
+    // Judged on the day it lands on: after a rollover ensureDay just
+    // dispatched, which stateRef hasn't seen yet (as in addRoutineToToday).
+    const base = day === before ? current : reducer(current, { type: "rollover", today: day });
+    const changed = reducer(base, { type: "unlockToday", today: day }) !== base;
+    dispatch({ type: "unlockToday", today: day });
+    return changed;
   }, [ensureDay]);
   const resolveRollover = useCallback((carriedTaskIds: TaskId[]) => {
     dispatch({

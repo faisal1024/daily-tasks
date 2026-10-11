@@ -304,12 +304,12 @@ describe("todaysRoutinesState", () => {
 });
 
 describe("routineBlockedLine: one copy for Today and Ideas", () => {
-  it("full reads the same in both; set collapses on Today and points back to Today in Ideas", () => {
+  it("full reads the same in both; set collapses on Today and points to Settings in Ideas", () => {
     const full = "Your three are picked. Free a slot to add one.";
     expect(routineBlockedLine("full", { where: "today" })).toBe(full);
     expect(routineBlockedLine("full", { where: "ideas" })).toBe(full);
     expect(routineBlockedLine("set", { where: "today" })).toBe("Today is set. Your routines will be here next time.");
-    expect(routineBlockedLine("set", { where: "ideas" })).toBe("Today is set. Change it on Today to add one.");
+    expect(routineBlockedLine("set", { where: "ideas" })).toBe("Today is set. Unlock it in Settings to add one.");
     expect(routineBlockedLine(null, { where: "today" })).toBeNull();
   });
 });
