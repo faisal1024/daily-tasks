@@ -200,6 +200,8 @@ function normalizeNotifications(value: unknown): NotificationConfig {
         typeof value.evening === "boolean" ? value.evening : DEFAULT_NOTIFICATIONS.evening,
       hourly:
         typeof value.hourly === "boolean" ? value.hourly : DEFAULT_NOTIFICATIONS.hourly,
+      // Only a saved `true` hides them; anything else shows task names (the default).
+      hideTaskNames: value.hideTaskNames === true,
     };
   }
 
@@ -219,6 +221,7 @@ function normalizeNotifications(value: unknown): NotificationConfig {
         ? Boolean((evening ?? false) || (night ?? false))
         : DEFAULT_NOTIFICATIONS.evening,
     hourly: DEFAULT_NOTIFICATIONS.hourly,
+    hideTaskNames: value.hideTaskNames === true,
   };
 }
 

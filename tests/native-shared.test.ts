@@ -8,10 +8,55 @@ import { describe, expect, it } from "vitest";
 
 import { parseFocusCommands } from "../lib/daily-tasks/focus-commands";
 import { parseFocusStartLink, parseFocusStartRequest } from "../lib/daily-tasks/focus-link";
-import { notificationBody, startSession } from "../lib/daily-tasks/focus-session";
+import { keepGoing, notificationBody, notificationTitle, startSession } from "../lib/daily-tasks/focus-session";
+import { buildReminderIdentifier, MANAGED_REMINDER_PREFIX } from "../lib/daily-tasks/reminders";
 
 const root = join(__dirname, "..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
+
+// PR #89: a tick the app can't see (the widget, the Live Activity's Done)
+// removes the app's pending reminders once nothing is open. The native side
+// finds them by the same id shape the app schedules them with.
+describe("native tick paths and the app's reminders", () => {
+  const swift = read("targets/widget/FocusActivityShared.swift");
+
+  it("uses the app's reminder id prefix, and clears today's ids only (tomorrow morning's nudge stays)", () => {
+    expect(swift).toContain(`static let reminderPrefix = "${MANAGED_REMINDER_PREFIX}"`);
+    const at = new Date(2026, 9, 13, 8, 0);
+    expect(buildReminderIdentifier("morning", at)).toBe("daily-tasks:2026-10-13:morning:0800");
+    // Today's: "<prefix><yyyy-MM-dd>:". That is the only thing matched: a
+    // tick on the widget can't write tomorrow's nudge again, so it must not
+    // remove it (the app may not be opened before it is due).
+    const clear = swift.slice(swift.indexOf("static func clearRemindersIfAllDone"), swift.indexOf('/// "Start my next task"'));
+    expect(clear).toContain(String.raw`let todayPrefix = "\(reminderPrefix)\(today):"`);
+    expect(clear).toContain("let ids = pending.map { $0.identifier }.filter { $0.hasPrefix(todayPrefix) }");
+    expect(clear).toContain("center.removePendingNotificationRequests(withIdentifiers: ids)");
+    expect(clear.match(/hasPrefix\(/g)).toHaveLength(1);
+    expect(clear).not.toMatch(/tomorrow|morning|byAdding/i);
+    // Tomorrow's nudge isn't under today's prefix, whatever its kind.
+    const todayPrefix = `${MANAGED_REMINDER_PREFIX}2026-10-12:`;
+    expect(buildReminderIdentifier("morning", at).startsWith(todayPrefix)).toBe(false);
+    expect(buildReminderIdentifier("evening", new Date(2026, 9, 12, 19, 0)).startsWith(todayPrefix)).toBe(true);
+    // Only by removing listed ids: never everything, never the focus timer's by accident.
+    expect(swift).not.toContain("removeAllPendingNotificationRequests");
+  });
+
+  it("both tick paths clear them, after the tick is saved and outside the lock", () => {
+    const intent = read("targets/widget/ToggleTaskIntent.swift");
+    expect(intent.indexOf("FocusGroup.withLock { apply() }")).toBeGreaterThan(-1);
+    expect(intent.indexOf("await FocusGroup.clearRemindersIfAllDone()")).toBeGreaterThan(
+      intent.indexOf("FocusGroup.withLock { apply() }"),
+    );
+    const done = swift.slice(swift.indexOf("public static func done("), swift.indexOf("static func reflectApp("));
+    expect(done.indexOf("await FocusGroup.clearRemindersIfAllDone()")).toBeGreaterThan(
+      done.indexOf("FocusGroup.markDoneInSnapshot(taskId: taskId, date: date)"),
+    );
+    // Nothing goes while a task is still open, or for another day's snapshot.
+    const clear = swift.slice(swift.indexOf("static func clearRemindersIfAllDone"), swift.indexOf('/// "Start my next task"'));
+    expect(clear).toContain('snapshot["date"] as? String == today');
+    expect(clear).toContain('!tasks.isEmpty, !tasks.contains(where: { ($0["done"] as? Bool) != true })');
+  });
+});
 
 describe("shared Swift sources", () => {
   it("keeps FocusActivityShared.swift identical in the app module and the widget", () => {
@@ -51,6 +96,20 @@ describe("shared Swift sources", () => {
       now: 0,
     });
     expect(swift).toContain(`static let timerNotificationBody = "${notificationBody(timer)}"`);
+    // With names hidden the title already says "Time's up": the body the
+    // native side writes under it doesn't say it again.
+    expect(swift).toContain(`static let hiddenNotificationTitle = "${notificationTitle(timer, true)}"`);
+    expect(swift).toContain(`static let hiddenTimerNotificationBody = "${notificationBody(timer, true)}"`);
+    expect(notificationBody(timer, true)).not.toContain(notificationTitle(timer, true));
+    // The app's own path: a starter kept going is a timer, and hidden it reads "Time's up" once.
+    const starter = startSession({ id: "s", taskId: "t", taskText: "Walk", kind: "starter", minutes: 5, date: "2026-09-26", now: 0 });
+    const kept = keepGoing(starter, 5 * 60_000);
+    expect(`${notificationTitle(kept, true)} ${notificationBody(kept, true)}`).toBe("Time's up 5 more minutes, or mark it done?");
+    expect(`${notificationTitle(starter, true)} ${notificationBody(starter, true)}`.match(/Time's up/g)).toHaveLength(1);
+    const repeat = swift.slice(swift.indexOf("static func repeatDeliveredNotification"), swift.indexOf("static func schedule("));
+    expect(repeat.replace(/\s+/g, " ")).toContain(
+      "timer.body = last.request.content.title == FocusGroup.hiddenNotificationTitle ? FocusGroup.hiddenTimerNotificationBody : FocusGroup.timerNotificationBody",
+    );
     expect(swift).toContain('static let timerCategoryId = "three-today:focus-session"');
     expect(read("lib/daily-tasks/notifications.ts")).toContain('FOCUS_CATEGORY_ID = "three-today:focus-session"');
   });

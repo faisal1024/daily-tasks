@@ -22,6 +22,7 @@ import {
   syncNotifications,
   type FocusNotificationResponse,
 } from "./notifications";
+import { createDebounced, yesterdayOpenTexts, type ReminderContext } from "./reminder-plan";
 import {
   clampSessionMinutes,
   extend as extendSession,
@@ -201,6 +202,7 @@ type Action =
   | { type: "resolveRollover"; carriedTaskIds: TaskId[]; today: string; now: Date }
   | { type: "setNotificationsEnabled"; enabled: boolean }
   | { type: "setNotificationEnabled"; key: NotificationKey; enabled: boolean }
+  | { type: "setHideTaskNamesInNotifications"; hidden: boolean }
   | { type: "setAutoLockEnabled"; enabled: boolean }
   | { type: "setAutoLockTime"; hour: number; minute: number }
   | { type: "markOnboardingSeen" }
@@ -898,6 +900,15 @@ function reduce(state: AppState, action: Action): AppState {
           [action.key]: action.enabled,
         },
       };
+    case "setHideTaskNamesInNotifications":
+      if (state.notifications.hideTaskNames === action.hidden) return state;
+      return {
+        ...state,
+        notifications: {
+          ...state.notifications,
+          hideTaskNames: action.hidden,
+        },
+      };
     case "setAutoLockEnabled":
       return {
         ...state,
@@ -1138,6 +1149,8 @@ interface StoreContextValue {
   resolveRollover: (carriedTaskIds: TaskId[]) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
+  /** Settings › Reminders › "Hide task names in notifications". */
+  setHideTaskNamesInNotifications: (hidden: boolean) => void;
   setAutoLockEnabled: (enabled: boolean) => void;
   setAutoLockTime: (hour: number, minute: number) => void;
   markOnboardingSeen: () => void;
@@ -1255,6 +1268,9 @@ interface StoreContextValue {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
+/** What the reminders are written from; the time is added when they're written. */
+type ReminderSyncContext = Omit<ReminderContext, "now" | "pending" | "lastDeliveredAt">;
+
 export function DailyTasksProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, () => buildInitialState());
   const [ready, setReady] = useState(false);
@@ -1262,6 +1278,20 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermissionState>("undetermined");
   const lastReminderSync = useRef<string | null>(null);
+  // What the reminders were last asked to be written from, and the settled
+  // (debounced) rewrite that reads it when it runs.
+  const reminderContext = useRef<ReminderSyncContext | null>(null);
+  const [reminderSync] = useState(() =>
+    createDebounced(() => {
+      const context = reminderContext.current;
+      if (!context) return;
+      void syncNotifications({ ...context, now: new Date() }).catch(() => {
+        // Not written: forget what was asked for, so the next change (or
+        // coming to the front) asks again instead of matching it.
+        lastReminderSync.current = null;
+      });
+    }),
+  );
   // Bumped after applying widget taps so the widget is always rewritten from
   // app state (it may be showing an optimistic tap the app didn't apply).
   const [widgetNonce, setWidgetNonce] = useState(0);
@@ -1494,9 +1524,13 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // ended one is left as it is: it's gone off, and its buttons still work.
   // Never for the past (it's about to end: the app says it), nor past the
   // next midnight (the session clears then).
+  // "Hide task names in notifications" covers it too: its title is the
+  // task's words, so with the switch on it says "Time's up" instead (and a
+  // flip of the switch reschedules a running session's).
+  const hideFocusTaskName = state.notifications.hideTaskNames;
   const focusEndKey =
     focusSession && focusSession.status === "running" && focusSession.endAt !== null
-      ? `${focusSession.id}|${focusSession.endAt}|${focusSession.kind}|${notificationTitle(focusSession)}|${notificationBody(focusSession)}`
+      ? `${focusSession.id}|${focusSession.endAt}|${focusSession.kind}|${hideFocusTaskName ? "hidden" : "named"}|${notificationTitle(focusSession, hideFocusTaskName)}|${notificationBody(focusSession, hideFocusTaskName)}`
       : null;
   const focusStatus = focusSession?.status ?? null;
   // True at launch: the first pass reconciles, so a notification left from a
@@ -1505,6 +1539,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!ready) return;
     const session = stateRef.current.focusSession;
+    const hideName = stateRef.current.notifications.hideTaskNames;
     const endAt = focusEndKey ? (session?.endAt ?? null) : null;
     const now = Date.now();
     const midnight = new Date(now);
@@ -1518,8 +1553,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         taskId: session.taskId,
         kind: session.kind,
         at: new Date(endAt),
-        title: notificationTitle(session),
-        body: notificationBody(session),
+        title: notificationTitle(session, hideName),
+        body: notificationBody(session, hideName),
       });
       return;
     }
@@ -1671,40 +1706,59 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     [state.tomorrowDraft, state.tasks, state.todayCompletions, today],
   );
 
+  // The reminders say what the tasks are (1.4), and iOS can't run code when
+  // one is delivered, so they're rewritten whenever what they'd say changes:
+  // a task added, ticked, unticked, removed, reordered or reworded, the day
+  // set, a new day, the settings. A burst of changes (ticking two in a row,
+  // dragging) settles first, so it costs one rewrite.
   useEffect(() => {
     if (!ready) return;
-    const signature = JSON.stringify({
+    const done = new Set(state.todayCompletions);
+    const context: ReminderSyncContext = {
       today,
-      tasks: state.tasks.map((task) => ({
-        id: task.id,
-        text: task.text,
-        carriedOver: task.carriedOver,
-      })),
-      todayCompletions: [...state.todayCompletions].sort(),
-      notifications: state.notifications,
-      notificationPermission,
-      draft: notificationDraft,
-    });
-    if (lastReminderSync.current === signature) return;
-    lastReminderSync.current = signature;
-    void syncNotifications({
-      now: new Date(),
       settings: state.notifications,
       permissionState: notificationPermission,
-      taskCount: state.tasks.length,
-      completedCount,
+      // In Today's order: the first one still open is "next".
+      tasks: state.tasks.map((task) => ({ id: task.id, text: task.text, done: done.has(task.id) })),
+      locked: state.todayLocked,
+      yesterdayOpen: yesterdayOpenTexts({ pendingRollover: state.pendingRollover }, today),
       draft: notificationDraft,
-    });
+    };
+    const signature = JSON.stringify(context);
+    if (lastReminderSync.current === signature) return;
+    lastReminderSync.current = signature;
+    reminderContext.current = context;
+    reminderSync.request();
   }, [
     notificationDraft,
-    completedCount,
     notificationPermission,
     ready,
+    reminderSync,
     state.notifications,
+    state.pendingRollover,
     state.tasks,
     state.todayCompletions,
+    state.todayLocked,
     today,
   ]);
+
+  // Coming to the front rewrites them too: which reminder is next (the one
+  // that states counts) depends on the time, and a tick made on the widget
+  // is only known once the app runs. Leaving runs a waiting rewrite at once,
+  // since a timer may never fire in the background.
+  useEffect(() => {
+    const sub = RNAppState.addEventListener("change", (status) => {
+      if (status === "active") {
+        if (reminderContext.current) reminderSync.request();
+      } else {
+        reminderSync.flush();
+      }
+    });
+    return () => {
+      sub.remove();
+      reminderSync.cancel();
+    };
+  }, [reminderSync]);
 
   useEffect(() => {
     const onChange = (status: AppStateStatus) => {
@@ -1829,6 +1883,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   }, []);
   const setNotificationEnabled = useCallback((key: NotificationKey, enabled: boolean) => {
     dispatch({ type: "setNotificationEnabled", key, enabled });
+  }, []);
+  const setHideTaskNamesInNotifications = useCallback((hidden: boolean) => {
+    dispatch({ type: "setHideTaskNamesInNotifications", hidden });
   }, []);
   const setAutoLockEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "setAutoLockEnabled", enabled });
@@ -2425,6 +2482,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      setHideTaskNamesInNotifications,
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,
@@ -2510,6 +2568,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      setHideTaskNamesInNotifications,
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,

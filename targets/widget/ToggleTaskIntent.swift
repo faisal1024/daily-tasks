@@ -24,6 +24,9 @@ struct ToggleTaskIntent: AppIntent {
     // Serialised (in and across processes): two quick taps can run two
     // intents at once, and neither may lose the other's change.
     FocusGroup.withLock { apply() }
+    // If that was the last open task, the app's reminders for the rest of
+    // today go (it can't know about this tick until it next opens).
+    await FocusGroup.clearRemindersIfAllDone()
     return .result()
   }
 

@@ -139,6 +139,13 @@ describe("focus session: pause, resume, extend", () => {
     expect(notificationBody(timer())).toBe("Time's up. 5 more minutes, or mark it done?");
     expect(checkInTitle(starter({ stepText: "Find the lead" }))).toBe("5 minutes in. Keep going?");
     expect(notificationBody(starter({ stepText: "Find the lead" }))).toBe("5 minutes in. Keep going?");
+    // "Hide task names in notifications": the title is "Time's up", and
+    // neither it nor the body has the task's (or the step's) words.
+    expect(notificationTitle(timer(), true)).toBe("Time's up");
+    expect(notificationBody(timer(), true)).toBe("5 more minutes, or mark it done?");
+    expect(notificationTitle(starter({ stepText: "Find the lead" }), true)).toBe("Time's up");
+    expect(notificationBody(starter({ stepText: "Find the lead" }), true)).toBe("5 minutes in. Keep going?");
+    expect(notificationTitle(timer(), false)).toBe("Walk");
     const long = timer(10, { taskText: "x".repeat(80) });
     expect(notificationTitle(long)).toHaveLength(60);
     expect(notificationTitle(long).endsWith("…")).toBe(true);

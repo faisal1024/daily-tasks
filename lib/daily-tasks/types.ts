@@ -227,6 +227,11 @@ export interface NotificationConfig {
   progress: boolean;
   evening: boolean;
   hourly: boolean;
+  /**
+   * "Hide task names in notifications" (1.4): reminders use general wording
+   * instead of the tasks' own words. Off by default.
+   */
+  hideTaskNames: boolean;
 }
 
 export interface AutoLockConfig {
@@ -344,6 +349,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationConfig = {
   progress: true,
   evening: true,
   hourly: false,
+  hideTaskNames: false,
 };
 
 export const DEFAULT_AUTO_LOCK: AutoLockConfig = {
@@ -352,7 +358,8 @@ export const DEFAULT_AUTO_LOCK: AutoLockConfig = {
   minute: 0,
 };
 
-export type NotificationKey = Exclude<keyof NotificationConfig, "enabled">;
+/** The reminder kinds that can be switched on and off (not the master switch, not the wording). */
+export type NotificationKey = Exclude<keyof NotificationConfig, "enabled" | "hideTaskNames">;
 
 export type NotificationPermissionState =
   | "granted"
