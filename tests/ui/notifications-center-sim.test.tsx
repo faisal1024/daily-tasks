@@ -296,6 +296,66 @@ describe("a sync that changes nothing writes nothing", () => {
   });
 });
 
+describe("on iOS a pending reminder's time is read from its own data", () => {
+  // expo-notifications hands a one-off back as { type: "timeInterval", seconds,
+  // repeats }: the seconds are from when it was scheduled, so they don't say when.
+  const item = (id: string, at: Date): ReminderPlanItem => ({ id: `daily-tasks:${id}`, fireAt: at, title: "A small nudge", body: "Body" });
+  const same = { title: "A small nudge", body: "Body" };
+
+  it("every reminder is handed to the system with its own time, in ms, beside its kind and task id", async () => {
+    await load().syncNotifications(input());
+    expect(centre.owned()).toHaveLength(16);
+    for (const stored of centre.owned()) {
+      expect(stored.content.data?.fireAt).toBe(stored.at.getTime());
+      expect(typeof stored.content.data?.kind).toBe("string");
+    }
+    // Nothing of the task but its id.
+    expect(JSON.stringify(centre.owned().map((stored) => stored.content.data))).not.toMatch(TASK_WORDS);
+  });
+
+  it("the time in the data decides: the same is left, a second or more off is rewritten", async () => {
+    const { applyReminderPlan } = load();
+    const at = minutes(30);
+    centre.seed("daily-tasks:same", { ...same, data: { fireAt: at.getTime() } }, at);
+    centre.seed("daily-tasks:close", { ...same, data: { fireAt: at.getTime() + 999 } }, at);
+    centre.seed("daily-tasks:off", { ...same, data: { fireAt: at.getTime() + 1000 } }, at);
+    centre.seed("daily-tasks:early", { ...same, data: { fireAt: at.getTime() - 60_000 } }, at);
+    await applyReminderPlan(["same", "close", "off", "early"].map((id) => item(id, at)), NOW);
+    expect(scheduledIds().sort()).toEqual(["daily-tasks:early", "daily-tasks:off"]);
+    expect(cancelledIds()).toEqual([]);
+  });
+
+  it("one pending from an earlier build (no time in its data) is rewritten once, and recognised from then on", async () => {
+    const { applyReminderPlan } = load();
+    const at = minutes(30);
+    centre.seed("daily-tasks:bare", same, at);
+    centre.seed("daily-tasks:kind-only", { ...same, data: { kind: "progress", taskId: "t1" } }, at);
+    for (const [id, fireAt] of [["text", "soon"], ["nan", Number.NaN], ["zero", 0], ["none", null]] as const) {
+      centre.seed(`daily-tasks:${id}`, { ...same, data: { fireAt } }, at);
+    }
+    const plan = ["bare", "kind-only", "text", "nan", "zero", "none"].map((id) => item(id, at));
+    await applyReminderPlan(plan, NOW);
+    expect(scheduledIds().sort()).toEqual(plan.map((entry) => entry.id).sort());
+    for (const stored of centre.owned()) expect(stored.content.data?.fireAt).toBe(at.getTime());
+
+    clearCalls();
+    await applyReminderPlan(plan, minutes(1));
+    await load().applyReminderPlan(plan, minutes(2));
+    expect(writes()).toBe(0);
+  });
+
+  it("a strategy's own data can't take the time's place", async () => {
+    const { applyReminderPlan } = load();
+    const at = minutes(30);
+    const plan: ReminderPlan = [{ ...item("own", at), data: { fireAt: 1, taskId: "t1" }, kind: "nag" }];
+    await applyReminderPlan(plan, NOW);
+    expect(centre.pending.get("daily-tasks:own")!.content.data).toEqual({ taskId: "t1", kind: "nag", fireAt: at.getTime() });
+    clearCalls();
+    await applyReminderPlan(plan, minutes(1));
+    expect(writes()).toBe(0);
+  });
+});
+
 describe("never more than 64 pending, at any moment", () => {
   it.each([
     [63, 1],
