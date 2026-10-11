@@ -125,7 +125,7 @@ The app (paywall builds) sends RevenueCat's anonymous app user id as
 `x-rc-user`. The server asks RevenueCat whether Plus is active and caches the
 answer (Plus: 1 hour; not Plus: 1 minute, and Plus routes always re-check a
 "not Plus" answer so a new subscriber is never refused). Plan, break-down,
-evening and coach-note are Plus-only (**402** when refused); brain dumps stay open to free
+evening, coach-note and nag-lines are Plus-only (**402** when refused); brain dumps stay open to free
 users up to `FREE_BRAIN_DUMPS_PER_DAY` per user (and 3× that per network).
 If RevenueCat can't answer (down, rate-limited, or our key is wrong) requests
 are allowed for a moment and a warning is logged: paying users are never
@@ -205,11 +205,16 @@ payload validator, prompt, structured-output schema and response validator.
 | `/api/momentum/break-down` | `task` (≤120 chars), `goalTitle?` | `steps` (3–5 tiny steps) |
 | `/api/momentum/evening` | `result` (easy/good/hard/missed), `tasks` (≤3 `{text, done}`), `note?`, `goalTitle?`, `memory?` (≤500) | `note` (≤160), `because` (≤100), `tomorrow` (1–3 tasks), `memory` (≤500, the coach's rolling summary) |
 | `/api/momentum/coach-note` | `tasks` (1–3 strings ≤120 chars), `goalTitle?`, `tone?` (calm/friendly/direct) | `notes`: one `{start, momentum}` per task, in order (control characters become spaces; `""` where a line was empty, over 140 chars, or held a real link (`http(s)://`, `www.`) or an email: dropped whole, never spliced; `README.md` / `Node.js` are kept) |
+| `/api/momentum/nag-lines` | `persona` (mom/spouse/coach/drill), `level` (gentle/firm/relentless), `tasks` (1–3 `{text}` ≤120 chars), `count` (4–16), `firstName?` (≤40) | `lines`: 3 to `count` of `{step, taskIndex, text}` (see "Nag lines" below) |
 
 The app derives sibling route URLs from `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL`
 (which points at `/plan`). Brain dump falls back to a simple on-device split
 when the proxy is unreachable; break-down has no offline fallback. The coach's
-note falls back to built-in lines on any failure.
+note and nag lines fall back to built-in lines on any failure.
+
+A route may set `maxTokens` in the route table to cap the model's output
+(nag-lines: 1200). Routes without it use the provider's default (Anthropic
+1500; OpenAI unset), as before.
 
 ## Architecture
 
@@ -224,7 +229,7 @@ app  ──POST /api/momentum/plan──▶  app.mjs (via momentum-proxy.mjs)  �
   builder, JSON schema, and payload validation. Identical across providers.
 - `server/providers/<name>.mjs` — one adapter per backend. Each exports the same
   interface: `id`, `isConfigured()`, `missingConfigMessage()`, `describe()`,
-  and `generatePlan({ system, user, schema }) -> Promise<object>`.
+  and `generatePlan({ system, user, schema, toolName?, toolDescription?, maxTokens? }) -> Promise<object>`.
 - `server/providers/index.mjs` — the registry that maps `MOMENTUM_AI_PROVIDER`
   to an adapter.
 - `server/momentum-proxy.mjs` — the generic HTTP server. It never references a
@@ -279,6 +284,126 @@ and proxy keeps working.
 - **App:** suggestions marked `true` are shown under "Next on your path" in
   Ideas, as long as the path's first open milestone is still the one sent. No mark (an older proxy, or the model marked none): the
   app shows its built-in milestone suggestions there instead.
+
+## Nag lines (1.4, `/api/momentum/nag-lines`)
+
+Nag mode is a Plus-only, opt-in reminder style. Once a day the app asks for a
+batch of short reminder lines about the user's open tasks, written in a
+persona's voice, and schedules them itself. Contract:
+`server/providers/nag-contract.mjs`; app side: `lib/daily-tasks/nag.ts`.
+
+### Request
+
+```ts
+{
+  persona: "mom" | "spouse" | "coach" | "drill";   // drill = Drill sergeant
+  level: "gentle" | "firm" | "relentless";
+  tasks: { text: string }[];                        // 1-3 open tasks, each 1..120 chars
+  count: number;                                    // integer, 4..16 lines wanted
+  firstName?: string | null;                        // optional, at most 40 chars
+}
+```
+
+- An unknown persona or level, a wrong task count, an empty or over-long
+  task, a count outside 4..16 or a name over 40 characters is a **400**.
+  Unknown fields are ignored and never reach the prompt.
+- Lengths are measured after cleaning: in every string, control characters
+  (newlines and the Unicode line separators included) become spaces and runs
+  of whitespace become one space. Task text and the name therefore can't
+  start a new prompt line.
+- In the prompt each task (and the name) is JSON-quoted, labelled as data,
+  and the system prompt tells the model never to follow instructions found
+  inside a task or a name.
+
+**What leaves the phone:** the text of today's open tasks (up to three), the
+optional first name, the persona and the level. Nothing else: no history, no
+goal, no notification times. Like every route, the proxy stores none of it.
+
+### Response
+
+```ts
+{
+  lines: {
+    step: number;              // 1 = first nudge of the day ... n = last
+    taskIndex: number | null;  // index into the tasks sent, or null for a general line
+    text: string;              // one line, at most 140 chars
+  }[];                         // 3..count lines, steps 1..n with no gaps
+}
+```
+
+The model's answer is rebuilt by `sanitizeNagLines`, never passed through:
+
+- A line is **dropped whole** (never cut) when its shape is wrong; its
+  `taskIndex` isn't `null` or the index of a task sent; its text is empty,
+  holds a control character, is over 140 characters (the model is asked for
+  110), holds a link, an email, a phone-like run of seven or more digits or a
+  hashtag; or it hits the blocklist.
+- Kept lines are tidied: extra emoji are removed (none for coach and drill
+  sergeant, at most one for mom and spouse), em and en dashes become commas,
+  and quotes around the whole line come off.
+- The same text twice (ignoring case) is kept once.
+- Lines are ordered by the model's `step` and renumbered 1..n; at most
+  `count` are returned.
+- Fewer than three lines left: **502** `AI response did not include a valid
+  nag-lines`, the same signal every route uses for an unusable answer. The
+  app then uses its built-in lines.
+
+### Safety rules
+
+The lines are funny and pushy in character, and kind underneath. The system
+prompt lists the rules and says they outrank the persona and the level:
+
+- Affectionate needling, never cruel; the joke is the nagging, never the
+  person.
+- No insults or judgement about the person's worth, intelligence, body,
+  weight, health, mental health, family, relationships, money or job.
+- No shame about past failures, no "you always/never", no comparisons.
+- No threats or ultimatums, profanity, slurs or sexual content.
+- No violence, death or dying, even as a figure of speech.
+- No medical, legal or financial advice.
+- No emergencies or fake urgency (accounts, payments, passwords, police,
+  anything "suspended" or "overdue").
+- Nothing that could read as a real message from a real person about
+  something serious.
+- No invented people, deadlines or details; a sensitive-looking task gets a
+  plain, kind reminder.
+
+Voices: **Mom** is loving guilt-lite ("I'm not mad, I'm just asking").
+**Spouse** is fond and exasperated, never controlling or jealous. **Coach**
+is upbeat and direct. **Drill sergeant** is loud and barky about the task,
+never degrading about the person. Levels: **Gentle** stays mild from first
+step to last; **Firm** gets pointed; **Relentless** gets dramatic and comic
+by the end, inside the same rules.
+
+The blocklist (`NAG_BLOCKLIST` in the contract) backs the prompt up: a
+compact, case-insensitive list of profanity, slurs and the banned themes
+(stupid, idiot, loser, worthless, pathetic, fat, lazy, kill, die, "hate
+you", divorce, "or else", "your account", urgent, and so on). It matches
+whole words and phrases only, so "skill", "diet", "father", "deadline" and
+"fired up" pass. It is strict on purpose: a dropped line costs nothing.
+The user's own words are excused: a task's text said back whole, and any
+single listed word that appears in a task or the name ("Kill the weeds", a
+person called Dick). It is English only, and it is a backstop, not a
+guarantee: the prompt and the model do most of the work.
+
+### Limits, cost and logs
+
+Same shared secret, Plus check (402 for a free id when enforced), per-minute
+and daily limits and budgets as coach-note. Same model and temperature as
+every route; output is capped at 1200 tokens. Nothing from the request or
+the answer is logged: a bad answer logs the route name and the answer's
+top-level keys only, like the other routes.
+
+### App side
+
+`requestNagLines({ persona, level, tasks, count, firstName })` in
+`lib/daily-tasks/nag.ts` cleans and caps what it sends, uses the shared
+transport (`postToProxy`: secret, RevenueCat id, timeout, typed
+`MomentumAiError`), and checks the answer again (`parseNagResponse`: shape,
+control characters, 140-character cap, links, index range, duplicates,
+renumbering, `count`). Any failure throws; the caller then uses
+`builtInNagLines({ persona, level, tasks, count, seed })`, which needs no
+network. See `docs/2026-10-v1.4.md` ("Nag mode (server)").
 
 ## Production Notes
 

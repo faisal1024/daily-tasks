@@ -108,6 +108,7 @@ export const NAG_SYSTEM_PROMPT = [
   "JSON only.",
 ].join("\n");
 
+/** @type {Record<string, string>} */
 export const NAG_PERSONA_VOICES = {
   mom:
     "Mom. Loving, a little guilt-lite, never actually upset. 'I'm not mad, I'm just asking.' Fusses, offers snacks, mentions she is only checking. Warm even when she repeats herself.",
@@ -119,6 +120,7 @@ export const NAG_PERSONA_VOICES = {
     "Drill sergeant. Loud and barky about THE TASK, never degrading about the person. Barks orders at the task itself, calls the user 'recruit', may shout one or two words in capitals. The comedy is taking a small chore far too seriously.",
 };
 
+/** @type {Record<string, string>} */
 export const NAG_LEVEL_CURVES = {
   gentle:
     "Gentle. Mild from the first step to the last. Light reminders with a smile; the last lines are no pushier than the first.",
@@ -238,6 +240,9 @@ const straighten = (value) => value.replace(/[\u2018\u2019]/g, "'");
  * cruel. So each task's text is taken out whole first, and then any single
  * word from a task or the name that is on the list by itself. Ordinary words
  * ("you", "your") are never taken out, so they can't open up a phrase.
+ *
+ * @param {string} text
+ * @param {string[]} [ownTexts] the task texts and the first name
  */
 export function hitsNagBlocklist(text, ownTexts = []) {
   const own = ownTexts.map((value) => straighten(oneLine(value))).filter(Boolean);
@@ -263,6 +268,9 @@ export function hitsNagBlocklist(text, ownTexts = []) {
  * email, a phone-like run of digits, a hashtag, or a blocklist hit. Tidied
  * (kept): extra emoji are removed (none for coach/drill, one for mom/spouse),
  * dashes become commas, and quotes around the whole line come off.
+ *
+ * @param {unknown} value
+ * @param {{ persona?: string, ownTexts?: string[] }} [options]
  */
 export function cleanNagLine(value, { persona, ownTexts = [] } = {}) {
   if (typeof value !== "string" || HAS_CONTROL.test(value)) return "";
