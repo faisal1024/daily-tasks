@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   findNodeHandle,
@@ -36,6 +35,7 @@ import {
 } from "@/components/daily-tasks/row-timer";
 import { HANDLE_HIT_SLOP } from "@/components/daily-tasks/task-reorder";
 import { useColors } from "@/hooks/use-colors";
+import { showActionSheet } from "@/lib/daily-tasks/action-sheet";
 import { remainingMs, sessionPhase, type FocusSession } from "@/lib/daily-tasks/focus-session";
 import { REORDER_HANDLE_OPACITY } from "@/lib/daily-tasks/reorder";
 import {
@@ -338,7 +338,7 @@ export function TaskRow({
     const labels = menuItems.map((item) => item.label);
     if (Platform.OS === "ios") {
       const destructive = menuItems.findIndex((item) => item.destructive);
-      ActionSheetIOS.showActionSheetWithOptions(
+      showActionSheet(
         {
           title: task.text,
           message: menuNote,

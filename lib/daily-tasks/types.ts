@@ -289,6 +289,12 @@ export interface AppState {
   hasSeenOnboarding: boolean;
   // The one-time "Drag ≡ to reorder…" line under Today's card has been shown (1.4).
   reorderHintSeen: boolean;
+  /**
+   * Ids of the "What's new" announcements already shown or not needed (1.4;
+   * lib/daily-tasks/whats-new.ts). A save from before 1.4 has none, which is
+   * how an updater is told from a new install (first run marks them all).
+   */
+  whatsNewSeen: string[];
   todayReflection: string | null;
   todayReflectionResult: ReflectionResult | null;
   momentumProfile: MomentumProfile;

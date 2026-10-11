@@ -1,4 +1,5 @@
 import {
+  AccessibilityInfo,
   Alert,
   KeyboardAvoidingView,
   Linking,
@@ -14,12 +15,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { ChoiceChips } from "@/components/daily-tasks/choice-chips";
+import { NagIntro } from "@/components/daily-tasks/nag-intro";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
 import { TimePickerRow } from "@/components/daily-tasks/time-picker-row";
 import { useColors } from "@/hooks/use-colors";
-import { usePaywallGate } from "@/hooks/use-paywall-gate";
+import { useNagTurnOn } from "@/hooks/use-nag-turn-on";
+import { SHEET_SWAP_DELAY_MS, usePaywallGate } from "@/hooks/use-paywall-gate";
 import { Fonts } from "@/constants/theme";
 import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { requestAgendaAccess } from "@/lib/daily-tasks/agenda";
@@ -41,9 +45,9 @@ import {
   NAG_LEVELS,
   NAG_PERSONA_LABELS,
   NAG_PERSONAS,
-  type NagLevel,
 } from "@/lib/daily-tasks/nag";
-import { NAG_LEVEL_COUNTS } from "@/lib/daily-tasks/nag-plan";
+import { NAG_LEVEL_COUNT_NOTE } from "@/lib/daily-tasks/nag-copy";
+import { NAG_INTRO_SETTINGS_ROW } from "@/lib/daily-tasks/whats-new";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { announcePolitely } from "@/lib/daily-tasks/announce";
@@ -87,84 +91,14 @@ const REMINDER_STYLE_HELP: Record<ReminderStyle, string> = {
   calm: "Calm nudges at set times that say what's still open.",
   nag: "Reminders in a voice you pick, at random times, at most one an hour.",
 };
-/** Asked the first time Nag is turned on. */
-const NAG_CONFIRM_TITLE = "Turn on Nag mode?";
-const NAG_CONFIRM_MESSAGE =
-  "Up to twice a day, your open tasks are sent to our AI service so it can write reminders in the voice you pick. They arrive at random times, at most one an hour, and get pushier while tasks stay open.";
 /** Under the style choice, only while Nag is the style in use (chosen, with Plus) and names are hidden. */
 const NAG_HIDDEN_NAMES_NOTE = "With task names hidden, nags won't name your tasks and nothing is sent to our AI service.";
 /** One line under the reminder switches while Nag is on (the three it replaces are disabled). */
 const NAG_CALM_SWITCHES_NOTE = "Morning reminders still apply. The other calm nudges are paused while Nag is on.";
-/** Under the Level chips: how many nags a day the chosen level means. */
-const NAG_LEVEL_COUNT_NOTE: Record<NagLevel, string> = {
-  gentle: `About ${NAG_LEVEL_COUNTS.gentle} a day`,
-  firm: `About ${NAG_LEVEL_COUNTS.firm} a day`,
-  relentless: `About ${NAG_LEVEL_COUNTS.relentless} a day`,
-};
 /** Nag is the style in use but iOS won't deliver anything. */
 const NAG_PERMISSION_DENIED_NOTE = "Notifications are off in System Settings, so no nags arrive.";
 /** What VoiceOver says of a switch Nag has paused (the visible line is NAG_CALM_SWITCHES_NOTE). */
 const NAG_SWITCH_PAUSED_HINT = "Paused while Nag is on.";
-
-/**
- * One choice out of a few, as a row of chips. To VoiceOver it is a radio
- * group with its label, and each chip a radio button that says whether it is
- * the one chosen. With `spokenGroup` each chip's label carries the group
- * ("Voice: Mom"), for when focus lands on a chip without passing the group.
- */
-function ChoiceChips<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-  testID,
-  spokenGroup = false,
-}: {
-  label: string;
-  options: readonly { value: T; label: string; accessibilityLabel?: string }[];
-  value: T;
-  onChange: (value: T) => void;
-  testID?: string;
-  spokenGroup?: boolean;
-}) {
-  const colors = useColors();
-  return (
-    <View
-      className="flex-row flex-wrap gap-2"
-      accessibilityRole="radiogroup"
-      accessibilityLabel={label}
-      testID={testID}
-    >
-      {options.map((option) => {
-        const selected = option.value === value;
-        return (
-          <Pressable
-            key={option.value}
-            onPress={() => onChange(option.value)}
-            accessibilityRole="radio"
-            accessibilityLabel={`${spokenGroup ? `${label}: ` : ""}${option.accessibilityLabel ?? option.label}`}
-            accessibilityState={{ checked: selected }}
-            // Vertical padding too: at large text sizes the label wraps and must not touch the border.
-            className="flex-1 rounded-full px-3 py-2 items-center justify-center border"
-            style={{
-              minHeight: 44,
-              minWidth: 84,
-              borderColor: selected ? colors.primary : colors.border,
-              backgroundColor: selected ? `${colors.primary}16` : colors.background,
-            }}
-          >
-            <Text
-              className="text-sm font-semibold text-center"
-              style={{ color: selected ? colors.primary : colors.text }}
-            >
-              {option.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
 
 /**
  * A reminder switch with its title and help text. To VoiceOver the row is
@@ -256,14 +190,11 @@ export default function SettingsScreen() {
     setAnalyticsEnabled,
   } = useDailyTasks();
   const plus = usePlus();
-  // Only Nag mode picks up after the paywall (it still has a question to
-  // ask); for the other gates the toggle or button is right there.
-  const hasPlusRef = useRef(hasPlus);
-  hasPlusRef.current = hasPlus;
-  const turnNagOnRef = useRef<() => Promise<void>>(async () => {});
-  const showPaywall = usePaywallGate<"nag">(() => {
-    if (hasPlusRef.current) void turnNagOnRef.current();
-  });
+  // Turning Nag on (the paywall first without Plus, then the question) is
+  // shared with the "Meet Nag mode" sheet. The other gates here have nothing
+  // to pick up after the paywall: the toggle or button is right there.
+  const { requestNag } = useNagTurnOn();
+  const showPaywall = usePaywallGate<never>(() => {});
   const [routinesOpen, setRoutinesOpen] = useState(false);
   const pausedRoutines = state.routines.filter((routine) => routine.paused).length;
   const [restoring, setRestoring] = useState(false);
@@ -365,40 +296,33 @@ export default function SettingsScreen() {
   const reminderStyle: ReminderStyle = nagActive ? "nag" : "calm";
   const nagPaused = state.notifications.nagPausedDate === today;
 
-  const turnNagOn = async () => {
-    if (notificationPermission !== "granted") {
-      const status = await requestNotificationPermission();
-      if (status !== "granted") {
-        Alert.alert(
-          "Notifications unavailable",
-          "Allow notifications in System Settings to get reminders for Today's Three.",
-        );
-        return;
-      }
-    }
-    // Asked once: after that Nag turns on with one tap.
-    if (state.notifications.nagConfirmed) {
-      setReminderStyle("nag");
-      return;
-    }
-    Alert.alert(NAG_CONFIRM_TITLE, NAG_CONFIRM_MESSAGE, [
-      { text: "Not now", style: "cancel" },
-      { text: "Turn on", style: "default", onPress: () => setReminderStyle("nag") },
-    ]);
-  };
-  turnNagOnRef.current = turnNagOn;
-
   const chooseReminderStyle = (style: ReminderStyle) => {
     if (style === reminderStyle) return;
     if (style === "calm") {
       setReminderStyle("calm");
       return;
     }
-    if (!hasPlus) {
-      showPaywall("nag_mode", { feature: "nag_mode", resume: "nag" });
-      return;
-    }
-    void turnNagOn();
+    requestNag();
+  };
+
+  // "What is Nag mode?": the sheet people updating to 1.4 were shown, again.
+  const [nagIntroOpen, setNagIntroOpen] = useState(false);
+  const nagIntroRow = useRef<View>(null);
+  const nagIntroFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (nagIntroFocusTimer.current) clearTimeout(nagIntroFocusTimer.current);
+    },
+    [],
+  );
+  const closeNagIntro = () => {
+    setNagIntroOpen(false);
+    // VoiceOver goes back to the row that opened it (gone once Nag is on).
+    if (nagIntroFocusTimer.current) clearTimeout(nagIntroFocusTimer.current);
+    nagIntroFocusTimer.current = setTimeout(() => {
+      nagIntroFocusTimer.current = null;
+      if (nagIntroRow.current) AccessibilityInfo.sendAccessibilityEvent(nagIntroRow.current, "focus");
+    }, SHEET_SWAP_DELAY_MS);
   };
 
   // A sample of how the chosen voice and level sound: built-in lines, about
@@ -991,6 +915,24 @@ export default function SettingsScreen() {
             ) : null}
           </View>
 
+          {/* Only while Nag is not on: what it is, before choosing it. */}
+          {!nagActive ? (
+            <Pressable
+              ref={nagIntroRow}
+              onPress={() => setNagIntroOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={NAG_INTRO_SETTINGS_ROW}
+              accessibilityHint="Shows what Nag mode does and how it sounds"
+              className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3"
+              style={{ minHeight: 44 }}
+              testID="settings-nag-intro"
+            >
+              <Ionicons name="megaphone-outline" size={20} color={colors.primary} />
+              <Text className="flex-1 text-base font-semibold text-foreground">{NAG_INTRO_SETTINGS_ROW}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+            </Pressable>
+          ) : null}
+
           {nagActive ? (
             <View className="bg-surface rounded-2xl p-4 border border-border gap-4" testID="settings-nag">
               <View className="gap-2">
@@ -1278,6 +1220,13 @@ export default function SettingsScreen() {
       </ScrollView>
       </KeyboardAvoidingView>
       <RoutinesManager visible={routinesOpen} onVisibleChange={setRoutinesOpen} />
+      <NagIntro
+        visible={nagIntroOpen}
+        source="settings"
+        onClose={closeNagIntro}
+        // The style card above now shows Nag, with its controls.
+        onTurnedOn={() => announcePolitely("Nag mode is on")}
+      />
       <OnboardingModal
         visible={profileModalVisible}
         initialProfile={state.momentumProfile}

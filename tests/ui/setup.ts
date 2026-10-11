@@ -68,3 +68,11 @@ jest.mock("@react-native-community/datetimepicker", () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- hoisted jest.mock factory
   require("./mocks/datetimepicker"),
 );
+
+// "What's new" (1.4) would come up on Today in every test that opens a saved
+// state from before it. Off by default; its own tests turn the released
+// announcements back on (__setAnnouncementsForTests(null)).
+beforeEach(() => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- after the mocks above
+  require("@/lib/daily-tasks/whats-new").__setAnnouncementsForTests([]);
+});

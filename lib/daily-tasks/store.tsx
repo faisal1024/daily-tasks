@@ -156,6 +156,7 @@ import { draftForNotification, draftForTomorrow } from "./evening";
 import { readTodayAgenda } from "./agenda";
 import { readSupporterGrant, writeSupporterGrant } from "./supporter-grant";
 import { navigateToToday } from "./navigation";
+import { allAnnouncementIds, withWhatsNewSeen } from "./whats-new";
 import { requestSupporterGrant, setProxyGrandfathered } from "./ai-client";
 import {
   invalidateFocusSession,
@@ -217,6 +218,7 @@ type Action =
   | { type: "setAutoLockTime"; hour: number; minute: number }
   | { type: "markOnboardingSeen" }
   | { type: "markReorderHintSeen" }
+  | { type: "markWhatsNewSeen"; ids: string[] }
   | { type: "completeMomentumOnboarding"; profile: MomentumProfile }
   | { type: "updateMomentumProfile"; profile: MomentumProfile }
   | { type: "regenerateMomentumPlan"; now: Date }
@@ -969,9 +971,14 @@ function reduce(state: AppState, action: Action): AppState {
       };
     case "markOnboardingSeen":
       if (state.hasSeenOnboarding) return state;
-      return { ...state, hasSeenOnboarding: true };
+      // First run just ended: a new install is not shown what's new.
+      return { ...state, hasSeenOnboarding: true, whatsNewSeen: withWhatsNewSeen(state.whatsNewSeen, allAnnouncementIds()) };
     case "markReorderHintSeen":
       return state.reorderHintSeen ? state : { ...state, reorderHintSeen: true };
+    case "markWhatsNewSeen": {
+      const whatsNewSeen = withWhatsNewSeen(state.whatsNewSeen, action.ids);
+      return whatsNewSeen === state.whatsNewSeen ? state : { ...state, whatsNewSeen };
+    }
     case "completeMomentumOnboarding":
       {
         const momentumProfile = {
@@ -982,6 +989,10 @@ function reduce(state: AppState, action: Action): AppState {
         return {
           ...state,
           hasSeenOnboarding: true,
+          // Onboarding ending here (not a later profile update): as markOnboardingSeen.
+          whatsNewSeen: state.hasSeenOnboarding
+            ? state.whatsNewSeen
+            : withWhatsNewSeen(state.whatsNewSeen, allAnnouncementIds()),
           momentumProfile,
           // A new/changed goal starts a fresh milestone path.
           ...resetMilestonesIfGoalChanged(state, action.profile.goalTitle),
@@ -1188,7 +1199,11 @@ interface StoreContextValue {
   /** Settings › Reminders › "Hide task names in notifications". */
   setHideTaskNamesInNotifications: (hidden: boolean) => void;
   /** Calm or Nag (1.4). Nag only applies with Plus; the choice is saved either way. */
-  setReminderStyle: (style: ReminderStyle) => void;
+  /**
+   * `choice` (turning Nag on from the "Meet Nag mode" sheet): the voice and
+   * level picked there are saved with it.
+   */
+  setReminderStyle: (style: ReminderStyle, choice?: { persona: NagPersona; level: NagLevel }) => void;
   setNagPersona: (persona: NagPersona) => void;
   setNagLevel: (level: NagLevel) => void;
   /** Sets one end of the nag window (minutes of the day); the other end moves to keep three hours. */
@@ -1201,6 +1216,8 @@ interface StoreContextValue {
   markOnboardingSeen: () => void;
   /** The one-time reorder hint under Today's card was shown (1.4). */
   markReorderHintSeen: () => void;
+  /** These "What's new" announcements were shown (or aren't needed): never again (1.4). */
+  markWhatsNewSeen: (ids: string[]) => void;
   completeMomentumOnboarding: (profile: MomentumProfile) => void;
   updateMomentumProfile: (profile: MomentumProfile) => void;
   regenerateMomentumPlan: () => void;
@@ -1983,12 +2000,18 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setHideTaskNamesInNotifications = useCallback((hidden: boolean) => {
     dispatch({ type: "setHideTaskNamesInNotifications", hidden });
   }, []);
-  const setReminderStyle = useCallback((style: ReminderStyle) => {
+  const setReminderStyle = useCallback((style: ReminderStyle, choice?: { persona: NagPersona; level: NagLevel }) => {
     const { style: before, nagPersona, nagLevel } = stateRef.current.notifications;
+    // A voice and level picked with it are saved first (also when Nag is the saved style already).
+    if (style === "nag" && choice) {
+      dispatch({ type: "setNagPersona", persona: choice.persona });
+      dispatch({ type: "setNagLevel", level: choice.level });
+    }
     if (before === style) return;
     dispatch({ type: "setReminderStyle", style });
-    if (style === "nag") track("nag_mode_enabled", { persona: nagPersona, level: nagLevel });
-    else track("nag_mode_disabled");
+    if (style === "nag") {
+      track("nag_mode_enabled", { persona: choice?.persona ?? nagPersona, level: choice?.level ?? nagLevel });
+    } else track("nag_mode_disabled");
   }, []);
   const setNagPersona = useCallback((persona: NagPersona) => {
     dispatch({ type: "setNagPersona", persona });
@@ -2019,6 +2042,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   }, []);
   const markReorderHintSeen = useCallback(() => {
     dispatch({ type: "markReorderHintSeen" });
+  }, []);
+  const markWhatsNewSeen = useCallback((ids: string[]) => {
+    dispatch({ type: "markWhatsNewSeen", ids });
   }, []);
   const completeMomentumOnboarding = useCallback((profile: MomentumProfile) => {
     dispatch({ type: "completeMomentumOnboarding", profile });
@@ -2639,6 +2665,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAutoLockTime,
       markOnboardingSeen,
       markReorderHintSeen,
+      markWhatsNewSeen,
       completeMomentumOnboarding,
       updateMomentumProfile,
       regenerateMomentumPlan,
@@ -2731,6 +2758,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAutoLockTime,
       markOnboardingSeen,
       markReorderHintSeen,
+      markWhatsNewSeen,
       completeMomentumOnboarding,
       updateMomentumProfile,
       regenerateMomentumPlan,

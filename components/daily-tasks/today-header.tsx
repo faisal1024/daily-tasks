@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -13,6 +14,8 @@ interface TodayHeaderProps {
   progress: TodayProgress;
   /** Days with a plan, today included ("Day N"). */
   daysShowedUp: number;
+  /** The "Today" title, for sending VoiceOver back to it when a sheet closes. */
+  titleRef?: RefObject<Text | null>;
 }
 
 /**
@@ -20,7 +23,7 @@ interface TodayHeaderProps {
  * progress line. No gradient: the card of three is the hero, and the one
  * gradient in the app is saved for the finished day.
  */
-export function TodayHeader({ dateLabel, greeting, progress, daysShowedUp }: TodayHeaderProps) {
+export function TodayHeader({ dateLabel, greeting, progress, daysShowedUp, titleRef }: TodayHeaderProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   return (
@@ -32,6 +35,7 @@ export function TodayHeader({ dateLabel, greeting, progress, daysShowedUp }: Tod
       ) : null}
       <View className="flex-row items-end justify-between gap-3">
         <Text
+          ref={titleRef}
           accessibilityRole="header"
           style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 34, lineHeight: 40 }}
           maxFontSizeMultiplier={1.4}
