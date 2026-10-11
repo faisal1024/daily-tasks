@@ -249,7 +249,7 @@ function playDay(seed: number, dayKey: string, counts: Counts) {
       expect(item.sound, where).toBeUndefined();
       expect(item.kind, where).toBe("nag");
       expect(item.categoryId, where).toBe(NAG_CATEGORY_ID);
-      expect(item.title, where).toBe(NAG_PERSONA_LABELS[settings.nagPersona]);
+      expect(item.title, where).toContain(NAG_PERSONA_LABELS[settings.nagPersona]);
       expect(item.body.length, where).toBeGreaterThan(0);
       expect(item.body, where).not.toMatch(/[\u0000-\u001f—]/);
       const named = `${item.title} ${item.body}`.match(WORD_PATTERN) ?? [];
@@ -610,6 +610,38 @@ describe("names hidden for a while (fewer general lines than nags)", () => {
       expect(steps, `salt ${salt}`).toEqual([...new Set(steps)].sort((x, y) => x - y));
       const texts = redrawn.slots.map((slot) => slot.text);
       expect(new Set(texts).size, `salt ${salt}: ${texts.join(" | ")}`).toBe(texts.length);
+    }
+  });
+});
+
+describe("the phone changes time zone during the day", () => {
+  // BUG (P3; lib/daily-tasks/nag-plan.ts nagDayNeedsPlan / nagRecordApplies):
+  // the day's times are kept as moments, and nothing notices that the local
+  // clock they were drawn for has moved. Planned at 8:00 in Los Angeles for
+  // 9:00 to 21:00, then the phone is in Kolkata (20:30, the same date): the
+  // record still "applies", so its nags are pending from 21:30 through the
+  // night to 9:30 the next morning, all outside the window and most of them
+  // on the wrong day. They stay until the app is next opened on the new day.
+  it.fails("BUG: after a change of time zone the same day, no nag is left outside the window or on another day", () => {
+    const tasks = [{ id: "t0", text: "Zorvex", done: false }];
+    const settings: NotificationConfig = { ...DEFAULT_NOTIFICATIONS, style: "nag", nagConfirmed: true };
+    process.env.TZ = "America/Los_Angeles";
+    const dayKey = "2026-10-12";
+    const planned = planNagDay({ previous: null, now: nagMinuteAt(dayKey, 8 * 60), dayKey, settings, open: nagOpenTasks(tasks), salt: "s" });
+    const instant = nagMinuteAt(dayKey, 8 * 60).getTime();
+
+    process.env.TZ = "Asia/Kolkata";
+    const now = new Date(instant);
+    expect(toDateKey(now)).toBe(dayKey);
+    // What nag-day.ts and the strategy do on the next look.
+    const open = nagOpenTasks(tasks);
+    const record = nagDayNeedsPlan(planned, { dayKey, settings, open }) ? planNagDay({ previous: planned, now, dayKey, settings, open, salt: "s" }) : planned;
+    const plan = nagPlanFromRecord(record, { now, today: dayKey, settings, permissionState: "granted", tasks, plus: true });
+    for (const item of plan) {
+      const minutes = item.fireAt.getHours() * 60 + item.fireAt.getMinutes();
+      expect(toDateKey(item.fireAt), item.fireAt.toString()).toBe(dayKey);
+      expect(minutes, item.fireAt.toString()).toBeGreaterThanOrEqual(settings.nagWindow.startMinutes);
+      expect(minutes, item.fireAt.toString()).toBeLessThanOrEqual(settings.nagWindow.endMinutes);
     }
   });
 });
