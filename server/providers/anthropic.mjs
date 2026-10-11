@@ -10,16 +10,25 @@ import { PLAN_TOOL_DESCRIPTION, PLAN_TOOL_NAME } from "./plan-contract.mjs";
 
 export const id = "anthropic";
 
-// Haiku 4.5 — the cheapest current model, and strong at short structured task
+// Haiku 5.5: the cheapest current model, and strong at short structured task
 // generation. Override with ANTHROPIC_MODEL (e.g. a Sonnet for higher-stakes
-// reasoning). Note: prompt caching below only kicks in above Haiku's 4096-token
-// minimum cacheable prefix; our system+tools prefix is smaller, so caching is a
-// no-op today (harmless) but helps automatically if the prompt grows or we move
-// to Sonnet (1024 min).
-const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
+// reasoning). Prompt caching below kicks in above the model's minimum cacheable
+// prefix (512 tokens on Haiku 5.5, 4096 on Haiku 4.5): shorter prefixes are
+// simply not cached, with no error.
+const DEFAULT_MODEL = "claude-haiku-5-5";
 
-// Output cap when a route doesn't set its own (`maxTokens`).
-const DEFAULT_MAX_TOKENS = 1500;
+// Output cap when a route doesn't set its own (`maxTokens`). Sized for the
+// newer tokenizer (Haiku 5.5 and later count about 30% more tokens for the same
+// text than Haiku 4.5 did): the old cap of 1500 with that headroom and a margin.
+const DEFAULT_MAX_TOKENS = 2200;
+
+// Older models take a sampling temperature; Haiku 5.5 and later reject any
+// value but the default with a 400, so it is only sent to the models that
+// were tuned with it.
+const LEGACY_TEMPERATURE = 0.4;
+export function acceptsTemperature(modelId) {
+  return /^claude-(3|haiku-4|sonnet-4|opus-4-[0-6](?!\d))/.test(String(modelId ?? ""));
+}
 
 function model() {
   return process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;
@@ -60,7 +69,7 @@ export async function generatePlan({
     body: JSON.stringify({
       model: model(),
       max_tokens: maxTokens,
-      temperature: 0.4,
+      ...(acceptsTemperature(model()) ? { temperature: LEGACY_TEMPERATURE } : {}),
       // System + tools are identical across every request, so cache that stable
       // prefix; the dynamic per-user content lives in the (uncached) user message.
       // The breakpoint on the system block caches tools + system together.
@@ -83,6 +92,15 @@ export async function generatePlan({
     throw new Error(`Anthropic ${response.status}: ${detail}`);
   }
 
+  // A safety refusal, or an answer cut off at the cap, has no usable tool call:
+  // say which, so the logs show why the route fell back.
+  if (data.stop_reason === "refusal") {
+    throw new Error("Anthropic declined the request (stop_reason: refusal)");
+  }
+  if (data.stop_reason === "max_tokens") {
+    throw new Error(`Anthropic response was cut off at max_tokens (${maxTokens})`);
+  }
+
   const toolUse = (data.content ?? []).find(
     (block) => block.type === "tool_use" && block.name === toolName,
   );
@@ -90,5 +108,43 @@ export async function generatePlan({
     throw new Error(`Anthropic response did not include the ${toolName} tool call`);
   }
 
-  return toolUse.input;
+  return unstringify(toolUse.input, schema);
+}
+
+function schemaTypes(schema) {
+  const type = schema?.type;
+  return Array.isArray(type) ? type : type ? [type] : [];
+}
+
+/**
+ * Haiku 5.5 sometimes hands back a nested array or object as a JSON string
+ * (`"taskPool": "[{...}]"`) where the schema asks for the array itself. Where
+ * the schema wants an array or object and a string arrived, parse it; anything
+ * that doesn't parse to the wanted kind is left as it was for the route's own
+ * validation to refuse.
+ */
+export function unstringify(value, schema, depth = 0) {
+  if (!schema || depth > 6) return value;
+  const types = schemaTypes(schema);
+  let current = value;
+  if (typeof current === "string" && (types.includes("array") || types.includes("object")) && !types.includes("string")) {
+    try {
+      const parsed = JSON.parse(current);
+      const fits = Array.isArray(parsed) ? types.includes("array") : parsed !== null && typeof parsed === "object" && types.includes("object");
+      if (fits) current = parsed;
+    } catch {
+      return value;
+    }
+  }
+  if (Array.isArray(current) && schema.items) {
+    return current.map((item) => unstringify(item, schema.items, depth + 1));
+  }
+  if (current && typeof current === "object" && !Array.isArray(current) && schema.properties) {
+    const out = { ...current };
+    for (const key of Object.keys(schema.properties)) {
+      if (key in out) out[key] = unstringify(out[key], schema.properties[key], depth + 1);
+    }
+    return out;
+  }
+  return current;
 }

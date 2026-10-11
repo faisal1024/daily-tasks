@@ -23,8 +23,12 @@ export const NAG_LINE_TARGET_CHARS = 110;
 export const MAX_NAG_LINE = 140;
 /** Fewer usable lines than this is a failed answer (the app uses its built-in lines). */
 export const MIN_NAG_LINES = 3;
-/** Enough for 16 short lines as JSON; the default (1500) is sized for a plan. */
-export const NAG_MAX_TOKENS = 1200;
+/**
+ * Enough for 16 lines of up to 140 characters as JSON, counted with the newer
+ * tokenizer (about 30% more tokens than Haiku 4.5 counted), with a margin. Still
+ * under the default, which is sized for a plan.
+ */
+export const NAG_MAX_TOKENS = 1800;
 
 // C0/C1 control characters (newlines included) and the Unicode line/paragraph
 // separators: none of them may reach the prompt or a notification.

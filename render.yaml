@@ -20,7 +20,7 @@ services:
       - key: MOMENTUM_AI_PROVIDER
         value: anthropic
       - key: ANTHROPIC_MODEL
-        value: claude-haiku-4-5-20251001
+        value: claude-haiku-5-5
       # Set this in the Render dashboard (secret) — never commit a key.
       - key: ANTHROPIC_API_KEY
         sync: false

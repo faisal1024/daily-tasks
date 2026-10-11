@@ -25,7 +25,7 @@ choice is entirely server-side.
    ```sh
    MOMENTUM_AI_PROVIDER=anthropic
    ANTHROPIC_API_KEY=sk-ant-...
-   ANTHROPIC_MODEL=claude-sonnet-4-6        # cheap/fast: claude-haiku-4-5
+   ANTHROPIC_MODEL=claude-sonnet-4-6        # cheap/fast: claude-haiku-5-5
    EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL=http://localhost:8787/api/momentum/plan
    ```
 
@@ -213,8 +213,8 @@ when the proxy is unreachable; break-down has no offline fallback. The coach's
 note and nag lines fall back to built-in lines on any failure.
 
 A route may set `maxTokens` in the route table to cap the model's output
-(nag-lines: 1200). Routes without it use the provider's default (Anthropic
-1500; OpenAI unset), as before.
+(nag-lines: 1800). Routes without it use the provider's default (Anthropic
+2200; OpenAI unset), as before.
 
 ## Architecture
 
@@ -429,7 +429,7 @@ guarantee: the prompt and the model do most of the work.
 
 Same shared secret, Plus check (402 for a free id when enforced), per-minute
 and daily limits and budgets as coach-note. Same model and temperature as
-every route; output is capped at 1200 tokens. Nothing from the request or
+every route; output is capped at 1800 tokens. Nothing from the request or
 the answer is logged: a bad answer logs the route name and the answer's
 top-level keys only, like the other routes.
 

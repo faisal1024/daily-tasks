@@ -179,6 +179,73 @@ describe("providers name the structured output per route", () => {
     expect(body().text.format.name).toBe("momentum_plan");
   });
 
+  it("anthropic: Haiku 5.5 is the default and gets no temperature; an older model still gets 0.4", async () => {
+    const { acceptsTemperature } = await import("../server/providers/anthropic.mjs");
+    const reply = { ok: true, json: async () => ({ content: [{ type: "tool_use", name: PLAN_TOOL_NAME, input: {} }] }) };
+    const before = process.env.ANTHROPIC_MODEL;
+    try {
+      delete process.env.ANTHROPIC_MODEL;
+      let body = captureFetch(reply);
+      await getProvider("anthropic").generatePlan(callArgs);
+      expect(body().model).toBe("claude-haiku-5-5");
+      expect(body()).not.toHaveProperty("temperature");
+      expect(body()).not.toHaveProperty("top_p");
+      expect(body()).not.toHaveProperty("top_k");
+      vi.unstubAllGlobals();
+
+      process.env.ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+      body = captureFetch(reply);
+      await getProvider("anthropic").generatePlan(callArgs);
+      expect(body().temperature).toBe(0.4);
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_MODEL;
+      else process.env.ANTHROPIC_MODEL = before;
+    }
+    for (const id of ["claude-haiku-4-5", "claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6", "claude-3-5-haiku-20241022"]) {
+      expect(acceptsTemperature(id)).toBe(true);
+    }
+    for (const id of ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-4-7", "claude-opus-4-8", "", undefined]) {
+      expect(acceptsTemperature(id)).toBe(false);
+    }
+  });
+
+  it("anthropic: a refusal or an answer cut off at the cap is an error that says which", async () => {
+    captureFetch({ ok: true, json: async () => ({ stop_reason: "refusal", content: [] }) });
+    await expect(getProvider("anthropic").generatePlan(callArgs)).rejects.toThrow(/refusal/);
+    vi.unstubAllGlobals();
+    captureFetch({ ok: true, json: async () => ({ stop_reason: "max_tokens", content: [{ type: "tool_use", name: PLAN_TOOL_NAME, input: {} }] }) });
+    await expect(getProvider("anthropic").generatePlan(callArgs)).rejects.toThrow(/max_tokens \(2200\)/);
+  });
+
+  it("anthropic: an array or object handed back as a JSON string is parsed where the schema asks for the real thing", async () => {
+    const { unstringify } = await import("../server/providers/anthropic.mjs");
+    const schema = {
+      type: "object",
+      properties: {
+        milestones: { type: "array", items: { type: "object", properties: { title: { type: "string" } } } },
+        taskPool: { type: "array", items: { type: "object", properties: { text: { type: "string" }, tags: { type: "array", items: { type: "string" } } } } },
+        note: { type: "string" },
+        extra: { type: ["object", "null"], properties: { a: { type: "integer" } } },
+      },
+    };
+    const fixed = unstringify(
+      { milestones: [{ title: "One" }], taskPool: '[{"text":"Run","tags":"[\\"a\\"]"}]', note: "[1,2]", extra: '{"a":1}' },
+      schema,
+    );
+    expect(fixed).toEqual({ milestones: [{ title: "One" }], taskPool: [{ text: "Run", tags: ["a"] }], note: "[1,2]", extra: { a: 1 } });
+    // Not JSON, or JSON of the wrong kind: left alone for the route to refuse.
+    expect(unstringify({ taskPool: "nope" }, schema)).toEqual({ taskPool: "nope" });
+    expect(unstringify({ taskPool: '{"text":"Run"}' }, schema)).toEqual({ taskPool: '{"text":"Run"}' });
+    expect(unstringify({ taskPool: "12" }, schema)).toEqual({ taskPool: "12" });
+    // Already right: unchanged in value.
+    const good = { milestones: [], taskPool: [{ text: "Run", tags: [] }], note: "x", extra: null };
+    expect(unstringify(good, schema)).toEqual(good);
+
+    captureFetch({ ok: true, json: async () => ({ content: [{ type: "tool_use", name: PLAN_TOOL_NAME, input: { taskPool: '[{"text":"Run"}]' } }] }) });
+    const result = await getProvider("anthropic").generatePlan({ ...callArgs, schema });
+    expect(result.taskPool).toEqual([{ text: "Run" }]);
+  });
+
   it("a route's output cap reaches both providers; without one the defaults are unchanged", async () => {
     const anthropicReply = { ok: true, json: async () => ({ content: [{ type: "tool_use", name: "emit_nag_lines", input: {} }] }) };
     let body = captureFetch(anthropicReply);
@@ -186,7 +253,7 @@ describe("providers name the structured output per route", () => {
     expect(body().max_tokens).toBe(1200);
     body = captureFetch(anthropicReply);
     await getProvider("anthropic").generatePlan({ ...callArgs, toolName: "emit_nag_lines", toolDescription: "d" });
-    expect(body().max_tokens).toBe(1500);
+    expect(body().max_tokens).toBe(2200);
 
     const openaiReply = { ok: true, json: async () => ({ output_text: "{}" }) };
     body = captureFetch(openaiReply);
