@@ -309,6 +309,57 @@ describe("store: an unlock holds for the rest of the day (1.4)", () => {
   });
 });
 
+describe("store: unlockToday says whether it unlocked anything (1.4)", () => {
+  it("is true for a set day (by hand or automatic) and false when today isn't set", async () => {
+    fakeClockAt(at(1, 12, 30));
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.state.todayLockSource).toBe("auto"));
+
+    let answer: boolean | undefined;
+    await act(async () => {
+      answer = result.current.unlockToday();
+    });
+    expect(answer).toBe(true);
+    expect(result.current.state.todayLocked).toBe(false);
+
+    // Already open: nothing to unlock, and nothing changes.
+    const open = result.current.state;
+    await act(async () => {
+      answer = result.current.unlockToday();
+    });
+    expect(answer).toBe(false);
+    expect(result.current.state).toBe(open);
+
+    await act(async () => result.current.lockToday());
+    expect(result.current.state.todayLockSource).toBe("manual");
+    await act(async () => {
+      answer = result.current.unlockToday();
+    });
+    expect(answer).toBe(true);
+  });
+
+  it("is false once the set day is over (the confirm was left open past midnight), and the new day isn't marked unlocked", async () => {
+    fakeClockAt(at(1, 23, 50));
+    // Both done, so nothing is left over to carry into the next day.
+    const { result } = await renderStore({ todayCompletions: ["t0", "t1"] });
+    await waitFor(() => expect(result.current.state.todayLocked).toBe(true));
+
+    // Past midnight, before the minute tick has rolled the day over.
+    jest.setSystemTime(at(2, 0, 5));
+    let answer: boolean | undefined;
+    await act(async () => {
+      answer = result.current.unlockToday();
+    });
+    await flush();
+    expect(answer).toBe(false);
+    expect(result.current.today).toBe(NEXT);
+    expect(result.current.state.todayLocked).toBe(false);
+    // Not an explicit unlock of the new day: auto-set still sets it at its time.
+    expect(result.current.state.manualUnlockDate).toBeNull();
+    expect(result.current.state.history[D]?.locked).toBe(true);
+  });
+});
+
 describe("store: a set day keeps its three (1.4)", () => {
   // Two tasks, so there's room: only the lock is in the way. Auto-set is off
   // here (the day is set by hand), so nothing depends on the clock.

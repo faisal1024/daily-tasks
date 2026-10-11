@@ -882,14 +882,15 @@ export default function HomeScreen() {
     };
   }, [ready, markReviewPrompted, clearReviewDue]);
 
-  // The sheet has nothing to add once the day is locked, and it must not block
-  // the onboarding modals (iOS shows one modal at a time). Yesterday's
-  // unfinished ones are a card now, so they don't close it.
+  // The ideas sheet has nothing to add once the day is locked, and neither
+  // sheet may block the onboarding modals (iOS shows one modal at a time).
+  // Yesterday's unfinished ones are a card now, so they don't close it.
+  // A brain dump under way stays open when the day is set (auto-set can fire
+  // mid-dump): closing it would drop what was typed. It saves everything for
+  // later instead.
   useEffect(() => {
-    if (state.todayLocked || !state.hasSeenOnboarding || firstRunActive) {
-      setIdeasOpen(false);
-      setBrainDumpOpen(false);
-    }
+    if (state.todayLocked || !state.hasSeenOnboarding || firstRunActive) setIdeasOpen(false);
+    if (!state.hasSeenOnboarding || firstRunActive) setBrainDumpOpen(false);
   }, [state.todayLocked, state.hasSeenOnboarding, firstRunActive]);
 
   // `starter`: asked from a timer's check-in ("Stuck?"), so once the steps are
@@ -1583,6 +1584,7 @@ export default function HomeScreen() {
         onClose={() => setBrainDumpOpen(false)}
         openSlots={Math.max(1, remainingSlots)}
         freeAiLeft={freeAiLeft}
+        locked={state.todayLocked}
         onSort={async (text) => {
           const params = {
             text,

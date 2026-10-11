@@ -1,12 +1,15 @@
 // Settings' "Unlock today" row (1.4, PR #87): the only way to unlock a set
-// day. It shows only while today is set, asks first with "Keep locked" as the
-// prominent answer, and "Unlock" unlocks once and is tracked once.
+// day. It shows only while today is set (first on the screen), asks first with
+// "Keep locked" as the prominent answer (the words differ for a day set by hand
+// and one set automatically), and "Unlock" unlocks once, is tracked once, and
+// says so on screen. An unlock that changed nothing is neither tracked nor said.
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AccessibilityInfo, Alert, type AlertButton } from "react-native";
+import { Alert, type AlertButton } from "react-native";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react-native";
 
 import SettingsScreen from "@/app/(tabs)/settings";
 import { track } from "@/lib/daily-tasks/analytics";
+import { announcePolitely } from "@/lib/daily-tasks/announce";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
@@ -14,8 +17,10 @@ import { DEFAULT_AUTO_LOCK, type AppState, type Task } from "@/lib/daily-tasks/t
 
 import { renderWithProviders as render } from "./render";
 
-// The real store, with a spy on the one action this row may call.
+// The real store, with a spy on the one action this row may call. A test can
+// make the store's answer "nothing was unlocked" (mockRefuseUnlock).
 const mockUnlockToday = jest.fn();
+let mockRefuseUnlock = false;
 jest.mock("@/lib/daily-tasks/store", () => {
   const actual = jest.requireActual("@/lib/daily-tasks/store");
   return {
@@ -26,7 +31,8 @@ jest.mock("@/lib/daily-tasks/store", () => {
         ...store,
         unlockToday: () => {
           mockUnlockToday();
-          store.unlockToday();
+          if (mockRefuseUnlock) return false;
+          return store.unlockToday();
         },
       };
     },
@@ -46,6 +52,7 @@ jest.mock("@/lib/daily-tasks/analytics", () => ({
   ...jest.requireActual("@/lib/daily-tasks/analytics"),
   track: jest.fn(),
 }));
+jest.mock("@/lib/daily-tasks/announce", () => ({ announcePolitely: jest.fn() }));
 jest.mock("expo-notifications", () => ({
   getPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
   requestPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
@@ -57,6 +64,7 @@ jest.mock("expo-notifications", () => ({
 }));
 
 const tracked = track as jest.Mock;
+const announce = announcePolitely as jest.Mock;
 const unlockEvents = () => tracked.mock.calls.filter((call) => call[0] === "day_unlocked");
 
 // Local times (day keys and the auto-set time are local; CI runs several zones).
@@ -70,6 +78,7 @@ let alert: jest.SpyInstance;
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockRefuseUnlock = false;
   __resetStorageForTests();
   await AsyncStorage.clear();
   // Fake only the clock; real timers keep RNTL's async waits working.
@@ -105,6 +114,7 @@ async function renderSettings(saved: Partial<AppState>) {
 }
 
 const row = () => screen.queryByTestId("settings-unlock-today");
+const note = () => screen.queryByTestId("settings-unlocked-note");
 const savedState = async (): Promise<AppState> => JSON.parse((await AsyncStorage.getItem(KEY)) ?? "null");
 
 /** Tap the row and hand back the alert's title, message and buttons. */
@@ -138,8 +148,8 @@ describe("Settings: Unlock today (1.4)", () => {
   it("asks first: 'Keep locked' is the cancel and the preferred button, 'Unlock' is plain (not red)", async () => {
     await renderSettings(MANUAL);
     const { title, message, buttons } = await openConfirm();
-    expect(title).toBe("Unlock today's three?");
-    expect(message).toBe("You set these on purpose.");
+    expect(title).toBe("Unlock today?");
+    expect(message).toBe("Your three will be open to change again. You can set today again any time.");
     expect(buttons.map(({ text, style, isPreferred }) => ({ text, style, isPreferred: isPreferred ?? false }))).toEqual([
       { text: "Keep locked", style: "cancel", isPreferred: true },
       { text: "Unlock", style: "default", isPreferred: false },
@@ -150,21 +160,62 @@ describe("Settings: Unlock today (1.4)", () => {
     expect(row()).toBeOnTheScreen();
   });
 
+  it("a day set automatically asks with its own words (same title, same buttons, same rule)", async () => {
+    // Launched at 12:30 with auto-set at noon: the store sets it, stamped with the auto-set time.
+    await renderSettings({ autoLock: NOON });
+    await waitFor(() => expect(row()).toBeOnTheScreen());
+    const { title, message, buttons } = await openConfirm();
+    expect(title).toBe("Unlock today?");
+    expect(message).toBe(
+      "The app set today automatically at 12:00 PM. Unlocking keeps it open for the rest of today.",
+    );
+    expect(message).not.toMatch(/—/);
+    expect(buttons.map(({ text, style, isPreferred }) => ({ text, style, isPreferred: isPreferred ?? false }))).toEqual([
+      { text: "Keep locked", style: "cancel", isPreferred: true },
+      { text: "Unlock", style: "default", isPreferred: false },
+    ]);
+  });
+
+  it("is the first card in Settings while today is set (above every other card)", async () => {
+    await renderSettings(MANUAL);
+    const json = JSON.stringify(screen.toJSON());
+    const rowAt = json.indexOf('"accessibilityLabel":"Unlock today"');
+    expect(rowAt).toBeGreaterThanOrEqual(0);
+    // Under the screen's title, and above every card and section that follows.
+    expect(rowAt).toBeGreaterThan(json.indexOf("Tune your day"));
+    for (const later of ["Set the day automatically", "Setting the day", "settings-routines", "Rate Three Today"]) {
+      expect(json.indexOf(later)).toBeGreaterThan(rowAt);
+    }
+    // Nothing to tap or switch comes before it.
+    const firstControl = json.search(/"accessibilityRole":"(button|switch|link)"/);
+    expect(json.slice(firstControl).startsWith('"accessibilityRole":"button","accessibilityLabel":"Unlock today"')).toBe(true);
+  });
+
   it("Keep locked does nothing: still set, the row stays, nothing tracked or announced", async () => {
-    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => {});
     await renderSettings(MANUAL);
     const { buttons } = await openConfirm();
     await act(async () => buttons.find((b) => b.text === "Keep locked")?.onPress?.());
     expect(mockUnlockToday).not.toHaveBeenCalled();
     expect(unlockEvents()).toEqual([]);
     expect(announce).not.toHaveBeenCalled();
+    expect(note()).toBeNull();
     expect(row()).toBeOnTheScreen();
     expect((await savedState()).todayLocked).toBe(true);
-    announce.mockRestore();
   });
 
-  it("Unlock unlocks today once, tracks day_unlocked {source: settings} once, and the row goes", async () => {
-    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => {});
+  it("an Unlock that unlocked nothing (the alert sat open past midnight) isn't tracked, announced or confirmed", async () => {
+    await renderSettings(MANUAL);
+    const { buttons } = await openConfirm();
+    mockRefuseUnlock = true;
+    await act(async () => buttons.find((b) => b.text === "Unlock")?.onPress?.());
+    expect(mockUnlockToday).toHaveBeenCalledTimes(1);
+    expect(unlockEvents()).toEqual([]);
+    expect(announce).not.toHaveBeenCalled();
+    expect(note()).toBeNull();
+    expect(screen.queryByText("Today is unlocked.")).toBeNull();
+  });
+
+  it("Unlock unlocks today once, tracks day_unlocked {source: settings} once, says so, and the row goes", async () => {
     // Auto-set at noon, now 12:30: the unlock must hold (no re-lock bringing the row back).
     await renderSettings({ autoLock: NOON });
     await waitFor(() => expect(row()).toBeOnTheScreen());
@@ -173,8 +224,13 @@ describe("Settings: Unlock today (1.4)", () => {
 
     expect(mockUnlockToday).toHaveBeenCalledTimes(1);
     expect(unlockEvents()).toEqual([["day_unlocked", { source: "settings" }]]);
-    expect(announce).toHaveBeenCalledWith("Today is unlocked. You can change your three.");
+    // Said through the polite helper (once), and shown where the row was.
+    expect(announce.mock.calls).toEqual([["Today is unlocked."]]);
     await waitFor(() => expect(row()).toBeNull());
+    // (The icon is part of the note's content, so match the words.)
+    expect(note()).toHaveTextContent(/Today is unlocked\.$/);
+    expect(screen.getByText("Today is unlocked.")).toBeOnTheScreen();
+    expect(note()?.props.accessibilityLiveRegion).toBe("polite");
     await waitFor(async () => {
       const saved = await savedState();
       expect(saved.todayLocked).toBe(false);
@@ -185,6 +241,5 @@ describe("Settings: Unlock today (1.4)", () => {
     expect(row()).toBeNull();
     expect(mockUnlockToday).toHaveBeenCalledTimes(1);
     expect(unlockEvents()).toHaveLength(1);
-    announce.mockRestore();
   });
 });
