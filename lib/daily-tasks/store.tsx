@@ -1220,7 +1220,7 @@ interface StoreContextValue {
 const StoreContext = createContext<StoreContextValue | null>(null);
 
 /** What the reminders are written from; the time is added when they're written. */
-type ReminderSyncContext = Omit<ReminderContext, "now">;
+type ReminderSyncContext = Omit<ReminderContext, "now" | "pending" | "lastDeliveredAt">;
 
 export function DailyTasksProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, () => buildInitialState());
@@ -1235,7 +1235,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const [reminderSync] = useState(() =>
     createDebounced(() => {
       const context = reminderContext.current;
-      if (context) void syncNotifications({ ...context, now: new Date() }).catch(() => {});
+      if (!context) return;
+      void syncNotifications({ ...context, now: new Date() }).catch(() => {
+        // Not written: forget what was asked for, so the next change (or
+        // coming to the front) asks again instead of matching it.
+        lastReminderSync.current = null;
+      });
     }),
   );
   // Bumped after applying widget taps so the widget is always rewritten from
@@ -1470,9 +1475,13 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // ended one is left as it is: it's gone off, and its buttons still work.
   // Never for the past (it's about to end: the app says it), nor past the
   // next midnight (the session clears then).
+  // "Hide task names in notifications" covers it too: its title is the
+  // task's words, so with the switch on it says "Time's up" instead (and a
+  // flip of the switch reschedules a running session's).
+  const hideFocusTaskName = state.notifications.hideTaskNames;
   const focusEndKey =
     focusSession && focusSession.status === "running" && focusSession.endAt !== null
-      ? `${focusSession.id}|${focusSession.endAt}|${focusSession.kind}|${notificationTitle(focusSession)}|${notificationBody(focusSession)}`
+      ? `${focusSession.id}|${focusSession.endAt}|${focusSession.kind}|${hideFocusTaskName ? "hidden" : "named"}|${notificationTitle(focusSession, hideFocusTaskName)}|${notificationBody(focusSession, hideFocusTaskName)}`
       : null;
   const focusStatus = focusSession?.status ?? null;
   // True at launch: the first pass reconciles, so a notification left from a
@@ -1481,6 +1490,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!ready) return;
     const session = stateRef.current.focusSession;
+    const hideName = stateRef.current.notifications.hideTaskNames;
     const endAt = focusEndKey ? (session?.endAt ?? null) : null;
     const now = Date.now();
     const midnight = new Date(now);
@@ -1494,8 +1504,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         taskId: session.taskId,
         kind: session.kind,
         at: new Date(endAt),
-        title: notificationTitle(session),
-        body: notificationBody(session),
+        title: notificationTitle(session, hideName),
+        body: notificationBody(session, hideName),
       });
       return;
     }
@@ -1660,7 +1670,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       settings: state.notifications,
       permissionState: notificationPermission,
       // In Today's order: the first one still open is "next".
-      tasks: state.tasks.map((task) => ({ text: task.text, done: done.has(task.id) })),
+      tasks: state.tasks.map((task) => ({ id: task.id, text: task.text, done: done.has(task.id) })),
       locked: state.todayLocked,
       yesterdayOpen: yesterdayOpenTexts({ pendingRollover: state.pendingRollover }, today),
       draft: notificationDraft,

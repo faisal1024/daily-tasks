@@ -269,6 +269,39 @@ public enum FocusGroup {
     defaults?.set(text, forKey: snapshotKey)
   }
 
+  /// The app's reminders (lib/daily-tasks/reminders.ts): their ids are
+  /// "daily-tasks:<yyyy-MM-dd>:<kind>:<HHmm>".
+  static let reminderPrefix = "daily-tasks:"
+
+  /// A tick made here (the widget, the Live Activity's Done) isn't known to
+  /// the app until it next opens, so the reminders it scheduled would still
+  /// arrive. When that tick was the last open task, they go: the rest of
+  /// today's, and tomorrow morning's (written from what was open today). The
+  /// app schedules them afresh when it next opens. Does nothing while a task
+  /// is still open, or if the snapshot isn't today's. Call outside `withLock`.
+  static func clearRemindersIfAllDone(now: Date = Date()) async {
+    let today = todayKey(now)
+    guard let raw = defaults?.string(forKey: snapshotKey), let data = raw.data(using: .utf8),
+      let snapshot = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+      snapshot["date"] as? String == today, let tasks = snapshot["tasks"] as? [[String: Any]],
+      !tasks.isEmpty, !tasks.contains(where: { ($0["done"] as? Bool) != true })
+    else { return }
+    let todayPrefix = "\(reminderPrefix)\(today):"
+    var tomorrowMorningPrefix: String? = nil
+    if let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: now) {
+      tomorrowMorningPrefix = "\(reminderPrefix)\(todayKey(tomorrow)):morning:"
+    }
+    let center = UNUserNotificationCenter.current()
+    let pending = await center.pendingNotificationRequests()
+    let ids = pending.map { $0.identifier }.filter { id in
+      if id.hasPrefix(todayPrefix) { return true }
+      if let prefix = tomorrowMorningPrefix { return id.hasPrefix(prefix) }
+      return false
+    }
+    guard !ids.isEmpty else { return }
+    center.removePendingNotificationRequests(withIdentifiers: ids)
+  }
+
   /// "Start my next task" (Siri, the widget): picked up by the app when it
   /// opens. `kind` is "timer" or "starter"; `source` is "siri" or "widget".
   /// Returns its id, which the deep link carries too (the app acts on it once).
@@ -487,6 +520,8 @@ public enum FocusActions {
       FocusGroup.defaults?.removeObject(forKey: FocusGroup.heldNotificationKey)
       FocusGroup.defaults?.removeObject(forKey: FocusGroup.heldNotificationSessionKey)
     }
+    // That may have been the last open task: no reminders about a finished day.
+    await FocusGroup.clearRemindersIfAllDone()
     await end(sessionId: sessionId, finalStatus: "done", dismissAfter: finalDismissSeconds)
     FocusGroup.reloadWidget()
   }

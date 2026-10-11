@@ -1,7 +1,8 @@
-import { toDateKey } from "./date";
+import { addDays, toDateKey } from "./date";
 import {
   buildReminderCopy,
   GENERIC_REMINDER_COPY,
+  reminderTaskName,
   type ReminderCopy,
   type ReminderKind,
   type ReminderTask,
@@ -30,7 +31,10 @@ export const REMINDER_HOURS = {
  * general wording.
  */
 export interface ReminderCopyContext {
-  /** The store's day these tasks belong to (yyyy-MM-dd). */
+  /**
+   * The day these tasks belong to (yyyy-MM-dd). Usually the clock's day; a
+   * day ahead of it after flying west (see planUpcomingMornings).
+   */
   dayKey: string;
   /** That day's tasks, in Today's order. */
   tasks: ReminderTask[];
@@ -64,9 +68,12 @@ function hasDraftFor(dayKey: string, draft: TomorrowDraft | null | undefined): d
  */
 export function morningCopy(dayKey: string, draft: TomorrowDraft | null | undefined): ReminderCopy {
   if (!hasDraftFor(dayKey, draft)) return REMINDER_COPY.morning;
+  // Made safe like any task name: one line each, no control characters, capped.
+  const names = draft.tasks.map((text) => reminderTaskName(text)).filter((name) => name.length > 0);
+  if (names.length === 0) return REMINDER_COPY.morning;
   const [y, m, d] = dayKey.split("-").map(Number);
   const weekday = new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "long" });
-  return { title: `Your three for ${weekday}`, body: draft.tasks.join(" · ") };
+  return { title: `Your three for ${weekday}`, body: names.join(" · ") };
 }
 
 /**
@@ -107,6 +114,8 @@ export interface PlannedReminder {
   at: Date;
   title: string;
   body: string;
+  /** The id of the one task the words name, if they name one (never its text). */
+  taskId?: string;
 }
 
 const REMINDER_COPY = GENERIC_REMINDER_COPY;
@@ -134,21 +143,23 @@ function candidateAt(base: Date, hour: number): Date {
   return at;
 }
 
-/** A reminder with its place in the kind's schedule for the day (see ReminderCopyInput.slotIndex). */
+/** A reminder with its place in the whole day's schedule (see ReminderCopyInput.slotIndex). */
 interface Candidate {
   reminder: PlannedReminder;
   slotIndex: number;
 }
 
+/** `firstSlot`: how many of the day's slots come before these (the kinds share one count). */
 function collectCandidates(
   now: Date,
   kind: ReminderKind,
   hours: number[],
+  firstSlot = 0,
 ): Candidate[] {
   const copy = REMINDER_COPY[kind];
 
   return hours
-    .map((hour, slotIndex) => ({ at: candidateAt(now, hour), slotIndex }))
+    .map((hour, index) => ({ at: candidateAt(now, hour), slotIndex: firstSlot + index }))
     .filter(({ at }) => at.getTime() > now.getTime())
     .map(({ at, slotIndex }) => ({
       slotIndex,
@@ -227,6 +238,8 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
         yesterdayOpen: copy.yesterdayOpen,
         hideNames: copy.hideNames,
         certain: reminder.at.getTime() === firstAt,
+        // "Every hour" runs its progress reminders into the evening.
+        evening: reminder.kind === "evening" || reminder.at.getHours() >= REMINDER_HOURS.eveningStart,
       });
       return words ? { ...reminder, ...words } : reminder;
     });
@@ -245,19 +258,12 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
   }
 
   const reminders: Candidate[] = [];
+  const progressHours = settings.progress
+    ? range(REMINDER_HOURS.progressStart, REMINDER_HOURS.progressEnd, REMINDER_HOURS.progressStep)
+    : [];
 
   if (settings.progress) {
-    reminders.push(
-      ...collectCandidates(
-        now,
-        "progress",
-        range(
-          REMINDER_HOURS.progressStart,
-          REMINDER_HOURS.progressEnd,
-          REMINDER_HOURS.progressStep,
-        ),
-      ),
-    );
+    reminders.push(...collectCandidates(now, "progress", progressHours));
   }
 
   if (settings.evening) {
@@ -266,6 +272,9 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
         now,
         "evening",
         range(REMINDER_HOURS.eveningStart, REMINDER_HOURS.eveningEnd, 1),
+        // The evening's slots count on from the afternoon's, so 16:00 and
+        // 17:00 are neighbours and never read the same.
+        progressHours.length,
       ),
     );
   }
@@ -282,9 +291,12 @@ export const UPCOMING_MORNING_DAYS = 6;
  * opened (exactly when a nudge matters) would get none. Rescheduled on every
  * sync, so opening the app replaces them with the day's real plan.
  *
- * Tomorrow's is written from what's still open today (1.4), so it's right
- * even if the app isn't opened first: "from yesterday" is relative to the
- * day it arrives. Days after that have nothing to go on and ask plainly.
+ * The morning after the tasks' day is written from what's still open on it
+ * (1.4), so it's right even if the app isn't opened first: "from yesterday"
+ * is relative to the day it arrives. Usually that is tomorrow. After flying
+ * west the tasks' day can be the clock's tomorrow: that morning is then
+ * written from the set tasks themselves, and the one after it from what's
+ * open. Other days have nothing to go on and ask plainly.
  */
 export function planUpcomingMornings(input: {
   now: Date;
@@ -292,42 +304,55 @@ export function planUpcomingMornings(input: {
   permissionState: NotificationPermissionState;
   days?: number;
   draft?: TomorrowDraft | null;
-  /** Today's tasks, for a tomorrow nudge that names what's still open (general wording without). */
+  /** The tasks and their day, for the nudges that name them (general wording without). */
   copy?: ReminderCopyContext | null;
 }): PlannedReminder[] {
   const { now, settings, permissionState, days = UPCOMING_MORNING_DAYS, draft, copy } = input;
   if (!settings.enabled || !settings.morning || !canScheduleReminders(permissionState)) return [];
-  // Only when the tasks' day is the clock's day is "tomorrow" the day after
-  // them (after flying west the store stays a day ahead for a while).
-  const stillOpenToday =
-    copy && copy.dayKey === toDateKey(now)
-      ? copy.tasks.filter((task) => !task.done).map((task) => task.text)
-      : [];
+  const stillOpen = copy ? copy.tasks.filter((task) => !task.done).map((task) => task.text) : [];
+  const dayAfterTasks = copy ? addDays(copy.dayKey, 1) : null;
   const out: PlannedReminder[] = [];
   for (let offset = 1; offset <= days; offset++) {
     // Calendar arithmetic (not +24h) so DST changes keep the local hour.
     const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+    const dayKey = toDateKey(day);
     const hour = isWeekend(day)
       ? REMINDER_HOURS.weekendMorningStart
       : REMINDER_HOURS.weekdayMorningStart;
     const at = candidateAt(day, hour);
-    const words = emptyDayMorningCopy({
-      dayKey: toDateKey(day),
-      slotIndex: 0,
-      draft,
-      copy,
-      // A new day starts open, whatever today's lock says.
-      locked: false,
-      yesterdayOpen: offset === 1 ? stillOpenToday : [],
-      // Written a day or more ahead.
-      certain: false,
-    });
+    let words: ReminderCopy | null;
+    if (copy && copy.dayKey === dayKey && copy.tasks.length > 0) {
+      // The tasks' own day, still ahead of the clock: its morning names
+      // them (written ahead, so no counts). Nothing if they're all done.
+      words = buildReminderCopy({
+        kind: "morning",
+        dayKey,
+        slotIndex: 0,
+        tasks: copy.tasks,
+        locked: copy.locked,
+        yesterdayOpen: [],
+        hideNames: copy.hideNames,
+        certain: false,
+      });
+    } else {
+      words = emptyDayMorningCopy({
+        dayKey,
+        slotIndex: 0,
+        draft,
+        copy,
+        // A new day starts open, whatever today's lock says.
+        locked: false,
+        yesterdayOpen: dayKey === dayAfterTasks ? stillOpen : [],
+        // Written a day or more ahead.
+        certain: false,
+      });
+    }
+    if (!words) continue;
     out.push({
+      ...words,
       identifier: buildReminderIdentifier("morning", at),
       kind: "morning",
       at,
-      title: words.title,
-      body: words.body,
     });
   }
   return out;
