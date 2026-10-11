@@ -177,7 +177,8 @@ const LINK_PATTERN =
   /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}|\b[a-z0-9-]+\.(?:com|net|org|io|co|app|me|ly|info|biz|xyz)\b/i;
 // Seven or more digits, allowing the usual separators ("555-123-4567", "+1 (555) 123 4567").
 const PHONE_PATTERN = /(?:\d[\s().-]{0,2}){7,}/;
-const HASHTAG_PATTERN = /(^|\s)#\w/;
+// A hashtag starts with a letter ("#2" is a number).
+const HASHTAG_PATTERN = /(^|\s)#[\p{L}_]/u;
 const EMOJI = /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic})*/gu;
 const EMOJI_PERSONAS = ["mom", "spouse"];
 
@@ -211,7 +212,7 @@ const NAG_BLOCKLIST = [
   "hate you", "hate u", "divorce\\w*", "leave you(?! alone| be| to it)", "leaving you(?! alone| be| to it)", "break up", "breakup", "cheat(?:s|ed|ing|er)?", "jealous\\w*",
   "disown\\w*", "don't love you", "do not love you", "stop loving you", "sleep on the couch",
   // Job and money.
-  "(?:get|gets|got|getting|be|been|you're|you are) fired", "unemployed", "jobless", "lose your job", "bankrupt\\w*",
+  "(?:get|gets|got|getting|be|been|you're|you are) fired(?! up)", "unemployed", "jobless", "lose your job", "bankrupt\\w*",
   "loans?", "debt", "stocks", "crypto",
   // Sexual content.
   "sex", "sexy", "sexual\\w*", "naked", "nude", "nudes", "horny", "porn\\w*", "kinky", "boobs?", "butt", "booty",

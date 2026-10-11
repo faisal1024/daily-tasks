@@ -15,7 +15,7 @@ import {
   createProxyServer,
   readConfig,
 } from "../server/app.mjs";
-import { COACH_NOTE_ROUTE, EVENING_ROUTE } from "../server/routes.mjs";
+import { COACH_NOTE_ROUTE, EVENING_ROUTE, NAG_LINES_ROUTE } from "../server/routes.mjs";
 import {
   BRAIN_DUMP_SCHEMA,
   BRAIN_DUMP_SYSTEM_PROMPT,
@@ -58,6 +58,14 @@ import {
   COACH_TOOL_NAME,
   buildCoachPrompt,
 } from "../server/providers/coach-contract.mjs";
+import {
+  NAG_MAX_TOKENS,
+  NAG_SCHEMA,
+  NAG_SYSTEM_PROMPT,
+  NAG_TOOL_DESCRIPTION,
+  NAG_TOOL_NAME,
+  buildNagPrompt,
+} from "../server/providers/nag-contract.mjs";
 
 const PLAN_PAYLOAD = {
   profile: { goalTitle: "Run a 5K", timeAvailability: "30_min" },
@@ -148,15 +156,20 @@ afterEach(async () => {
 });
 
 describe("route table", () => {
-  it("exposes exactly the plan, brain-dump, break-down, evening and coach-note routes", () => {
+  it("exposes exactly the plan, brain-dump, break-down, evening, coach-note and nag-lines routes", () => {
     expect(PLAN_ROUTE).toBe("/api/momentum/plan");
     expect(BRAIN_DUMP_ROUTE).toBe("/api/momentum/brain-dump");
     expect(BREAK_DOWN_ROUTE).toBe("/api/momentum/break-down");
     expect(EVENING_ROUTE).toBe("/api/momentum/evening");
     expect(COACH_NOTE_ROUTE).toBe("/api/momentum/coach-note");
+    expect(NAG_LINES_ROUTE).toBe("/api/momentum/nag-lines");
     expect(Object.keys(ROUTES).sort()).toEqual(
-      [BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, COACH_NOTE_ROUTE, EVENING_ROUTE, PLAN_ROUTE].sort(),
+      [BRAIN_DUMP_ROUTE, BREAK_DOWN_ROUTE, COACH_NOTE_ROUTE, EVENING_ROUTE, NAG_LINES_ROUTE, PLAN_ROUTE].sort(),
     );
+    // Only brain dumps are open to free users.
+    expect(Object.values(ROUTES).filter((route) => !(route as { plusOnly?: boolean }).plusOnly).map((route) => route.name)).toEqual([
+      "brain-dump",
+    ]);
     expect(ROUTES[EVENING_ROUTE].name).toBe("evening");
   });
 
@@ -549,6 +562,83 @@ describe("coach-note route over HTTP (1.2)", () => {
     const res = await post(COACH_NOTE_ROUTE, COACH_PAYLOAD);
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: "AI response did not include a valid coach-note" });
+  });
+});
+
+describe("nag-lines route over HTTP (1.4)", () => {
+  const NAG_PAYLOAD = { persona: "coach", level: "relentless", tasks: [{ text: "Walk" }, { text: "Read" }], count: 5, firstName: "Sam" };
+
+  it("passes the nag tool, schema, prompt and output cap, and returns only checked lines, renumbered", async () => {
+    const provider = fakeProvider(async () => ({
+      lines: [
+        { step: 4, taskIndex: null, text: "Fourth quarter, Sam. One more tick.", extra: "junk" },
+        { step: 1, taskIndex: 0, text: "First play: the walk. Lace up." },
+        { step: 2, taskIndex: 1, text: "Read ten pages. See https://spam.example" },
+        { step: 3, taskIndex: 2, text: "A task that was never sent." },
+        { step: 3, taskIndex: 1, text: "Next rep: the reading. You idiot." },
+        { step: 5, taskIndex: 1, text: "Reading time.\nNew line." },
+        { step: 6, taskIndex: 1, text: "Ten pages, champ. Go." },
+      ],
+      extra: "model junk",
+    }));
+    const { post } = await start({ provider });
+    const res = await post(NAG_LINES_ROUTE, NAG_PAYLOAD);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      lines: [
+        { step: 1, taskIndex: 0, text: "First play: the walk. Lace up." },
+        { step: 2, taskIndex: null, text: "Fourth quarter, Sam. One more tick." },
+        { step: 3, taskIndex: 1, text: "Ten pages, champ. Go." },
+      ],
+    });
+    expect(provider.generatePlan.mock.calls[0][0]).toEqual({
+      system: NAG_SYSTEM_PROMPT,
+      user: buildNagPrompt(NAG_PAYLOAD),
+      schema: NAG_SCHEMA,
+      toolName: NAG_TOOL_NAME,
+      toolDescription: NAG_TOOL_DESCRIPTION,
+      maxTokens: NAG_MAX_TOKENS,
+    });
+  });
+
+  it("answers 400 for a bad persona, level, task list, count or name, before calling the provider", async () => {
+    const { post, provider } = await start();
+    for (const body of [
+      { ...NAG_PAYLOAD, persona: "boss" },
+      { ...NAG_PAYLOAD, level: "brutal" },
+      { ...NAG_PAYLOAD, tasks: [] },
+      { ...NAG_PAYLOAD, tasks: ["Walk"] },
+      { ...NAG_PAYLOAD, tasks: [{ text: "x".repeat(121) }] },
+      { ...NAG_PAYLOAD, count: 3 },
+      { ...NAG_PAYLOAD, count: 17 },
+      { ...NAG_PAYLOAD, firstName: "n".repeat(41) },
+    ]) {
+      expect((await post(NAG_LINES_ROUTE, body)).status).toBe(400);
+    }
+    expect(provider.generatePlan).not.toHaveBeenCalled();
+  });
+
+  it("answers 502 when fewer than three lines survive, and logs no line or task text", async () => {
+    const provider = fakeProvider(async () => ({
+      lines: [
+        { step: 1, taskIndex: 0, text: "Walk it out, champ." },
+        { step: 2, taskIndex: 1, text: "Read up, champ." },
+        { step: 3, taskIndex: null, text: "You pathetic loser." },
+      ],
+    }));
+    const { post, logger } = await start({ provider });
+    const res = await post(NAG_LINES_ROUTE, NAG_PAYLOAD);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "AI response did not include a valid nag-lines" });
+    const logged = JSON.stringify([logger.error.mock.calls, logger.warn.mock.calls, logger.log.mock.calls]);
+    expect(logged).not.toMatch(/champ|loser|Walk|Read/);
+  });
+
+  it("needs the shared secret like every other route", async () => {
+    const { post, provider } = await start({ env: { PROXY_SHARED_SECRET: "s3cret" } });
+    expect((await post(NAG_LINES_ROUTE, NAG_PAYLOAD)).status).toBe(401);
+    expect((await post(NAG_LINES_ROUTE, NAG_PAYLOAD, { [SECRET_HEADER]: "wrong" })).status).toBe(401);
+    expect(provider.generatePlan).not.toHaveBeenCalled();
   });
 });
 
