@@ -15,6 +15,7 @@ import { toDateKey } from "./date";
 import { requestNagLines } from "./nag";
 import {
   applyAiNagLines,
+  isNagRecordStub,
   nagAiKey,
   nagDayNeedsPlan,
   nagDayWantsAi,
@@ -22,6 +23,7 @@ import {
   nagOpenTasks,
   nagPlanFromRecord,
   nagRecordApplies,
+  nagRecordStub,
   NAG_STORAGE_KEY,
   normalizeNagRecord,
   planNagDay,
@@ -51,15 +53,18 @@ async function saveNagRecord(record: NagDayRecord): Promise<boolean> {
   }
 }
 
-// Goes up each time the record is removed on purpose (clearNagRecord), so a
-// run that was already under way doesn't save it back.
+// Goes up each time the record is removed or emptied on purpose
+// (clearNagRecord, stubNagRecord), so a run that was queued or under way
+// before that doesn't save it back or ask the AI.
 let cleared = 0;
+// The emptying in progress, if any: a run waits for it, so its plan isn't
+// overwritten by a stub of the record from before.
+let stubbing: Promise<void> = Promise.resolve();
 
 /**
- * Removes the day's record (its lines can hold task text): when the style is
- * set back to Calm, and on "Reset all data". At once, not behind a run in
- * progress (a request for lines can take 20 seconds); that run saves nothing
- * more once this was called. Never throws.
+ * Removes the day's record entirely: on "Reset all data". At once, not
+ * behind a run in progress (a request for lines can take 20 seconds); that
+ * run saves nothing more once this was called. Never throws.
  */
 export async function clearNagRecord(): Promise<void> {
   cleared += 1;
@@ -68,6 +73,44 @@ export async function clearNagRecord(): Promise<void> {
   } catch {
     // Nothing to do: the next plan overwrites it.
   }
+}
+
+/**
+ * Takes every word out of the day's record (its lines can hold task text)
+ * when the style is set back to Calm, and keeps what the day needs if Nag
+ * is turned on again: which nags went off and when, and how many AI requests
+ * were made (nagRecordStub). So Calm and back to Nag doesn't start the day's
+ * count, the hour between nags or the two AI requests again. At once, like
+ * clearNagRecord; a run queued or under way saves nothing more. If the stub
+ * can't be saved the record is removed instead. Never throws.
+ */
+export function stubNagRecord(now: Date = new Date()): Promise<void> {
+  cleared += 1;
+  const epoch = cleared;
+  const run = (async () => {
+    try {
+      const raw = await AsyncStorage.getItem(NAG_STORAGE_KEY);
+      if (!raw || cleared !== epoch) return;
+      let record: NagDayRecord | null = null;
+      try {
+        record = normalizeNagRecord(JSON.parse(raw));
+      } catch {
+        record = null;
+      }
+      // Damaged: nothing worth keeping, and it may hold words.
+      if (!record) return void (await AsyncStorage.removeItem(NAG_STORAGE_KEY));
+      if (isNagRecordStub(record, now)) return;
+      try {
+        await AsyncStorage.setItem(NAG_STORAGE_KEY, JSON.stringify(nagRecordStub(record, now)));
+      } catch {
+        await AsyncStorage.removeItem(NAG_STORAGE_KEY);
+      }
+    } catch {
+      // Storage is failing: nothing more to do here.
+    }
+  })();
+  stubbing = run;
+  return run;
 }
 
 function newSalt(): string {
@@ -100,12 +143,22 @@ let queue: Promise<void> = Promise.resolve();
  * nothing when nothing changed. Never throws.
  */
 export function ensureNagDay(input: NagDayInput, deps: NagDayDeps = {}): Promise<void> {
-  const run = queue.then(() => runNagDay(input, deps)).catch(() => {});
+  // Taken now, not when the run starts: a run that waited behind another
+  // while the record was removed ("Reset all data") or emptied (back to
+  // Calm) was asked for before that, and must not save or send afterwards.
+  const epoch = cleared;
+  const run = queue
+    .then(() => stubbing)
+    .then(() => runNagDay(input, deps, epoch))
+    .catch(() => {});
   queue = run;
   return run;
 }
 
-async function runNagDay(input: NagDayInput, { request = requestNagLines, onChange }: NagDayDeps): Promise<void> {
+async function runNagDay(input: NagDayInput, { request = requestNagLines, onChange }: NagDayDeps, run: number): Promise<void> {
+  // "Reset all data" or back to Calm since this run was asked for, or while it waits on storage or the AI: nothing more is saved or sent.
+  const stopped = () => cleared !== run;
+  if (stopped()) return;
   const now = input.now ?? new Date();
   const { today, settings } = input;
   if (!nagModeOn(settings, input.plus, input.permissionState)) return;
@@ -113,9 +166,6 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
   const open = nagOpenTasks(input.tasks);
   if (open.length === 0) return;
 
-  const run = cleared;
-  // "Reset all data" or back to Calm while this run was waiting on storage or the AI: nothing more is saved.
-  const stopped = () => cleared !== run;
   const previous = await loadNagRecord();
   if (stopped()) return;
   let record = previous;

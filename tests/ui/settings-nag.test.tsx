@@ -276,6 +276,47 @@ describe("Settings: Reminder style", () => {
 });
 
 describe("Settings: with Nag on", () => {
+  it("under the Level chips a line says about how many nags a day the chosen level means", async () => {
+    await renderSettings(NAG_ON);
+    const note = () => screen.getByTestId("settings-nag-level-count");
+    expect(note()).toHaveTextContent("About 7 a day");
+    await fireEvent.press(level("Gentle"));
+    await waitFor(() => expect(note()).toHaveTextContent("About 4 a day"));
+    await fireEvent.press(level("Relentless"));
+    await waitFor(() => expect(note()).toHaveTextContent("About 11 a day"));
+    await fireEvent.press(level("Firm"));
+    await waitFor(() => expect(note()).toHaveTextContent("About 7 a day"));
+  });
+
+  it("Nag chosen but notifications denied in iOS: a line says no nags arrive", async () => {
+    mocked.getPermissionsAsync.mockImplementation(async () => ({ status: "denied", granted: false, canAskAgain: false }) as never);
+    await renderSettings(NAG_ON);
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-nag-permission-denied")).toHaveTextContent("Notifications are off in System Settings, so no nags arrive."),
+    );
+    // Nag still shows as the choice, with its controls.
+    expect(checked("Nag")).toBe(true);
+    expect(nagCard()).not.toBeNull();
+  });
+
+  it("the denied line is only for Nag in use with permission denied: not when allowed, not in Calm, not for a saved Nag without Plus", async () => {
+    const allowed = await renderSettings(NAG_ON);
+    expect(screen.queryByTestId("settings-nag-permission-denied")).toBeNull();
+    allowed.unmount();
+
+    mocked.getPermissionsAsync.mockImplementation(async () => ({ status: "denied", granted: false, canAskAgain: false }) as never);
+    const calm = await renderSettings();
+    // The permission has been read: the reminders card says so.
+    await waitFor(() => expect(screen.getByText("Blocked at the system level. You can turn them back on in Settings.")).toBeOnTheScreen());
+    expect(screen.queryByTestId("settings-nag-permission-denied")).toBeNull();
+    calm.unmount();
+
+    mockPlus = { ...FREE };
+    await renderSettings(NAG_ON);
+    expect(checked("Calm")).toBe(true);
+    expect(screen.queryByTestId("settings-nag-permission-denied")).toBeNull();
+  });
+
   it("the voice and the level are radio groups that save the choice", async () => {
     await renderSettings(NAG_ON);
     for (const [group, names] of [

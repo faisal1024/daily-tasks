@@ -113,6 +113,19 @@ function listenToAppState() {
 
 const wrapper = ({ children }: { children: ReactNode }) => <DailyTasksProvider>{children}</DailyTasksProvider>;
 const settle = () => act(async () => new Promise<void>((resolve) => setTimeout(resolve, REMINDER_SYNC_DEBOUNCE_MS + 300)));
+/**
+ * Waits for something the app does a moment later (a debounced sync, the
+ * day's record, the AI's answer), however long the machine takes: the check
+ * is tried again until it holds, so a slow runner only makes it slower. The
+ * sleeps (settle) are for what must NOT happen, and for pacing.
+ */
+const eventually = (check: () => void | Promise<void>) => waitFor(check, { timeout: 20_000, interval: 50 });
+/** The day's seven nags are pending with the AI's words. */
+const aiNagsPending = (count = 7) =>
+  eventually(() => {
+    expect(ofKind("nag")).toHaveLength(count);
+    expect(ofKind("nag").every((item) => /^AI \d+: /.test(item.content.body))).toBe(true);
+  });
 
 /** What the proxy answers with: "ok" (lines naming the tasks), or a failure. */
 let proxyMode: "ok" | "offline" | "402";
@@ -187,10 +200,12 @@ describe("calm (the default)", () => {
   it("is unchanged: the task-aware reminders, no nags, nothing sent anywhere", async () => {
     const { result } = await openApp({});
     expect(result.current.state.notifications.style).toBe("calm");
+    await eventually(() => {
+      expect(ofKind("progress")).toHaveLength(4);
+      expect(ofKind("evening")).toHaveLength(6);
+      expect(ofKind("morning")).toHaveLength(6);
+    });
     expect(ofKind("nag")).toEqual([]);
-    expect(ofKind("progress")).toHaveLength(4);
-    expect(ofKind("evening")).toHaveLength(6);
-    expect(ofKind("morning")).toHaveLength(6);
     expect(networkFetch).not.toHaveBeenCalled();
     expect(await loadNagRecord()).toBeNull();
   });
@@ -199,9 +214,11 @@ describe("calm (the default)", () => {
     mockPlus = { ...FREE };
     const { result } = await openApp(NAG_ON);
     expect(result.current.state.notifications.style).toBe("nag");
+    await eventually(() => {
+      expect(ofKind("progress")).toHaveLength(4);
+      expect(ofKind("evening")).toHaveLength(6);
+    });
     expect(ofKind("nag")).toEqual([]);
-    expect(ofKind("progress")).toHaveLength(4);
-    expect(ofKind("evening")).toHaveLength(6);
     expect(networkFetch).not.toHaveBeenCalled();
     expect(await loadNagRecord()).toBeNull();
   });
@@ -210,9 +227,12 @@ describe("calm (the default)", () => {
 describe("nag mode", () => {
   it("the mornings stay, the calm daytime and evening nudges are gone, and the day's nags are pending", async () => {
     await openApp(NAG_ON);
-    expect(ofKind("progress")).toEqual([]);
-    expect(ofKind("evening")).toEqual([]);
-    expect(ofKind("morning")).toHaveLength(6);
+    await aiNagsPending();
+    await eventually(() => {
+      expect(ofKind("progress")).toEqual([]);
+      expect(ofKind("evening")).toEqual([]);
+      expect(ofKind("morning")).toHaveLength(6);
+    });
     expect(ofKind("morning").every((item) => !item.identifier.startsWith(`daily-tasks:${D}:`))).toBe(true);
 
     const nags = ofKind("nag");
@@ -240,7 +260,7 @@ describe("nag mode", () => {
   it("one request for the day, with the open tasks and nothing else of the user's", async () => {
     // A name is saved: it must not be sent.
     await openApp(NAG_ON, { todayCompletions: ["t2"], momentumProfile: { ...buildInitialState().momentumProfile, name: "Sam" } });
-    expect(nagRequests()).toHaveLength(1);
+    await eventually(() => expect(nagRequests()).toHaveLength(1));
     expect(networkFetch).toHaveBeenCalledTimes(1);
     const [url, init] = nagRequests()[0] as [string, RequestInit];
     expect(url).toBe("https://proxy.test/api/momentum/nag-lines");
@@ -254,6 +274,8 @@ describe("nag mode", () => {
 
   it("a sync with nothing changed writes nothing: coming to the front, again and again", async () => {
     await openApp(NAG_ON);
+    await aiNagsPending();
+    await settle();
     const before = snapshot();
     clearWrites();
     for (const minute of [5, 20, 40]) {
@@ -269,74 +291,110 @@ describe("nag mode", () => {
 
   it("a ticked task: its nags are pointed at an open one, at the same times; all ticked: no nags", async () => {
     const { result } = await openApp(NAG_ON);
+    await aiNagsPending();
     const times = () => ofKind("nag").map((item) => [item.identifier, item.at.getTime()]);
     const before = times();
     await act(async () => result.current.toggleTask("t0"));
-    await settle();
-    expect(times()).toEqual(before);
-    expect(JSON.stringify(ofKind("nag").map((item) => item.content))).not.toMatch(/dentist/i);
-    expect(ofKind("nag").some((item) => item.content.data?.taskId === "t0")).toBe(false);
+    await eventually(() => {
+      expect(JSON.stringify(ofKind("nag").map((item) => item.content))).not.toMatch(/dentist/i);
+      expect(ofKind("nag").some((item) => item.content.data?.taskId === "t0")).toBe(false);
+      expect(times()).toEqual(before);
+    });
+    // No two of the day's nags say the same thing, also with the lines put in for the ticked task.
+    const bodies = ofKind("nag").map((item) => item.content.body);
+    expect(new Set(bodies).size).toBe(bodies.length);
     // The lines weren't asked for again.
     expect(networkFetch).toHaveBeenCalledTimes(1);
 
     await act(async () => result.current.toggleTask("t1"));
     await act(async () => result.current.toggleTask("t2"));
-    await settle();
-    expect(ofKind("nag")).toEqual([]);
-    expect(owned().every((item) => kindOf(item) === "morning")).toBe(true);
+    await eventually(() => {
+      expect(ofKind("nag")).toEqual([]);
+      expect(owned().every((item) => kindOf(item) === "morning")).toBe(true);
+    });
   });
 
   it("'Stop nagging me today' clears today's nags and brings no calm nudges; Resume brings the same nags back", async () => {
     const { result } = await openApp(NAG_ON);
+    await aiNagsPending();
     const before = snapshot();
     await act(async () => result.current.pauseNagToday());
-    await settle();
     expect(result.current.state.notifications.nagPausedDate).toBe(D);
+    await eventually(() => expect(ofKind("nag")).toEqual([]));
+    await settle();
     expect(ofKind("nag")).toEqual([]);
     expect(ofKind("progress")).toEqual([]);
     expect(ofKind("evening")).toEqual([]);
     expect(ofKind("morning")).toHaveLength(6);
     await act(async () => result.current.resumeNag());
-    await settle();
-    expect(snapshot()).toBe(before);
+    await eventually(() => expect(snapshot()).toBe(before));
     expect(networkFetch).toHaveBeenCalledTimes(1);
   });
 
   it("each nag setting rewrites the reminders: persona, level, window, pause, style", async () => {
     const { result } = await openApp(NAG_ON);
-    const changed = async (change: () => void) => {
+    await aiNagsPending();
+    /** Makes the change, then waits for the reminders to be what `then` says (and to have been written again). */
+    const changed = async (change: () => void, then: () => void) => {
       const before = snapshot();
       clearWrites();
       await act(async () => change());
+      await eventually(() => {
+        expect(writes()).toBeGreaterThan(0);
+        expect(snapshot()).not.toBe(before);
+        then();
+      });
+      // Let a second write that is still on its way (the AI's lines) land before the next change.
       await settle();
       await settle();
-      expect(writes()).toBeGreaterThan(0);
-      expect(snapshot()).not.toBe(before);
+      then();
     };
-    await changed(() => result.current.setNagPersona("drill"));
-    expect(ofKind("nag").every((item) => item.content.title === "Three Today · Drill sergeant")).toBe(true);
-    expect(ofKind("nag")).toHaveLength(7);
+    await changed(
+      () => result.current.setNagPersona("drill"),
+      () => {
+        expect(ofKind("nag").every((item) => item.content.title === "Three Today · Drill sergeant")).toBe(true);
+        expect(ofKind("nag")).toHaveLength(7);
+      },
+    );
 
-    await changed(() => result.current.setNagLevel("relentless"));
-    expect(ofKind("nag")).toHaveLength(11);
+    await changed(
+      () => result.current.setNagLevel("relentless"),
+      () => expect(ofKind("nag")).toHaveLength(11),
+    );
 
-    await changed(() => result.current.setNagWindowEdge("end", 15 * 60));
-    expect(ofKind("nag").length).toBeGreaterThan(0);
-    expect(ofKind("nag").every((item) => item.at.getTime() <= new Date(2026, 9, 12, 15).getTime())).toBe(true);
+    await changed(
+      () => result.current.setNagWindowEdge("end", 15 * 60),
+      () => {
+        expect(ofKind("nag").length).toBeGreaterThan(0);
+        expect(ofKind("nag").every((item) => item.at.getTime() <= new Date(2026, 9, 12, 15).getTime())).toBe(true);
+      },
+    );
 
-    await changed(() => result.current.pauseNagToday());
-    expect(ofKind("nag")).toEqual([]);
-    await changed(() => result.current.resumeNag());
-    expect(ofKind("nag").length).toBeGreaterThan(0);
+    await changed(
+      () => result.current.pauseNagToday(),
+      () => expect(ofKind("nag")).toEqual([]),
+    );
+    await changed(
+      () => result.current.resumeNag(),
+      () => expect(ofKind("nag").length).toBeGreaterThan(0),
+    );
 
-    await changed(() => result.current.setReminderStyle("calm"));
-    expect(ofKind("nag")).toEqual([]);
-    expect(ofKind("progress")).toHaveLength(4);
-    expect(ofKind("evening")).toHaveLength(6);
+    await changed(
+      () => result.current.setReminderStyle("calm"),
+      () => {
+        expect(ofKind("nag")).toEqual([]);
+        expect(ofKind("progress")).toHaveLength(4);
+        expect(ofKind("evening")).toHaveLength(6);
+      },
+    );
     // Two requests today at most, whatever was changed.
     expect(nagRequests().length).toBeLessThanOrEqual(2);
     // Every nag was at least an hour from the next at every step (the last state, checked here).
-    await changed(() => result.current.setReminderStyle("nag"));
+    await changed(
+      () => result.current.setReminderStyle("nag"),
+      () => expect(ofKind("nag").length).toBeGreaterThan(0),
+    );
+    expect(nagRequests().length).toBeLessThanOrEqual(2);
     const nags = ofKind("nag");
     for (let index = 1; index < nags.length; index += 1) {
       expect(nags[index].at.getTime() - nags[index - 1].at.getTime()).toBeGreaterThanOrEqual(3_600_000);
@@ -345,23 +403,24 @@ describe("nag mode", () => {
 
   it("leaving Plus stops the nags at the next sync, and the calm reminders are back", async () => {
     const hook = await openApp(NAG_ON);
-    expect(ofKind("nag")).toHaveLength(7);
+    await eventually(() => expect(ofKind("nag")).toHaveLength(7));
     mockPlus = { ...FREE };
     await hook.rerender({});
-    await settle();
-    expect(ofKind("nag")).toEqual([]);
-    expect(ofKind("progress")).toHaveLength(4);
-    expect(ofKind("evening")).toHaveLength(6);
+    await eventually(() => {
+      expect(ofKind("nag")).toEqual([]);
+      expect(ofKind("progress")).toHaveLength(4);
+      expect(ofKind("evening")).toHaveLength(6);
+    });
     expect(hook.result.current.state.notifications.style).toBe("nag");
   });
 
   it.each(["offline", "402"] as const)("the proxy %s: built-in lines, still seven nags, and it isn't asked again today", async (mode) => {
     proxyMode = mode;
     await openApp(NAG_ON);
+    await eventually(() => expect(ofKind("nag")).toHaveLength(7));
+    await eventually(async () => expect(await loadNagRecord()).toMatchObject({ source: "local", aiCalls: 1 }));
     const nags = ofKind("nag");
-    expect(nags).toHaveLength(7);
     expect(nags.every((item) => item.content.title === "Three Today · Mom" && item.content.body.length > 0 && !item.content.body.startsWith("AI "))).toBe(true);
-    expect(await loadNagRecord()).toMatchObject({ source: "local", aiCalls: 1 });
     await act(async () => appState.emit("background"));
     jest.setSystemTime(new Date(2026, 9, 12, 8, 30));
     await act(async () => appState.emit("active"));
@@ -371,26 +430,30 @@ describe("nag mode", () => {
 
   it("with task names hidden: nothing is sent, and no nag names a task", async () => {
     await openApp({ ...NAG_ON, hideTaskNames: true });
+    await eventually(() => expect(ofKind("nag").length).toBeGreaterThanOrEqual(3));
     expect(networkFetch).not.toHaveBeenCalled();
     const nags = ofKind("nag");
-    expect(nags.length).toBeGreaterThanOrEqual(3);
     expect(JSON.stringify(owned().map((item) => item.content))).not.toMatch(TASK_WORDS);
     expect(nags.every((item) => item.content.data?.taskId === undefined)).toBe(true);
   });
 
   it("names hidden after the nags were written: the pending ones are rewritten without task text, and nothing more is sent", async () => {
     const { result } = await openApp(NAG_ON);
+    await aiNagsPending();
     expect(JSON.stringify(ofKind("nag").map((item) => item.content))).toMatch(TASK_WORDS);
     await act(async () => result.current.setHideTaskNamesInNotifications(true));
+    await eventually(() => {
+      expect(ofKind("nag").length).toBeGreaterThanOrEqual(3);
+      expect(JSON.stringify(owned().map((item) => item.content))).not.toMatch(TASK_WORDS);
+    });
     await settle();
-    await settle();
-    expect(ofKind("nag").length).toBeGreaterThanOrEqual(3);
     expect(JSON.stringify(owned().map((item) => item.content))).not.toMatch(TASK_WORDS);
     expect(networkFetch).toHaveBeenCalledTimes(1);
   });
 
   it("the next day gets a new record and its own nags; yesterday's are gone", async () => {
     const hook = await openApp(NAG_ON);
+    await eventually(async () => expect(await loadNagRecord()).toMatchObject({ dayKey: D, aiCalls: 1 }));
     const monday = await loadNagRecord();
     await act(async () => appState.emit("background"));
     jest.setSystemTime(new Date(2026, 9, 13, 8, 0));
@@ -399,14 +462,13 @@ describe("nag mode", () => {
     // Monday's three are carried into Tuesday so there is something to nag about.
     const rollover = hook.result.current.state.pendingRollover;
     if (rollover) await act(async () => hook.result.current.resolveRollover(rollover.tasks.map((task) => task.id)));
-    await settle();
-    await settle();
+    await eventually(async () => expect(await loadNagRecord()).toMatchObject({ dayKey: "2026-10-13", aiCalls: 1 }));
     const tuesday = await loadNagRecord();
-    expect(tuesday?.dayKey).toBe("2026-10-13");
     expect(tuesday?.salt).toBe(monday?.salt);
-    expect(tuesday?.aiCalls).toBe(1);
-    expect(ofKind("nag").length).toBeGreaterThan(0);
-    expect(ofKind("nag").every((item) => item.identifier.startsWith("daily-tasks:2026-10-13:nag:"))).toBe(true);
+    await eventually(() => {
+      expect(ofKind("nag").length).toBeGreaterThan(0);
+      expect(ofKind("nag").every((item) => item.identifier.startsWith("daily-tasks:2026-10-13:nag:"))).toBe(true);
+    });
     expect(nagRequests()).toHaveLength(2);
   });
 });
@@ -429,7 +491,7 @@ describe("where task text goes", () => {
     await act(async () => flush());
 
     // The network: nag-lines only, twice at most.
-    expect(networkFetch.mock.calls.length).toBeGreaterThanOrEqual(1);
+    await eventually(() => expect(networkFetch.mock.calls.length).toBeGreaterThanOrEqual(1));
     expect(networkFetch.mock.calls.length).toBeLessThanOrEqual(2);
     for (const [url] of networkFetch.mock.calls) expect(String(url)).toBe("https://proxy.test/api/momentum/nag-lines");
 

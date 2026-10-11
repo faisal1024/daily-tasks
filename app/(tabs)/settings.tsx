@@ -41,7 +41,9 @@ import {
   NAG_LEVELS,
   NAG_PERSONA_LABELS,
   NAG_PERSONAS,
+  type NagLevel,
 } from "@/lib/daily-tasks/nag";
+import { NAG_LEVEL_COUNTS } from "@/lib/daily-tasks/nag-plan";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { announcePolitely } from "@/lib/daily-tasks/announce";
@@ -93,6 +95,14 @@ const NAG_CONFIRM_MESSAGE =
 const NAG_HIDDEN_NAMES_NOTE = "With task names hidden, nags won't name your tasks and nothing is sent to our AI service.";
 /** One line under the reminder switches while Nag is on (the three it replaces are disabled). */
 const NAG_CALM_SWITCHES_NOTE = "Morning reminders still apply. The other calm nudges are paused while Nag is on.";
+/** Under the Level chips: how many nags a day the chosen level means. */
+const NAG_LEVEL_COUNT_NOTE: Record<NagLevel, string> = {
+  gentle: `About ${NAG_LEVEL_COUNTS.gentle} a day`,
+  firm: `About ${NAG_LEVEL_COUNTS.firm} a day`,
+  relentless: `About ${NAG_LEVEL_COUNTS.relentless} a day`,
+};
+/** Nag is the style in use but iOS won't deliver anything. */
+const NAG_PERMISSION_DENIED_NOTE = "Notifications are off in System Settings, so no nags arrive.";
 /** What VoiceOver says of a switch Nag has paused (the visible line is NAG_CALM_SWITCHES_NOTE). */
 const NAG_SWITCH_PAUSED_HINT = "Paused while Nag is on.";
 
@@ -974,6 +984,11 @@ export default function SettingsScreen() {
                 Notifications are off, so no nags arrive.
               </Text>
             ) : null}
+            {nagActive && notificationPermission === "denied" ? (
+              <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-permission-denied">
+                {NAG_PERMISSION_DENIED_NOTE}
+              </Text>
+            ) : null}
           </View>
 
           {nagActive ? (
@@ -997,6 +1012,9 @@ export default function SettingsScreen() {
                   onChange={setNagLevel}
                   options={NAG_LEVELS.map((level) => ({ value: level, label: NAG_LEVEL_LABELS[level] }))}
                 />
+                <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-level-count">
+                  {NAG_LEVEL_COUNT_NOTE[nagLevel]}
+                </Text>
               </View>
               <View className="gap-1">
                 <Text className="text-sm font-semibold text-foreground">Sample</Text>

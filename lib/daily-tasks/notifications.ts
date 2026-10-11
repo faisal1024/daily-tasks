@@ -389,9 +389,22 @@ function queueFocus(step: () => Promise<void>): Promise<void> {
 // then writing the set plus its own. Two calls in flight both read the old
 // set and the later write drops the earlier one's categories, so every
 // category registration goes through this one queue, one at a time.
+//
+// A native call that never settles must not hold up what waits behind it
+// (the focus timer's end notification waits for its buttons): each turn in
+// the queue is given up on after CATEGORY_CALL_TIMEOUT_MS, and the timeout
+// resolves, so the notification is still scheduled, without its buttons at
+// worst.
+export const CATEGORY_CALL_TIMEOUT_MS = 4_000;
 let categoryQueue: Promise<void> = Promise.resolve();
 function inCategoryQueue(work: () => Promise<void>): Promise<void> {
-  const run = categoryQueue.then(work);
+  const run = categoryQueue.then(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, CATEGORY_CALL_TIMEOUT_MS);
+    });
+    return Promise.race([work(), timeout]).finally(() => clearTimeout(timer));
+  });
   categoryQueue = run.catch(() => {});
   return run;
 }

@@ -69,15 +69,37 @@ const LINK_PATTERN = /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
 // Invisible format characters: zero-width spaces and joiners, left-to-right
 // and right-to-left marks, the bidi embeddings, overrides and isolates, the
 // word joiner and its neighbours, the byte order mark and the soft hyphen.
-// They can hide a word from a check or reverse how a line is drawn. A
-// zero-width joiner inside an emoji (a family, a flag with a rainbow) stays.
-const FORMAT = /[\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]|\u200D(?![\uD83C-\uD83E\u2600-\u27BF])/g;
+// They can hide a word from a check or reverse how a line is drawn.
+const FORMAT = /[\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g;
+// The zero-width non-joiner and joiner are part of how Persian and the Indic
+// scripts are written, so between two letters of those scripts they stay in
+// the text that is shown (Arabic to Sinhala, and the Arabic presentation
+// forms; plain ranges, so the pattern runs on every engine). A joiner inside
+// an emoji (a family, a flag with a rainbow) stays too. Anywhere else they
+// go, and the checks never see them (withoutJoiners).
+const JOINERS = /[\u200C\u200D]/g;
+const JOINED_SCRIPT = /[\u0600-\u0DFF\uFB50-\uFDFF\uFE70-\uFEFC]/;
+const EMOJI_START = /[\uD83C-\uD83E\u2600-\u27BF]/;
+
+function withoutStrayJoiners(value: string): string {
+  return value.replace(JOINERS, (joiner, at: number) => {
+    const before = value.charAt(at - 1);
+    const after = value.charAt(at + 1);
+    if (JOINED_SCRIPT.test(before) && JOINED_SCRIPT.test(after)) return joiner;
+    return joiner === "\u200D" && EMOJI_START.test(after) ? joiner : "";
+  });
+}
+
+/** `value` as the checks read it: no joiners at all, so one can't hide a link. */
+function withoutJoiners(value: string): string {
+  return value.replace(JOINERS, "");
+}
 
 const BIDI = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
 
 /** One line of text: invisible format characters go, control characters become spaces, one space between words. */
 function oneLine(value: string): string {
-  return value.replace(FORMAT, "").replace(CONTROL, " ").replace(/\s+/g, " ").trim();
+  return withoutStrayJoiners(value.replace(FORMAT, "")).replace(CONTROL, " ").replace(/\s+/g, " ").trim();
 }
 
 function cut(value: string, max: number): string {
@@ -110,7 +132,7 @@ export function parseNagResponse(data: unknown, { taskCount, count }: { taskCoun
     // A bidi override or isolate in a line is dropped with the line, as on the proxy.
     if (BIDI.test(rawText)) return;
     const text = oneLine(rawText);
-    if (!text || Array.from(text).length > MAX_NAG_LINE || LINK_PATTERN.test(text)) return;
+    if (!text || Array.from(text).length > MAX_NAG_LINE || LINK_PATTERN.test(withoutJoiners(text))) return;
     candidates.push({ step, position, taskIndex: taskIndex as number | null, text });
   });
   candidates.sort((a, b) => a.step - b.step || a.position - b.position);
@@ -119,7 +141,7 @@ export function parseNagResponse(data: unknown, { taskCount, count }: { taskCoun
   const lines: NagLine[] = [];
   for (const candidate of candidates) {
     if (lines.length >= limit) break;
-    const key = candidate.text.toLowerCase();
+    const key = withoutJoiners(candidate.text).toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     lines.push({ step: lines.length + 1, taskIndex: candidate.taskIndex, text: candidate.text });
@@ -302,7 +324,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
         "I taught you to tie your shoes. You can manage ten minutes on {task}.",
         "I've put {task} on the fridge. With a magnet. That's where we are now.",
         "I'll just sit here with my tea, thinking about {task}.",
-        "I've lost count of my messages. Your list is still open.",
+        "I've lost count of my reminders. Your list is still open.",
         "I've told the houseplants about your list. They're rooting for you.",
       ],
     },
@@ -363,7 +385,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
     early: [
       "Hey, champ. First play of the day: {task}.",
       "Warm-up's over. {task} is up. You've got this.",
-      "New day, fresh start. Pick one thing and go.",
+      "Fresh start. Pick one thing and go.",
       "Game plan's simple today. Start with {task}.",
       "Good to see you. Let's get a first point on the board.",
       "Lace up. {task} is a great place to start.",
@@ -449,7 +471,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
       ],
       firm: [
         "RECRUIT. {task}. Double time.",
-        "Hours later and {task} is STILL on my board.",
+        "{task} is STILL on my board, recruit. I checked.",
         "I did not polish these boots to watch a list sit there. MOVE.",
         "RECRUIT. The list. Double time.",
         "I have inspected that list again. It is STILL open.",
@@ -508,10 +530,13 @@ function shuffled<T>(items: readonly T[], random: () => number): T[] {
 /**
  * The task's name inside a built-in line: one clean line, quoted, 40
  * characters at most. Punctuation at its end is left off, so a line never
- * reads “Fix the bike!”. or “Why is the sink leaking?”, please.
+ * reads “Fix the bike!”. or “Why is the sink leaking?”, please. The full stop
+ * of an abbreviation that ends the name (“Email J.R.”) is kept.
  */
 export function nagTaskName(text: string): string {
   const clean = oneLine(text);
+  // "Call J.R." keeps its last full stop: it belongs to the initial.
+  if (/\b[A-Za-z]\.$/.test(clean)) return quoteTask(clean);
   return quoteTask(clean.replace(/[\s.,;:!?\u2026]+$/, "") || clean);
 }
 
@@ -520,6 +545,11 @@ export function nagTaskName(text: string): string {
  * date, so a day's reminders don't change between launches), a different mix
  * for another seed. Steps go early, mid, late in thirds; within a third the
  * mildest lines come first. Lines with {task} take the open tasks in turn.
+ *
+ * With a task to name, each third's lines name one, and a third with two or
+ * more nags keeps exactly one general line: 3 of a Gentle day's 4 name a
+ * task, 4 of Firm's 7 and 8 of Relentless's 11, and with two or three open
+ * tasks each gets its turn.
  *
  * No line is used twice. With a task to name every level has `count` lines
  * (up to MAX_NAG_COUNT). With no usable task (names hidden) only the general
@@ -555,16 +585,35 @@ export function builtInNagLines({
   const picked: string[] = [];
   STAGES.forEach((stage, stageIndex) => {
     const pools = nagPools(persona, level, stage).map((pool) => shuffled(pool.filter(usable), random));
-    let need = perStage[stageIndex];
-    // Hottest pool first, so the level shows; then the mildest goes first in
-    // the stage. A stage short of lines stays short: an opening line is never
-    // borrowed for the end of the day.
-    const byHeat = pools.map((pool) => {
-      const taken = pool.slice(0, need);
-      need -= taken.length;
-      return taken;
-    });
-    picked.push(...byHeat.reverse().flat());
+    const need = perStage[stageIndex];
+    // With a task to name, the stage's lines name one, except one general
+    // line in a stage of two or more (so a day isn't the task's name eleven
+    // times over). With none, every line is a general one.
+    const naming = open.length === 0 ? 0 : need - (need >= 2 ? 1 : 0);
+    const chosen = pools.map(() => new Set<string>());
+    // Hottest pool first, so the level shows. A stage short of lines stays
+    // short: an opening line is never borrowed for the end of the day.
+    const take = (wanted: number, fits: (template: string) => boolean): number => {
+      let left = wanted;
+      pools.forEach((pool, poolIndex) => {
+        for (const template of pool) {
+          if (left <= 0) return;
+          if (chosen[poolIndex].has(template) || !fits(template)) continue;
+          chosen[poolIndex].add(template);
+          left -= 1;
+        }
+      });
+      return wanted - left;
+    };
+    const named = take(naming, (template) => template.includes("{task}"));
+    const general = take(need - named, (template) => !template.includes("{task}"));
+    // A pool short of one kind is topped up with the other.
+    take(need - named - general, () => true);
+    // Then the mildest goes first in the stage, each pool in its drawn order.
+    pools
+      .map((pool, poolIndex) => pool.filter((template) => chosen[poolIndex].has(template)))
+      .reverse()
+      .forEach((taken) => picked.push(...taken));
   });
 
   let turn = open.length > 0 ? Math.floor(random() * open.length) : 0;

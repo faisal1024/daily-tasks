@@ -24,7 +24,7 @@ import {
   type FocusNotificationResponse,
 } from "./notifications";
 import { createDebounced, yesterdayOpenTexts, type ReminderContext } from "./reminder-plan";
-import { clearNagRecord, ensureNagDay, nagModeStrategy } from "./nag-day";
+import { clearNagRecord, ensureNagDay, nagModeStrategy, stubNagRecord } from "./nag-day";
 import type { NagLevel, NagPersona } from "./nag";
 import { adjustNagWindow, nagModeOn } from "./nag-plan";
 import {
@@ -1800,11 +1800,14 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // (once a day, once more if the tasks, persona or level change). When the
   // lines change the version goes up and the reminders are written again.
   const nagOn = nagModeOn(state.notifications, hasPlus, notificationPermission);
-  // Back to Calm: the day's record (lines that can name tasks) is removed. A
-  // saved Nag that is only waiting for Plus or permission keeps its record.
+  // Back to Calm: every word goes out of the day's record (its lines can name
+  // tasks). What stays is which nags went off and how many AI requests were
+  // made, so Nag turned on again the same day carries on rather than starting
+  // over. A saved Nag that is only waiting for Plus or permission keeps its
+  // record. "Reset all data" removes it entirely.
   const reminderStyle = state.notifications.style;
   useEffect(() => {
-    if (ready && reminderStyle === "calm") void clearNagRecord();
+    if (ready && reminderStyle === "calm") void stubNagRecord();
   }, [ready, reminderStyle]);
   useEffect(() => {
     if (!ready || !nagOn || !appActive) return;

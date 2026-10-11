@@ -201,8 +201,20 @@ describe("which line a nag says", () => {
     expect([1, 2, 3, 4].map((step) => lineForStep(lines(4), step, 4))).toEqual(["L1", "L2", "L3", "L4"]);
   });
 
-  it("more lines than nags (a day planned late): the last lines, so it ends on the pushiest", () => {
-    expect([1, 2].map((step) => lineForStep(lines(4), step, 2))).toEqual(["L3", "L4"]);
+  it("more lines than nags (a day planned late): the first nag opens, the last ends on the pushiest, the rest spread between", () => {
+    expect(lineForStep(lines(4), 1, 1)).toBe("L1");
+    expect([1, 2].map((step) => lineForStep(lines(4), step, 2))).toEqual(["L1", "L4"]);
+    expect([1, 2, 3].map((step) => lineForStep(lines(4), step, 3))).toEqual(["L1", "L3", "L4"]);
+    expect([1, 2, 3, 4, 5].map((step) => lineForStep(lines(7), step, 5))).toEqual(["L1", "L3", "L4", "L6", "L7"]);
+    // Never the same line for two nags.
+    for (let count = 1; count <= 16; count += 1) {
+      for (let total = 1; total <= count; total += 1) {
+        const picked = Array.from({ length: total }, (_unused, index) => lineForStep(lines(count), index + 1, total));
+        expect(new Set(picked).size, `${count} lines, ${total} nags`).toBe(total);
+        expect(picked[0]).toBe("L1");
+        if (total > 1) expect(picked[total - 1]).toBe(`L${count}`);
+      }
+    }
   });
 
   it("fewer lines than nags: spread over the day, each used once, the rest get none", () => {

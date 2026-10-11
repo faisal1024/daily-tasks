@@ -124,3 +124,56 @@ describe("notification categories are registered one at a time", () => {
     expectAll(mod);
   });
 });
+
+describe("a native category call that never settles", () => {
+  const session = { sessionId: "s1", taskId: "t0", kind: "timer" as const, title: "Walk", body: "Time's up. 5 more minutes, or mark it done?" };
+  const never = () => new Promise<null>(() => {});
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("doesn't hold up the focus timer's end notification: after 4 seconds it is scheduled anyway", async () => {
+    jest.useFakeTimers();
+    const mod = load();
+    expect(mod.CATEGORY_CALL_TIMEOUT_MS).toBe(4_000);
+    mocked.setNotificationCategoryAsync.mockImplementation(never as never);
+    let settled = false;
+    const scheduled = mod.scheduleFocusSessionNotification({ ...session, at: new Date(Date.now() + 60_000) }).then(() => {
+      settled = true;
+    });
+    await jest.advanceTimersByTimeAsync(mod.CATEGORY_CALL_TIMEOUT_MS - 1);
+    expect(mocked.setNotificationCategoryAsync).toHaveBeenCalledTimes(1);
+    expect(mocked.scheduleNotificationAsync).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    await scheduled;
+    expect(settled).toBe(true);
+    expect(mocked.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+    expect(mocked.scheduleNotificationAsync.mock.calls[0][0]).toMatchObject({ identifier: mod.FOCUS_TIMER_NOTIFICATION_ID, content: { title: "Walk" } });
+  });
+
+  it("the launch registration hanging too: each call in the queue is given up on after its own 4 seconds, and nothing rejects", async () => {
+    jest.useFakeTimers();
+    const mod = load();
+    mocked.setNotificationCategoryAsync.mockImplementation(never as never);
+    const launch = mod.registerNotificationCategories();
+    const scheduled = mod.scheduleFocusSessionNotification({ ...session, at: new Date(Date.now() + 60_000) });
+    await jest.advanceTimersByTimeAsync(2 * mod.CATEGORY_CALL_TIMEOUT_MS);
+    await expect(scheduled).resolves.toBeUndefined();
+    expect(mocked.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(mod.CATEGORY_CALL_TIMEOUT_MS);
+    await expect(launch).resolves.toBeUndefined();
+  });
+
+  it("a call that does settle is not cut short, and leaves no timer behind", async () => {
+    jest.useFakeTimers();
+    const mod = load();
+    mocked.setNotificationCategoryAsync.mockImplementation((async (id: string, actions: Action[]) => {
+      registered.set(id, actions);
+      return null;
+    }) as never);
+    await mod.registerNotificationCategories();
+    expectAll(mod);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});

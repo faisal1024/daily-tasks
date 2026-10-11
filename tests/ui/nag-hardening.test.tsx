@@ -146,6 +146,14 @@ function listenToAppState() {
 
 const wrapper = ({ children }: { children: ReactNode }) => <DailyTasksProvider>{children}</DailyTasksProvider>;
 const settle = () => act(async () => new Promise<void>((resolve) => setTimeout(resolve, REMINDER_SYNC_DEBOUNCE_MS + 150)));
+/**
+ * Waits for something the app does a moment later (a debounced sync, the
+ * day's record, the AI's answer), however long the machine takes: the check
+ * is tried again until it holds, so a slow runner only makes it slower. The
+ * sleeps (settle) are for what must NOT happen, and for pacing.
+ */
+const eventually = (check: () => void | Promise<void>) => waitFor(check, { timeout: 20_000, interval: 50 });
+const nagRecordRaw = () => AsyncStorage.getItem(NAG_STORAGE_KEY);
 
 let proxyMode: "ok" | "offline" | "402" | "junk";
 /** When set, the proxy's answer waits for it (a slow network). */
@@ -287,17 +295,17 @@ describe("privacy: when nothing may be sent", () => {
     expect(nagRequests()).toEqual([]);
     expect(networkFetch).not.toHaveBeenCalled();
     if (expected === "calm") {
+      await eventually(() => expect(ofKind("progress").length).toBeGreaterThan(0));
       expect(ofKind("nag")).toEqual([]);
-      expect(ofKind("progress").length).toBeGreaterThan(0);
       expect(await loadNagRecord()).toBeNull();
     } else if (expected === "mornings") {
-      expect(owned().length).toBeGreaterThan(0);
+      await eventually(() => expect(owned().length).toBeGreaterThan(0));
       expect(owned().every((item) => kindOf(item) === "morning")).toBe(true);
       expect(await loadNagRecord()).toBeNull();
     } else if (expected === "nags") {
-      expect(ofKind("nag").length).toBeGreaterThanOrEqual(3);
+      await eventually(() => expect(ofKind("nag").length).toBeGreaterThanOrEqual(3));
       expect(ofKind("nag").every((item) => !/^AI /.test(item.content.body))).toBe(true);
-      expect(await loadNagRecord()).toMatchObject({ source: "local", aiCalls: 0, aiFor: null, aiFetchedAt: null });
+      await eventually(async () => expect(await loadNagRecord()).toMatchObject({ source: "local", aiCalls: 0, aiFor: null, aiFetchedAt: null }));
     } else {
       expect(owned()).toEqual([]);
     }
@@ -319,7 +327,7 @@ describe("privacy: when nothing may be sent", () => {
     await act(async () => result.current.toggleTask("t1"));
     await act(async () => result.current.setNagPersona("spouse"));
     await comeBackAt(new Date(2026, 9, 12, 8, 30));
-    expect(everWritten.length).toBeGreaterThan(0);
+    await eventually(() => expect(everWritten.length).toBeGreaterThan(0));
     expect(JSON.stringify(everWritten.map((item) => [item.identifier, item.content]))).not.toMatch(TASK_WORDS);
     // A hidden nag points at no task either.
     expect(everWritten.filter((item) => kindOf(item) === "nag").every((item) => item.content.data?.taskId === undefined)).toBe(true);
@@ -329,23 +337,24 @@ describe("privacy: when nothing may be sent", () => {
 
   it("hiding names mid-day stops the sending for the rest of the day, also for a new task; showing them again may ask once more", async () => {
     const { result } = await openApp(NAG_ON);
-    expect(nagRequests()).toHaveLength(1);
+    await eventually(() => expect(nagRequests()).toHaveLength(1));
     await act(async () => result.current.setHideTaskNamesInNotifications(true));
     await settle();
     await settle();
     await act(async () => result.current.editTask("t0", "Drambo the kleptu"));
     await act(async () => result.current.setNagLevel("relentless"));
     await comeBackAt(new Date(2026, 9, 12, 8, 30));
+    await eventually(async () => expect(await loadNagRecord()).toMatchObject({ hideNames: true, source: "local", level: "relentless" }));
+    await eventually(() => {
+      expect(ofKind("nag").length).toBeGreaterThan(0);
+      expect(JSON.stringify(owned().map((item) => item.content))).not.toMatch(TASK_WORDS);
+    });
     expect(nagRequests()).toHaveLength(1);
-    expect(JSON.stringify(owned().map((item) => item.content))).not.toMatch(TASK_WORDS);
-    expect(await loadNagRecord()).toMatchObject({ hideNames: true, source: "local" });
     // The saved record's lines no longer hold the AI's words about the tasks.
     expect(JSON.stringify((await loadNagRecord())?.lines)).not.toMatch(TASK_WORDS);
 
     await act(async () => result.current.setHideTaskNamesInNotifications(false));
-    await settle();
-    await settle();
-    expect(nagRequests()).toHaveLength(2);
+    await eventually(() => expect(nagRequests()).toHaveLength(2));
     expect(JSON.parse(String((nagRequests()[1] as [string, RequestInit])[1].body)).tasks).toEqual([{ text: "Drambo the kleptu" }, { text: "Quandle a brispo" }, { text: "Fennock wuxley" }]);
     // Two a day, whatever happens next.
     await act(async () => result.current.editTask("t1", "Kleptu again"));
@@ -384,8 +393,9 @@ describe("privacy: analytics and logs", () => {
     await settle();
 
     // What the code hands to the analytics client, before the client's own allowlist: ids and counts already.
-    const handed = trackSpy.mock.calls.filter(([event]) => String(event).startsWith("nag_")) as unknown as [string, Record<string, unknown> | undefined][];
-    expect(handed.length).toBeGreaterThanOrEqual(4);
+    const nagHanded = () => trackSpy.mock.calls.filter(([event]) => String(event).startsWith("nag_")) as unknown as [string, Record<string, unknown> | undefined][];
+    await eventually(() => expect(nagHanded().length).toBeGreaterThanOrEqual(4));
+    const handed = nagHanded();
     for (const [event, props] of handed) {
       expect(Object.keys(props ?? {}).sort()).toEqual([...ALLOWED[event]].sort());
       for (const value of Object.values(props ?? {})) expect(String(value)).toMatch(/^[a-z0-9]{1,12}$/);
@@ -448,7 +458,7 @@ describe("privacy: analytics and logs", () => {
 
   it("'Reset all data' removes the day record (it can hold task text)", async () => {
     await openApp(NAG_ON);
-    expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toMatch(TASK_WORDS);
+    await eventually(async () => expect(await nagRecordRaw()).toMatch(TASK_WORDS));
     await clearState();
     expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
     expect(await loadNagRecord()).toBeNull();
@@ -462,8 +472,8 @@ describe("the day record goes when it is no longer wanted", () => {
       release = resolve;
     });
     const { result } = await openApp(NAG_ON);
-    expect(nagRequests()).toHaveLength(1);
-    expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toMatch(TASK_WORDS);
+    await eventually(() => expect(nagRequests()).toHaveLength(1));
+    await eventually(async () => expect(await nagRecordRaw()).toMatch(TASK_WORDS));
 
     await act(async () => result.current.resetAll());
     expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
@@ -475,25 +485,64 @@ describe("the day record goes when it is no longer wanted", () => {
     expect(ofKind("nag")).toEqual([]);
   });
 
-  it("back to Calm: the record (lines that can name tasks) is removed; Nag again plans a new day", async () => {
+  it("back to Calm: every word goes out of the record (its lines can name tasks) and what the day needs stays; Nag again carries the day on", async () => {
     const { result } = await openApp(NAG_ON);
-    expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toMatch(TASK_WORDS);
+    await eventually(async () => expect(await loadNagRecord()).toMatchObject({ source: "ai", aiCalls: 1 }));
+    expect(await nagRecordRaw()).toMatch(TASK_WORDS);
+    const planned = await loadNagRecord();
     await act(async () => result.current.setReminderStyle("calm"));
-    await settle();
-    await settle();
-    expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
-    expect(ofKind("nag")).toEqual([]);
+    await eventually(async () => expect((await loadNagRecord())?.lines).toEqual([]));
+    await eventually(() => expect(ofKind("nag")).toEqual([]));
+    const raw = (await nagRecordRaw()) ?? "";
+    expect(raw).not.toMatch(TASK_WORDS);
+    expect(raw).not.toMatch(LINE_WORDS);
+    for (const id of TASKS.map((task) => task.id)) expect(raw).not.toContain(`"${id}"`);
+    // What stays: the day, the salt, the zone and the AI requests made.
+    expect(await loadNagRecord()).toMatchObject({
+      dayKey: D,
+      salt: planned?.salt,
+      zone: planned?.zone,
+      aiCalls: 1,
+      aiFor: planned?.aiFor,
+      aiFetchedAt: planned?.aiFetchedAt,
+      lines: [],
+      lineTasks: [],
+      slots: [],
+    });
 
     await act(async () => result.current.setReminderStyle("nag"));
+    await eventually(() => expect(ofKind("nag").length).toBeGreaterThan(0));
+    expect(await loadNagRecord()).toMatchObject({ dayKey: D, persona: "mom", salt: planned?.salt, aiCalls: 1 });
+    // The same tasks, voice and level were already asked about today: nothing more is sent.
     await settle();
-    await settle();
-    expect(await loadNagRecord()).toMatchObject({ dayKey: D, persona: "mom" });
-    expect(ofKind("nag").length).toBeGreaterThan(0);
+    expect(nagRequests()).toHaveLength(1);
   });
+
+  it("Calm and Nag, back and forth five times in a day: at most two requests for lines, and never more than the level's nags", async () => {
+    const { result } = await openApp({ ...NAG_ON, nagLevel: "relentless" });
+    await eventually(() => expect(nagRequests()).toHaveLength(1));
+    for (let turn = 0; turn < 5; turn += 1) {
+      await act(async () => result.current.setReminderStyle("calm"));
+      await eventually(async () => expect((await loadNagRecord())?.lines).toEqual([]));
+      // A task reworded while in Calm: one more request is allowed today, and only one.
+      if (turn === 1) await act(async () => result.current.editTask("t0", "Drambo the kleptu"));
+      await act(async () => result.current.setReminderStyle("nag"));
+      await eventually(() => expect(ofKind("nag").length).toBeGreaterThan(0));
+      await settle();
+      // An hour on, so some nags have gone off before the next turn.
+      await comeBackAt(new Date(2026, 9, 12, 10 + turn, 30));
+      const record = await loadNagRecord();
+      expect(record?.slots.length).toBeLessThanOrEqual(11);
+    }
+    expect(nagRequests().length).toBeLessThanOrEqual(2);
+    expect(nagRequests().length).toBe(2);
+    expect((await loadNagRecord())?.aiCalls).toBe(2);
+  }, 60_000);
 
   it("a saved Nag that is only waiting for Plus keeps its record", async () => {
     const hook = await openApp(NAG_ON);
-    const before = await AsyncStorage.getItem(NAG_STORAGE_KEY);
+    await eventually(async () => expect(await loadNagRecord()).toMatchObject({ source: "ai" }));
+    const before = await nagRecordRaw();
     expect(before).not.toBeNull();
     mockPlus = { ...FREE };
     await hook.rerender({});
@@ -506,8 +555,11 @@ describe("the day record goes when it is no longer wanted", () => {
 describe("Plus ending and coming back", () => {
   it("mid-day: the pending nags go and the calm nudges return at the next sync; the choice is kept; back on Plus the same nags return with no question and no new request", async () => {
     const hook = await openApp({ ...NAG_ON, nagPersona: "coach", nagLevel: "relentless", nagWindow: { startMinutes: 600, endMinutes: 1320 } });
+    await eventually(() => {
+      expect(ofKind("nag")).toHaveLength(11);
+      expect(ofKind("nag").every((item) => /^AI /.test(item.content.body))).toBe(true);
+    });
     const nags = snapshot(ofKind("nag"));
-    expect(ofKind("nag")).toHaveLength(11);
     expect(ofKind("progress")).toEqual([]);
     expect(nagRequests()).toHaveLength(1);
     const choice = { style: "nag", nagConfirmed: true, nagPersona: "coach", nagLevel: "relentless", nagWindow: { startMinutes: 600, endMinutes: 1320 }, nagPausedDate: null };
@@ -517,11 +569,11 @@ describe("Plus ending and coming back", () => {
     const leftAtLapse = snapshot(ofKind("nag"));
     mockPlus = { ...FREE };
     await hook.rerender({});
-    await settle();
-    await settle();
-    expect(ofKind("nag")).toEqual([]);
-    expect(ofKind("progress").length).toBeGreaterThan(0);
-    expect(ofKind("evening").length).toBeGreaterThan(0);
+    await eventually(() => {
+      expect(ofKind("nag")).toEqual([]);
+      expect(ofKind("progress").length).toBeGreaterThan(0);
+      expect(ofKind("evening").length).toBeGreaterThan(0);
+    });
     expect(hook.result.current.state.notifications).toMatchObject(choice);
     await waitFor(async () => expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? "{}").notifications).toMatchObject(choice));
     // While it is off, changes to the day ask nothing and bring no nag.
@@ -535,13 +587,15 @@ describe("Plus ending and coming back", () => {
     // Plus is back.
     mockPlus = { ...PLUS };
     await hook.rerender({});
-    await settle();
+    await eventually(() => {
+      expect(snapshot(ofKind("nag"))).toBe(leftAtLapse);
+      expect(ofKind("progress")).toEqual([]);
+      expect(ofKind("evening")).toEqual([]);
+    });
     await settle();
     expect(snapshot(ofKind("nag"))).toBe(leftAtLapse);
     expect(leftAtLapse).not.toBe(nags);
     expect(ofKind("nag").length).toBeGreaterThan(0);
-    expect(ofKind("progress")).toEqual([]);
-    expect(ofKind("evening")).toEqual([]);
     expect(nagRequests()).toHaveLength(1);
     expect(alert).not.toHaveBeenCalled();
     expect(mockOpenPaywall).not.toHaveBeenCalled();
@@ -554,26 +608,27 @@ describe("Plus ending and coming back", () => {
   it("the purchase check still running: nags with built-in lines and nothing sent; confirmed: one request; found without Plus: calm again", async () => {
     mockPlus = { ...CHECKING };
     const hook = await openApp(NAG_ON);
-    expect(ofKind("nag")).toHaveLength(7);
+    await eventually(() => expect(ofKind("nag")).toHaveLength(7));
     expect(ofKind("nag").every((item) => !/^AI /.test(item.content.body))).toBe(true);
     expect(networkFetch).not.toHaveBeenCalled();
     const times = ofKind("nag").map((item) => [item.identifier, item.at.getTime()]);
 
     mockPlus = { ...PLUS };
     await hook.rerender({});
-    await settle();
-    await settle();
-    expect(nagRequests()).toHaveLength(1);
-    expect(ofKind("nag").every((item) => /^AI /.test(item.content.body))).toBe(true);
+    await eventually(() => {
+      expect(nagRequests()).toHaveLength(1);
+      expect(ofKind("nag")).toHaveLength(7);
+      expect(ofKind("nag").every((item) => /^AI /.test(item.content.body))).toBe(true);
+    });
     // The AI changes the words, never the times.
     expect(ofKind("nag").map((item) => [item.identifier, item.at.getTime()])).toEqual(times);
 
     mockPlus = { ...FREE };
     await hook.rerender({});
-    await settle();
-    await settle();
-    expect(ofKind("nag")).toEqual([]);
-    expect(ofKind("progress").length).toBeGreaterThan(0);
+    await eventually(() => {
+      expect(ofKind("nag")).toEqual([]);
+      expect(ofKind("progress").length).toBeGreaterThan(0);
+    });
     expect(nagRequests()).toHaveLength(1);
   }, 30_000);
 
@@ -613,11 +668,12 @@ describe("the day after", () => {
     await comeBackAt(new Date(2026, 9, 13, 8, 0));
     const rollover = hook.result.current.state.pendingRollover;
     if (rollover) await act(async () => hook.result.current.resolveRollover(rollover.tasks.map((task) => task.id)));
-    await settle();
-    await settle();
+    await eventually(() => {
+      expect(ofKind("nag").length).toBe(7);
+      expect(ofKind("nag").every((item) => item.identifier.startsWith("daily-tasks:2026-10-13:nag:"))).toBe(true);
+    });
+    await eventually(async () => expect(await loadNagRecord()).toMatchObject({ dayKey: "2026-10-13", aiCalls: 1, draws: 0 }));
     const nags = ofKind("nag");
-    expect(nags.length).toBe(7);
-    expect(nags.every((item) => item.identifier.startsWith("daily-tasks:2026-10-13:nag:"))).toBe(true);
     for (let index = 1; index < nags.length; index += 1) expect(nags[index].at.getTime() - nags[index - 1].at.getTime()).toBeGreaterThanOrEqual(3_600_000);
     expect(ofKind("progress")).toEqual([]);
     expect(ofKind("evening")).toEqual([]);
@@ -630,6 +686,7 @@ describe("the day after", () => {
   it("a day of nags, then the next: none of yesterday's ids is left pending, and the new day's first nag is an hour or more after yesterday's last", async () => {
     // A window that runs to the end of the day, so the two days' nags can meet.
     const hook = await openApp({ ...NAG_ON, nagLevel: "relentless", nagWindow: { startMinutes: 0, endMinutes: 1439 } });
+    await eventually(async () => expect((await loadNagRecord())?.slots.length).toBe(11));
     const monday = await loadNagRecord();
     const lastMonday = Math.max(...(monday?.slots ?? []).map((slot) => slot.fireAtMs));
     expect(monday?.slots.length).toBe(11);
@@ -637,12 +694,11 @@ describe("the day after", () => {
     await comeBackAt(new Date(2026, 9, 13, 0, 1));
     const rollover = hook.result.current.state.pendingRollover;
     if (rollover) await act(async () => hook.result.current.resolveRollover(rollover.tasks.map((task) => task.id)));
-    await settle();
-    await settle();
-    const tuesday = await loadNagRecord();
-    expect(tuesday?.dayKey).toBe("2026-10-13");
-    expect(ofKind("nag").length).toBeGreaterThan(0);
-    expect(owned().filter((item) => item.identifier.startsWith(`daily-tasks:${D}:nag:`))).toEqual([]);
+    await eventually(async () => expect((await loadNagRecord())?.dayKey).toBe("2026-10-13"));
+    await eventually(() => {
+      expect(ofKind("nag").length).toBeGreaterThan(0);
+      expect(owned().filter((item) => item.identifier.startsWith(`daily-tasks:${D}:nag:`))).toEqual([]);
+    });
     expect(ofKind("nag")[0].at.getTime() - lastMonday).toBeGreaterThanOrEqual(3_600_000);
   }, 30_000);
 });
@@ -658,13 +714,18 @@ describe("'Stop for today' on a nag", () => {
 
   it("warm: today's nags are cleared at the next sync, the mornings stay, no calm nudge takes their place; Resume in the app brings the same nags back", async () => {
     const { result } = await openApp(NAG_ON);
+    // The day as it is once the AI's lines are in.
+    await eventually(() => {
+      expect(ofKind("nag")).toHaveLength(7);
+      expect(ofKind("nag").every((item) => /^AI /.test(item.content.body))).toBe(true);
+    });
     const before = snapshot();
     const mornings = snapshot(ofKind("morning"));
-    expect(ofKind("nag")).toHaveLength(7);
     await tap(response(`daily-tasks:${D}:nag:1405`, NAG_ACTION_STOP));
-    await settle();
-    expect(result.current.state.notifications.nagPausedDate).toBe(D);
-    expect(ofKind("nag")).toEqual([]);
+    await eventually(() => {
+      expect(result.current.state.notifications.nagPausedDate).toBe(D);
+      expect(ofKind("nag")).toEqual([]);
+    });
     expect(ofKind("progress")).toEqual([]);
     expect(ofKind("evening")).toEqual([]);
     expect(snapshot(ofKind("morning"))).toBe(mornings);
@@ -680,16 +741,14 @@ describe("'Stop for today' on a nag", () => {
 
     await act(async () => result.current.editTask("t0", "Zorvex the plimth"));
     await act(async () => result.current.resumeNag());
-    await settle();
-    await settle();
     expect(result.current.state.notifications.nagPausedDate).toBeNull();
-    expect(snapshot()).toBe(before);
+    await eventually(() => expect(snapshot()).toBe(before));
   }, 30_000);
 
   it("cold start, the tap launched the app: once the saved state has loaded today is paused, no nag is left pending, the mornings stay, and the pause is saved", async () => {
     // Yesterday's session left today's nags pending.
     const first = await openApp(NAG_ON);
-    expect(ofKind("nag")).toHaveLength(7);
+    await eventually(() => expect(ofKind("nag")).toHaveLength(7));
     await first.unmount();
     __resetStorageForTests();
     mocked.addNotificationResponseReceivedListener.mockClear();
@@ -700,12 +759,14 @@ describe("'Stop for today' on a nag", () => {
     const hook = await renderHook(() => useDailyTasks(), { wrapper });
     await waitFor(() => expect(hook.result.current.ready).toBe(true));
     await waitFor(() => expect(hook.result.current.state.notifications.nagPausedDate).toBe(D));
-    await settle();
+    await eventually(() => {
+      expect(ofKind("nag")).toEqual([]);
+      expect(ofKind("morning").length).toBeGreaterThan(0);
+    });
     await settle();
     expect(ofKind("nag")).toEqual([]);
     expect(ofKind("progress")).toEqual([]);
     expect(ofKind("evening")).toEqual([]);
-    expect(ofKind("morning").length).toBeGreaterThan(0);
     // The saved state was loaded, not overwritten by the tap.
     expect(hook.result.current.state.tasks.map((task) => task.id)).toEqual(["t0", "t1", "t2"]);
     expect(hook.result.current.state.notifications.style).toBe("nag");
@@ -718,8 +779,8 @@ describe("'Stop for today' on a nag", () => {
   it("cold start from yesterday's nag: today is not paused", async () => {
     mocked.getLastNotificationResponse.mockImplementation(() => response("daily-tasks:2026-10-11:nag:2005", NAG_ACTION_STOP, 5));
     const { result } = await openApp(NAG_ON);
+    await eventually(() => expect(ofKind("nag")).toHaveLength(7));
     expect(result.current.state.notifications.nagPausedDate).toBeNull();
-    expect(ofKind("nag")).toHaveLength(7);
   });
 });
 
@@ -742,10 +803,12 @@ describe("saved state: old, partial, damaged", () => {
       nagPausedDate: null,
     });
     expect(result.current.state.tasks).toHaveLength(3);
+    await eventually(() => {
+      expect(ofKind("progress")).toHaveLength(4);
+      expect(ofKind("evening")).toHaveLength(6);
+      expect(ofKind("morning")).toHaveLength(6);
+    });
     expect(ofKind("nag")).toEqual([]);
-    expect(ofKind("progress")).toHaveLength(4);
-    expect(ofKind("evening")).toHaveLength(6);
-    expect(ofKind("morning")).toHaveLength(6);
     expect(networkFetch).not.toHaveBeenCalled();
     expect(await loadNagRecord()).toBeNull();
   });
@@ -755,8 +818,8 @@ describe("saved state: old, partial, damaged", () => {
       withNotifications({ ...DEFAULT_NOTIFICATIONS, style: "nag", nagConfirmed: "yes", nagPersona: { name: "boss" }, nagLevel: 11, nagWindow: { startMinutes: "nine", endMinutes: null }, nagPausedDate: 20261012 }),
     );
     expect(result.current.state.notifications).toMatchObject({ style: "nag", nagConfirmed: true, nagPersona: "mom", nagLevel: "firm", nagWindow: { startMinutes: 540, endMinutes: 1260 }, nagPausedDate: null });
+    await eventually(() => expect(ofKind("nag")).toHaveLength(7));
     const nags = ofKind("nag");
-    expect(nags).toHaveLength(7);
     expect(nags.every((item) => item.content.title.includes("Mom"))).toBe(true);
     expect(nags[0].at.getTime()).toBeGreaterThanOrEqual(new Date(2026, 9, 12, 9).getTime());
     expect(nags[6].at.getTime()).toBeLessThanOrEqual(new Date(2026, 9, 12, 21).getTime());
@@ -773,9 +836,11 @@ describe("saved state: old, partial, damaged", () => {
   ])("a day record that is %s is planned afresh: seven nags, one request, no throw, nothing about it logged with task text", async (_what, raw) => {
     await AsyncStorage.setItem(NAG_STORAGE_KEY, raw);
     await openApp(NAG_ON);
+    await eventually(() => {
+      expect(ofKind("nag")).toHaveLength(7);
+      expect(ofKind("nag").every((item) => item.content.title.includes("Mom") && /^AI \d+: /.test(item.content.body))).toBe(true);
+    });
     const nags = ofKind("nag");
-    expect(nags).toHaveLength(7);
-    expect(nags.every((item) => item.content.title.includes("Mom") && /^AI \d+: /.test(item.content.body))).toBe(true);
     for (let index = 1; index < nags.length; index += 1) expect(nags[index].at.getTime() - nags[index - 1].at.getTime()).toBeGreaterThanOrEqual(3_600_000);
     expect(nagRequests()).toHaveLength(1);
     expect(await loadNagRecord()).toMatchObject({ dayKey: D, persona: "mom", level: "firm", source: "ai", aiCalls: 1 });
@@ -790,19 +855,19 @@ describe("the AI's lines arriving late", () => {
       release = resolve;
     });
     await openApp(NAG_ON);
-    expect(nagRequests()).toHaveLength(1);
+    await eventually(() => {
+      expect(nagRequests()).toHaveLength(1);
+      expect(ofKind("nag")).toHaveLength(7);
+    });
     const early = ofKind("nag");
-    expect(early).toHaveLength(7);
     expect(early.every((item) => item.content.body.length > 0 && !/^AI /.test(item.content.body))).toBe(true);
     const times = early.map((item) => [item.identifier, item.at.getTime()]);
 
     await act(async () => release());
-    await settle();
-    await settle();
+    await eventually(async () => expect(await loadNagRecord()).toMatchObject({ source: "ai", aiCalls: 1 }));
+    await eventually(() => expect(ofKind("nag").every((item) => /^AI \d+: /.test(item.content.body))).toBe(true));
     const late = ofKind("nag");
     expect(late.map((item) => [item.identifier, item.at.getTime()])).toEqual(times);
-    expect(late.every((item) => /^AI \d+: /.test(item.content.body))).toBe(true);
-    expect(await loadNagRecord()).toMatchObject({ source: "ai", aiCalls: 1 });
     expect(nagRequests()).toHaveLength(1);
   }, 30_000);
 

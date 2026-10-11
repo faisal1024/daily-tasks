@@ -4,11 +4,21 @@
 // names hidden; and the strategies that read the record: never a network
 // call, never a rejection, calm when there is nothing to nag with.
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { waitFor } from "@testing-library/react-native";
 
 import { __resetAnalyticsForTests, __setAnalyticsFetchForTests, flush } from "@/lib/daily-tasks/analytics";
 import { MomentumAiError } from "@/lib/daily-tasks/ai-status";
 import type { NagLine, requestNagLines } from "@/lib/daily-tasks/nag";
-import { clearNagRecord, ensureNagDay, loadNagRecord, NAG_REQUEST_TIMEOUT_MS, nagModeStrategy, nagStrategy, type NagDayInput } from "@/lib/daily-tasks/nag-day";
+import {
+  clearNagRecord,
+  ensureNagDay,
+  loadNagRecord,
+  NAG_REQUEST_TIMEOUT_MS,
+  nagModeStrategy,
+  nagStrategy,
+  stubNagRecord,
+  type NagDayInput,
+} from "@/lib/daily-tasks/nag-day";
 import { NAG_STORAGE_KEY, type NagDayRecord } from "@/lib/daily-tasks/nag-plan";
 import { taskAwareStrategy, type ReminderContext } from "@/lib/daily-tasks/reminder-plan";
 import { clearState } from "@/lib/daily-tasks/storage";
@@ -252,10 +262,8 @@ describe("the day's lines", () => {
       });
       return () => release();
     };
-    const requested = async () => {
-      for (let turn = 0; turn < 200 && request.mock.calls.length === 0; turn += 1) await new Promise((resolve) => setTimeout(resolve, 1));
-      expect(request).toHaveBeenCalledTimes(1);
-    };
+    // Waited for, not slept for: a slow runner only makes it slower.
+    const requested = () => waitFor(() => expect(request).toHaveBeenCalledTimes(1), { timeout: 20_000, interval: 5 });
 
     it("'Reset all data' (storage cleared) during the request: the answer is thrown away and no task text is saved back", async () => {
       const release = slow();
@@ -316,6 +324,157 @@ describe("the day's lines", () => {
     it("clearNagRecord never throws when storage fails", async () => {
       (AsyncStorage.removeItem as jest.Mock).mockRejectedValueOnce(new Error("disk"));
       await expect(clearNagRecord()).resolves.toBeUndefined();
+    });
+
+    it("a look that was waiting behind another when the record was removed neither saves nor sends afterwards", async () => {
+      const release = slow();
+      const first = ensureNagDay(input(), deps());
+      await requested();
+      // Asked for before the reset, and still waiting its turn: another voice, so it would plan and ask.
+      const second = ensureNagDay(input({ settings: { ...NAG_ON, nagPersona: "drill" } }), deps());
+      await clearNagRecord();
+      release();
+      await Promise.all([first, second]);
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(versions).toEqual([1]);
+      // A look asked for after the reset works as ever.
+      await ensureNagDay(input({ now: at(9) }), deps());
+      expect(await saved()).toMatchObject({ dayKey: DAY, persona: "mom" });
+    });
+
+    it("the same when the style went back to Calm meanwhile: the waiting look leaves the stub alone and sends nothing", async () => {
+      const release = slow();
+      const first = ensureNagDay(input(), deps());
+      await requested();
+      const second = ensureNagDay(input({ settings: { ...NAG_ON, nagPersona: "drill" } }), deps());
+      await stubNagRecord(at(8, 1));
+      const stub = await AsyncStorage.getItem(NAG_STORAGE_KEY);
+      expect(stub).not.toMatch(TASK_WORDS);
+      release();
+      await Promise.all([first, second]);
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBe(stub);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(versions).toEqual([1]);
+    });
+  });
+
+  describe("back to Calm: the record is emptied, not removed", () => {
+    /** The saved record with its first nag moved to `when` (as if it went off then). */
+    const withNagAt = async (when: Date) => {
+      const record = await saved();
+      const id = `daily-tasks:${DAY}:nag:${String(when.getHours()).padStart(2, "0")}${String(when.getMinutes()).padStart(2, "0")}`;
+      const moved = { ...record, slots: [{ ...record.slots[0], id, fireAtMs: when.getTime() }, ...record.slots.slice(1).filter((slot) => slot.fireAtMs > when.getTime() + 3_600_000)] };
+      await AsyncStorage.setItem(NAG_STORAGE_KEY, JSON.stringify(moved));
+      return moved;
+    };
+
+    it("the stub holds no task text, line or task id; the day, the salt, the zone and the AI count stay, and the nags that went off keep their time", async () => {
+      // Lines that name the tasks, as the AI's do.
+      request.mockImplementationOnce(async ({ count, tasks }) => ({ lines: aiLines(count).map((line, index) => ({ ...line, text: `${line.text}: ${tasks[index % tasks.length].text}` })) }));
+      await ensureNagDay(input(), deps());
+      const planned = await withNagAt(at(14, 55));
+      expect(JSON.stringify(planned)).toMatch(TASK_WORDS);
+      await stubNagRecord(at(15));
+      const raw = (await AsyncStorage.getItem(NAG_STORAGE_KEY)) ?? "";
+      expect(raw).not.toMatch(TASK_WORDS);
+      expect(raw).not.toMatch(/AI line/);
+      expect(raw).not.toMatch(/"t[0-2]"/);
+      expect(await saved()).toMatchObject({
+        dayKey: DAY,
+        salt: planned.salt,
+        zone: planned.zone,
+        aiCalls: 1,
+        aiFor: planned.aiFor,
+        aiFetchedAt: planned.aiFetchedAt,
+        lines: [],
+        lineTasks: [],
+        tasksKey: "",
+        slots: [{ id: planned.slots[0].id, fireAtMs: at(14, 55).getTime(), step: 1, text: "", taskId: null }],
+      });
+      // Nothing to nag with until Nag is on again and the day is planned.
+      expect(await nagStrategy(context({ now: at(15) }))).toEqual([]);
+      // Again changes nothing more.
+      await stubNagRecord(at(15, 1));
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBe(raw);
+    });
+
+    it("a nag at 14:55, Calm, Nag again at 15:00: the next nag is no earlier than 15:55, and the day keeps its count", async () => {
+      await ensureNagDay(input({ settings: { ...NAG_ON, nagLevel: "relentless" } }), deps());
+      await withNagAt(at(14, 55));
+      await stubNagRecord(at(14, 58));
+      await ensureNagDay(input({ now: at(15), settings: { ...NAG_ON, nagLevel: "relentless" } }), deps());
+      const record = await saved();
+      const next = record.slots.filter((slot) => slot.fireAtMs > at(15).getTime());
+      expect(next.length).toBeGreaterThan(0);
+      expect(next[0].fireAtMs).toBeGreaterThanOrEqual(at(15, 55).getTime());
+      expect(record.slots[0]).toMatchObject({ fireAtMs: at(14, 55).getTime(), text: "" });
+      expect(record.slots.length).toBeLessThanOrEqual(11);
+      const plan = await nagStrategy(context({ now: at(15), settings: { ...NAG_ON, nagLevel: "relentless" } }));
+      expect(plan.map((item) => item.fireAt.getTime())).toEqual(next.map((slot) => slot.fireAtMs));
+      expect(plan.every((item) => item.body.length > 0)).toBe(true);
+    });
+
+    it("Calm and Nag five times in a day: two requests for lines at most, whatever changes in between", async () => {
+      const relentless = { ...NAG_ON, nagLevel: "relentless" as const, nagWindow: { startMinutes: 0, endMinutes: 1439 } };
+      await ensureNagDay(input({ now: at(0, 5), settings: relentless }), deps());
+      expect(request).toHaveBeenCalledTimes(1);
+      for (let turn = 0; turn < 5; turn += 1) {
+        await stubNagRecord(at(2 + turn * 3));
+        expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).not.toMatch(TASK_WORDS);
+        // Another voice, another task: each a reason to ask again on a day that started fresh.
+        const persona = (["drill", "coach", "spouse", "mom", "drill"] as const)[turn];
+        const tasks = [...TASKS.slice(0, 2), { id: "t2", text: `Glimber ${turn}`, done: false }];
+        await ensureNagDay(input({ now: at(2 + turn * 3, 10), settings: { ...relentless, nagPersona: persona }, tasks }), deps());
+        const record = await saved();
+        // A Relentless day never has more than eleven nags in all, an hour apart.
+        expect(record.slots.length).toBeLessThanOrEqual(11);
+        for (let index = 1; index < record.slots.length; index += 1) expect(record.slots[index].fireAtMs - record.slots[index - 1].fireAtMs).toBeGreaterThanOrEqual(3_600_000);
+        expect(record.aiCalls).toBeLessThanOrEqual(2);
+      }
+      expect(request).toHaveBeenCalledTimes(2);
+    });
+
+    it("Nag turned on again before the emptying has finished: the day's plan is what is saved, not a stub over it", async () => {
+      await ensureNagDay(input(), deps());
+      const emptied = stubNagRecord(at(8, 30));
+      const run = ensureNagDay(input({ now: at(8, 31) }), deps());
+      await Promise.all([emptied, run]);
+      const record = await saved();
+      expect(record.slots.some((slot) => slot.fireAtMs > at(8, 31).getTime() && slot.text.length > 0)).toBe(true);
+      expect(record.lines.length).toBeGreaterThan(0);
+    });
+
+    it("'Reset all data' still removes the key entirely, also over a stub and while an emptying is under way", async () => {
+      await ensureNagDay(input(), deps());
+      await stubNagRecord(at(12));
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).not.toBeNull();
+      await clearNagRecord();
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+
+      await ensureNagDay(input({ now: at(12, 30) }), deps());
+      const emptied = stubNagRecord(at(13));
+      await clearNagRecord();
+      await emptied;
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+      await clearState();
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+    });
+
+    it("nothing saved: nothing is written; a damaged record is removed; storage failing never throws", async () => {
+      await stubNagRecord(at(9));
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+      await AsyncStorage.setItem(NAG_STORAGE_KEY, "{\"lines\":[\"Call the dentist\"");
+      await stubNagRecord(at(9));
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+
+      await ensureNagDay(input(), deps());
+      (AsyncStorage.getItem as jest.Mock).mockRejectedValueOnce(new Error("disk"));
+      await expect(stubNagRecord(at(9))).resolves.toBeUndefined();
+      // The stub can't be saved: the record, which holds task text, is removed instead.
+      (AsyncStorage.setItem as jest.Mock).mockRejectedValueOnce(new Error("disk"));
+      await expect(stubNagRecord(at(9))).resolves.toBeUndefined();
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
     });
   });
 

@@ -253,14 +253,16 @@ export function nagTasksChanged(key: string, open: NagOpenTask[]): boolean {
 
 /**
  * Which of `lines` the nag at `step` (1-based) of `total` says. With enough
- * lines the last nag takes the last line (a day planned late starts with
- * later lines). With fewer lines than nags the lines are spread over the day
- * and the nags left over get none (null).
+ * lines the first nag takes the first line and the last nag the last, the
+ * ones between spread evenly: a day with one nag gets an opening line, two
+ * get an opening and a closing one, three an opening, a middle and a closing
+ * one. With fewer lines than nags the lines are spread over the day and the
+ * nags left over get none (null).
  */
 export function lineForStep<T>(lines: readonly T[], step: number, total: number): T | null {
   const count = lines.length;
   if (count === 0 || step < 1 || step > total) return null;
-  if (count >= total) return lines[step - 1 + (count - total)] ?? null;
+  if (count >= total) return lines[Math.round(((step - 1) * (count - 1)) / Math.max(1, total - 1))] ?? null;
   const index = Math.floor(((step - 1) * count) / total);
   if (step > 1 && Math.floor(((step - 2) * count) / total) === index) return null;
   return lines[index] ?? null;
@@ -269,27 +271,6 @@ export function lineForStep<T>(lines: readonly T[], step: number, total: number)
 export interface NagWords {
   text: string;
   taskId: string | null;
-}
-
-/**
- * A built-in line for the nag at `step` of `total`, about `tasks` (none: a
- * general line). The same inputs always give the same line, so the scheduler
- * sees an unchanged reminder on every sync.
- */
-export function localNagWords(input: {
-  persona: NagPersona;
-  level: NagLevel;
-  dayKey: string;
-  salt: string;
-  step: number;
-  total: number;
-  tasks: NagOpenTask[];
-}): NagWords | null {
-  const { persona, level, dayKey, salt, step, total, tasks } = input;
-  const lines = builtInNagLines({ persona, level, tasks, count: total, seed: `${dayKey}|${salt}` });
-  const line = lineForStep(lines, step, total);
-  if (!line) return null;
-  return { text: line.text, taskId: line.taskIndex === null ? null : (tasks[line.taskIndex]?.id ?? null) };
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +379,46 @@ export function normalizeNagRecord(value: unknown): NagDayRecord | null {
   };
 }
 
+/**
+ * What is kept of a day when the style goes back to Calm: no words at all
+ * (no lines, no slot text, no task ids), only what Nag needs to carry on
+ * should it be turned on again the same day. The nags that already went off
+ * keep their id, time and step, so the day's count and the hour between nags
+ * still hold; the AI requests made today stay counted, with what was last
+ * asked about (`aiFor`: the voice, the level and hashes of the tasks' words,
+ * never the words). Nags still to come are dropped; turning Nag on again
+ * draws the rest of the day. The words of the nags that went off are gone,
+ * so a built-in line said before Calm can come round again after it.
+ */
+export function nagRecordStub(record: NagDayRecord, now: Date): NagDayRecord {
+  const nowMs = now.getTime();
+  const slots = record.slots.filter((slot) => slot.fireAtMs <= nowMs).map((slot) => ({ ...slot, text: "", taskId: null }));
+  return {
+    ...record,
+    tasksKey: "",
+    lines: [],
+    lineTasks: [],
+    source: "local",
+    slots,
+    total: slots.reduce((most, slot) => Math.max(most, slot.step), 0),
+    // Not any level's and window's key, so the rest of the day is drawn again.
+    timingKey: "",
+    version: record.version + 1,
+  };
+}
+
+/** `record` is already a stub (nagRecordStub would change nothing but the version). */
+export function isNagRecordStub(record: NagDayRecord, now: Date): boolean {
+  const nowMs = now.getTime();
+  return (
+    record.lines.length === 0 &&
+    record.lineTasks.length === 0 &&
+    record.tasksKey === "" &&
+    record.timingKey === "" &&
+    record.slots.every((slot) => slot.fireAtMs <= nowMs && slot.text === "" && slot.taskId === null)
+  );
+}
+
 export function nagTimingKey(level: NagLevel, window: NagWindow): string {
   return `${level}|${window.startMinutes}-${window.endMinutes}`;
 }
@@ -440,14 +461,15 @@ function withLines(
 /**
  * The line for the nag at `step` of `total`, never one in `said`: when the
  * step's own line was said already (the day was drawn again with another
- * count, so the lines moved), the nearest unsaid line after it, then before.
+ * count, so the lines moved), the next unsaid line after it. Never one from
+ * before it: a day that has got pushier doesn't go back to an opening line,
+ * so with nothing later left the nag has no line (null).
  */
 function unsaidLine(lines: readonly NagLine[], step: number, total: number, said: ReadonlySet<string>): NagLine | null {
   const own = lineForStep(lines, step, total);
   if (!own || !said.has(own.text)) return own;
   const from = lines.indexOf(own);
   for (let index = from + 1; index < lines.length; index += 1) if (!said.has(lines[index].text)) return lines[index];
-  for (let index = from - 1; index >= 0; index -= 1) if (!said.has(lines[index].text)) return lines[index];
   return null;
 }
 
@@ -625,6 +647,13 @@ export function nagRecordApplies(record: NagDayRecord | null, context: NagPlanCo
  * for the same step. Nothing when nag mode doesn't apply, it is paused today,
  * the record is another day's, or nothing is open. Never time-sensitive: a
  * nag does not break through a Focus.
+ *
+ * No two nags of the day share their words. A built-in line put in here is
+ * never one the record already has in any slot (gone off or still to come)
+ * or one given to an earlier slot of this plan: the next unsaid built-in
+ * line is used instead (unsaidLine), and with none left the slot isn't
+ * scheduled. Slots that went off are worked out the same way and only left
+ * out at the end, so the answer doesn't change as the day's nags go off.
  */
 export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanContext): ReminderPlan {
   if (!nagRecordApplies(record, context)) return [];
@@ -633,32 +662,43 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
   const openIds = new Set(open.map((task) => task.id));
   const hide = context.settings.hideTaskNames === true;
   const nowMs = context.now.getTime();
-  const local = (step: number, tasks: NagOpenTask[]) =>
-    localNagWords({ persona: record.persona, level: record.level, dayKey: record.dayKey, salt: record.salt, step, total: record.total, tasks });
-  return record.slots.flatMap((slot) => {
-    if (slot.fireAtMs <= nowMs) return [];
+  // Written before names were hidden: nothing of what is still to come is
+  // used, and the general lines go in as planNagDay will write them.
+  const rewrite = hide && !record.hideNames;
+  const builtIn = (tasks: NagOpenTask[]) =>
+    builtInNagLines({ persona: record.persona, level: record.level, tasks, count: record.total, seed: `${record.dayKey}|${record.salt}` });
+  const general = rewrite ? builtIn([]) : [];
+  const forNext = rewrite ? [] : builtIn([open[0]]);
+  const used = new Set<string>();
+  for (const slot of record.slots) if (slot.text && (!rewrite || slot.fireAtMs <= nowMs)) used.add(slot.text);
+  const plan: ReminderPlan = [];
+  for (const slot of record.slots) {
+    const past = slot.fireAtMs <= nowMs;
     let words: NagWords | null = { text: slot.text, taskId: slot.taskId };
-    if (hide && !record.hideNames) {
-      // Written before names were hidden: nothing of it is used.
-      words = local(slot.step, []);
+    if (rewrite) {
+      if (past) continue;
+      const line = unsaidLine(general, slot.step, record.total, used);
+      words = line ? { text: line.text, taskId: null } : null;
     } else if (slot.taskId !== null && !openIds.has(slot.taskId)) {
-      words = local(slot.step, [open[0]]);
+      const line = unsaidLine(forNext, slot.step, record.total, used);
+      words = line ? { text: line.text, taskId: line.taskIndex === null ? null : open[0].id } : null;
     }
     // No line for this slot (or none without a name): it isn't scheduled.
-    if (!words || !words.text) return [];
-    return [
-      {
-        id: slot.id,
-        fireAt: new Date(slot.fireAtMs),
-        // "Three Today · Mom", never the persona alone: it must not read as a real person's message.
-        title: nagTitle(record.persona),
-        body: words.text,
-        kind: NAG_KIND,
-        // Ids and numbers only, never the words.
-        data: { ...(words.taskId && !hide ? { taskId: words.taskId } : {}), step: slot.step },
-        interruptionLevel: "active" as const,
-        categoryId: NAG_CATEGORY_ID,
-      },
-    ];
-  });
+    if (!words || !words.text) continue;
+    used.add(words.text);
+    if (past) continue;
+    plan.push({
+      id: slot.id,
+      fireAt: new Date(slot.fireAtMs),
+      // "Three Today · Mom", never the persona alone: it must not read as a real person's message.
+      title: nagTitle(record.persona),
+      body: words.text,
+      kind: NAG_KIND,
+      // Ids and numbers only, never the words.
+      data: { ...(words.taskId && !hide ? { taskId: words.taskId } : {}), step: slot.step },
+      interruptionLevel: "active" as const,
+      categoryId: NAG_CATEGORY_ID,
+    });
+  }
+  return plan;
 }

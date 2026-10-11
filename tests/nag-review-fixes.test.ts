@@ -83,14 +83,14 @@ describe("built-in lines", () => {
       "I'm only looking. And I notice {task} is still open.",
       "I've put {task} on the fridge. With a magnet. That's where we are now.",
       "I taught you to tie your shoes. You can manage ten minutes on {task}.",
-      "I've lost count of my messages. Your list is still open.",
+      "I've lost count of my reminders. Your list is still open.",
       "Hi, love. {task} is on today's list. Just saying.",
       "Hey, love. Still time for {task} if you're up for it.",
       "Hey, champ. First play of the day: {task}.",
       "Eyes front, recruit. Today's mission: {task}.",
       "Inspection time. The list is waiting, recruit.",
       "Roll call. {task} is still present, recruit.",
-      "Hours later and {task} is STILL on my board.",
+      "{task} is STILL on my board, recruit. I checked.",
       "I did not polish these boots to watch a list sit there. MOVE.",
     ]) {
       expect(all, there).toContain(there);
@@ -221,13 +221,11 @@ describe("the proxy's sanitiser, hardened", () => {
     ["apple id", "Your Apple ID needs the list done."],
     ["you always", "You always leave the list open."],
     ["you never", "You never finish the list."],
-    ["nobody", "Nobody is coming to do this list."],
     ["give up", "Do not give up on the list."],
     ["embarrassing", "This list is getting embarrassing."],
     ["embarrass", "Do not embarrass the list."],
     ["kys", "kys, says the list."],
     ["unalive", "The list wants to unalive the task."],
-    ["yourself", "Do the list yourself, sweetheart."],
   ])("drops a line with %s", (_name, text) => {
     drop(text);
     expect(server.hitsNagBlocklist(text)).toBe(true);
@@ -334,7 +332,7 @@ describe("the proxy's sanitiser, hardened", () => {
 
   it("the prompt tells the model not to name the time of day, and which emoji it may use", () => {
     expect(server.NAG_SYSTEM_PROMPT).toContain(
-      "- Do not mention the time of day (morning, afternoon, evening, tonight, late): the app picks when each line is shown.",
+      "- Do not mention the time of day or a meal (morning, afternoon, evening, tonight, noon, midnight, breakfast, lunch, dinner, bedtime, late): the app picks when each line is shown. A task's own words are fine.",
     );
     expect(server.NAG_SYSTEM_PROMPT).toContain("only one of these: \u{1F642} \u{1F60A} \u{1F609} ❤️ \u{1F49B} \u{1F33C} ☕ \u{1F36A} ✅ \u{1F440} \u{1F64F}.");
     expect(server.NAG_SYSTEM_PROMPT).not.toMatch(/[–—]/);
