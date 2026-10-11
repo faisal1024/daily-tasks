@@ -1,19 +1,25 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 
-import { MANAGED_REMINDER_PREFIX, planReminders, planUpcomingMornings } from "./reminders";
-import type { NotificationConfig, NotificationPermissionState, TomorrowDraft } from "./types";
+import {
+  fitPlanToLimit,
+  taskAwareStrategy,
+  type ReminderContext,
+  type ReminderPlan,
+  type ReminderStrategy,
+} from "./reminder-plan";
+import { MANAGED_REMINDER_PREFIX } from "./reminders";
+import type { NotificationPermissionState } from "./types";
 
 let handlerConfigured = false;
 
-interface SyncNotificationsInput {
+/** What the reminders are planned from; `now` defaults to the moment of the call. */
+export type SyncNotificationsInput = Omit<ReminderContext, "now" | "draft"> & {
   now?: Date;
-  settings: NotificationConfig;
-  permissionState: NotificationPermissionState;
-  taskCount: number;
-  completedCount: number;
-  draft?: TomorrowDraft | null;
-}
+  draft?: ReminderContext["draft"];
+  /** How the plan is made (default: the task-aware reminders). */
+  strategy?: ReminderStrategy;
+};
 
 function configureHandler() {
   if (handlerConfigured) return;
@@ -53,70 +59,75 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   return mapPermissionStatus(result);
 }
 
-async function cancelAllManaged() {
-  if (Platform.OS === "web") return;
+/**
+ * Cancels the pending reminders this code owns (ids under
+ * MANAGED_REMINDER_PREFIX) and returns how many pending notifications aren't
+ * ours (the focus timer's end, the trial reminder): those are never touched,
+ * only counted towards iOS's limit.
+ */
+async function cancelAllManaged(): Promise<number> {
+  if (Platform.OS === "web") return 0;
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-  await Promise.all(
-    scheduled
-      .filter(
-        (s) =>
-          typeof s.identifier === "string" &&
-          s.identifier.startsWith(MANAGED_REMINDER_PREFIX),
-      )
-      .map((s) => Notifications.cancelScheduledNotificationAsync(s.identifier)),
+  const managed = scheduled.filter(
+    (s) => typeof s.identifier === "string" && s.identifier.startsWith(MANAGED_REMINDER_PREFIX),
   );
+  await Promise.all(managed.map((s) => Notifications.cancelScheduledNotificationAsync(s.identifier)));
+  return scheduled.length - managed.length;
 }
 
 // Syncs run one at a time: two overlapping cancel-then-schedule passes would
 // interleave and leave duplicate (or missing) reminders.
 let syncQueue: Promise<void> = Promise.resolve();
 
-export function syncNotifications(input: SyncNotificationsInput): Promise<void> {
-  const run = syncQueue.then(() => runSync(input));
+function queueSync(step: () => Promise<void>): Promise<void> {
+  const run = syncQueue.then(step);
   // Keep the chain alive even if one sync fails.
   syncQueue = run.catch(() => {});
   return run;
 }
 
-async function runSync({
-  now = new Date(),
-  settings,
-  permissionState,
-  taskCount,
-  completedCount,
-  draft = null,
-}: SyncNotificationsInput): Promise<void> {
-  if (Platform.OS === "web") return;
+/**
+ * Plans the reminders from what the app knows now and replaces the pending
+ * ones with that plan. Called whenever the tasks or the settings change and
+ * when the app comes to the front: iOS can't run code when a notification
+ * is delivered, so what one says is fixed when it's scheduled.
+ */
+export function syncNotifications({ strategy = taskAwareStrategy, now, draft = null, ...rest }: SyncNotificationsInput): Promise<void> {
+  if (Platform.OS === "web") return Promise.resolve();
+  const at = now ?? new Date();
+  return queueSync(() => runPlan(strategy({ ...rest, draft, now: at }), at));
+}
+
+/**
+ * Replaces every pending reminder this code owns with `plan` (any
+ * strategy's). Notifications with other ids are left alone. The plan is cut
+ * to what fits under iOS's limit of pending notifications (soonest kept).
+ */
+export function applyReminderPlan(plan: ReminderPlan, now: Date = new Date()): Promise<void> {
+  if (Platform.OS === "web") return Promise.resolve();
+  return queueSync(() => runPlan(plan, now));
+}
+
+async function runPlan(plan: ReminderPlan, now: Date): Promise<void> {
   configureHandler();
-  await cancelAllManaged();
+  const otherPending = await cancelAllManaged();
 
-  const planned = [
-    ...planReminders({
-      now,
-      taskCount,
-      completedCount,
-      settings,
-      permissionState,
-      draft,
-    }),
-    ...planUpcomingMornings({ now, settings, permissionState, draft }),
-  ];
-
-  for (const reminder of planned) {
+  for (const reminder of fitPlanToLimit(plan, { now, otherPending })) {
     try {
       await Notifications.scheduleNotificationAsync({
-        identifier: reminder.identifier,
+        identifier: reminder.id,
         content: {
           title: reminder.title,
           body: reminder.body,
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: reminder.at,
+          date: reminder.fireAt,
         },
       });
     } catch (err) {
-      console.warn(`[daily-tasks] failed to schedule ${reminder.kind} reminder`, err);
+      // The id only: a reminder's words can be the user's task.
+      console.warn(`[daily-tasks] failed to schedule reminder ${reminder.id}`, err);
     }
   }
 }

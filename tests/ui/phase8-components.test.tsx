@@ -95,8 +95,10 @@ describe("syncNotifications", () => {
       now: new Date(2026, 8, 25, 21, 0),
       settings: DEFAULT_NOTIFICATIONS,
       permissionState: "granted" as const,
-      taskCount: 0,
-      completedCount: 0,
+      today: "2026-09-25",
+      tasks: [],
+      locked: false,
+      yesterdayOpen: [],
     };
     const first = syncNotifications(input);
     const second = syncNotifications(input);

@@ -73,6 +73,7 @@ export default function SettingsScreen() {
     setAutoLockTime,
     setNotificationsEnabled,
     setNotificationEnabled,
+    setHideTaskNamesInNotifications,
     refreshNotificationPermission,
     requestNotificationPermission,
     completeMomentumOnboarding,
@@ -678,6 +679,26 @@ export default function SettingsScreen() {
                 );
               },
             )}
+            {/* What the reminders say, not when: it never asks for permission. */}
+            <View className="bg-surface rounded-2xl p-4 border border-border">
+              <View className="flex-row items-center justify-between gap-4">
+                <View className="flex-1">
+                  <Text className="text-lg font-bold text-foreground">
+                    Hide task names in notifications
+                  </Text>
+                  <Text className="text-sm mt-1" style={{ color: colors.muted }}>
+                    Reminders will use general wording instead of your task names.
+                  </Text>
+                </View>
+                <Switch
+                  value={state.notifications.hideTaskNames}
+                  onValueChange={setHideTaskNamesInNotifications}
+                  accessibilityLabel="Hide task names in notifications"
+                  accessibilityHint="Reminders will use general wording instead of your task names."
+                  trackColor={{ true: colors.primary }}
+                />
+              </View>
+            </View>
           </View>
         </Section>
 
