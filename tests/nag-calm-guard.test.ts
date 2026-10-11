@@ -41,7 +41,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({ default: store }))
 vi.mock("../lib/daily-tasks/analytics", () => ({ track: vi.fn() }));
 
 /** sha256 of the calm plans for the fixed inputs below, computed with main's code. */
-const CALM_DIGEST = "8102136be3696b4c08cfe1d81ec9f1559a46e97a26f96ee60dc561268e0d2efc";
+const CALM_DIGEST = "56180f9d63a6ae5a876c0eef17a73fd7c408c4468f0cc0331a1451f94fff5722";
 
 /** mulberry32. */
 function seeded(seed: number) {
@@ -71,7 +71,12 @@ function calmContext(random: Random): ReminderContext {
   const now = new Date(2026, 9, 12 + random.int(0, 13), random.int(0, 23), random.int(0, 59));
   const clockDay = toDateKey(now);
   const today = addDays(clockDay, random.pick([0, 0, 0, 0, 0, -1, 1]));
-  const texts = [...TEXTS].sort(() => random.next() - 0.5);
+  // A Fisher-Yates shuffle: a random comparator in sort() draws a different number of times on each engine.
+  const texts = [...TEXTS];
+  for (let i = texts.length - 1; i > 0; i--) {
+    const j = random.int(0, i);
+    [texts[i], texts[j]] = [texts[j], texts[i]];
+  }
   const tasks = Array.from({ length: random.int(0, 3) }, (_unused, index) => ({ id: `t${index}`, text: texts[index], done: random.bool(0.35) }));
   const settings: NotificationConfig = {
     ...DEFAULT_NOTIFICATIONS,

@@ -105,7 +105,8 @@ export function nagMinuteAt(dayKey: string, minutes: number): Date {
 export function nagZoneOffset(dayKey: string): number {
   const noon = fromDateKey(dayKey);
   noon.setHours(12, 0, 0, 0);
-  return -noon.getTimezoneOffset();
+  // "|| 0": never -0 (UTC), which would not survive being saved as JSON.
+  return -noon.getTimezoneOffset() || 0;
 }
 
 // ---------------------------------------------------------------------------
