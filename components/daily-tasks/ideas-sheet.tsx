@@ -213,7 +213,7 @@ export function IdeasSheet({
           )}
 
           {/* The reason leads; the slot count under it is the smaller helper. */}
-          {adaptationReason && !full && !savedOnly ? (
+          {adaptationReason && !full && !savedOnly && !locked ? (
             <>
               <Text className="text-base" style={{ color: colors.muted }} testID="ideas-reason">
                 {adaptationReason}
@@ -224,13 +224,13 @@ export function IdeasSheet({
             </>
           ) : (
             <Text className="text-base" style={{ color: colors.muted }} testID="ideas-hint">
-              {savedOnly
-                ? locked
-                  ? "Today is set. Unlock it in Settings to add one."
-                  : "Your day is full. Free a slot to swap one of these in."
-                : full
-                  ? "Today's three are picked. Nice."
-                  : suggestionsHint(remainingSlots)}
+              {locked
+                ? "Today is set. Unlock it in Settings to add one."
+                : savedOnly
+                  ? "Your day is full. Free a slot to swap one of these in."
+                  : full
+                    ? "Today's three are picked. Nice."
+                    : suggestionsHint(remainingSlots)}
             </Text>
           )}
 
@@ -238,7 +238,8 @@ export function IdeasSheet({
           <View className="gap-2">
             {shownIdeas.map((idea) => {
               const added = addedTexts.has(keyOf(idea.text));
-              const disabled = added || full;
+              // A day set while the sheet was open takes nothing more.
+              const disabled = added || full || locked;
               return (
                 <Pressable
                   key={idea.id}
@@ -275,7 +276,7 @@ export function IdeasSheet({
           </View>
           )}
 
-          {available.length > 1 && !full && (
+          {available.length > 1 && !full && !locked && (
             <Pressable
               onPress={() => onAddAll(available.slice(0, remainingSlots).map((idea) => idea.text))}
               accessibilityRole="button"

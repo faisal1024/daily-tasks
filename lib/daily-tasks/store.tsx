@@ -1085,11 +1085,16 @@ interface StoreContextValue {
   addTasks: (texts: string[]) => void;
   editTask: (id: TaskId, text: string) => void;
   deleteTask: (id: TaskId) => void;
-  /** Take an open task off today and save it for later (works on a set day). */
+  /** Take an open task off today and save it for later (not on a set day: unlock it in Settings first). */
   notToday: (id: TaskId) => void;
   toggleTask: (id: TaskId) => void;
   lockToday: () => void;
-  unlockToday: () => void;
+  /**
+   * Unlock a set day (Settings only, 1.4). True only when it really unlocked
+   * something: false when today wasn't set (e.g. the confirm was left open
+   * past midnight and the new day isn't set).
+   */
+  unlockToday: () => boolean;
   resolveRollover: (carriedTaskIds: TaskId[]) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
@@ -1752,8 +1757,16 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const lockToday = useCallback(() => {
     dispatch({ type: "lockToday", today: ensureDay(), at: new Date().toISOString() });
   }, [ensureDay]);
-  const unlockToday = useCallback(() => {
-    dispatch({ type: "unlockToday", today: ensureDay() });
+  const unlockToday = useCallback((): boolean => {
+    const before = todayRef.current;
+    const day = ensureDay();
+    const current = stateRef.current;
+    // Judged on the day it lands on: after a rollover ensureDay just
+    // dispatched, which stateRef hasn't seen yet (as in addRoutineToToday).
+    const base = day === before ? current : reducer(current, { type: "rollover", today: day });
+    const changed = reducer(base, { type: "unlockToday", today: day }) !== base;
+    dispatch({ type: "unlockToday", today: day });
+    return changed;
   }, [ensureDay]);
   const resolveRollover = useCallback((carriedTaskIds: TaskId[]) => {
     dispatch({

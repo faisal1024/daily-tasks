@@ -73,6 +73,7 @@ import {
   type SortedBrainDump,
 } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
+import { announcePolitely } from "@/lib/daily-tasks/announce";
 import { AHA_PAYWALL_DELAY_MS, fillsDay, shouldOfferAhaPaywall } from "@/lib/daily-tasks/aha-paywall";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
@@ -106,6 +107,7 @@ import { nextDayPhrase, nextRoutineUp } from "@/lib/daily-tasks/routines";
 import { useDailyTasks, type RoutineAddSource } from "@/lib/daily-tasks/store";
 import {
   brainDumpToast,
+  LOCKED_CHANGE_NOTE,
   clockTimeOf,
   formatClockTime,
   ideasEntry,
@@ -287,9 +289,12 @@ export default function HomeScreen() {
   }, [brainDumpOpen, hasPlus]);
   // Short confirmation after a brain dump, so saved items aren't a mystery.
   const [toast, setToast] = useState<string | null>(null);
+  // A "locked" note isn't a success: it shows a lock, not a tick.
+  const [toastTone, setToastTone] = useState<"done" | "locked">("done");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = (message: string) => {
+  const showToast = (message: string, tone: "done" | "locked" = "done") => {
     setToast(message);
+    setToastTone(tone);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 4000);
   };
@@ -1090,8 +1095,15 @@ export default function HomeScreen() {
         : undefined,
   };
 
+  // A tap where a set day used to offer a change (a row's words, an empty
+  // slot): say why nothing happened and where to go (1.4).
+  const handleLockedTap = () => {
+    showToast(LOCKED_CHANGE_NOTE, "locked");
+    announcePolitely(LOCKED_CHANGE_NOTE);
+  };
+
   const handleDelete = (id: string, text: string) => {
-    if (state.todayLocked) return;
+    if (state.todayLocked) return handleLockedTap();
     Alert.alert("Remove this task?", `Remove “${text}” from today?`, [
       { text: "Cancel", style: "cancel" },
       {
@@ -1111,7 +1123,7 @@ export default function HomeScreen() {
   // today), and the note says so.
   const handleNotToday = (id: string) => {
     // A set day keeps its three (the store refuses too).
-    if (state.todayLocked) return;
+    if (state.todayLocked) return handleLockedTap();
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     const timed = focusSessionRef.current?.taskId === id;
     notToday(id);
@@ -1121,7 +1133,19 @@ export default function HomeScreen() {
     AccessibilityInfo.announceForAccessibility(note);
   };
 
+  // Words that can't go on today because it was set meanwhile (typed into a
+  // slot as auto-set fired, a brain dump confirmed after it): saved for later
+  // and said so, never dropped (the store refuses the add).
+  const saveForLaterOnLockedDay = (texts: string[]) => {
+    parkTasks(texts);
+    const message = brainDumpToast(0, texts.length, { locked: true });
+    if (!message) return;
+    showToast(message, "locked");
+    announcePolitely(message);
+  };
+
   const handleAdd = (text: string) => {
+    if (state.todayLocked) return saveForLaterOnLockedDay([text]);
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     addTask(text);
   };
@@ -1177,11 +1201,15 @@ export default function HomeScreen() {
               {toast && (
                 <View
                   className="flex-row items-center gap-2 rounded-2xl p-3"
-                  style={{ backgroundColor: `${colors.success}18` }}
+                  style={{ backgroundColor: toastTone === "locked" ? colors.surface : `${colors.success}18` }}
                   accessibilityLiveRegion="polite"
                   testID="today-toast"
                 >
-                  <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                  {toastTone === "locked" ? (
+                    <Ionicons name="lock-closed" size={18} color={colors.muted} testID="today-toast-locked" />
+                  ) : (
+                    <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                  )}
                   <Text className="flex-1 text-sm text-foreground">{toast}</Text>
                 </View>
               )}
@@ -1213,6 +1241,7 @@ export default function HomeScreen() {
                           onEdit={(text) => editTask(task.id, text)}
                           onDelete={() => handleDelete(task.id, task.text)}
                           onNotToday={() => handleNotToday(task.id)}
+                          onLockedPress={handleLockedTap}
                           onBreakDown={
                             breakDownAvailable ? () => handleBreakDown(task.id, task.text) : undefined
                           }
@@ -1240,6 +1269,8 @@ export default function HomeScreen() {
                         slotNumber={index + 1}
                         disabled={state.todayLocked}
                         onAdd={handleAdd}
+                        onLockedPress={handleLockedTap}
+                        onLockedText={(text) => saveForLaterOnLockedDay([text])}
                       />
                     </View>
                   );
@@ -1247,9 +1278,10 @@ export default function HomeScreen() {
               </View>
 
               {/* A full three-for-three day: the card and gradient say it all.
-                  With room left, keep the line. A set day has nothing to tap
-                  here: unlocking is in Settings only (1.4). */}
-              {!(progress.isPerfect && total >= MAX_TASKS) && (
+                  With room left, keep the line. A set day always keeps it, so
+                  the lock (and where to unlock) still shows on a finished
+                  three; nothing to tap here: unlocking is in Settings only (1.4). */}
+              {(state.todayLocked || !(progress.isPerfect && total >= MAX_TASKS)) && (
               <StatusLine status={status} onLock={confirmLock} />
               )}
               {/* Routines due today (1.3): right under the day's card, so
@@ -1605,8 +1637,10 @@ export default function HomeScreen() {
         }
         onConfirm={(picks, parked) => {
           // A slot may have filled while the sheet was open: park what won't fit.
-          const accepted = picks.slice(0, remainingSlots);
-          const saved = [...picks.slice(remainingSlots), ...parked];
+          // A day set meanwhile takes nothing (the store refuses): save it all.
+          const room = state.todayLocked ? 0 : remainingSlots;
+          const accepted = picks.slice(0, room);
+          const saved = [...picks.slice(room), ...parked];
           if (accepted.length > 0) {
             haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
             addTasks(accepted);
@@ -1615,8 +1649,8 @@ export default function HomeScreen() {
           setBrainDumpOpen(false);
           // Offered only if the dump really filled the day's three (checked once the sheet has gone).
           if (accepted.length > 0) offerAhaPaywall({ fillsFrom: total });
-          const message = brainDumpToast(accepted.length, saved.length);
-          if (message) showToast(message);
+          const message = brainDumpToast(accepted.length, saved.length, { locked: state.todayLocked });
+          if (message) showToast(message, state.todayLocked ? "locked" : "done");
         }}
       />
 

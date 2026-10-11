@@ -214,15 +214,46 @@ export function lockConfirmation(taskCount: number): { title: string; message: s
 export const LOCKED_HINT = "Unlock in Settings";
 
 /**
- * Copy for Settings' "Unlock today" (1.4). Unlocking is deliberately a step
- * away from Today, and "Keep locked" is the prominent choice.
+ * Said (toast and VoiceOver) when a tap on a set day would have changed the
+ * three: a row's words, an empty slot, Not today (1.4). Also the message on a
+ * set row's menu, which has no Edit, Not today or Delete.
  */
-export const UNLOCK_CONFIRMATION = {
-  title: "Unlock today's three?",
-  message: "You set these on purpose.",
-  keep: "Keep locked",
-  unlock: "Unlock",
-} as const;
+export const LOCKED_CHANGE_NOTE = "Today is locked. Unlock it in Settings to change your three.";
+
+/** Shown in Settings (and announced) once "Unlock" has unlocked today (1.4). */
+export const UNLOCKED_NOTE = "Today is unlocked.";
+
+export interface UnlockConfirmation {
+  title: string;
+  message: string;
+  keep: string;
+  unlock: string;
+}
+
+/**
+ * Copy for Settings' "Unlock today" (1.4). Unlocking is deliberately a step
+ * away from Today, and "Keep locked" is the prominent choice. One rule for
+ * both kinds of set day; only the message differs, because an automatic set
+ * wasn't the user's own choice and unlocking it holds auto-set off for the
+ * rest of the day.
+ */
+export function unlockConfirmation(params: {
+  lockSource: LockSource | null;
+  /** When auto-set set today, e.g. "12:00 PM". */
+  autoLockTime?: string | null;
+}): UnlockConfirmation {
+  const { lockSource, autoLockTime } = params;
+  const when = autoLockTime ? ` at ${autoLockTime}` : "";
+  return {
+    title: "Unlock today?",
+    message:
+      lockSource === "auto"
+        ? `The app set today automatically${when}. Unlocking keeps it open for the rest of today.`
+        : "Your three will be open to change again. You can set today again any time.",
+    keep: "Keep locked",
+    unlock: "Unlock",
+  };
+}
 
 /** "12:00 PM" style time for status copy. */
 export function formatClockTime(hour: number, minute: number): string {
@@ -239,12 +270,18 @@ export function clockTimeOf(iso: string | null): string | null {
   return formatClockTime(date.getHours(), date.getMinutes());
 }
 
-/** Confirmation after a brain dump, e.g. "Added 2. 3 saved for later in Ideas." */
-export function brainDumpToast(added: number, saved: number): string | null {
+/**
+ * Confirmation after a brain dump, e.g. "Added 2. 3 saved for later in Ideas."
+ * On a day that was set while the sheet was open nothing is added, and the
+ * note says why everything was saved instead.
+ */
+export function brainDumpToast(added: number, saved: number, options?: { locked?: boolean }): string | null {
   const parts: string[] = [];
   if (added > 0) parts.push(`Added ${added}.`);
   if (saved > 0) parts.push(`${saved} saved for later in Ideas.`);
-  return parts.length > 0 ? parts.join(" ") : null;
+  if (parts.length === 0) return null;
+  if (options?.locked && added === 0) parts.unshift("Today is locked.");
+  return parts.join(" ");
 }
 
 export type TaskRowAction = "edit" | "notToday" | "breakDown" | "delete";
