@@ -5,12 +5,10 @@ import { useCallback, useEffect, useRef } from "react";
 import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusFeature } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
+import { SHEET_SWAP_DELAY_MS } from "@/lib/daily-tasks/sheet-swap";
 
-/**
- * iOS shows one modal at a time: how long a closing sheet takes to animate
- * away before the next one (or the paywall) can come up.
- */
-export const SHEET_SWAP_DELAY_MS = 650;
+// Lives in lib so the pure rules (what's new) can read it too.
+export { SHEET_SWAP_DELAY_MS };
 
 export interface ShowPaywallOptions<U> {
   /** Tracked as plus_gate_hit. */

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  ActionSheetIOS,
   Alert,
   AppState as RNAppState,
   Keyboard,
@@ -83,6 +82,7 @@ import {
 } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
 import { announcePolitely } from "@/lib/daily-tasks/announce";
+import { actionSheetOpen, showActionSheet } from "@/lib/daily-tasks/action-sheet";
 import { AHA_PAYWALL_DELAY_MS, fillsDay, shouldOfferAhaPaywall } from "@/lib/daily-tasks/aha-paywall";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
@@ -137,7 +137,13 @@ import {
 } from "@/lib/daily-tasks/reorder";
 import { buildWeekSummary, todayPhase } from "@/lib/daily-tasks/today-phase";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
-import { NAG_ANNOUNCEMENT_ID, NAG_ON_TOAST } from "@/lib/daily-tasks/whats-new";
+import {
+  NAG_ANNOUNCEMENT_ID,
+  NAG_ON_TOAST,
+  todayIdleForWhatsNew,
+  whatsNewActivity,
+  whatsNewMoment,
+} from "@/lib/daily-tasks/whats-new";
 import {
   buildEveningInput,
   closeDay,
@@ -624,12 +630,33 @@ export default function HomeScreen() {
   // Siri) while another task's timer is on (the screen says a start there
   // stops the other; never replaced silently), a tap on the Live Activity,
   // or a tap on the end notification with its check-in due.
+  // With the what's-new sheet up, that sheet goes first (one modal at a time
+  // on iOS) and the focus screen follows once it has animated away.
+  // Set further down, where the sheet is declared.
+  const whatsNewStepAside = useRef<() => boolean>(() => false);
+  const focusPromptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (focusPromptTimer.current) clearTimeout(focusPromptTimer.current);
+    },
+    [],
+  );
   useEffect(() => {
     if (!focusPrompt) return;
     clearFocusPrompt();
-    if (state.tasks.some((task) => task.id === focusPrompt.taskId && !isCompleted(task.id))) {
+    if (!state.tasks.some((task) => task.id === focusPrompt.taskId && !isCompleted(task.id))) return;
+    if (focusPromptTimer.current) clearTimeout(focusPromptTimer.current);
+    focusPromptTimer.current = null;
+    if (!whatsNewStepAside.current()) {
       openFocus(focusPrompt.taskId, focusPrompt.source);
+      return;
     }
+    const { taskId, source } = focusPrompt;
+    focusPromptTimer.current = setTimeout(() => {
+      focusPromptTimer.current = null;
+      // Ticked or removed meanwhile: the focus screen closes itself.
+      openFocus(taskId, source);
+    }, SHEET_SWAP_DELAY_MS);
     // Only when a new prompt arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusPrompt]);
@@ -685,7 +712,7 @@ export default function HomeScreen() {
       sessionTask && sessionTask.id !== taskId ? `This stops the timer on “${sessionTask.text}”.` : undefined;
     if (Platform.OS === "ios") {
       const labels = [...lengths.map((minutes) => capitalize(durationWords(minutes))), "Custom…"];
-      ActionSheetIOS.showActionSheetWithOptions(
+      showActionSheet(
         {
           title,
           message: replaces,
@@ -924,26 +951,28 @@ export default function HomeScreen() {
     focusSession !== null ||
     showCelebration;
 
-  // What's new (1.4): once, for someone who updated, the first time Today is
-  // in front with nothing on top of it (the list above, yesterday's leftovers,
-  // a drag, a break-down on its way), nobody typing and Plus known. Otherwise it waits for
-  // the next such moment, in this session or a later one.
+  // What's new (1.4): once, for someone who updated, in the quiet window
+  // right after a launch or a return to the foreground: Today in front with
+  // nothing on top of it (the list above, yesterday's leftovers, a drag, a
+  // break-down on its way), nobody typing and Plus known. If the user does
+  // anything first it waits for the next foreground or launch.
   const keyboardUp = useKeyboardVisible();
   const todayFocused = useScreenFocused();
   // Set further down (the rating ask and the aha paywall are declared there).
-  const whatsNewCanShow = useRef<() => boolean>(() => false);
+  const whatsNewCanShow = useRef<() => ReturnType<typeof whatsNewMoment>>(() => "later");
   const whatsNew = useWhatsNew({
-    idle:
-      ready &&
-      appActive &&
-      todayFocused &&
-      !somethingUp &&
-      // Not while Plus is still being checked: the sheet and its button differ with and without it.
-      !plusPending &&
-      state.pendingRollover === null &&
-      !keyboardUp &&
-      reorder.draggingId === null &&
-      breakingTaskId === null,
+    active: appActive,
+    idle: todayIdleForWhatsNew({
+      todayFocused,
+      somethingUp,
+      rolloverPending: state.pendingRollover !== null,
+      keyboardUp,
+      dragging: reorder.draggingId !== null,
+      breakingDown: breakingTaskId !== null,
+    }),
+    // Not while Plus is still being checked: the sheet and its button differ with and without it.
+    pending: plusPending,
+    activity: whatsNewActivity(state.tasks, state.todayCompletions),
     canShowNow: () => whatsNewCanShow.current(),
   });
   // VoiceOver goes back to Today's title once the sheet has gone.
@@ -955,18 +984,43 @@ export default function HomeScreen() {
     },
     [],
   );
-  const closeWhatsNew = () => {
+  // The sheet has gone so that something else can come up (the paywall, the
+  // focus screen): Today still counts as busy until it has, so no rating ask
+  // or other paywall slips into the gap.
+  const [whatsNewHandingOff, setWhatsNewHandingOff] = useState(false);
+  const handOffWhatsNew = () => {
+    setWhatsNewHandingOff(true);
+    if (whatsNewTimer.current) clearTimeout(whatsNewTimer.current);
+    whatsNewTimer.current = setTimeout(() => {
+      whatsNewTimer.current = null;
+      setWhatsNewHandingOff(false);
+    }, SHEET_SWAP_DELAY_MS + 150);
+  };
+  const closeWhatsNew = (next?: "paywall") => {
     whatsNew.close();
+    if (next === "paywall") {
+      // The paywall is about to appear: VoiceOver's focus is its to take.
+      handOffWhatsNew();
+      return;
+    }
     if (whatsNewTimer.current) clearTimeout(whatsNewTimer.current);
     whatsNewTimer.current = setTimeout(() => {
       whatsNewTimer.current = null;
       if (todayTitleRef.current) AccessibilityInfo.sendAccessibilityEvent(todayTitleRef.current, "focus");
     }, SHEET_SWAP_DELAY_MS);
   };
+  // A focus prompt while the sheet is up: the sheet steps aside, not seen
+  // (the user didn't close it), and comes back at a later foreground.
+  whatsNewStepAside.current = () => {
+    if (whatsNew.openId === null) return false;
+    whatsNew.postpone();
+    handOffWhatsNew();
+    return true;
+  };
 
   const busyRef = useRef(false);
   // The sheet counts as something on screen too: no rating ask or paywall over it.
-  busyRef.current = somethingUp || whatsNew.openId !== null;
+  busyRef.current = somethingUp || whatsNew.openId !== null || whatsNewHandingOff;
 
   // The gentle aha paywall: once per install, after day 1, at a real win
   // (last night's draft used, Set, or a brain dump that filled the day's
@@ -1017,13 +1071,17 @@ export default function HomeScreen() {
   // still closing. `fillsFrom`: the task count before an add, so the offer only
   // stands if the add really filled the day (checked against the count after it).
   // As the what's-new delay ends: not on a rating ask, not as the aha paywall
-  // is about to open, not with a field in use (a hardware keyboard shows none).
+  // is about to open (both: ask again shortly); not with a menu open or a
+  // field in use (a hardware keyboard shows none): the user is busy.
   whatsNewCanShow.current = () =>
-    RNAppState.currentState === "active" &&
-    !busyRef.current &&
-    !ratingRecent() &&
-    ahaTimer.current === null &&
-    TextInput.State.currentlyFocusedInput() == null;
+    whatsNewMoment({
+      appActive: RNAppState.currentState === "active",
+      busy: busyRef.current,
+      menuOpen: actionSheetOpen(),
+      fieldInUse: TextInput.State.currentlyFocusedInput() != null,
+      ratingRecent: ratingRecent(),
+      ahaPending: ahaTimer.current !== null,
+    });
   const offerAhaPaywall = (options: { fillsFrom?: number } = {}) => {
     if (ahaTimer.current) clearTimeout(ahaTimer.current);
     ahaTimer.current = setTimeout(() => {
@@ -1973,6 +2031,7 @@ export default function HomeScreen() {
         visible={whatsNew.openId === NAG_ANNOUNCEMENT_ID}
         source="today"
         onClose={closeWhatsNew}
+        onShow={whatsNew.shown}
         onTurnedOn={() => {
           showToast(NAG_ON_TOAST);
           announceLater(NAG_ON_TOAST);

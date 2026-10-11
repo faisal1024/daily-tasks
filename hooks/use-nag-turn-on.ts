@@ -33,29 +33,51 @@ export function useNagTurnOn({ onTurnedOn }: NagTurnOnOptions = {}) {
   const latest = useRef({ hasPlus, notificationPermission, nagConfirmed: state.notifications.nagConfirmed });
   latest.current = { hasPlus, notificationPermission, nagConfirmed: state.notifications.nagConfirmed };
 
+  // One question at a time: a second tap while iOS is being asked for
+  // notifications, or while the question is up, does nothing.
+  const asking = useRef(false);
+
   /** With Plus: permission if needed, then the question (asked once), then on. */
   const turnNagOn = useCallback(
     async (choice?: NagChoice) => {
+      if (asking.current) return;
+      asking.current = true;
+      const done = () => {
+        asking.current = false;
+      };
       const apply = () => {
+        done();
         setReminderStyle("nag", choice);
         onTurnedOnRef.current?.();
       };
-      if (latest.current.notificationPermission !== "granted") {
-        const status = await requestNotificationPermission();
-        if (status !== "granted") {
-          Alert.alert(NAG_NO_PERMISSION_TITLE, NAG_NO_PERMISSION_MESSAGE);
+      try {
+        if (latest.current.notificationPermission !== "granted") {
+          const status = await requestNotificationPermission();
+          if (status !== "granted") {
+            done();
+            Alert.alert(NAG_NO_PERMISSION_TITLE, NAG_NO_PERMISSION_MESSAGE);
+            return;
+          }
+        }
+        // Asked once: after that Nag turns on with one tap.
+        if (latest.current.nagConfirmed) {
+          apply();
           return;
         }
+        Alert.alert(
+          NAG_CONFIRM_TITLE,
+          NAG_CONFIRM_MESSAGE,
+          [
+            { text: "Not now", style: "cancel", onPress: done },
+            { text: "Turn on", style: "default", onPress: apply },
+          ],
+          // Android: closed without an answer (it cannot be by default; this is the safety net).
+          { onDismiss: done },
+        );
+      } catch (error) {
+        done();
+        throw error;
       }
-      // Asked once: after that Nag turns on with one tap.
-      if (latest.current.nagConfirmed) {
-        apply();
-        return;
-      }
-      Alert.alert(NAG_CONFIRM_TITLE, NAG_CONFIRM_MESSAGE, [
-        { text: "Not now", style: "cancel" },
-        { text: "Turn on", style: "default", onPress: apply },
-      ]);
     },
     [requestNotificationPermission, setReminderStyle],
   );

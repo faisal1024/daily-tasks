@@ -47,6 +47,7 @@ export function NagIntroSheet({
   taskText,
   onTry,
   onDismiss,
+  onShow,
 }: {
   visible: boolean;
   hasPlus: boolean;
@@ -57,6 +58,8 @@ export function NagIntroSheet({
   onTry: (choice: NagChoice) => void;
   /** "Not now", the close button, a swipe down or the back button. */
   onDismiss: (choice: NagChoice) => void;
+  /** The sheet is on screen. */
+  onShow?: () => void;
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -111,27 +114,43 @@ export function NagIntroSheet({
   }, [visible]);
 
   const choice: NagChoice = { persona, level };
+  // The sample changes in place when a chip is picked: say the new one.
+  const announceFirst = (next: NagChoice) => {
+    const first = nagIntroSamples({ ...next, taskText })[0];
+    if (first) announcePolitely(first);
+  };
   const pickPersona = (next: NagPersona) => {
+    if (next !== persona) announceFirst({ persona: next, level });
     setPersona(next);
     setTurn(0);
   };
   const pickLevel = (next: NagLevel) => {
+    if (next !== level) announceFirst({ persona, level: next });
     setLevel(next);
     setTurn(0);
   };
 
+  // Without Plus the main button opens the paywall: it says so, and the line
+  // above it says why, before the tap.
+  const primaryLabel = hasPlus ? NAG_INTRO_COPY.primary : NAG_INTRO_COPY.primaryFree;
   const buttons = (
     <View className="gap-2">
+      {!hasPlus ? (
+        <Text className="text-sm text-center pb-1" style={{ color: colors.muted }} testID="nag-intro-plus">
+          {NAG_INTRO_COPY.plus}
+        </Text>
+      ) : null}
       <Pressable
         onPress={() => onTry(choice)}
         accessibilityRole="button"
-        accessibilityLabel={NAG_INTRO_COPY.primary}
+        accessibilityLabel={primaryLabel}
+        accessibilityHint={hasPlus ? undefined : NAG_INTRO_COPY.primaryFreeHint}
         className="rounded-2xl px-4 py-3 items-center justify-center"
         style={{ minHeight: 50, backgroundColor: colors.primary }}
         testID="nag-intro-try"
       >
         <Text className="text-base font-semibold text-center" style={{ color: colors.onPrimary }}>
-          {NAG_INTRO_COPY.primary}
+          {primaryLabel}
         </Text>
       </Pressable>
       <Pressable
@@ -153,7 +172,10 @@ export function NagIntroSheet({
     <Modal
       visible={visible}
       onRequestClose={() => onDismiss(choice)}
-      onShow={focusTitle}
+      onShow={() => {
+        focusTitle();
+        onShow?.();
+      }}
       animationType={sheetAnimation}
       presentationStyle={Platform.OS === "ios" ? "pageSheet" : undefined}
     >
@@ -292,12 +314,6 @@ export function NagIntroSheet({
               </View>
             ))}
           </View>
-
-          {!hasPlus ? (
-            <Text className="text-sm" style={{ color: colors.muted }} testID="nag-intro-plus">
-              {NAG_INTRO_COPY.plus}
-            </Text>
-          ) : null}
 
           {inlineButtons ? buttons : null}
 

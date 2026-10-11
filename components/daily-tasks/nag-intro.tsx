@@ -14,14 +14,20 @@ export function NagIntro({
   source,
   onClose,
   onTurnedOn,
+  onShow,
 }: {
   visible: boolean;
   /** Where it was opened: on its own on Today, or from the row in Settings. */
   source: "today" | "settings";
-  /** Close the sheet (Today marks the announcement seen here). */
-  onClose: () => void;
+  /**
+   * Close the sheet (Today marks the announcement seen here). `next`
+   * "paywall": it is closing so the paywall can come up.
+   */
+  onClose: (next?: "paywall") => void;
   /** Nag mode was turned on from here, now or after the paywall. */
   onTurnedOn?: () => void;
+  /** The sheet is on screen. */
+  onShow?: () => void;
 }) {
   const { state, hasPlus } = useDailyTasks();
   const visibleRef = useRef(visible);
@@ -55,6 +61,7 @@ export function NagIntro({
       hasPlus={hasPlus}
       initial={{ persona: state.notifications.nagPersona, level: state.notifications.nagLevel }}
       taskText={taskText}
+      onShow={onShow}
       onTry={(choice) => {
         act("try", choice);
         if (hasPlus) {
@@ -64,7 +71,7 @@ export function NagIntro({
         }
         // One modal at a time: the sheet goes, then the paywall comes up. If
         // Plus is bought there, the question follows.
-        onClose();
+        onClose("paywall");
         requestNag({ choice, afterSheet: true });
       }}
       onDismiss={(choice) => {

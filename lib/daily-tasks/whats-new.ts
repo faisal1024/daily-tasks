@@ -9,13 +9,14 @@
 
 import { builtInNagLines, type NagLevel, type NagPersona } from "./nag";
 import { NAG_LEVEL_COUNTS } from "./nag-plan";
+import { SHEET_SWAP_DELAY_MS } from "./sheet-swap";
 import type { AppState } from "./types";
 
 /** What the rule reads from the saved state. */
 export type WhatsNewState = Pick<AppState, "hasSeenOnboarding" | "whatsNewSeen" | "notifications">;
 
 export interface Announcement {
-  /** Saved in `whatsNewSeen` and sent with the analytics events: letters, digits, dots and dashes. */
+  /** Saved in `whatsNewSeen` and sent with the analytics events: letters, digits, dots, dashes and underscores (40 at most). */
   id: string;
   /**
    * The feature is already in use, so there is nothing to introduce: the
@@ -94,10 +95,85 @@ export function whatsNewDecision(
   return { show, skip };
 }
 
-/** After Today goes idle, so the sheet doesn't flash up on launch. */
-export const WHATS_NEW_DELAY_MS = 600;
-/** Asked again this much later when the moment wasn't right after all (a rating ask, a field in use). */
+// ---------------------------------------------------------------------------
+// When: the quiet window right after a launch or a return to the foreground
+// ---------------------------------------------------------------------------
+
+/**
+ * How long Today must stay idle after a launch or a return to the foreground.
+ * Longer than a sheet takes to animate away, so the sheet is never presented
+ * while another is still closing (iOS drops it without saying so).
+ */
+export const WHATS_NEW_DELAY_MS = SHEET_SWAP_DELAY_MS + 150;
+/** Asked again this much later while a launch-time blocker is in the way (a rating ask just made, the aha paywall's timer). */
 export const WHATS_NEW_RETRY_MS = 2000;
+/** Asked to open but not on screen this long after: iOS dropped it. It is taken back, not marked seen. */
+export const WHATS_NEW_SHOW_TIMEOUT_MS = 1500;
+/** Dropped this many times in one foreground session: it waits for the next. */
+export const WHATS_NEW_MAX_TRIES = 3;
+
+/**
+ * Today is in front with nothing on top of it and the user is not in the
+ * middle of something. Any of these turning true inside the quiet window is
+ * the user doing something: the sheet gives up until the next foreground.
+ */
+export function todayIdleForWhatsNew({
+  todayFocused,
+  somethingUp,
+  rolloverPending,
+  keyboardUp,
+  dragging,
+  breakingDown,
+}: {
+  /** Today's tab is the one showing. */
+  todayFocused: boolean;
+  /** First run, a paywall, a sheet, the focus screen or a focus session, a celebration. */
+  somethingUp: boolean;
+  /** Yesterday's leftovers are waiting for an answer. */
+  rolloverPending: boolean;
+  keyboardUp: boolean;
+  /** A row is being dragged. */
+  dragging: boolean;
+  /** A break-down is on its way. */
+  breakingDown: boolean;
+}): boolean {
+  return todayFocused && !somethingUp && !rolloverPending && !keyboardUp && !dragging && !breakingDown;
+}
+
+/** As the delay ends. "later": ask again shortly. "no": not in this foreground session. */
+export type WhatsNewMoment = "yes" | "later" | "no";
+
+/**
+ * Asked once more as the delay ends, for what isn't in the idle state. What
+ * the user did (something came up, a menu is open, a field has focus) is
+ * "no"; what only needs a moment at launch (iOS has not made the app active
+ * yet, a rating ask was just made, the aha paywall's timer is running) is
+ * "later".
+ */
+export function whatsNewMoment({
+  appActive,
+  busy,
+  menuOpen,
+  fieldInUse,
+  ratingRecent,
+  ahaPending,
+}: {
+  appActive: boolean;
+  busy: boolean;
+  menuOpen: boolean;
+  fieldInUse: boolean;
+  ratingRecent: boolean;
+  ahaPending: boolean;
+}): WhatsNewMoment {
+  if (busy || menuOpen || fieldInUse) return "no";
+  if (!appActive || ratingRecent || ahaPending) return "later";
+  return "yes";
+}
+
+/** Changes whenever a task is added, removed, edited, moved or ticked. */
+export function whatsNewActivity(tasks: readonly { id: string; text: string }[], completions: readonly string[]): string {
+  return JSON.stringify([tasks.map((task) => [task.id, task.text]), completions]);
+}
 
 // ---------------------------------------------------------------------------
 // The Nag mode announcement
@@ -114,10 +190,14 @@ export const NAG_INTRO_COPY = {
   points: [
     { icon: "shuffle-outline", text: "Random times, at most one an hour." },
     { icon: "trending-up-outline", text: "Gets pushier while your tasks stay open." },
-    { icon: "moon-outline", text: "One tap stops it for the day. It never breaks through a Focus." },
+    { icon: "moon-outline", text: "One tap stops it for the day. It stays quiet during Do Not Disturb and Focus." },
   ],
+  /** Without Plus, directly above the main button. */
   plus: "Nag mode is part of Plus. Calm reminders stay free.",
   primary: "Try Nag mode",
+  /** The main button without Plus: it opens the paywall, and says so. */
+  primaryFree: "See Plus",
+  primaryFreeHint: "Shows what Plus includes",
   secondary: "Not now",
   footer: "Also new: drag to reorder your three, reminders that name your tasks, and ideas for your next milestone.",
   close: "Close",
@@ -130,9 +210,11 @@ export const NAG_INTRO_SETTINGS_ROW = "What is Nag mode?";
 
 /**
  * The preview's lines for a voice and level: the built-in lines of that
- * level's own day (nothing is sent anywhere), pushiest first so the level
- * shows, and, with a task to name, the lines that name it before the general
- * ones. `taskText` null (no open task, or names hidden): general lines only.
+ * level's own day (nothing is sent anywhere). Firm and Relentless are
+ * pushiest first so the level shows; Gentle is in the day's own order, so it
+ * opens on a morning line and not on the end of the day. With a task to
+ * name, the lines that name it come before the general ones. `taskText` null
+ * (no open task, or names hidden): general lines only.
  */
 export function nagIntroSamples({
   persona,
@@ -143,13 +225,14 @@ export function nagIntroSamples({
   level: NagLevel;
   taskText: string | null;
 }): string[] {
-  const lines = builtInNagLines({
+  const day = builtInNagLines({
     persona,
     level,
     tasks: taskText ? [{ text: taskText }] : [],
     count: NAG_LEVEL_COUNTS[level],
     seed: "whats-new",
-  }).reverse();
+  });
+  const lines = level === "gentle" ? day : [...day].reverse();
   return [...lines.filter((line) => line.taskIndex !== null), ...lines.filter((line) => line.taskIndex === null)].map(
     (line) => line.text,
   );
