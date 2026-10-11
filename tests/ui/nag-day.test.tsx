@@ -8,9 +8,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { __resetAnalyticsForTests, __setAnalyticsFetchForTests, flush } from "@/lib/daily-tasks/analytics";
 import { MomentumAiError } from "@/lib/daily-tasks/ai-status";
 import type { NagLine, requestNagLines } from "@/lib/daily-tasks/nag";
-import { ensureNagDay, loadNagRecord, NAG_REQUEST_TIMEOUT_MS, nagModeStrategy, nagStrategy, type NagDayInput } from "@/lib/daily-tasks/nag-day";
+import { clearNagRecord, ensureNagDay, loadNagRecord, NAG_REQUEST_TIMEOUT_MS, nagModeStrategy, nagStrategy, type NagDayInput } from "@/lib/daily-tasks/nag-day";
 import { NAG_STORAGE_KEY, type NagDayRecord } from "@/lib/daily-tasks/nag-plan";
 import { taskAwareStrategy, type ReminderContext } from "@/lib/daily-tasks/reminder-plan";
+import { clearState } from "@/lib/daily-tasks/storage";
 import { DEFAULT_NOTIFICATIONS, type NotificationConfig } from "@/lib/daily-tasks/types";
 
 const DAY = "2026-10-12";
@@ -238,6 +239,86 @@ describe("the day's lines", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  describe("the record is removed while the AI is still answering", () => {
+    /** A request that answers when `release` is called. */
+    const slow = () => {
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      request.mockImplementationOnce(async ({ count }) => {
+        await gate;
+        return { lines: aiLines(count) };
+      });
+      return () => release();
+    };
+    const requested = async () => {
+      for (let turn = 0; turn < 200 && request.mock.calls.length === 0; turn += 1) await new Promise((resolve) => setTimeout(resolve, 1));
+      expect(request).toHaveBeenCalledTimes(1);
+    };
+
+    it("'Reset all data' (storage cleared) during the request: the answer is thrown away and no task text is saved back", async () => {
+      const release = slow();
+      const run = ensureNagDay(input(), deps());
+      await requested();
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toMatch(TASK_WORDS);
+      await clearState();
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+      release();
+      await run;
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+      // Only the plan with built-in lines was ever announced.
+      expect(versions).toEqual([1]);
+    });
+
+    it("clearNagRecord during the request: gone at once, not after the answer, and not saved back", async () => {
+      const release = slow();
+      const run = ensureNagDay(input(), deps());
+      await requested();
+      await clearNagRecord();
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+      release();
+      await run;
+      expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+      expect(versions).toEqual([1]);
+    });
+
+    it("a record that isn't the one the request was made for (another fetch marker) is left as it is", async () => {
+      const release = slow();
+      const run = ensureNagDay(input(), deps());
+      await requested();
+      const other = { ...(await saved()), aiFetchedAt: at(8, 5).getTime(), version: 40 };
+      await AsyncStorage.setItem(NAG_STORAGE_KEY, JSON.stringify(other));
+      release();
+      await run;
+      expect(await saved()).toEqual(other);
+      expect((await saved()).source).toBe("local");
+    });
+
+    it("the same record still there: the answer is written in, as before", async () => {
+      const release = slow();
+      const run = ensureNagDay(input(), deps());
+      await requested();
+      release();
+      await run;
+      expect(await saved()).toMatchObject({ source: "ai", aiCalls: 1 });
+      expect(versions).toEqual([1, 2]);
+    });
+
+    it("after a clear the next look plans the day afresh", async () => {
+      await ensureNagDay(input(), deps());
+      await clearNagRecord();
+      expect(await loadNagRecord()).toBeNull();
+      await ensureNagDay(input({ now: at(9) }), deps());
+      expect(await saved()).toMatchObject({ dayKey: DAY, source: "ai", aiCalls: 1 });
+    });
+
+    it("clearNagRecord never throws when storage fails", async () => {
+      (AsyncStorage.removeItem as jest.Mock).mockRejectedValueOnce(new Error("disk"));
+      await expect(clearNagRecord()).resolves.toBeUndefined();
+    });
+  });
+
   it("a damaged saved record is planned afresh", async () => {
     await AsyncStorage.setItem(NAG_STORAGE_KEY, "{not json");
     await ensureNagDay(input(), deps());
@@ -263,7 +344,7 @@ describe("the strategies", () => {
     await ensureNagDay(input(), deps());
     const record = await saved();
     const first = await nagStrategy(context());
-    expect(first.map(({ id, title, body }) => ({ id, title, body }))).toEqual(record.slots.map((slot) => ({ id: slot.id, title: "Mom", body: slot.text })));
+    expect(first.map(({ id, title, body }) => ({ id, title, body }))).toEqual(record.slots.map((slot) => ({ id: slot.id, title: "Three Today · Mom", body: slot.text })));
     expect(first.map((item) => item.fireAt.getTime())).toEqual(record.slots.map((slot) => slot.fireAtMs));
     expect(await nagStrategy(context())).toEqual(first);
     expect(request).toHaveBeenCalledTimes(1);

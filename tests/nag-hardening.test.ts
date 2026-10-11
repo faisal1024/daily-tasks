@@ -117,11 +117,11 @@ describe("built-in lines with awkward task names", () => {
     }
   });
 
-  // BUG (P3, cosmetic; lib/daily-tasks/nag.ts builtInNagLines / the templates):
+  // Was a bug (P3, cosmetic; fixed: nagTaskName leaves the name's closing punctuation off; lib/daily-tasks/nag.ts builtInNagLines / the templates):
   // a task that ends in "!" or "?" is quoted with it, and most templates put
   // their own full stop or comma straight after the name, so the nag reads
   // “Fix the bike!”. or “Why is the sink leaking?”, please.
-  it.fails("BUG: a task ending in ! or ? doesn't leave doubled punctuation around the closing quote", () => {
+  it("a task ending in ! or ? doesn't leave doubled punctuation around the closing quote", () => {
     for (const persona of NAG_PERSONAS) {
       const t = NAG_TEMPLATES[persona];
       const templates = [...t.early, ...t.mid.gentle, ...t.mid.firm, ...t.late.gentle, ...t.late.firm, ...t.late.relentless].filter((template) => template.includes("{task}"));
@@ -134,12 +134,12 @@ describe("built-in lines with awkward task names", () => {
     }
   });
 
-  // BUG (P3; lib/daily-tasks/nag.ts builtInNagLines): the name is put in with
+  // Was a bug (P3; fixed with a function replacer; lib/daily-tasks/nag.ts builtInNagLines): the name was put in with
   // template.replace("{task}", name), and String.replace reads "$$", "$&",
   // "$`" and "$'" in the replacement as patterns. A task called "Save $$ for
   // the trip" is shown with one "$"; "$&" shows "{task}"; "$'" pastes in the
   // rest of the template.
-  it.fails("BUG: a task with $$, $& or $' in it is shown as typed", () => {
+  it("a task with $$, $& or $' in it is shown as typed", () => {
     for (const task of ["Save $$ for the trip", "Fix the $& macro", "Sort $' and $` out"]) {
       const lines = builtInNagLines({ persona: "mom", level: "firm", tasks: [{ text: task }], count: 7, seed: "s" });
       const naming = lines.filter((line) => line.taskIndex !== null);
@@ -440,12 +440,12 @@ describe("the sanitiser against adversarial model output", () => {
     }
   });
 
-  // GAP (P3; server/providers/nag-contract.mjs CONTROL / cleanNagLine, and
+  // Was a gap (P3; fixed: zero-width characters are taken out before the checks and a bidi mark drops the line; server/providers/nag-contract.mjs CONTROL / cleanNagLine, and
   // lib/daily-tasks/nag.ts oneLine): invisible format characters are not
   // control characters to either check. A zero-width space inside a blocked
   // word hides it from the blocklist, and a right-to-left override reaches
   // the notification and reverses how the line is drawn.
-  it.fails("GAP: invisible format characters (zero-width, bidi overrides) don't get a line past the checks", () => {
+  it("invisible format characters (zero-width, bidi overrides) don't get a line past the checks", () => {
     for (const text of ["You id\u200Biot.", "You are path\u200Detic.", "Read this \u202Ebackwards.", "Soft\u00ADhy\u00ADphen stu\u00ADpid.", "\uFEFFYou lo\u2060ser."]) {
       expect(server.cleanNagLine(text, { persona: "mom" }), JSON.stringify(text)).toBe("");
     }
@@ -541,7 +541,8 @@ describe("saved state from before Nag mode, and damaged saves", () => {
       expect(NAG_PERSONAS, where).toContain(record.persona);
       expect(NAG_LEVELS, where).toContain(record.level);
       for (const slot of record.slots) {
-        expect(typeof slot.text === "string" && slot.text.length > 0, where).toBe(true);
+        // A slot may be saved with no words (no line for it): it stays in the record and is never scheduled (the plan below).
+        expect(typeof slot.text === "string", where).toBe(true);
         expect(Number.isInteger(slot.step) && slot.step >= 1, where).toBe(true);
         expect(slot.taskId === null || typeof slot.taskId === "string", where).toBe(true);
       }
@@ -559,11 +560,11 @@ describe("saved state from before Nag mode, and damaged saves", () => {
     expect(kept).toBeGreaterThan(100);
   });
 
-  // BUG (P3; lib/daily-tasks/nag-plan.ts asNagSlot): a saved slot's time is
+  // Was a bug (P3; fixed; lib/daily-tasks/nag-plan.ts asNagSlot): a saved slot's time is
   // only checked to be a finite number above zero. A number no date can hold
   // (over 8.64e15) is kept, and the plan then carries an Invalid Date for
   // the scheduler. Needs a damaged record that is still valid JSON.
-  it.fails("BUG: a saved slot with a time no date can hold is dropped on the way in", () => {
+  it("a saved slot with a time no date can hold is dropped on the way in", () => {
     const dayKey = "2026-10-12";
     const now = nagMinuteAt(dayKey, 8 * 60);
     const tasks = [{ id: "t0", text: "Zorvex", done: false }];

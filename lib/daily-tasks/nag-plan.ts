@@ -96,6 +96,18 @@ export function nagMinuteAt(dayKey: string, minutes: number): Date {
   return at;
 }
 
+/**
+ * The local clock a day is planned for: minutes ahead of UTC at the day's
+ * noon. The same all day (also on a day the clocks change), and different
+ * once the phone is in another time zone, when the times drawn for the old
+ * clock no longer sit inside the window.
+ */
+export function nagZoneOffset(dayKey: string): number {
+  const noon = fromDateKey(dayKey);
+  noon.setHours(12, 0, 0, 0);
+  return -noon.getTimezoneOffset();
+}
+
 // ---------------------------------------------------------------------------
 // Who gets nags
 // ---------------------------------------------------------------------------
@@ -290,6 +302,7 @@ export interface NagSlot {
   fireAtMs: number;
   /** Its place in the day, from 1. */
   step: number;
+  /** Its words; "" when there is no line for it (it stays in the record and isn't scheduled). */
   text: string;
   /** The task it names; null for a line about the list in general. */
   taskId: string | null;
@@ -316,6 +329,8 @@ export interface NagDayRecord {
   timingKey: string;
   /** How many times the day's times have been drawn. */
   draws: number;
+  /** The local clock the times were drawn for (nagZoneOffset); null in a record saved before this was kept. */
+  zone: number | null;
   /** Written with task names hidden: general lines only. */
   hideNames: boolean;
   /** When the AI was last asked today (ms); null when it wasn't. */
@@ -329,6 +344,7 @@ export interface NagDayRecord {
 }
 
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_DATE_MS = 8.64e15;
 
 function asNagLine(value: unknown): NagLine | null {
   if (!value || typeof value !== "object") return null;
@@ -342,8 +358,9 @@ function asNagSlot(value: unknown): NagSlot | null {
   if (!value || typeof value !== "object") return null;
   const { id, fireAtMs, step, text, taskId } = value as Record<string, unknown>;
   if (typeof id !== "string" || !id.startsWith("daily-tasks:")) return null;
-  if (typeof fireAtMs !== "number" || !Number.isFinite(fireAtMs) || fireAtMs <= 0) return null;
-  if (typeof step !== "number" || !Number.isInteger(step) || step < 1 || typeof text !== "string" || !text) return null;
+  // A moment a Date can hold (up to 8.64e15 ms): anything else would be an Invalid Date in the plan.
+  if (typeof fireAtMs !== "number" || !Number.isFinite(fireAtMs) || fireAtMs <= 0 || fireAtMs > MAX_DATE_MS) return null;
+  if (typeof step !== "number" || !Number.isInteger(step) || step < 1 || typeof text !== "string") return null;
   return { id, fireAtMs, step, text, taskId: typeof taskId === "string" && taskId ? taskId : null };
 }
 
@@ -372,6 +389,7 @@ export function normalizeNagRecord(value: unknown): NagDayRecord | null {
     total: Math.max(count(raw.total), slots.reduce((most, slot) => Math.max(most, slot.step), 0)),
     timingKey: typeof raw.timingKey === "string" ? raw.timingKey : "",
     draws: count(raw.draws),
+    zone: typeof raw.zone === "number" && Number.isFinite(raw.zone) ? raw.zone : null,
     hideNames: raw.hideNames === true,
     aiFetchedAt: typeof raw.aiFetchedAt === "number" && Number.isFinite(raw.aiFetchedAt) ? raw.aiFetchedAt : null,
     aiCalls: count(raw.aiCalls),
@@ -396,17 +414,41 @@ function aiLinesFit(record: NagDayRecord, persona: NagPersona, level: NagLevel, 
   return forPersona === persona && forLevel === level && !nagTasksChanged(forTasks, open);
 }
 
-/** The future slots of `slots` with the lines of a batch written in; a slot the batch has no line for keeps its words. */
+/**
+ * The future slots of `slots` with the lines of a batch written in; a slot
+ * the batch has no line for keeps its words. So does a slot whose line was
+ * already said today (a nag that went off, or an earlier slot here): no two
+ * nags of a day say the same thing.
+ */
 function withLines(
   slots: NagSlot[],
   { lines, lineTasks, total, nowMs }: { lines: NagLine[]; lineTasks: string[]; total: number; nowMs: number },
 ): NagSlot[] {
+  const said = new Set(slots.filter((slot) => slot.fireAtMs <= nowMs && slot.text).map((slot) => slot.text));
   return slots.map((slot) => {
     if (slot.fireAtMs <= nowMs) return slot;
     const line = lineForStep(lines, slot.step, total);
-    if (!line) return slot;
+    if (!line || said.has(line.text)) {
+      if (slot.text) said.add(slot.text);
+      return slot;
+    }
+    said.add(line.text);
     return { ...slot, text: line.text, taskId: line.taskIndex === null ? null : (lineTasks[line.taskIndex] ?? null) };
   });
+}
+
+/**
+ * The line for the nag at `step` of `total`, never one in `said`: when the
+ * step's own line was said already (the day was drawn again with another
+ * count, so the lines moved), the nearest unsaid line after it, then before.
+ */
+function unsaidLine(lines: readonly NagLine[], step: number, total: number, said: ReadonlySet<string>): NagLine | null {
+  const own = lineForStep(lines, step, total);
+  if (!own || !said.has(own.text)) return own;
+  const from = lines.indexOf(own);
+  for (let index = from + 1; index < lines.length; index += 1) if (!said.has(lines[index].text)) return lines[index];
+  for (let index = from - 1; index >= 0; index -= 1) if (!said.has(lines[index].text)) return lines[index];
+  return null;
 }
 
 /** What planNagDay plans from (nag-day.ts has its own NagDayInput: what ensureNagDay is given). */
@@ -423,11 +465,14 @@ export interface NagDayPlanInput {
 
 /**
  * The day's record, planned without the AI. Slots that already went off stay
- * as history. With the same level and window the future slots keep their
- * times (only their words are written again); otherwise the rest of the day
- * is drawn again, never under an hour after the last one that went off (or
- * yesterday's last). Built-in lines fill the slots; the AI's lines from
- * earlier today are put back when they still fit.
+ * as history. With the same level, window and time zone the future slots keep
+ * their times (only their words are written again); otherwise the rest of
+ * the day is drawn again, never under an hour after the last one that went
+ * off (or yesterday's last), with steps that carry on from the last one.
+ * Built-in lines fill the slots; the AI's lines from earlier today are put
+ * back when they still fit. A slot there is no line for stays in the record
+ * with no words (it isn't scheduled), so it is back when there is one again.
+ * No two slots of the day share their words.
  */
 export function planNagDay({ previous, now, dayKey, settings, open, salt: freshSalt }: NagDayPlanInput): NagDayRecord {
   const { nagPersona: persona, nagLevel: level, nagWindow: window } = settings;
@@ -436,12 +481,13 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
   const salt = previous?.salt ?? freshSalt;
   const sameDay = previous?.dayKey === dayKey;
   const timingKey = nagTimingKey(level, window);
+  const zone = nagZoneOffset(dayKey);
   const past = sameDay ? previous.slots.filter((slot) => slot.fireAtMs <= nowMs) : [];
 
   let future: NagSlot[];
   let total: number;
   let draws: number;
-  if (sameDay && previous.timingKey === timingKey) {
+  if (sameDay && previous.timingKey === timingKey && (previous.zone === null || previous.zone === zone)) {
     future = previous.slots.filter((slot) => slot.fireAtMs > nowMs);
     total = previous.total;
     draws = previous.draws;
@@ -459,11 +505,13 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
       draw: draws,
       takenIds: past.map((slot) => slot.id),
     });
-    total = past.length + times.length;
+    // The steps carry on from the last nag that went off, so they keep rising.
+    const lastStep = past.reduce((most, slot) => Math.max(most, slot.step), 0);
+    total = lastStep + times.length;
     future = times.map((fireAtMs, index) => ({
       id: nagSlotId(new Date(fireAtMs)),
       fireAtMs,
-      step: past.length + index + 1,
+      step: lastStep + index + 1,
       text: "",
       taskId: null,
     }));
@@ -471,14 +519,18 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
 
   const tasks = hideNames ? [] : open;
   const lines = builtInNagLines({ persona, level, tasks, count: total, seed: `${dayKey}|${salt}` });
-  let slots = future.flatMap((slot) => {
-    const line = lineForStep(lines, slot.step, total);
-    if (!line) return [];
-    return [{ ...slot, text: line.text, taskId: line.taskIndex === null ? null : (tasks[line.taskIndex]?.id ?? null) }];
+  const said = new Set(past.filter((slot) => slot.text).map((slot) => slot.text));
+  let slots = future.map((slot) => {
+    const line = unsaidLine(lines, slot.step, total, said);
+    if (!line) return { ...slot, text: "", taskId: null };
+    said.add(line.text);
+    return { ...slot, text: line.text, taskId: line.taskIndex === null ? null : (tasks[line.taskIndex]?.id ?? null) };
   });
 
   const keepAi = sameDay && !hideNames && aiLinesFit(previous, persona, level, open);
-  if (keepAi) slots = withLines(slots, { lines: previous.lines, lineTasks: previous.lineTasks, total, nowMs });
+  if (keepAi) {
+    slots = withLines([...past, ...slots], { lines: previous.lines, lineTasks: previous.lineTasks, total, nowMs }).slice(past.length);
+  }
 
   return {
     dayKey,
@@ -493,6 +545,7 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
     total,
     timingKey,
     draws,
+    zone,
     hideNames,
     aiFetchedAt: sameDay ? previous.aiFetchedAt : null,
     aiCalls: sameDay ? previous.aiCalls : 0,
@@ -503,7 +556,8 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
 
 /**
  * Whether the day has to be planned again: a new day, another persona, level
- * or window, names hidden or shown, or a task the slots don't know.
+ * or window, another time zone, names hidden or shown, or a task the slots
+ * don't know.
  */
 export function nagDayNeedsPlan(previous: NagDayRecord | null, input: Omit<NagDayPlanInput, "previous" | "now" | "salt">): boolean {
   if (!previous || previous.dayKey !== input.dayKey) return true;
@@ -512,6 +566,7 @@ export function nagDayNeedsPlan(previous: NagDayRecord | null, input: Omit<NagDa
     previous.persona !== nagPersona ||
     previous.level !== nagLevel ||
     previous.timingKey !== nagTimingKey(nagLevel, nagWindow) ||
+    (previous.zone !== null && previous.zone !== nagZoneOffset(input.dayKey)) ||
     previous.hideNames !== (hideTaskNames === true) ||
     nagTasksChanged(previous.tasksKey, input.open)
   );
@@ -551,13 +606,16 @@ export type NagPlanContext = Pick<ReminderContext, "now" | "today" | "settings" 
 
 /**
  * The day's record is the one to plan from: nag mode applies, it isn't
- * paused today, and the record is for the store's day, which is the clock's.
+ * paused today, the record is for the store's day, which is the clock's, and
+ * it was planned for the time zone the phone is in (until it is planned
+ * again its times are for another clock).
  */
 export function nagRecordApplies(record: NagDayRecord | null, context: NagPlanContext): record is NagDayRecord {
   const { settings, today, now } = context;
   if (!nagModeOn(settings, context.plus === true, context.permissionState)) return false;
   if (settings.nagPausedDate === today) return false;
-  return record !== null && record.dayKey === today && today === toDateKey(now);
+  if (record === null || record.dayKey !== today || today !== toDateKey(now)) return false;
+  return record.zone === null || record.zone === nagZoneOffset(today);
 }
 
 /**
@@ -586,7 +644,8 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
     } else if (slot.taskId !== null && !openIds.has(slot.taskId)) {
       words = local(slot.step, [open[0]]);
     }
-    if (!words) return [];
+    // No line for this slot (or none without a name): it isn't scheduled.
+    if (!words || !words.text) return [];
     return [
       {
         id: slot.id,

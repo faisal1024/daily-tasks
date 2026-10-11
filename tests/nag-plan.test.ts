@@ -406,7 +406,7 @@ describe("the plan from the record", () => {
     expect(items).toHaveLength(7);
     items.forEach((item, index) => {
       const slot = record.slots[index];
-      expect(item).toMatchObject({ id: slot.id, title: "Mom", body: slot.text, kind: "nag", categoryId: NAG_CATEGORY_ID });
+      expect(item).toMatchObject({ id: slot.id, title: "Three Today · Mom", body: slot.text, kind: "nag", categoryId: NAG_CATEGORY_ID });
       expect(item.fireAt.getTime()).toBe(slot.fireAtMs);
       expect(item.data).toEqual({ ...(slot.taskId ? { taskId: slot.taskId } : {}), step: slot.step });
     });
@@ -415,10 +415,10 @@ describe("the plan from the record", () => {
     expect(nagPlanFromRecord(record, context({ now: later }))).toEqual(items.slice(2));
   });
 
-  it.each(NAG_PERSONAS)("the title is the persona's label (%s)", (persona) => {
+  it.each(NAG_PERSONAS)("the title is the app's name, then the persona's label (%s)", (persona) => {
     const settings = { ...NAG_ON, nagPersona: persona };
     const items = nagPlanFromRecord(plan({ settings }), context({ settings }));
-    expect(new Set(items.map((item) => item.title))).toEqual(new Set([NAG_PERSONA_LABELS[persona]]));
+    expect(new Set(items.map((item) => item.title))).toEqual(new Set([`Three Today · ${NAG_PERSONA_LABELS[persona]}`]));
   });
 
   it("never time-sensitive: a nag does not break through a Focus", () => {

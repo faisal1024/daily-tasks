@@ -420,7 +420,7 @@ describe("builtInNagLines", () => {
       expect(t.late.relentless).toContain(long[long.length - 1]);
       const lateHeat = long.slice(11).map((x) => (t.late.relentless.includes(x) ? 2 : t.late.firm.includes(x) ? 1 : 0));
       expect(lateHeat).toEqual([...lateHeat].sort((a, b) => a - b));
-      expect(lateHeat.filter((heat) => heat === 2)).toHaveLength(4);
+      expect(lateHeat.filter((heat) => heat === 2)).toHaveLength(5);
     }
   });
 

@@ -10,6 +10,7 @@ import * as Notifications from "expo-notifications";
 import SettingsScreen from "@/app/(tabs)/settings";
 import { SHEET_SWAP_DELAY_MS } from "@/hooks/use-paywall-gate";
 import { track } from "@/lib/daily-tasks/analytics";
+import { formatTime } from "@/lib/daily-tasks/date";
 import { NAG_TEMPLATES } from "@/lib/daily-tasks/nag";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
@@ -57,8 +58,9 @@ const NAG_ON: NotificationConfig = { ...DEFAULT_NOTIFICATIONS, style: "nag", nag
 
 const CONFIRM_TITLE = "Turn on Nag mode?";
 const CONFIRM_MESSAGE =
-  "Once a day, your open tasks are sent to our AI so it can write reminders in the voice you pick. They arrive at random times, at most one an hour, and get pushier while tasks stay open.";
-const HIDDEN_NOTE = "With task names hidden, nags won't name your tasks.";
+  "Up to twice a day, your open tasks are sent to our AI service so it can write reminders in the voice you pick. They arrive at random times, at most one an hour, and get pushier while tasks stay open.";
+const HIDDEN_NOTE = "With task names hidden, nags won't name your tasks and nothing is sent to our AI service.";
+const CALM_NOTE = "Morning reminders still apply. The other calm nudges are paused while Nag is on.";
 
 let alert: jest.SpyInstance;
 const realFetch = globalThis.fetch;
@@ -114,6 +116,13 @@ const radio = (name: string) => screen.getByRole("radio", { name });
 const checked = (name: string) => radio(name).props.accessibilityState.checked;
 const nagCard = () => screen.queryByTestId("settings-nag");
 const sample = () => screen.getByTestId("settings-nag-sample").props.children as string;
+/** Voice and Level chips say their group: "Voice: Mom", "Level: Firm". */
+const voice = (name: string) => radio(`Voice: ${name}`);
+const level = (name: string) => radio(`Level: ${name}`);
+const openNagHours = async () => {
+  await fireEvent.press(screen.getByTestId("settings-nag-hours"));
+  await waitFor(() => expect(screen.getByTestId("settings-nag-hours").props.accessibilityState).toMatchObject({ expanded: true }));
+};
 const picker = (label: string) => screen.getAllByTestId("native-time-picker").find((node) => node.props.accessibilityLabel === label)!;
 const lastAlert = () => alert.mock.calls[alert.mock.calls.length - 1] as [string, string, AlertButton[]];
 const pressAlertButton = (text: string) => act(async () => lastAlert()[2].find((button) => button.text === text)!.onPress?.());
@@ -247,10 +256,22 @@ describe("Settings: Reminder style", () => {
     expect(eventsNamed("nag_mode_disabled")).toEqual([]);
   });
 
-  it("with task names hidden it says nags won't name tasks, under the style choice", async () => {
-    await renderSettings({ hideTaskNames: true });
+  it("with task names hidden and Nag on, it says nags won't name tasks and nothing is sent, under the style choice", async () => {
+    await renderSettings({ ...NAG_ON, hideTaskNames: true });
     expect(screen.getByTestId("settings-nag-hidden-names")).toHaveTextContent(HIDDEN_NOTE);
     expect(HIDDEN_NOTE).not.toMatch(/[—–]/);
+  });
+
+  it("the hidden-names note is only for Nag in use: not in Calm, and not for a saved Nag without Plus", async () => {
+    const view = await renderSettings({ hideTaskNames: true });
+    expect(screen.queryByTestId("settings-nag-hidden-names")).toBeNull();
+    expect(screen.queryByText(HIDDEN_NOTE)).toBeNull();
+    view.unmount();
+
+    mockPlus = { ...FREE };
+    await renderSettings({ ...NAG_ON, hideTaskNames: true });
+    expect(checked("Calm")).toBe(true);
+    expect(screen.queryByTestId("settings-nag-hidden-names")).toBeNull();
   });
 });
 
@@ -263,17 +284,23 @@ describe("Settings: with Nag on", () => {
     ] as const) {
       const node = screen.getAllByLabelText(group).find((item) => item.props.accessibilityRole === "radiogroup");
       expect(node).toBeTruthy();
-      for (const name of names) expect(radio(name)).toBeOnTheScreen();
+      // Each chip says its group, and shows only its own name.
+      for (const name of names) {
+        expect(radio(`${group}: ${name}`)).toBeOnTheScreen();
+        expect(screen.getByText(name)).toBeOnTheScreen();
+        expect(screen.queryByRole("radio", { name })).toBeNull();
+      }
     }
-    expect(["Mom", "Spouse", "Coach", "Drill sergeant"].map(checked)).toEqual([true, false, false, false]);
-    expect(["Gentle", "Firm", "Relentless"].map(checked)).toEqual([false, true, false]);
+    const isOn = (name: string) => checked(name);
+    expect(["Voice: Mom", "Voice: Spouse", "Voice: Coach", "Voice: Drill sergeant"].map(isOn)).toEqual([true, false, false, false]);
+    expect(["Level: Gentle", "Level: Firm", "Level: Relentless"].map(isOn)).toEqual([false, true, false]);
 
-    await fireEvent.press(radio("Drill sergeant"));
-    await fireEvent.press(radio("Relentless"));
-    await waitFor(() => expect(checked("Drill sergeant")).toBe(true));
-    expect(checked("Mom")).toBe(false);
-    expect(checked("Relentless")).toBe(true);
-    expect(checked("Firm")).toBe(false);
+    await fireEvent.press(voice("Drill sergeant"));
+    await fireEvent.press(level("Relentless"));
+    await waitFor(() => expect(checked("Voice: Drill sergeant")).toBe(true));
+    expect(checked("Voice: Mom")).toBe(false);
+    expect(checked("Level: Relentless")).toBe(true);
+    expect(checked("Level: Firm")).toBe(false);
     await waitFor(async () => expect(await savedNotifications()).toMatchObject({ nagPersona: "drill", nagLevel: "relentless", style: "nag" }));
   });
 
@@ -288,7 +315,7 @@ describe("Settings: with Nag on", () => {
     await fireEvent.press(screen.getByRole("button", { name: "Show another" }));
     await waitFor(() => expect(sample()).not.toBe(first));
 
-    await fireEvent.press(radio("Drill sergeant"));
+    await fireEvent.press(voice("Drill sergeant"));
     await waitFor(() => expect(JSON.stringify(NAG_TEMPLATES.drill).replace(/\{task\}/g, "“Call the dentist”")).toContain(JSON.stringify(sample()).slice(1, -1)));
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
@@ -302,8 +329,37 @@ describe("Settings: with Nag on", () => {
     expect(screen.getByTestId("settings-nag-hidden-names")).toHaveTextContent(HIDDEN_NOTE);
   });
 
+  it("the window is one row, 'Nag hours' with both times in the device's format, that opens the two pickers", async () => {
+    await renderSettings(NAG_ON);
+    const row = screen.getByTestId("settings-nag-hours");
+    const hours = `${formatTime(9, 0)} to ${formatTime(21, 0)}`;
+    expect(row.props.accessibilityRole).toBe("button");
+    expect(row.props.accessibilityLabel).toBe(`Nag hours: ${hours}`);
+    expect(row.props.accessibilityState).toMatchObject({ expanded: false });
+    expect(row.props.style).toMatchObject({ minHeight: 44 });
+    expect(screen.getByText("Nag hours")).toBeOnTheScreen();
+    expect(screen.getByText(hours)).toBeOnTheScreen();
+    // Closed: no pickers, no help line.
+    expect(screen.queryAllByTestId("native-time-picker").filter((node) => /^Nag /.test(node.props.accessibilityLabel))).toEqual([]);
+    expect(screen.queryByText("Nags only arrive between these times. The window is at least 3 hours long.")).toBeNull();
+
+    await openNagHours();
+    expect(picker("Nag from")).toBeTruthy();
+    expect(picker("Nag until")).toBeTruthy();
+    expect(screen.getByText("Nags only arrive between these times. The window is at least 3 hours long.")).toBeOnTheScreen();
+
+    // The row follows the pickers.
+    await fireEvent(picker("Nag from"), "change", { type: "set" }, new Date(2026, 9, 12, 10, 30));
+    await waitFor(() => expect(screen.getByTestId("settings-nag-hours").props.accessibilityLabel).toBe(`Nag hours: ${formatTime(10, 30)} to ${formatTime(21, 0)}`));
+
+    await fireEvent.press(screen.getByTestId("settings-nag-hours"));
+    await waitFor(() => expect(screen.getByTestId("settings-nag-hours").props.accessibilityState).toMatchObject({ expanded: false }));
+    expect(screen.queryByText("Nags only arrive between these times. The window is at least 3 hours long.")).toBeNull();
+  });
+
   it("the window has a start and an end picker, 9:00 to 21:00 by default, kept three hours long", async () => {
     await renderSettings(NAG_ON);
+    await openNagHours();
     const time = (label: string) => {
       const value = picker(label).props.value as Date;
       return [value.getHours(), value.getMinutes()];
@@ -351,13 +407,23 @@ describe("Settings: with Nag on", () => {
     expect(screen.queryByText("Nagging is off until tomorrow")).toBeNull();
   });
 
-  it("the daytime and evening switches say they aren't used; the morning one still is", async () => {
+  it("the daytime and evening switches are disabled with one line under them saying why; the morning one still works", async () => {
     await renderSettings(NAG_ON);
     for (const title of ["Progress reminders", "Evening reminders", "Every hour"]) {
       const row = screen.getByRole("switch", { name: title });
-      expect(row.props.accessibilityHint).toBe("Not used while Nag is on.");
+      expect(row.props.accessibilityHint).toBe("Paused while Nag is on.");
       expect(row.props.accessibilityState).toMatchObject({ disabled: true });
     }
+    // One line for all three, not a hint on each row.
+    expect(screen.getAllByText(CALM_NOTE)).toHaveLength(1);
+    expect(screen.getByTestId("settings-nag-calm-note")).toHaveTextContent(CALM_NOTE);
+    // (The rows' own text is hidden from VoiceOver, which reads the switch: look there too.)
+    const anywhere = { includeHiddenElements: true };
+    expect(screen.queryByText("Not used while Nag is on.", anywhere)).toBeNull();
+    expect(screen.queryByText("Paused while Nag is on.", anywhere)).toBeNull();
+    expect(screen.queryByText("Calm nudges while Today's Three are still open.", anywhere)).toBeNull();
+    expect(screen.getByText("A gentle start if today is still blank.", anywhere)).toBeTruthy();
+    expect(CALM_NOTE).not.toMatch(/[—–]/);
     const morning = screen.getByRole("switch", { name: "Morning reminders" });
     expect(morning.props.accessibilityHint).toBe("A gentle start if today is still blank.");
     expect(morning.props.accessibilityState).toMatchObject({ disabled: false });
@@ -365,15 +431,26 @@ describe("Settings: with Nag on", () => {
 
   it("every control has a role, a name and a state, and a 44 point target", async () => {
     await renderSettings(NAG_ON);
-    for (const name of ["Calm", "Nag", "Mom", "Spouse", "Coach", "Drill sergeant", "Gentle", "Firm", "Relentless"]) {
+    const names = ["Calm", "Nag", "Voice: Mom", "Voice: Spouse", "Voice: Coach", "Voice: Drill sergeant", "Level: Gentle", "Level: Firm", "Level: Relentless"];
+    for (const name of names) {
       const node = radio(name);
       expect(typeof node.props.accessibilityState.checked).toBe("boolean");
       expect(node.props.style).toMatchObject({ minHeight: 44 });
+      // Room above and below the words, so wrapped large text doesn't touch the border.
+      expect(node.props.className).toMatch(/\bpy-2\b/);
     }
     expect(screen.getAllByRole("radio").filter((node) => node.props.accessibilityState.checked)).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Stop nagging me today" }).props.style).toMatchObject({ minHeight: 44 });
     expect(screen.getByRole("button", { name: "Show another" })).toBeOnTheScreen();
+    await openNagHours();
     expect(picker("Nag from")).toBeTruthy();
     expect(picker("Nag until")).toBeTruthy();
+  });
+
+  it("in Calm the switches keep their own help and there is no line about Nag", async () => {
+    await renderSettings();
+    expect(screen.queryByTestId("settings-nag-calm-note")).toBeNull();
+    expect(screen.getByRole("switch", { name: "Progress reminders" }).props.accessibilityHint).toBe("Calm nudges while Today's Three are still open.");
+    expect(screen.getByText("Calm nudges while Today's Three are still open.", { includeHiddenElements: true })).toBeTruthy();
   });
 });

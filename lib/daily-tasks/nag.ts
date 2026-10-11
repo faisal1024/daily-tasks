@@ -66,9 +66,18 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 // host, or an email.
 const LINK_PATTERN = /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
 
-/** One line of text: control characters become spaces, one space between words. */
+// Invisible format characters: zero-width spaces and joiners, left-to-right
+// and right-to-left marks, the bidi embeddings, overrides and isolates, the
+// word joiner and its neighbours, the byte order mark and the soft hyphen.
+// They can hide a word from a check or reverse how a line is drawn. A
+// zero-width joiner inside an emoji (a family, a flag with a rainbow) stays.
+const FORMAT = /[\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]|\u200D(?![\uD83C-\uD83E\u2600-\u27BF])/g;
+
+const BIDI = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
+
+/** One line of text: invisible format characters go, control characters become spaces, one space between words. */
 function oneLine(value: string): string {
-  return value.replace(CONTROL, " ").replace(/\s+/g, " ").trim();
+  return value.replace(FORMAT, "").replace(CONTROL, " ").replace(/\s+/g, " ").trim();
 }
 
 function cut(value: string, max: number): string {
@@ -98,6 +107,8 @@ export function parseNagResponse(data: unknown, { taskCount, count }: { taskCoun
     if (taskIndex !== null && !(typeof taskIndex === "number" && Number.isInteger(taskIndex) && taskIndex >= 0 && taskIndex < taskCount)) {
       return;
     }
+    // A bidi override or isolate in a line is dropped with the line, as on the proxy.
+    if (BIDI.test(rawText)) return;
     const text = oneLine(rawText);
     if (!text || Array.from(text).length > MAX_NAG_LINE || LINK_PATTERN.test(text)) return;
     candidates.push({ step, position, taskIndex: taskIndex as number | null, text });
@@ -494,9 +505,14 @@ function shuffled<T>(items: readonly T[], random: () => number): T[] {
   return out;
 }
 
-/** The task's name inside a built-in line: one clean line, quoted, 40 characters at most. */
+/**
+ * The task's name inside a built-in line: one clean line, quoted, 40
+ * characters at most. Punctuation at its end is left off, so a line never
+ * reads “Fix the bike!”. or “Why is the sink leaking?”, please.
+ */
 export function nagTaskName(text: string): string {
-  return quoteTask(oneLine(text));
+  const clean = oneLine(text);
+  return quoteTask(clean.replace(/[\s.,;:!?\u2026]+$/, "") || clean);
 }
 
 /**
@@ -556,6 +572,6 @@ export function builtInNagLines({
     if (!template.includes("{task}")) return { step: index + 1, taskIndex: null, text: template };
     const task = open[turn % open.length];
     turn += 1;
-    return { step: index + 1, taskIndex: task.from, text: template.replace("{task}", task.name) };
+    return { step: index + 1, taskIndex: task.from, text: template.replace("{task}", () => task.name) };
   });
 }

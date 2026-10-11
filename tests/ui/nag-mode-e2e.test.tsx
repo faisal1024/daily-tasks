@@ -224,7 +224,7 @@ describe("nag mode", () => {
       expect(nag.at.getTime()).toBeGreaterThanOrEqual(start);
       expect(nag.at.getTime()).toBeLessThanOrEqual(end);
       if (index > 0) expect(nag.at.getTime() - nags[index - 1].at.getTime()).toBeGreaterThanOrEqual(3_600_000);
-      expect(nag.content.title).toBe("Mom");
+      expect(nag.content.title).toBe("Three Today · Mom");
       expect(nag.content.body).toMatch(/^AI \d+: /);
       expect(nag.content.data).toMatchObject({ kind: "nag", step: index + 1, fireAt: nag.at.getTime() });
       expect(["t0", "t1", "t2"]).toContain(nag.content.data?.taskId);
@@ -314,7 +314,7 @@ describe("nag mode", () => {
       expect(snapshot()).not.toBe(before);
     };
     await changed(() => result.current.setNagPersona("drill"));
-    expect(ofKind("nag").every((item) => item.content.title === "Drill sergeant")).toBe(true);
+    expect(ofKind("nag").every((item) => item.content.title === "Three Today · Drill sergeant")).toBe(true);
     expect(ofKind("nag")).toHaveLength(7);
 
     await changed(() => result.current.setNagLevel("relentless"));
@@ -360,7 +360,7 @@ describe("nag mode", () => {
     await openApp(NAG_ON);
     const nags = ofKind("nag");
     expect(nags).toHaveLength(7);
-    expect(nags.every((item) => item.content.title === "Mom" && item.content.body.length > 0 && !item.content.body.startsWith("AI "))).toBe(true);
+    expect(nags.every((item) => item.content.title === "Three Today · Mom" && item.content.body.length > 0 && !item.content.body.startsWith("AI "))).toBe(true);
     expect(await loadNagRecord()).toMatchObject({ source: "local", aiCalls: 1 });
     await act(async () => appState.emit("background"));
     jest.setSystemTime(new Date(2026, 9, 12, 8, 30));

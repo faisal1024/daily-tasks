@@ -393,12 +393,12 @@ describe("times, in every zone", () => {
     });
   });
 
-  // BUG (P3, lib/daily-tasks/nag-plan.ts nagSlotId): the id is the local HHmm,
+  // Was a bug (P3, fixed in planNagTimes: the later one moves a minute; lib/daily-tasks/nag-plan.ts nagSlotId): the id is the local HHmm,
   // and on the day the clocks go back one local hour happens twice. Two nags
   // 60 real minutes apart inside it get the same id, so one of them replaces
   // the other (one nag fewer that night). Only with a window that covers
   // 1:00 to 2:00 at night, on one day a year.
-  it.fails("BUG: the night the clocks go back (Los Angeles, 1 November), two nags an hour apart never share an id", () => {
+  it("the night the clocks go back (Los Angeles, 1 November), two nags an hour apart never share an id", () => {
     process.env.TZ = "America/Los_Angeles";
     expect(new Date(2026, 0, 15, 12).getTimezoneOffset()).toBe(480);
     const dayKey = "2026-11-01";
@@ -565,23 +565,23 @@ describe("names hidden for a while (fewer general lines than nags)", () => {
   const shown: NotificationConfig = { ...DEFAULT_NOTIFICATIONS, style: "nag", nagConfirmed: true, nagLevel: "relentless" };
   const hidden: NotificationConfig = { ...shown, hideTaskNames: true };
 
-  it("as documented: a Relentless day with names hidden has fewer nags than eleven, each with a general line, an hour or more apart", () => {
+  it("a Relentless day with names hidden has all eleven nags, each with its own general line, an hour or more apart", () => {
     const record = planNagDay({ previous: null, now: nagMinuteAt(dayKey, 8 * 60), dayKey, settings: hidden, open, salt: "s" });
     expect(record.total).toBe(11);
-    expect(record.slots.length).toBeGreaterThanOrEqual(4);
-    expect(record.slots.length).toBeLessThan(11);
-    expect(record.slots.every((slot) => slot.taskId === null && !/Zorvex/.test(slot.text))).toBe(true);
+    expect(record.slots).toHaveLength(11);
+    expect(record.slots.every((slot) => slot.text !== "" && slot.taskId === null && !/Zorvex/.test(slot.text))).toBe(true);
+    expect(new Set(record.slots.map((slot) => slot.text)).size).toBe(11);
     for (let index = 1; index < record.slots.length; index += 1) expect(record.slots[index].fireAtMs - record.slots[index - 1].fireAtMs).toBeGreaterThanOrEqual(GAP);
   });
 
-  // BUG (P3; lib/daily-tasks/nag-plan.ts planNagDay, `future.flatMap`): the
+  // Was a bug (P3, fixed: slots stay in the record; lib/daily-tasks/nag-plan.ts planNagDay, `future.flatMap`): the
   // nags that get no general line are taken out of the saved record, not
   // just out of the plan. Showing names again the same day plans "words
   // only" from what is left, so the day stays short (Relentless: 7 of 11,
   // Firm: 6 of 7) until tomorrow, even after the switch was on for a moment.
   // The doc says nags still to come keep their id, time and step when names
   // are hidden or shown.
-  it.fails("BUG: showing names again the same day brings back the nags that had no general line", () => {
+  it("showing names again the same day brings back the nags that had no general line", () => {
     const first = planNagDay({ previous: null, now: nagMinuteAt(dayKey, 8 * 60), dayKey, settings: shown, open, salt: "s" });
     expect(first.slots).toHaveLength(11);
     const whileHidden = planNagDay({ previous: first, now: nagMinuteAt(dayKey, 8 * 60 + 1), dayKey, settings: hidden, open, salt: "s" });
@@ -589,13 +589,13 @@ describe("names hidden for a while (fewer general lines than nags)", () => {
     expect(again.slots.map((slot) => [slot.id, slot.fireAtMs, slot.step])).toEqual(first.slots.map((slot) => [slot.id, slot.fireAtMs, slot.step]));
   });
 
-  // BUG (P3; lib/daily-tasks/nag-plan.ts planNagDay, `step: past.length +
+  // Was a bug (P3, fixed: steps carry on from the last one and no line is said twice; lib/daily-tasks/nag-plan.ts planNagDay, `step: past.length +
   // index + 1` and `total = past.length + times.length`): after nags were
   // dropped for having no line, the ones that went off no longer have steps
   // 1..k, so a new level or window numbers the rest from a step below the
   // last one that went off, against a smaller total. The steps stop rising
   // and two nags in a row say the same line.
-  it.fails("BUG: a new window after names were hidden keeps the steps rising and never repeats a line", () => {
+  it("a new window after names were hidden keeps the steps rising and never repeats a line", () => {
     for (let salt = 0; salt < 40; salt += 1) {
       const morning = planNagDay({ previous: null, now: nagMinuteAt(dayKey, 8 * 60), dayKey, settings: hidden, open, salt: `s${salt}` });
       const redrawn = planNagDay({
@@ -615,14 +615,14 @@ describe("names hidden for a while (fewer general lines than nags)", () => {
 });
 
 describe("the phone changes time zone during the day", () => {
-  // BUG (P3; lib/daily-tasks/nag-plan.ts nagDayNeedsPlan / nagRecordApplies):
+  // Was a bug (P3, fixed: the record keeps the zone it was planned in; lib/daily-tasks/nag-plan.ts nagDayNeedsPlan / nagRecordApplies):
   // the day's times are kept as moments, and nothing notices that the local
   // clock they were drawn for has moved. Planned at 8:00 in Los Angeles for
   // 9:00 to 21:00, then the phone is in Kolkata (20:30, the same date): the
   // record still "applies", so its nags are pending from 21:30 through the
   // night to 9:30 the next morning, all outside the window and most of them
   // on the wrong day. They stay until the app is next opened on the new day.
-  it.fails("BUG: after a change of time zone the same day, no nag is left outside the window or on another day", () => {
+  it("after a change of time zone the same day, no nag is left outside the window or on another day", () => {
     const tasks = [{ id: "t0", text: "Zorvex", done: false }];
     const settings: NotificationConfig = { ...DEFAULT_NOTIFICATIONS, style: "nag", nagConfirmed: true };
     process.env.TZ = "America/Los_Angeles";

@@ -43,6 +43,20 @@ jest.mock("@/lib/daily-tasks/plus-context", () => ({
   usePlus: () => ({ ...mockPlus, openPaywall: mockOpenPaywall, restore: jest.fn(), redeemCode: jest.fn() }),
 }));
 jest.mock("@/lib/daily-tasks/announce", () => ({ announcePolitely: jest.fn() }));
+// The store waits REMINDER_SYNC_DEBOUNCE_MS (500 ms) before each reminder
+// sync, and these tests wait for some 200 syncs. Only the length of that
+// wait is changed here (to 100 ms), not what is synced or when it is asked
+// for: the whole file then runs in under a minute instead of three.
+jest.mock("@/lib/daily-tasks/reminder-plan", () => {
+  const actual = jest.requireActual("@/lib/daily-tasks/reminder-plan");
+  // In here, not a constant above: this runs before the file's own constants exist.
+  const debounceMs = 100;
+  return {
+    ...actual,
+    REMINDER_SYNC_DEBOUNCE_MS: debounceMs,
+    createDebounced: (run: () => void, delayMs: number = debounceMs) => actual.createDebounced(run, delayMs),
+  };
+});
 
 jest.mock("expo-notifications", () => ({
   getPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
@@ -131,7 +145,7 @@ function listenToAppState() {
 }
 
 const wrapper = ({ children }: { children: ReactNode }) => <DailyTasksProvider>{children}</DailyTasksProvider>;
-const settle = () => act(async () => new Promise<void>((resolve) => setTimeout(resolve, REMINDER_SYNC_DEBOUNCE_MS + 300)));
+const settle = () => act(async () => new Promise<void>((resolve) => setTimeout(resolve, REMINDER_SYNC_DEBOUNCE_MS + 150)));
 
 let proxyMode: "ok" | "offline" | "402" | "junk";
 /** When set, the proxy's answer waits for it (a slow network). */
@@ -441,6 +455,54 @@ describe("privacy: analytics and logs", () => {
   });
 });
 
+describe("the day record goes when it is no longer wanted", () => {
+  it("'Reset all data' while the AI is still answering: the record is gone and the late answer doesn't bring task text back", async () => {
+    let release = () => {};
+    proxyGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { result } = await openApp(NAG_ON);
+    expect(nagRequests()).toHaveLength(1);
+    expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toMatch(TASK_WORDS);
+
+    await act(async () => result.current.resetAll());
+    expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+    await act(async () => release());
+    await settle();
+    await settle();
+    expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+    expect(result.current.state.notifications.style).toBe("calm");
+    expect(ofKind("nag")).toEqual([]);
+  });
+
+  it("back to Calm: the record (lines that can name tasks) is removed; Nag again plans a new day", async () => {
+    const { result } = await openApp(NAG_ON);
+    expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toMatch(TASK_WORDS);
+    await act(async () => result.current.setReminderStyle("calm"));
+    await settle();
+    await settle();
+    expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBeNull();
+    expect(ofKind("nag")).toEqual([]);
+
+    await act(async () => result.current.setReminderStyle("nag"));
+    await settle();
+    await settle();
+    expect(await loadNagRecord()).toMatchObject({ dayKey: D, persona: "mom" });
+    expect(ofKind("nag").length).toBeGreaterThan(0);
+  });
+
+  it("a saved Nag that is only waiting for Plus keeps its record", async () => {
+    const hook = await openApp(NAG_ON);
+    const before = await AsyncStorage.getItem(NAG_STORAGE_KEY);
+    expect(before).not.toBeNull();
+    mockPlus = { ...FREE };
+    await hook.rerender({});
+    await settle();
+    await settle();
+    expect(await AsyncStorage.getItem(NAG_STORAGE_KEY)).toBe(before);
+  });
+});
+
 describe("Plus ending and coming back", () => {
   it("mid-day: the pending nags go and the calm nudges return at the next sync; the choice is kept; back on Plus the same nags return with no question and no new request", async () => {
     const hook = await openApp({ ...NAG_ON, nagPersona: "coach", nagLevel: "relentless", nagWindow: { startMinutes: 600, endMinutes: 1320 } });
@@ -534,7 +596,7 @@ describe("Plus ending and coming back", () => {
     await waitFor(() => expect(checked("Nag")).toBe(true));
     expect(checked("Calm")).toBe(false);
     expect(screen.getByTestId("settings-nag")).toBeOnTheScreen();
-    expect(screen.getByRole("radio", { name: "Spouse" }).props.accessibilityState.checked).toBe(true);
+    expect(screen.getByRole("radio", { name: "Voice: Spouse" }).props.accessibilityState.checked).toBe(true);
     expect(alert).not.toHaveBeenCalled();
     expect(mockOpenPaywall).not.toHaveBeenCalled();
     expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? "{}").notifications).toMatchObject({ style: "nag", nagConfirmed: true, nagPersona: "spouse" });
