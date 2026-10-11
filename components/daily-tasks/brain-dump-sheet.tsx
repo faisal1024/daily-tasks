@@ -38,6 +38,8 @@ interface BrainDumpSheetProps {
   onUpgrade?: () => void;
   /** Free AI sorts left for a free user (null when unknown or not applicable). */
   freeAiLeft?: number | null;
+  /** Today was set while the sheet was open: everything is saved for later, and it says so. */
+  locked?: boolean;
 }
 
 export function BrainDumpSheet({
@@ -48,6 +50,7 @@ export function BrainDumpSheet({
   onConfirm,
   onUpgrade,
   freeAiLeft = null,
+  locked = false,
 }: BrainDumpSheetProps) {
   const colors = useColors();
   const sheetAnimation = useSheetAnimation();
@@ -265,9 +268,10 @@ export function BrainDumpSheet({
                   )}
                 </View>
               )}
-              <Text className="text-base" style={{ color: colors.muted }}>
-                Tick {openSlots === 1 ? "1" : `up to ${openSlots}`} for today. Everything else is
-                saved in Ideas for another day.
+              <Text className="text-base" style={{ color: colors.muted }} testID="brain-dump-review-hint">
+                {locked
+                  ? "Today is locked, so these are saved in Ideas for another day."
+                  : `Tick ${openSlots === 1 ? "1" : `up to ${openSlots}`} for today. Everything else is saved in Ideas for another day.`}
               </Text>
               {items.map((item) => {
                 const on = chosen.has(item);
@@ -312,7 +316,7 @@ export function BrainDumpSheet({
                 style={{ backgroundColor: colors.primary }}
               >
                 <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: colors.onPrimary }}>
-                  {chosenItems.length === 0 ? "Save all for later" : `Add ${chosenItems.length} to today`}
+                  {locked || chosenItems.length === 0 ? "Save all for later" : `Add ${chosenItems.length} to today`}
                 </Text>
               </Pressable>
               <Pressable

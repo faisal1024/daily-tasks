@@ -164,6 +164,7 @@ function makeStore(overrides: Partial<AppState> = {}) {
     isCompleted: (id: string) => state.todayCompletions.includes(id),
     addTask: jest.fn(),
     addTasks: jest.fn(),
+    addSuggestions: jest.fn((texts: string[]) => texts.length),
     editTask: jest.fn(),
     deleteTask: jest.fn(),
     notToday: jest.fn(),
@@ -377,7 +378,7 @@ describe("Today screen layout", () => {
     expect(message).not.toMatch(/empty slot/);
     // Lighter copy when all three are chosen: nothing is lost by locking.
     expect(message).toBe(
-      "You can still check tasks off. Editing pauses until tomorrow, or until you tap Change.",
+      "You can still check tasks off. Editing pauses until tomorrow, or until you unlock it in Settings.",
     );
     alert.mockRestore();
   });
@@ -416,7 +417,9 @@ describe("Need ideas sheet", () => {
     expect(screen.getByText("Starter ideas")).toBeOnTheScreen();
     const firstIdea = screen.getAllByRole("button", { name: /^Add (?!all|\d|a task)/ })[0];
     await fireEvent.press(firstIdea);
-    expect(mockStore.addTask).toHaveBeenCalledTimes(1);
+    // A tapped idea goes through addSuggestions (a repeat is refused); typing uses addTask.
+    expect(mockStore.addSuggestions).toHaveBeenCalledTimes(1);
+    expect(mockStore.addTask).not.toHaveBeenCalled();
   });
 
   it("labels AI ideas as personalized and shows the failure note in the sheet", async () => {
@@ -1129,17 +1132,25 @@ describe("Brain dump flow", () => {
     expect(screen.getByRole("checkbox", { name: "C" })).toBeDisabled();
   });
 
-  it.each([
-    ["the day gets locked", { todayLocked: true, todayLockSource: "manual" as const }],
-    ["onboarding needs the screen", { hasSeenOnboarding: false }],
-  ])("closes when %s", async (_why, overrides) => {
+  it("closes when onboarding needs the screen", async () => {
     mockStore = makeStore({ tasks: tasks("Walk") });
     const { rerender } = await render(<HomeScreen />);
     await openBrainDump();
     expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
-    mockStore = makeStore({ tasks: tasks("Walk"), ...overrides });
+    mockStore = makeStore({ tasks: tasks("Walk"), hasSeenOnboarding: false });
     await rerender(<HomeScreen />);
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+  });
+
+  it("stays open when the day gets locked, keeping what was typed (1.4: closing would drop it)", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    const { rerender } = await render(<HomeScreen />);
+    await openBrainDump();
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "all my stuff");
+    mockStore = makeStore({ tasks: tasks("Walk"), todayLocked: true, todayLockSource: "manual" });
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Brain dump text").props.value).toBe("all my stuff");
   });
 
   it("stays open when yesterday's unfinished ones arrive (they're a card now, not a modal)", async () => {
@@ -1865,12 +1876,13 @@ describe("Today: unlock and saved ideas", () => {
     { id: "p2", text: "Call mum", parkedAt: "2026-09-26T08:00:00.000Z" },
   ];
 
-  it("offers Change on the status line once the day is set, and it unlocks", async () => {
+  it("shows a quiet locked state once the day is set, with no way to unlock on Today (1.4)", async () => {
     mockStore = makeStore({ tasks: tasks("Walk"), todayLocked: true, todayLockSource: "manual" });
     await render(<HomeScreen />);
-    expect(screen.getByText("Change")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "Change today's tasks" }));
-    expect(mockStore.unlockToday).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Change")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Change today's tasks" })).toBeNull();
+    expect(screen.getByText("Unlock in Settings")).toBeOnTheScreen();
+    expect(screen.getByTestId("status-line").props.accessibilityHint).toBe("Unlock in Settings");
   });
 
   it("has no Change while the day is open", async () => {
@@ -2162,11 +2174,20 @@ describe("Today card (Phase 10a)", () => {
     expect(screen.getByTestId("status-line")).toBeOnTheScreen();
   });
 
-  it("a full three-for-three set day has no status line", async () => {
-    mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch", "Hydrate"), todayCompletions: ["t0", "t1", "t2"] });
-    await render(<HomeScreen />);
+  it("a full three-for-three day has no status line while open; set, it keeps the locked line (1.4)", async () => {
+    const perfect = { tasks: tasks("Walk", "Stretch", "Hydrate"), todayCompletions: ["t0", "t1", "t2"] };
+    mockStore = makeStore(perfect);
+    const { rerender } = await render(<HomeScreen />);
     expect(screen.getByTestId("done-card")).toBeOnTheScreen();
     expect(screen.queryByTestId("status-line")).toBeNull();
+
+    mockStore = makeStore({ ...SET, ...perfect });
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("done-card")).toBeOnTheScreen();
+    const line = screen.getByTestId("status-line");
+    expect(within(line).getByTestId("status-locked")).toBeOnTheScreen();
+    expect(line.props.accessibilityLabel).toBe("Locked. Today is set. All done.");
+    expect(within(line).getByText("Unlock in Settings")).toBeOnTheScreen();
   });
 
   it("says '3 of 3. Rest is part of it.' on the done card for a full day", async () => {
@@ -2187,12 +2208,13 @@ describe("Today card (Phase 10a)", () => {
 
   it("Not today (hero button) goes through the store's one notToday action and says so", async () => {
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
-    mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch") });
+    // An open day under way (a set day has no Not today, 1.4): Stretch is the hero.
+    mockStore = makeStore({ tasks: tasks("Walk", "Stretch"), todayCompletions: ["t0"] });
     await render(<HomeScreen />);
     await fireEvent.press(
-      within(screen.getByTestId("task-row-t0")).getByRole("button", { name: "Not today: Walk" }),
+      within(screen.getByTestId("task-row-t1")).getByRole("button", { name: "Not today: Stretch" }),
     );
-    expect(mockStore.notToday).toHaveBeenCalledWith("t0");
+    expect(mockStore.notToday).toHaveBeenCalledWith("t1");
     // Not the old two-step park-then-delete.
     expect(mockStore.parkTasks).not.toHaveBeenCalled();
     expect(mockStore.deleteTask).not.toHaveBeenCalled();
@@ -2222,17 +2244,17 @@ describe("Today card (Phase 10a)", () => {
     alert.mockRestore();
   });
 
-  it("on a set day VoiceOver offers Not today (which parks the task) but not Edit or Delete", async () => {
+  it("on a set day VoiceOver offers no Not today, Edit or Delete (1.4)", async () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch") });
     await render(<HomeScreen />);
     const box = screen.getByRole("checkbox", { name: "Task 2: Stretch" });
-    expect(box.props.accessibilityActions.map((a: { name: string }) => a.name)).toEqual(["notToday", "startTimer"]);
+    expect(box.props.accessibilityActions.map((a: { name: string }) => a.name)).toEqual(["startTimer"]);
     await fireEvent(box, "accessibilityAction", { nativeEvent: { actionName: "delete" } });
     expect(alert).not.toHaveBeenCalled();
     expect(mockStore.deleteTask).not.toHaveBeenCalled();
     await fireEvent(box, "accessibilityAction", { nativeEvent: { actionName: "notToday" } });
-    expect(mockStore.notToday).toHaveBeenCalledWith("t1");
+    expect(mockStore.notToday).not.toHaveBeenCalled();
     alert.mockRestore();
   });
 
@@ -2250,13 +2272,13 @@ describe("Today card (Phase 10a)", () => {
     expect(mockStore.toggleTask).toHaveBeenCalledWith("t0");
   });
 
-  it("the words don't check a task off on a set day either", async () => {
+  it("the words don't check a task off on a set day either, and offer no Not today (1.4)", async () => {
     mockStore = makeStore({ ...SET, tasks: tasks("Walk") });
     await render(<HomeScreen />);
-    await pickFromMenu("t0", "Not today");
+    await fireEvent.press(screen.getByTestId("task-words-t0", { includeHiddenElements: true }));
     expect(mockStore.toggleTask).not.toHaveBeenCalled();
-    expect(mockStore.notToday).toHaveBeenCalledWith("t0");
-    expect(sheet.mock.calls[0][0].options).toEqual(["Not today", "Cancel"]);
+    expect(mockStore.notToday).not.toHaveBeenCalled();
+    for (const call of sheet.mock.calls) expect(call[0].options).not.toContain("Not today");
   });
 
   it("shows 'Today' with the date, and a small greeting above it when there's a name", async () => {
@@ -2280,21 +2302,22 @@ describe("Today card (Phase 10a)", () => {
   });
 
   it("tracks Not today with where it came from", async () => {
-    mockStore = makeStore({ ...SET, tasks: tasks("Walk") });
+    // Only an open day has Not today (1.4), so the source is always "open".
+    mockStore = makeStore({ tasks: tasks("Walk") });
     await render(<HomeScreen />);
-    const box = screen.getByRole("checkbox", { name: "Up next. Task 1: Walk" });
+    const box = screen.getByRole("checkbox", { name: "Task 1: Walk" });
     await fireEvent(box, "accessibilityAction", { nativeEvent: { actionName: "notToday" } });
-    expect(mockTrack).toHaveBeenCalledWith("task_not_today", { source: "set" });
+    expect(mockTrack).toHaveBeenCalledWith("task_not_today", { source: "open" });
   });
 });
 
 describe("status line on a finished day (Phase 10b)", () => {
-  it("a set day with everything done but room left keeps the line, and Change is reachable", async () => {
+  it("a set day with everything done but room left keeps the line, with no Change (1.4)", async () => {
     mockStore = makeStore({ tasks: tasks("Walk"), todayCompletions: ["t0"], ...SET });
     await render(<HomeScreen />);
     expect(screen.getByText("Today is set. All done.")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "Change today's tasks" }));
-    expect(mockStore.unlockToday).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Change today's tasks" })).toBeNull();
+    expect(screen.getByText("Unlock in Settings")).toBeOnTheScreen();
   });
 
   it("an open day with everything done but room left says so (no Set today)", async () => {
@@ -2304,10 +2327,11 @@ describe("status line on a finished day (Phase 10b)", () => {
     expect(screen.queryByRole("button", { name: "Set today's tasks" })).toBeNull();
   });
 
-  it("a full three-for-three day hides the line", async () => {
+  it("a full three-for-three set day keeps the locked line, with no Change (1.4)", async () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Read", "Call"), todayCompletions: ["t0", "t1", "t2"], ...SET });
     await render(<HomeScreen />);
-    expect(screen.queryByText(/^Today is set\./)).toBeNull();
+    expect(screen.getByText("Today is set. All done.")).toBeOnTheScreen();
+    expect(screen.getByTestId("status-locked")).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Change today's tasks" })).toBeNull();
   });
 });
@@ -3354,14 +3378,16 @@ describe("Timer on your tasks (1.3)", () => {
   });
 
   it("the hero row hides its Break it down · Not today line while it's timed (long press, check-in and focus have them)", async () => {
-    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayLocked: true, focusSession: running() });
+    // An open day under way: a set day's hero has no Not today at all (1.4).
+    const started = { tasks: tasks("Walk", "Read", "Done"), todayCompletions: ["t2"] };
+    mockStore = makeStore({ ...started, focusSession: running() });
     const view = await render(<HomeScreen />);
     expect(screen.getByRole("checkbox", { name: "Up next. Task 1: Walk" })).toBeOnTheScreen();
     // The row's own "Not today" (the swipe action has the same name, but no hint).
     const heroNotToday = () =>
       screen.queryAllByRole("button", { name: "Not today: Walk" }).filter((b) => b.props.accessibilityHint === "Saves it for later");
     expect(heroNotToday()).toHaveLength(0);
-    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayLocked: true });
+    mockStore = makeStore(started);
     await view.rerender(<HomeScreen />);
     expect(heroNotToday()).toHaveLength(1);
   });
@@ -3937,5 +3963,209 @@ describe("Day-5 trial note placement", () => {
     expect(rolloverAt).toBeGreaterThanOrEqual(0);
     expect(rolloverAt).toBeLessThan(cardAt);
     expect(noteAt).toBeGreaterThan(cardAt);
+  });
+});
+
+// --- 1.4 (PR #87): a set day on Today has nothing that changes the three ------
+
+describe("Today on a set day (1.4)", () => {
+  const parked = [
+    { id: "p1", text: "Buy shoes", parkedAt: "2026-09-26T08:00:00.000Z" },
+    { id: "p2", text: "Call mum", parkedAt: "2026-09-26T08:00:00.000Z" },
+  ];
+  const everywhere = { includeHiddenElements: true };
+  /** Every "Not today" on the screen: visible text, the swipe buttons, the hero's line. */
+  const notTodays = () => [
+    ...screen.queryAllByText(/Not today/, everywhere),
+    ...screen.queryAllByLabelText(/Not today/, everywhere),
+  ];
+  const changes = () => [
+    ...screen.queryAllByText(/^Change/, everywhere),
+    ...screen.queryAllByLabelText(/^Change/, everywhere),
+  ];
+
+  it.each([
+    ["set by hand", SET, "Today is set. 1 to go."],
+    [
+      "set automatically",
+      {
+        todayLocked: true,
+        todayLockSource: "auto" as const,
+        // Local noon: the line shows local time.
+        todayLockedAt: new Date(2026, 8, 26, 12, 0).toISOString(),
+      },
+      "Set automatically at 12:00 PM. 1 to go.",
+    ],
+  ])("%s: no Change and no Not today anywhere, and the status is one element pointing to Settings", async (_how, lock, text) => {
+    const sheet = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+    // Walk is done, so Stretch is the hero ("Up next"): the row that used to carry a Not today line.
+    const day = { tasks: tasks("Walk", "Stretch"), todayCompletions: ["t0"] };
+    mockStore = makeStore(day);
+    const { rerender } = await render(<HomeScreen />);
+    // The same day while open does offer it (so the checks below can't pass on a bad query).
+    expect(notTodays().length).toBeGreaterThan(0);
+
+    mockStore = makeStore({ ...day, ...lock });
+    await rerender(<HomeScreen />);
+    expect(screen.getByRole("checkbox", { name: "Up next. Task 2: Stretch" })).toBeOnTheScreen();
+    expect(notTodays()).toEqual([]);
+    expect(changes()).toEqual([]);
+
+    // The hero's menu and its VoiceOver actions.
+    await fireEvent.press(screen.getByTestId("task-words-t1", everywhere));
+    for (const call of sheet.mock.calls) {
+      expect(call[0].options).not.toEqual(expect.arrayContaining(["Not today"]));
+      expect(call[0].options).not.toEqual(expect.arrayContaining(["Edit"]));
+      expect(call[0].options).not.toEqual(expect.arrayContaining(["Delete"]));
+    }
+    for (const box of screen.getAllByRole("checkbox", everywhere)) {
+      const names = (box.props.accessibilityActions ?? []).map((a: { name: string }) => a.name);
+      expect(names).not.toContain("notToday");
+      expect(names).not.toContain("edit");
+      expect(names).not.toContain("delete");
+    }
+
+    // One VoiceOver element: the status, with the way out as its hint.
+    const line = screen.getByTestId("status-line");
+    expect(line.props.accessible).toBe(true);
+    expect(line.props.accessibilityLabel).toBe(`Locked. ${text}`);
+    expect(line.props.accessibilityHint).toBe("Unlock in Settings");
+    expect(within(line).getByText(text)).toBeOnTheScreen();
+    expect(within(line).getByText("Unlock in Settings")).toBeOnTheScreen();
+    // Nothing to tap inside it, and Today never unlocks.
+    expect(within(line).queryAllByRole("button")).toEqual([]);
+    expect(line.props.onPress).toBeUndefined();
+    expect(mockStore.unlockToday).not.toHaveBeenCalled();
+    expect(mockStore.notToday).not.toHaveBeenCalled();
+    sheet.mockRestore();
+  });
+
+  it("saved for later with room left: Add is off, Remove works, and the copy points to Settings", async () => {
+    mockStore = makeStore({ ...SET, tasks: tasks("Walk"), parkedTasks: parked });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("saved-ideas-link"));
+    const sheet = within(screen.getByTestId("ideas-sheet"));
+    expect(sheet.getByTestId("ideas-hint")).toHaveTextContent("Today is set. Unlock it in Settings to add one.");
+    expect(sheet.queryByText(/Free a slot/)).toBeNull();
+
+    for (const item of parked) {
+      const add = sheet.getByRole("button", { name: `Add ${item.text}` });
+      expect(add).toBeDisabled();
+      await fireEvent.press(add);
+    }
+    expect(mockStore.addParkedTask).not.toHaveBeenCalled();
+    expect(mockStore.addTask).not.toHaveBeenCalled();
+
+    const remove = sheet.getByRole("button", { name: "Remove Buy shoes from saved" });
+    expect(remove).toBeEnabled();
+    await fireEvent.press(remove);
+    expect(mockStore.removeParkedTask).toHaveBeenCalledTimes(1);
+    expect(mockStore.removeParkedTask).toHaveBeenCalledWith("p1");
+  });
+
+  // --- review fixes: a tap that used to change the three says why it didn't ---
+
+  const NOTE = "Today is locked. Unlock it in Settings to change your three.";
+  /** VoiceOver hears it through the polite helper (queued on iOS). */
+  const spoken = () => jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
+
+  it("a tap on a row with nothing left to offer shows the locked note and says it", async () => {
+    const sheet = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+    const announce = spoken();
+    // A finished task on a set day: no Edit, Not today, Delete, timer or break-down.
+    mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch"), todayCompletions: ["t0"] });
+    await render(<HomeScreen />);
+    expect(screen.queryByTestId("today-toast")).toBeNull();
+    await fireEvent.press(screen.getByTestId("task-words-t0", everywhere));
+    expect(sheet).not.toHaveBeenCalled();
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(new RegExp(NOTE.replace(/\./g, "\\.")));
+    // A lock, not the success tick.
+    expect(within(screen.getByTestId("today-toast")).getByTestId("today-toast-locked")).toBeOnTheScreen();
+    expect(announce.mock.calls).toEqual([[NOTE, { queue: true }]]);
+    expect(mockStore.unlockToday).not.toHaveBeenCalled();
+    expect(mockStore.toggleTask).not.toHaveBeenCalled();
+    sheet.mockRestore();
+    announce.mockRestore();
+  });
+
+  it("a row that still has a menu (Break it down) carries the locked note as the menu's message", async () => {
+    const sheet = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    const day = { tasks: tasks("Walk", "Stretch") };
+    mockStore = makeStore({ ...SET, ...day });
+    const { rerender } = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("task-words-t1", everywhere));
+    expect(sheet).toHaveBeenCalledTimes(1);
+    expect(sheet.mock.calls[0][0]).toMatchObject({ title: "Stretch", message: NOTE, options: ["Break it down", "Cancel"] });
+    // The menu says it; no second note under it.
+    expect(screen.queryByTestId("today-toast")).toBeNull();
+
+    // An open day's menu has no such message.
+    mockStore = makeStore(day);
+    await rerender(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("task-words-t1", everywhere));
+    expect(sheet.mock.calls[1][0].message).toBeUndefined();
+    expect(sheet.mock.calls[1][0].options).toEqual(["Edit", "Not today", "Break it down", "Delete", "Cancel"]);
+    sheet.mockRestore();
+  });
+
+  it("a tap on an empty slot shows the locked note and says it, and opens no field", async () => {
+    const announce = spoken();
+    mockStore = makeStore({ ...SET, tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    const slots = screen.getAllByRole("button", { name: "Left open on purpose" });
+    expect(slots).toHaveLength(2);
+    expect(slots[0].props.accessibilityHint).toBe("Unlock in Settings");
+    await fireEvent.press(slots[0]);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. Unlock it in Settings to change your three\./);
+    expect(announce.mock.calls).toEqual([[NOTE, { queue: true }]]);
+    expect(screen.queryByPlaceholderText("What's one thing for today?")).toBeNull();
+    expect(mockStore.addTask).not.toHaveBeenCalled();
+    announce.mockRestore();
+  });
+
+  it("words being typed into a slot when the day is set are saved for later, with a note that says so", async () => {
+    const announce = spoken();
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    const { rerender } = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Add a task, slot 2" }));
+    await fireEvent.changeText(screen.getByPlaceholderText("What's one thing for today?"), "Call the bank");
+
+    // Auto-set fires mid-typing.
+    mockStore = makeStore({ ...SET, tasks: tasks("Walk") });
+    await rerender(<HomeScreen />);
+    expect(mockStore.addTask).not.toHaveBeenCalled();
+    expect(mockStore.parkTasks.mock.calls).toEqual([[["Call the bank"]]]);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. 1 saved for later in Ideas\./);
+    expect(announce.mock.calls).toEqual([["Today is locked. 1 saved for later in Ideas.", { queue: true }]]);
+    announce.mockRestore();
+  });
+
+  it("a brain dump under way when the day is set stays open, and saves every pick for later instead of dropping it", async () => {
+    (sortBrainDump as jest.Mock).mockResolvedValue({
+      result: { picks: ["Finish report", "Call mum"], parked: ["Buy shoes"], source: "ai" },
+      notice: null,
+    });
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    const { rerender } = await render(<HomeScreen />);
+    await openBrainDump();
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "all my stuff");
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+    expect(screen.getByRole("button", { name: "Add 2 to today" })).toBeOnTheScreen();
+
+    // Auto-set fires while the picks are on screen: the sheet (and the picks) stay.
+    mockStore = makeStore({ ...SET, tasks: tasks("Walk") });
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+    expect(screen.getByTestId("brain-dump-review-hint")).toHaveTextContent(
+      "Today is locked, so these are saved in Ideas for another day.",
+    );
+    expect(screen.queryByRole("button", { name: /to today$/ })).toBeNull();
+    await fireEvent.press(screen.getByRole("button", { name: "Save all for later" }));
+
+    expect(mockStore.addTasks).not.toHaveBeenCalled();
+    expect(mockStore.parkTasks.mock.calls).toEqual([[["Finish report", "Call mum", "Buy shoes"]]]);
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. 3 saved for later in Ideas\./);
   });
 });

@@ -11,12 +11,17 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 
 import { useColors } from "@/hooks/use-colors";
+import { LOCKED_HINT } from "@/lib/daily-tasks/today-view";
 
 interface AddTaskRowProps {
   onAdd: (text: string) => void;
   remainingSlots: number;
   disabled?: boolean;
   slotNumber?: number;
+  /** A tap on the slot while it's off (the day is set): the screen says why. */
+  onLockedPress?: () => void;
+  /** Words typed here when the slot went off (the day was set meanwhile): kept, not dropped. */
+  onLockedText?: (text: string) => void;
 }
 
 export function AddTaskRow({
@@ -24,6 +29,8 @@ export function AddTaskRow({
   remainingSlots,
   disabled = false,
   slotNumber,
+  onLockedPress,
+  onLockedText,
 }: AddTaskRowProps) {
   const colors = useColors();
   const [editing, setEditing] = useState(false);
@@ -44,10 +51,16 @@ export function AddTaskRow({
     }
   }, [editing]);
 
+  const lockedTextRef = useRef(onLockedText);
+  lockedTextRef.current = onLockedText;
   useEffect(() => {
     if (disabled) {
-      setEditing(false);
+      // Hand over what was being typed (once: the blur that follows finds nothing).
+      const pending = submittedRef.current ? "" : textRef.current.trim();
+      submittedRef.current = true;
       textRef.current = "";
+      setEditing(false);
+      if (pending) lockedTextRef.current?.(pending);
     }
   }, [disabled]);
 
@@ -60,11 +73,12 @@ export function AddTaskRow({
     submittedRef.current = true;
     const latest = typeof event?.nativeEvent?.text === "string" ? event.nativeEvent.text : textRef.current;
     textRef.current = "";
+    const trimmed = latest.trim();
     if (disabled) {
+      if (trimmed) onLockedText?.(trimmed);
       setEditing(false);
       return;
     }
-    const trimmed = latest.trim();
     if (trimmed) onAdd(trimmed);
     setEditing(false);
   };
@@ -99,12 +113,15 @@ export function AddTaskRow({
     return (
       <Pressable
         onPress={() => {
-          if (!disabled) setEditing(true);
+          if (disabled) onLockedPress?.();
+          else setEditing(true);
         }}
-        disabled={disabled}
+        // Still tappable while off when the screen has something to say about it.
+        disabled={disabled && !onLockedPress}
         accessibilityRole="button"
         accessibilityLabel={disabled ? "Left open on purpose" : `Add a task${slotNumber ? `, slot ${slotNumber}` : ""}`}
-        accessibilityState={{ disabled }}
+        accessibilityHint={disabled && onLockedPress ? LOCKED_HINT : undefined}
+        accessibilityState={{ disabled: disabled && !onLockedPress }}
         style={{
           flexDirection: "row",
           alignItems: "center",

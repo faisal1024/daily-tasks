@@ -73,6 +73,7 @@ import {
   type SortedBrainDump,
 } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
+import { announcePolitely } from "@/lib/daily-tasks/announce";
 import { AHA_PAYWALL_DELAY_MS, fillsDay, shouldOfferAhaPaywall } from "@/lib/daily-tasks/aha-paywall";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
@@ -92,7 +93,8 @@ import { recordPlusUse } from "@/lib/daily-tasks/trial-note";
 import { sessionEndedAnnouncement, STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
 import { durationWords, timerMenuLengths } from "@/lib/daily-tasks/focus-timer";
 import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-storage";
-import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
+import { nextIncompleteMilestone, pathSourceOf } from "@/lib/daily-tasks/milestones";
+import { buildMilestoneIdeaGroup } from "@/lib/daily-tasks/milestone-ideas";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import {
@@ -106,6 +108,7 @@ import { nextDayPhrase, nextRoutineUp } from "@/lib/daily-tasks/routines";
 import { useDailyTasks, type RoutineAddSource } from "@/lib/daily-tasks/store";
 import {
   brainDumpToast,
+  LOCKED_CHANGE_NOTE,
   clockTimeOf,
   formatClockTime,
   ideasEntry,
@@ -163,12 +166,12 @@ export default function HomeScreen() {
     isCompleted,
     addTask,
     addTasks,
+    addSuggestions,
     editTask,
     deleteTask,
     notToday,
     toggleTask,
     lockToday,
-    unlockToday,
     resolveRollover,
     markOnboardingSeen,
     requestNotificationPermission,
@@ -249,8 +252,13 @@ export default function HomeScreen() {
   const [ideasSavedOnly, setIdeasSavedOnly] = useState(false);
   // However the sheet closes (its button, a lock, rollover, the paywall), the
   // next open starts in the normal view.
+  // Opened from "Next on your path": the sheet brings the milestone group into view.
+  const [ideasFocusMilestone, setIdeasFocusMilestone] = useState(false);
   useEffect(() => {
-    if (!ideasOpen) setIdeasSavedOnly(false);
+    if (!ideasOpen) {
+      setIdeasSavedOnly(false);
+      setIdeasFocusMilestone(false);
+    }
   }, [ideasOpen]);
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   // Routines (1.3), reached from the Ideas sheet's footer when there are none
@@ -288,9 +296,12 @@ export default function HomeScreen() {
   }, [brainDumpOpen, hasPlus]);
   // Short confirmation after a brain dump, so saved items aren't a mystery.
   const [toast, setToast] = useState<string | null>(null);
+  // A "locked" note isn't a success: it shows a lock, not a tick.
+  const [toastTone, setToastTone] = useState<"done" | "locked">("done");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = (message: string) => {
+  const showToast = (message: string, tone: "done" | "locked" = "done") => {
     setToast(message);
+    setToastTone(tone);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 4000);
   };
@@ -641,7 +652,7 @@ export default function HomeScreen() {
     () => generateMomentumSuggestions(state.momentumProfile),
     [state.momentumProfile],
   );
-  const ideas: IdeaItem[] = useMemo(
+  const allIdeas: IdeaItem[] = useMemo(
     () =>
       planIdeas && planIdeas.length > 0
         ? planIdeas.map((task) => ({
@@ -652,6 +663,34 @@ export default function HomeScreen() {
         : genericIdeas.map((text, index) => ({ id: `starter_${index}`, text })),
     [planIdeas, genericIdeas],
   );
+  // Suggestions for the next open milestone (1.4): the AI ones the plan marked
+  // for it (Plus), otherwise built-in ones. None without a path or once every
+  // milestone is reached.
+  const planMilestones = state.momentumPlan?.milestones;
+  const starterGoalTitle =
+    state.momentumPlan && pathSourceOf(state.momentumPlan) === "template" ? state.momentumPlan.goalTitle : null;
+  const milestoneGroup = useMemo(
+    () =>
+      planMilestones
+        ? buildMilestoneIdeaGroup({
+            milestones: planMilestones,
+            completedMilestoneIds: state.completedMilestoneIds,
+            today,
+            suggestions: planIdeas,
+            // Listed elsewhere in the sheet: routines due today and, without plan ideas, the starters.
+            otherTexts: [...dueRoutines.map((routine) => routine.text), ...(hasPlanIdeas ? [] : genericIdeas)],
+            // A starter path's steps ("Start small") don't name the goal: the built-in lines do.
+            starterGoalTitle,
+          })
+        : null,
+    [planMilestones, state.completedMilestoneIds, today, planIdeas, dueRoutines, hasPlanIdeas, genericIdeas, starterGoalTitle],
+  );
+  // An idea shown in the milestone group isn't listed again below it.
+  const ideas: IdeaItem[] = useMemo(() => {
+    if (!milestoneGroup || milestoneGroup.source !== "ai") return allIdeas;
+    const grouped = new Set(milestoneGroup.ideas.map((idea) => idea.id));
+    return allIdeas.filter((idea) => !grouped.has(idea.id));
+  }, [allIdeas, milestoneGroup]);
   const source = ideasSource(state.momentumPlan, state.momentumProfile.goalTitle);
   const failureMessage =
     state.momentumPlanStatus === "error"
@@ -878,14 +917,15 @@ export default function HomeScreen() {
     };
   }, [ready, markReviewPrompted, clearReviewDue]);
 
-  // The sheet has nothing to add once the day is locked, and it must not block
-  // the onboarding modals (iOS shows one modal at a time). Yesterday's
-  // unfinished ones are a card now, so they don't close it.
+  // The ideas sheet has nothing to add once the day is locked, and neither
+  // sheet may block the onboarding modals (iOS shows one modal at a time).
+  // Yesterday's unfinished ones are a card now, so they don't close it.
+  // A brain dump under way stays open when the day is set (auto-set can fire
+  // mid-dump): closing it would drop what was typed. It saves everything for
+  // later instead.
   useEffect(() => {
-    if (state.todayLocked || !state.hasSeenOnboarding || firstRunActive) {
-      setIdeasOpen(false);
-      setBrainDumpOpen(false);
-    }
+    if (state.todayLocked || !state.hasSeenOnboarding || firstRunActive) setIdeasOpen(false);
+    if (!state.hasSeenOnboarding || firstRunActive) setBrainDumpOpen(false);
   }, [state.todayLocked, state.hasSeenOnboarding, firstRunActive]);
 
   // `starter`: asked from a timer's check-in ("Stuck?"), so once the steps are
@@ -1091,8 +1131,15 @@ export default function HomeScreen() {
         : undefined,
   };
 
+  // A tap where a set day used to offer a change (a row's words, an empty
+  // slot): say why nothing happened and where to go (1.4).
+  const handleLockedTap = () => {
+    showToast(LOCKED_CHANGE_NOTE, "locked");
+    announcePolitely(LOCKED_CHANGE_NOTE);
+  };
+
   const handleDelete = (id: string, text: string) => {
-    if (state.todayLocked) return;
+    if (state.todayLocked) return handleLockedTap();
     Alert.alert("Remove this task?", `Remove “${text}” from today?`, [
       { text: "Cancel", style: "cancel" },
       {
@@ -1111,18 +1158,39 @@ export default function HomeScreen() {
   // Its timer goes with it (the store clears a session whose task leaves
   // today), and the note says so.
   const handleNotToday = (id: string) => {
+    // A set day keeps its three (the store refuses too).
+    if (state.todayLocked) return handleLockedTap();
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     const timed = focusSessionRef.current?.taskId === id;
     notToday(id);
-    track("task_not_today", { source: state.todayLocked ? "set" : "open" });
+    track("task_not_today", { source: "open" });
     const note = timed ? "Saved for later. Timer stopped." : "Saved for later.";
     showToast(note);
     AccessibilityInfo.announceForAccessibility(note);
   };
 
+  // Words that can't go on today because it was set meanwhile (typed into a
+  // slot as auto-set fired, a brain dump confirmed after it): saved for later
+  // and said so, never dropped (the store refuses the add).
+  const saveForLaterOnLockedDay = (texts: string[]) => {
+    parkTasks(texts);
+    const message = brainDumpToast(0, texts.length, { locked: true });
+    if (!message) return;
+    showToast(message, "locked");
+    announcePolitely(message);
+  };
+
   const handleAdd = (text: string) => {
+    if (state.todayLocked) return saveForLaterOnLockedDay([text]);
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     addTask(text);
+  };
+  // A tapped suggestion: the store refuses one already on today (a double
+  // tap), and says whether it landed. Typing by hand (handleAdd) has no such rule.
+  const handleAddIdea = (text: string): boolean => {
+    if (addSuggestions([text]) === 0) return false;
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    return true;
   };
 
   return (
@@ -1176,11 +1244,15 @@ export default function HomeScreen() {
               {toast && (
                 <View
                   className="flex-row items-center gap-2 rounded-2xl p-3"
-                  style={{ backgroundColor: `${colors.success}18` }}
+                  style={{ backgroundColor: toastTone === "locked" ? colors.surface : `${colors.success}18` }}
                   accessibilityLiveRegion="polite"
                   testID="today-toast"
                 >
-                  <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                  {toastTone === "locked" ? (
+                    <Ionicons name="lock-closed" size={18} color={colors.muted} testID="today-toast-locked" />
+                  ) : (
+                    <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                  )}
                   <Text className="flex-1 text-sm text-foreground">{toast}</Text>
                 </View>
               )}
@@ -1212,6 +1284,7 @@ export default function HomeScreen() {
                           onEdit={(text) => editTask(task.id, text)}
                           onDelete={() => handleDelete(task.id, task.text)}
                           onNotToday={() => handleNotToday(task.id)}
+                          onLockedPress={handleLockedTap}
                           onBreakDown={
                             breakDownAvailable ? () => handleBreakDown(task.id, task.text) : undefined
                           }
@@ -1239,6 +1312,8 @@ export default function HomeScreen() {
                         slotNumber={index + 1}
                         disabled={state.todayLocked}
                         onAdd={handleAdd}
+                        onLockedPress={handleLockedTap}
+                        onLockedText={(text) => saveForLaterOnLockedDay([text])}
                       />
                     </View>
                   );
@@ -1246,18 +1321,11 @@ export default function HomeScreen() {
               </View>
 
               {/* A full three-for-three day: the card and gradient say it all.
-                  With room left, keep the line (and its Change on a set day). */}
-              {!(progress.isPerfect && total >= MAX_TASKS) && (
-              <StatusLine
-                status={status}
-                onLock={confirmLock}
-                onUnlock={() => {
-                  haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-                  unlockToday();
-                  // The Change button disappears: tell VoiceOver what happened.
-                  AccessibilityInfo.announceForAccessibility("You can change today's tasks again.");
-                }}
-              />
+                  With room left, keep the line. A set day always keeps it, so
+                  the lock (and where to unlock) still shows on a finished
+                  three; nothing to tap here: unlocking is in Settings only (1.4). */}
+              {(state.todayLocked || !(progress.isPerfect && total >= MAX_TASKS)) && (
+              <StatusLine status={status} onLock={confirmLock} />
               )}
               {/* Routines due today (1.3): right under the day's card, so
                   they're seen without opening Ideas. */}
@@ -1270,7 +1338,8 @@ export default function HomeScreen() {
                 />
               )}
               {/* A full or set day hides the ideas entry, but saved items
-                  must stay reachable (to view, remove, or swap in later). */}
+                  must stay reachable (to view or remove; on a set day nothing
+                  swaps in until it's unlocked in Settings). */}
               {(state.todayLocked || remainingSlots === 0) && state.parkedTasks.length > 0 && (
                 <Pressable
                   onPress={() => {
@@ -1446,7 +1515,20 @@ export default function HomeScreen() {
                 {/* Midday: after the note's momentum, where it leads, and what tonight brings. */}
                 {phase === "midday" && (
                   <>
-                    {nextMilestone && <NextPathLink title={nextMilestone.title} onPress={openProgress} />}
+                    {nextMilestone && (
+                      <NextPathLink
+                        title={nextMilestone.title}
+                        onPress={openProgress}
+                        onIdeas={
+                          ideasVisible && milestoneGroup
+                            ? () => {
+                                setIdeasFocusMilestone(true);
+                                setIdeasOpen(true);
+                              }
+                            : undefined
+                        }
+                      />
+                    )}
                     {state.momentumSettings.eveningReflection && (
                       <View className="flex-row items-center gap-2 px-1" testID="tonight-teaser">
                         <Ionicons
@@ -1517,10 +1599,10 @@ export default function HomeScreen() {
         canRegenerate={getMomentumAiProxyUrl() != null && hasPlanIdeas}
         regenerating={state.momentumPlanStatus === "loading"}
         failureMessage={failureMessage}
-        onAdd={handleAdd}
+        onAdd={handleAddIdea}
         onAddAll={(texts) => {
+          if (addSuggestions(texts) === 0) return;
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
-          addTasks(texts);
         }}
         onRegenerate={() => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
@@ -1548,6 +1630,15 @@ export default function HomeScreen() {
         hasRoutines={state.routines.length > 0}
         onManageRoutines={openRoutinesFromIdeas}
         nextRoutine={nextRoutine}
+        milestoneGroup={milestoneGroup}
+        onAddMilestoneIdea={(text) => {
+          // Counted only when the store took it (a double tap lands once).
+          // Only the kind of suggestion is recorded, never its text.
+          if (handleAddIdea(text) && milestoneGroup) {
+            track("milestone_idea_added", { source: milestoneGroup.source });
+          }
+        }}
+        focusMilestone={ideasFocusMilestone}
       />
 
       <RoutinesManager visible={routinesOpen} onVisibleChange={setRoutinesOpen} />
@@ -1557,6 +1648,7 @@ export default function HomeScreen() {
         onClose={() => setBrainDumpOpen(false)}
         openSlots={Math.max(1, remainingSlots)}
         freeAiLeft={freeAiLeft}
+        locked={state.todayLocked}
         onSort={async (text) => {
           const params = {
             text,
@@ -1611,8 +1703,10 @@ export default function HomeScreen() {
         }
         onConfirm={(picks, parked) => {
           // A slot may have filled while the sheet was open: park what won't fit.
-          const accepted = picks.slice(0, remainingSlots);
-          const saved = [...picks.slice(remainingSlots), ...parked];
+          // A day set meanwhile takes nothing (the store refuses): save it all.
+          const room = state.todayLocked ? 0 : remainingSlots;
+          const accepted = picks.slice(0, room);
+          const saved = [...picks.slice(room), ...parked];
           if (accepted.length > 0) {
             haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
             addTasks(accepted);
@@ -1621,8 +1715,8 @@ export default function HomeScreen() {
           setBrainDumpOpen(false);
           // Offered only if the dump really filled the day's three (checked once the sheet has gone).
           if (accepted.length > 0) offerAhaPaywall({ fillsFrom: total });
-          const message = brainDumpToast(accepted.length, saved.length);
-          if (message) showToast(message);
+          const message = brainDumpToast(accepted.length, saved.length, { locked: state.todayLocked });
+          if (message) showToast(message, state.todayLocked ? "locked" : "done");
         }}
       />
 

@@ -36,6 +36,7 @@ import { useColors } from "@/hooks/use-colors";
 import type { FocusSession } from "@/lib/daily-tasks/focus-session";
 import {
   TASK_ROW_ACTION_LABELS,
+  LOCKED_CHANGE_NOTE,
   taskRowActions,
   type TaskRowAction,
 } from "@/lib/daily-tasks/today-view";
@@ -46,14 +47,16 @@ interface TaskRowBaseProps {
   completed: boolean;
   /** The next task to do on a set day: bigger, with its secondary actions shown. */
   hero?: boolean;
-  /** Adding, editing and deleting are paused once the day is set. */
+  /** Adding, editing, deleting and Not today are paused once the day is set. */
   editable: boolean;
   index: number;
   onToggle: () => void;
   onEdit: (text: string) => void;
   onDelete: () => void;
-  /** Save it for later instead of doing it today (allowed on a set day). */
+  /** Save it for later instead of doing it today (not on a set day). */
   onNotToday: () => void;
+  /** A tap on the words of a set day's row with nothing left to offer: the screen says why. */
+  onLockedPress?: () => void;
   onBreakDown?: () => void;
   breakingDown?: boolean;
   breakDownDisabled?: boolean;
@@ -110,6 +113,7 @@ export function TaskRow({
   onEdit,
   onDelete,
   onNotToday,
+  onLockedPress,
   onBreakDown,
   breakingDown = false,
   breakDownDisabled = false,
@@ -211,14 +215,20 @@ export function TaskRow({
     })),
   ];
 
+  // A set day's menu has no Edit, Not today or Delete: it says why (1.4).
+  const menuNote = editable ? undefined : LOCKED_CHANGE_NOTE;
   const openMenu = () => {
-    if (menuItems.length === 0) return;
+    if (menuItems.length === 0) {
+      if (!editable) onLockedPress?.();
+      return;
+    }
     const labels = menuItems.map((item) => item.label);
     if (Platform.OS === "ios") {
       const destructive = menuItems.findIndex((item) => item.destructive);
       ActionSheetIOS.showActionSheetWithOptions(
         {
           title: task.text,
+          message: menuNote,
           options: [...labels, "Cancel"],
           cancelButtonIndex: labels.length,
           destructiveButtonIndex: destructive >= 0 ? destructive : undefined,
@@ -238,7 +248,7 @@ export function TaskRow({
         onPress: item.onPress,
       });
       const shown = list.length <= 2 ? list.map(button) : [button(list[0]), { text: "More…", onPress: () => page(list.slice(1)) }];
-      Alert.alert(task.text, undefined, [...shown, { text: "Cancel", style: "cancel" as const }]);
+      Alert.alert(task.text, menuNote, [...shown, { text: "Cancel", style: "cancel" as const }]);
     };
     page(menuItems);
   };
@@ -379,7 +389,7 @@ export function TaskRow({
               <Pressable
                 onPress={opensFocus ? () => onOpenTimer?.("words") : openMenu}
                 onLongPress={openMenu}
-                disabled={menuItems.length === 0 && !opensFocus}
+                disabled={menuItems.length === 0 && !opensFocus && !(onLockedPress && !editable)}
                 hitSlop={4}
                 testID={`task-words-${task.id}`}
                 // The checkbox already announces this task, its state and actions.
