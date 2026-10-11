@@ -42,6 +42,17 @@ import {
   validateEveningPayload,
 } from "./providers/evening-contract.mjs";
 import {
+  NAG_MAX_TOKENS,
+  NAG_SCHEMA,
+  NAG_SYSTEM_PROMPT,
+  NAG_TOOL_DESCRIPTION,
+  NAG_TOOL_NAME,
+  buildNagPrompt,
+  isValidNagLines,
+  sanitizeNagLines,
+  validateNagPayload,
+} from "./providers/nag-contract.mjs";
+import {
   PLAN_TOOL_DESCRIPTION,
   PLAN_TOOL_NAME,
   RESPONSE_SCHEMA,
@@ -57,6 +68,7 @@ export const BRAIN_DUMP_ROUTE = "/api/momentum/brain-dump";
 export const BREAK_DOWN_ROUTE = "/api/momentum/break-down";
 export const EVENING_ROUTE = "/api/momentum/evening";
 export const COACH_NOTE_ROUTE = "/api/momentum/coach-note";
+export const NAG_LINES_ROUTE = "/api/momentum/nag-lines";
 
 export const ROUTES = {
   [PLAN_ROUTE]: {
@@ -121,5 +133,20 @@ export const ROUTES = {
     validatePayload: validateCoachPayload,
     isValidResult: isValidCoach,
     sanitizeResult: sanitizeCoach,
+  },
+  [NAG_LINES_ROUTE]: {
+    name: "nag-lines",
+    // Plus only (checked server-side when ENTITLEMENT_MODE is on).
+    plusOnly: true,
+    system: NAG_SYSTEM_PROMPT,
+    buildPrompt: buildNagPrompt,
+    schema: NAG_SCHEMA,
+    toolName: NAG_TOOL_NAME,
+    toolDescription: NAG_TOOL_DESCRIPTION,
+    // A day's lines are short: a smaller output cap than the default.
+    maxTokens: NAG_MAX_TOKENS,
+    validatePayload: validateNagPayload,
+    isValidResult: isValidNagLines,
+    sanitizeResult: sanitizeNagLines,
   },
 };

@@ -2,7 +2,7 @@
 //
 // Implements the provider interface consumed by momentum-proxy.mjs:
 //   id, isConfigured(), missingConfigMessage(), describe(),
-//   generatePlan({ system, user, schema, toolName? }) -> Promise<object>
+//   generatePlan({ system, user, schema, toolName?, maxTokens? }) -> Promise<object>
 // (generic structured output for any route despite the historical name)
 
 export const id = "openai";
@@ -25,7 +25,7 @@ export function describe() {
   return `openai:${model()}`;
 }
 
-export async function generatePlan({ system, user, schema, toolName = "momentum_plan" }) {
+export async function generatePlan({ system, user, schema, toolName = "momentum_plan", maxTokens }) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -35,6 +35,8 @@ export async function generatePlan({ system, user, schema, toolName = "momentum_
     body: JSON.stringify({
       model: model(),
       temperature: 0.4,
+      // Only for routes that set their own output cap.
+      ...(maxTokens ? { max_output_tokens: maxTokens } : {}),
       input: [
         { role: "system", content: system },
         { role: "user", content: user },

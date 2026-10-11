@@ -18,6 +18,9 @@ export const id = "anthropic";
 // to Sonnet (1024 min).
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 
+// Output cap when a route doesn't set its own (`maxTokens`).
+const DEFAULT_MAX_TOKENS = 1500;
+
 function model() {
   return process.env.ANTHROPIC_MODEL ?? DEFAULT_MODEL;
 }
@@ -37,6 +40,7 @@ export function describe() {
 /**
  * Generate structured output for any route. `toolName`/`toolDescription` name
  * the forced tool call; they default to the plan tool for backward compatibility.
+ * `maxTokens` caps the output for routes with short answers.
  */
 export async function generatePlan({
   system,
@@ -44,6 +48,7 @@ export async function generatePlan({
   schema,
   toolName = PLAN_TOOL_NAME,
   toolDescription = PLAN_TOOL_DESCRIPTION,
+  maxTokens = DEFAULT_MAX_TOKENS,
 }) {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -54,7 +59,7 @@ export async function generatePlan({
     },
     body: JSON.stringify({
       model: model(),
-      max_tokens: 1500,
+      max_tokens: maxTokens,
       temperature: 0.4,
       // System + tools are identical across every request, so cache that stable
       // prefix; the dynamic per-user content lives in the (uncached) user message.
