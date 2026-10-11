@@ -21,6 +21,7 @@ import { MomentumAiError } from "@/lib/daily-tasks/ai-status";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import { coachTaskKey, localCoachLine, requestCoachNotes } from "@/lib/daily-tasks/coach-note";
 import { addDays } from "@/lib/daily-tasks/date";
+import { buildMilestoneIdeaGroup } from "@/lib/daily-tasks/milestone-ideas";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import { themeColors } from "@/theme.config";
@@ -338,6 +339,28 @@ describe("Today screen layout", () => {
     expect(
       screen.getByText("Set automatically at 2:07 PM. 2 to go."),
     ).toBeOnTheScreen();
+  });
+
+  it("on a 24-hour device the automatic lock's time reads the 24-hour way (the saved time, or the configured one)", async () => {
+    // What the system hands back with 24-hour time on (the app passes no locale or hour cycle of its own).
+    const clock = jest.spyOn(Date.prototype, "toLocaleTimeString").mockImplementation(function (this: Date) {
+      return `${String(this.getHours()).padStart(2, "0")}:${String(this.getMinutes()).padStart(2, "0")}`;
+    });
+    const auto = { tasks: tasks("Walk", "Stretch"), todayLocked: true, todayLockSource: "auto" as const };
+    mockStore = makeStore({
+      ...auto,
+      todayLockedAt: new Date(2026, 8, 26, 14, 7).toISOString(),
+      autoLock: { enabled: true, hour: 13, minute: 30 },
+    });
+    const { rerender } = await render(<HomeScreen />);
+    expect(screen.getByText("Set automatically at 14:07. 2 to go.")).toBeOnTheScreen();
+    expect(screen.queryByText(/AM|PM/)).toBeNull();
+    mockStore = makeStore({ ...auto, todayLockedAt: "not a time", autoLock: { enabled: true, hour: 9, minute: 5 } });
+    await rerender(<HomeScreen />);
+    expect(screen.getByText("Set automatically at 09:05. 2 to go.")).toBeOnTheScreen();
+    expect(clock.mock.calls.length).toBeGreaterThan(0);
+    for (const call of clock.mock.calls) expect(call).toEqual([undefined, { hour: "numeric", minute: "2-digit" }]);
+    clock.mockRestore();
   });
 
   it("falls back to the configured time for a garbled saved lock time", async () => {
@@ -2418,6 +2441,43 @@ describe("Today by time of day (1.2)", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/journey");
   });
 
+  it("midday: 'Get ideas for this' is there while an idea for the milestone can still be added, and goes once both are on today", async () => {
+    at(14);
+    const path = [milestone("m1", "Run 1 km"), milestone("m2", "Run 3 km")];
+    const group = buildMilestoneIdeaGroup({
+      milestones: path,
+      completedMilestoneIds: ["m1"],
+      today: TODAY,
+      starterGoalTitle: "Run a 5K",
+    });
+    const [first, second] = group!.ideas.map((idea) => idea.text);
+    const day = (...texts: string[]) => ({
+      tasks: tasks(...texts),
+      todayCompletions: ["t0"],
+      momentumPlan: plan(path),
+      completedMilestoneIds: ["m1"],
+    });
+    const ideasLink = () => screen.queryByRole("button", { name: "Get ideas for this" });
+
+    // Neither is on today.
+    mockStore = makeStore(day("Walk", "Read"));
+    const { rerender } = await render(<HomeScreen />);
+    expect(screen.getByTestId("next-path-link")).toBeOnTheScreen();
+    expect(ideasLink()).not.toBeNull();
+    // One of the two is: the other can still be added.
+    mockStore = makeStore(day("Walk", first));
+    await rerender(<HomeScreen />);
+    expect(ideasLink()).not.toBeNull();
+    // Both are on today (in any case), with a slot still open: nothing left to get, so no link.
+    mockStore = makeStore(day(second.toUpperCase(), ` ${first} `));
+    await rerender(<HomeScreen />);
+    expect(mockStore.remainingSlots).toBe(1);
+    expect(ideasLink()).toBeNull();
+    // The milestone itself still shows, and still opens Progress.
+    await fireEvent.press(screen.getByTestId("next-path-link"));
+    expect(mockNavigate).toHaveBeenCalledWith("/journey");
+  });
+
   it("midday: no path link when every milestone is done, no teaser with the check-in off (even after 17:00)", async () => {
     at(19);
     mockStore = makeStore({
@@ -4045,6 +4105,64 @@ describe("Reordering on Today (1.4, PR #90)", () => {
     expect(JSON.stringify(mockTrack.mock.calls)).not.toMatch(/Walk|Stretch|Hydrate/);
     expect(announce).toHaveBeenCalledWith("Hydrate is next", { queue: true });
     expect(mockStore.moveTask).not.toHaveBeenCalled();
+    announce.mockRestore();
+  });
+
+  it.each([
+    ["ticked from the widget", () => makeStore({ tasks: THREE(), todayCompletions: ["t2"] })],
+    ["already made next", () => makeStore({ tasks: tasks("Walk", "Stretch", "Hydrate").reverse() })],
+    ["gone from today", () => makeStore({ tasks: tasks("Walk", "Stretch") })],
+    ["the only open task left", () => makeStore({ tasks: THREE(), todayCompletions: ["t0", "t1"] })],
+  ])("Do this next from a menu opened before the list changed (%s): no move, no event, nothing said", async (_what, changed) => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
+    mockStore = makeStore({ tasks: THREE() });
+    const { rerender } = await render(<HomeScreen />);
+    const menu = await menuOf("t2");
+    expect(menu.options).toContain("Do this next");
+
+    // The list changes while the menu is still up. (The menu's handlers are
+    // the ones from when it opened, so they hold that render's store.)
+    const before = mockStore;
+    mockStore = changed();
+    await rerender(<HomeScreen />);
+    (Haptics.impactAsync as jest.Mock).mockClear();
+    await menu.pick("Do this next");
+    expect(before.makeTaskNext).not.toHaveBeenCalled();
+    expect(mockStore.makeTaskNext).not.toHaveBeenCalled();
+    expect(reorderEvents()).toEqual([]);
+    expect(announce.mock.calls.filter(([text]) => /is next/.test(String(text)))).toEqual([]);
+    expect(Haptics.impactAsync).not.toHaveBeenCalled();
+    announce.mockRestore();
+  });
+
+  it("Do this next from a menu opened earlier still works when the list changed but the task can still move", async () => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
+    mockStore = makeStore({ tasks: THREE() });
+    const { rerender } = await render(<HomeScreen />);
+    const menu = await menuOf("t2");
+    // Walk is ticked meanwhile: Hydrate is still behind Stretch.
+    const before = mockStore;
+    mockStore = makeStore({ tasks: THREE(), todayCompletions: ["t0"] });
+    await rerender(<HomeScreen />);
+    await menu.pick("Do this next");
+    expect([...before.makeTaskNext.mock.calls, ...mockStore.makeTaskNext.mock.calls]).toEqual([["t2"]]);
+    expect(reorderEvents()).toEqual([["task_reordered", { source: "next" }]]);
+    expect(announce).toHaveBeenCalledWith("Hydrate is next", { queue: true });
+    announce.mockRestore();
+  });
+
+  it("Do this next after midnight with yesterday still on screen: handed to the store (which turns the day), not counted or said", async () => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
+    mockStore = makeStore({ tasks: THREE() });
+    await render(<HomeScreen />);
+    const menu = await menuOf("t2");
+    const clock = new Date();
+    jest.setSystemTime(new Date(2026, 8, 27, 0, 0, 10));
+    await menu.pick("Do this next");
+    jest.setSystemTime(clock);
+    expect(mockStore.makeTaskNext.mock.calls).toEqual([["t2"]]);
+    expect(reorderEvents()).toEqual([]);
+    expect(announce.mock.calls.filter(([text]) => /is next/.test(String(text)))).toEqual([]);
     announce.mockRestore();
   });
 

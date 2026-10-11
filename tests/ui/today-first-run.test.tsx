@@ -156,6 +156,31 @@ describe("Today: first run", () => {
     expect(mockStore.markOnboardingSeen).not.toHaveBeenCalled();
   });
 
+  it("a day set while the picks were on screen takes nothing: every pick is saved for later, none is lost", async () => {
+    mockStore = makeStore();
+    const { rerender } = await render(<HomeScreen />);
+    await dump("walk, call mum, report");
+    expect(button("Set my three")).toBeOnTheScreen();
+    // Auto-set fires mid-dump (a task typed before first run was finished is on today).
+    mockStore = makeStore({ tasks: tasks("Stretch"), todayLocked: true, todayLockSource: "auto" });
+    await rerender(<HomeScreen />);
+    await fireEvent.press(button("Set my three"));
+    // The store would refuse the add, so nothing is handed to it; all four are kept in Ideas.
+    expect(mockStore.addTasks).not.toHaveBeenCalled();
+    expect(mockStore.parkTasks.mock.calls).toEqual([[["Walk", "Call mum", "Report", "Groceries"]]]);
+  });
+
+  it("an open day with one slot left takes what fits and saves the rest, as before", async () => {
+    mockStore = makeStore();
+    const { rerender } = await render(<HomeScreen />);
+    await dump("walk, call mum, report");
+    mockStore = makeStore({ tasks: tasks("Stretch", "Read") });
+    await rerender(<HomeScreen />);
+    await fireEvent.press(button("Set my three"));
+    expect(mockStore.addTasks.mock.calls).toEqual([[["Walk"]]]);
+    expect(mockStore.parkTasks.mock.calls).toEqual([[["Call mum", "Report", "Groceries"]]]);
+  });
+
   it("after Start over, the second sort uses one of the free Today AI sorts", async () => {
     mockStore = makeStore();
     await render(<HomeScreen />);

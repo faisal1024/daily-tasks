@@ -352,6 +352,64 @@ describe("Today, real store: what says 'next' follows a reorder", () => {
     expect(screen.getByTestId("coach-note-momentum")).toHaveTextContent(localCoachLine("momentum", "Hydrate", TODAY));
   });
 
+  describe("Do this next, chosen in a menu that was opened before the list changed underneath", () => {
+    const nextSaid = () => said().filter((text) => /is next|Moved/.test(text));
+
+    it("the task was ticked meanwhile (a widget tick): nothing moves, nothing is tracked, nothing is said", async () => {
+      await openToday();
+      const menu = await menuOf("t2");
+      expect(menu.options).toContain("Do this next");
+      // Hydrate is ticked while its menu is still up.
+      await fireEvent.press(box("Hydrate"));
+      await settle();
+      const hapticsBefore = impacts();
+      await menu.pick("Do this next");
+      await settle();
+      expect(rows()).toEqual(["Up next. Task 1: Walk", "Task 2: Stretch", "Task 3: Hydrate ✓"]);
+      expect(await savedOrder()).toBe("Walk Stretch Hydrate✓");
+      expect(reorderEvents()).toEqual([]);
+      expect(nextSaid()).toEqual([]);
+      expect(impacts()).toBe(hapticsBefore);
+    });
+
+    it("the task became next another way meanwhile: counted and said once, not twice", async () => {
+      await openToday();
+      const menu = await menuOf("t2");
+      await a11y("Hydrate", "doNext");
+      await settle();
+      expect(reorderEvents()).toEqual([["task_reordered", { source: "next" }]]);
+      expect(nextSaid()).toEqual(["Hydrate is next"]);
+      await menu.pick("Do this next");
+      await settle();
+      expect(await savedOrder()).toBe("Hydrate Walk Stretch");
+      expect(reorderEvents()).toEqual([["task_reordered", { source: "next" }]]);
+      expect(nextSaid()).toEqual(["Hydrate is next"]);
+    });
+
+    it("midnight passed with the menu up: the store turns the day, and no move is counted or said", async () => {
+      await openToday();
+      const menu = await menuOf("t2");
+      jest.setSystemTime(new Date(2026, 9, 11, 0, 0, 10));
+      await menu.pick("Do this next");
+      await flush();
+      expect(reorderEvents()).toEqual([]);
+      expect(nextSaid()).toEqual([]);
+      // Yesterday's order was not touched on the way out.
+      expect((await savedState()).history[TODAY].tasks.map((task) => task.text)).toEqual(["Walk", "Stretch", "Hydrate"]);
+    });
+
+    it("nothing changed underneath: it still moves, is counted and is said", async () => {
+      await openToday();
+      const menu = await menuOf("t2");
+      await flush();
+      await menu.pick("Do this next");
+      await settle();
+      expect(await savedOrder()).toBe("Hydrate Walk Stretch");
+      expect(reorderEvents()).toEqual([["task_reordered", { source: "next" }]]);
+      expect(nextSaid()).toEqual(["Hydrate is next"]);
+    });
+  });
+
   it("ticking the new next task off hands 'Up next' to the one behind it in the NEW order", async () => {
     await openToday(SET);
     await a11y("Hydrate", "doNext");
