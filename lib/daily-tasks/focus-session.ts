@@ -246,7 +246,10 @@ export function sessionEndedAnnouncement(stopped: "break" | "stopped", taskText:
 
 /** The end notification's title: the task's words, cut to about 60 characters. */
 export const NOTIFICATION_TITLE_MAX = 60;
-export function notificationTitle(session: FocusSession): string {
+/** Its title with "Hide task names in notifications" on. */
+export const NOTIFICATION_TITLE_HIDDEN = "Time's up";
+export function notificationTitle(session: FocusSession, hideTaskName = false): string {
+  if (hideTaskName) return NOTIFICATION_TITLE_HIDDEN;
   // By code points, so an emoji (a surrogate pair) is never split.
   const chars = Array.from(session.taskText.trim());
   if (chars.length <= NOTIFICATION_TITLE_MAX) return chars.join("");
@@ -257,10 +260,12 @@ export function notificationTitle(session: FocusSession): string {
  * The end notification's body (the title names the task): a timer asks
  * "5 more minutes, or mark it done?", a starter "5 minutes in. Keep going?"
  * (its buttons: 5 more minutes / Mark done, or Keep going / Mark done).
+ * Neither has the task's words in it. With the task's name hidden the title
+ * already says "Time's up", so a timer's body doesn't say it again.
  */
-export function notificationBody(session: FocusSession): string {
+export function notificationBody(session: FocusSession, hideTaskName = false): string {
   if (session.kind === "starter") return checkInTitle(session);
-  return "Time's up. 5 more minutes, or mark it done?";
+  return hideTaskName ? "5 more minutes, or mark it done?" : "Time's up. 5 more minutes, or mark it done?";
 }
 
 /** A starter's line while it runs (only for the first 5 minutes' length). */

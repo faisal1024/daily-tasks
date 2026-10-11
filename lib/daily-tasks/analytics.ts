@@ -38,6 +38,7 @@ export type AnalyticsEvent =
   | "agenda_toggled"
   | "goal_set"
   | "task_not_today"
+  | "task_reordered"
   | "rollover_resolved"
   | "coach_note_loaded"
   | "focus_opened"

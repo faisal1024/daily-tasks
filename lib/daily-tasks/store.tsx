@@ -22,6 +22,7 @@ import {
   syncNotifications,
   type FocusNotificationResponse,
 } from "./notifications";
+import { createDebounced, yesterdayOpenTexts, type ReminderContext } from "./reminder-plan";
 import {
   clampSessionMinutes,
   extend as extendSession,
@@ -91,6 +92,7 @@ import {
   buildMomentumPlan,
   isMomentumProfileComplete,
 } from "./momentum";
+import { moveOpenTask } from "./reorder";
 import {
   applyRollover,
   resolvePendingRollover,
@@ -192,15 +194,19 @@ type Action =
   | { type: "deleteTask"; id: TaskId; today: string }
   | { type: "notToday"; id: TaskId; today: string; at: string }
   | { type: "toggleTask"; id: TaskId; today: string }
+  | { type: "moveTask"; taskId: TaskId; toIndex: number; today: string }
+  | { type: "makeTaskNext"; taskId: TaskId; today: string }
   | { type: "lockToday"; today: string; at: string }
   | { type: "unlockToday"; today: string }
   | { type: "autoLockToday"; today: string; at: string }
   | { type: "resolveRollover"; carriedTaskIds: TaskId[]; today: string; now: Date }
   | { type: "setNotificationsEnabled"; enabled: boolean }
   | { type: "setNotificationEnabled"; key: NotificationKey; enabled: boolean }
+  | { type: "setHideTaskNamesInNotifications"; hidden: boolean }
   | { type: "setAutoLockEnabled"; enabled: boolean }
   | { type: "setAutoLockTime"; hour: number; minute: number }
   | { type: "markOnboardingSeen" }
+  | { type: "markReorderHintSeen" }
   | { type: "completeMomentumOnboarding"; profile: MomentumProfile }
   | { type: "updateMomentumProfile"; profile: MomentumProfile }
   | { type: "regenerateMomentumPlan"; now: Date }
@@ -815,6 +821,20 @@ function reduce(state: AppState, action: Action): AppState {
         action.today,
       );
     }
+    // Reordering (1.4): which open task comes next. Allowed on a set day
+    // (it changes the order, not the plan). Only open tasks move, among
+    // themselves; a done task keeps its slot (see reorder.ts for the rule).
+    // Nothing to move gives back the same state.
+    case "moveTask":
+    case "makeTaskNext": {
+      const tasks = moveOpenTask(
+        state.tasks,
+        state.todayCompletions,
+        action.taskId,
+        action.type === "makeTaskNext" ? 0 : action.toIndex,
+      );
+      return tasks === state.tasks ? state : syncTodayHistory({ ...state, tasks }, action.today);
+    }
     case "lockToday":
       if (state.todayLocked) return state;
       return syncTodayHistory(
@@ -880,6 +900,15 @@ function reduce(state: AppState, action: Action): AppState {
           [action.key]: action.enabled,
         },
       };
+    case "setHideTaskNamesInNotifications":
+      if (state.notifications.hideTaskNames === action.hidden) return state;
+      return {
+        ...state,
+        notifications: {
+          ...state.notifications,
+          hideTaskNames: action.hidden,
+        },
+      };
     case "setAutoLockEnabled":
       return {
         ...state,
@@ -905,6 +934,8 @@ function reduce(state: AppState, action: Action): AppState {
     case "markOnboardingSeen":
       if (state.hasSeenOnboarding) return state;
       return { ...state, hasSeenOnboarding: true };
+    case "markReorderHintSeen":
+      return state.reorderHintSeen ? state : { ...state, reorderHintSeen: true };
     case "completeMomentumOnboarding":
       {
         const momentumProfile = {
@@ -1100,6 +1131,13 @@ interface StoreContextValue {
   deleteTask: (id: TaskId) => void;
   /** Take an open task off today and save it for later (not on a set day: unlock it in Settings first). */
   notToday: (id: TaskId) => void;
+  /**
+   * Move an open task to `toIndex` among today's open tasks (0 = next). Done
+   * tasks keep their slots. Works on a set day.
+   */
+  moveTask: (taskId: TaskId, toIndex: number) => void;
+  /** Make an open task the first open one: what everything calls "next". */
+  makeTaskNext: (taskId: TaskId) => void;
   toggleTask: (id: TaskId) => void;
   lockToday: () => void;
   /**
@@ -1111,9 +1149,13 @@ interface StoreContextValue {
   resolveRollover: (carriedTaskIds: TaskId[]) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
+  /** Settings › Reminders › "Hide task names in notifications". */
+  setHideTaskNamesInNotifications: (hidden: boolean) => void;
   setAutoLockEnabled: (enabled: boolean) => void;
   setAutoLockTime: (hour: number, minute: number) => void;
   markOnboardingSeen: () => void;
+  /** The one-time reorder hint under Today's card was shown (1.4). */
+  markReorderHintSeen: () => void;
   completeMomentumOnboarding: (profile: MomentumProfile) => void;
   updateMomentumProfile: (profile: MomentumProfile) => void;
   regenerateMomentumPlan: () => void;
@@ -1226,6 +1268,9 @@ interface StoreContextValue {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
+/** What the reminders are written from; the time is added when they're written. */
+type ReminderSyncContext = Omit<ReminderContext, "now" | "pending" | "lastDeliveredAt">;
+
 export function DailyTasksProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, () => buildInitialState());
   const [ready, setReady] = useState(false);
@@ -1233,6 +1278,20 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermissionState>("undetermined");
   const lastReminderSync = useRef<string | null>(null);
+  // What the reminders were last asked to be written from, and the settled
+  // (debounced) rewrite that reads it when it runs.
+  const reminderContext = useRef<ReminderSyncContext | null>(null);
+  const [reminderSync] = useState(() =>
+    createDebounced(() => {
+      const context = reminderContext.current;
+      if (!context) return;
+      void syncNotifications({ ...context, now: new Date() }).catch(() => {
+        // Not written: forget what was asked for, so the next change (or
+        // coming to the front) asks again instead of matching it.
+        lastReminderSync.current = null;
+      });
+    }),
+  );
   // Bumped after applying widget taps so the widget is always rewritten from
   // app state (it may be showing an optimistic tap the app didn't apply).
   const [widgetNonce, setWidgetNonce] = useState(0);
@@ -1465,9 +1524,13 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // ended one is left as it is: it's gone off, and its buttons still work.
   // Never for the past (it's about to end: the app says it), nor past the
   // next midnight (the session clears then).
+  // "Hide task names in notifications" covers it too: its title is the
+  // task's words, so with the switch on it says "Time's up" instead (and a
+  // flip of the switch reschedules a running session's).
+  const hideFocusTaskName = state.notifications.hideTaskNames;
   const focusEndKey =
     focusSession && focusSession.status === "running" && focusSession.endAt !== null
-      ? `${focusSession.id}|${focusSession.endAt}|${focusSession.kind}|${notificationTitle(focusSession)}|${notificationBody(focusSession)}`
+      ? `${focusSession.id}|${focusSession.endAt}|${focusSession.kind}|${hideFocusTaskName ? "hidden" : "named"}|${notificationTitle(focusSession, hideFocusTaskName)}|${notificationBody(focusSession, hideFocusTaskName)}`
       : null;
   const focusStatus = focusSession?.status ?? null;
   // True at launch: the first pass reconciles, so a notification left from a
@@ -1476,6 +1539,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (!ready) return;
     const session = stateRef.current.focusSession;
+    const hideName = stateRef.current.notifications.hideTaskNames;
     const endAt = focusEndKey ? (session?.endAt ?? null) : null;
     const now = Date.now();
     const midnight = new Date(now);
@@ -1489,8 +1553,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         taskId: session.taskId,
         kind: session.kind,
         at: new Date(endAt),
-        title: notificationTitle(session),
-        body: notificationBody(session),
+        title: notificationTitle(session, hideName),
+        body: notificationBody(session, hideName),
       });
       return;
     }
@@ -1642,40 +1706,59 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     [state.tomorrowDraft, state.tasks, state.todayCompletions, today],
   );
 
+  // The reminders say what the tasks are (1.4), and iOS can't run code when
+  // one is delivered, so they're rewritten whenever what they'd say changes:
+  // a task added, ticked, unticked, removed, reordered or reworded, the day
+  // set, a new day, the settings. A burst of changes (ticking two in a row,
+  // dragging) settles first, so it costs one rewrite.
   useEffect(() => {
     if (!ready) return;
-    const signature = JSON.stringify({
+    const done = new Set(state.todayCompletions);
+    const context: ReminderSyncContext = {
       today,
-      tasks: state.tasks.map((task) => ({
-        id: task.id,
-        text: task.text,
-        carriedOver: task.carriedOver,
-      })),
-      todayCompletions: [...state.todayCompletions].sort(),
-      notifications: state.notifications,
-      notificationPermission,
-      draft: notificationDraft,
-    });
-    if (lastReminderSync.current === signature) return;
-    lastReminderSync.current = signature;
-    void syncNotifications({
-      now: new Date(),
       settings: state.notifications,
       permissionState: notificationPermission,
-      taskCount: state.tasks.length,
-      completedCount,
+      // In Today's order: the first one still open is "next".
+      tasks: state.tasks.map((task) => ({ id: task.id, text: task.text, done: done.has(task.id) })),
+      locked: state.todayLocked,
+      yesterdayOpen: yesterdayOpenTexts({ pendingRollover: state.pendingRollover }, today),
       draft: notificationDraft,
-    });
+    };
+    const signature = JSON.stringify(context);
+    if (lastReminderSync.current === signature) return;
+    lastReminderSync.current = signature;
+    reminderContext.current = context;
+    reminderSync.request();
   }, [
     notificationDraft,
-    completedCount,
     notificationPermission,
     ready,
+    reminderSync,
     state.notifications,
+    state.pendingRollover,
     state.tasks,
     state.todayCompletions,
+    state.todayLocked,
     today,
   ]);
+
+  // Coming to the front rewrites them too: which reminder is next (the one
+  // that states counts) depends on the time, and a tick made on the widget
+  // is only known once the app runs. Leaving runs a waiting rewrite at once,
+  // since a timer may never fire in the background.
+  useEffect(() => {
+    const sub = RNAppState.addEventListener("change", (status) => {
+      if (status === "active") {
+        if (reminderContext.current) reminderSync.request();
+      } else {
+        reminderSync.flush();
+      }
+    });
+    return () => {
+      sub.remove();
+      reminderSync.cancel();
+    };
+  }, [reminderSync]);
 
   useEffect(() => {
     const onChange = (status: AppStateStatus) => {
@@ -1757,6 +1840,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const notToday = useCallback((id: TaskId) => {
     dispatch({ type: "notToday", id, today: ensureDay(), at: new Date().toISOString() });
   }, [ensureDay]);
+  const moveTask = useCallback((taskId: TaskId, toIndex: number) => {
+    dispatch({ type: "moveTask", taskId, toIndex, today: ensureDay() });
+  }, [ensureDay]);
+  const makeTaskNext = useCallback((taskId: TaskId) => {
+    dispatch({ type: "makeTaskNext", taskId, today: ensureDay() });
+  }, [ensureDay]);
   const toggleTask = useCallback((id: TaskId) => {
     // Ticked just after midnight while yesterday is still on screen: it counts
     // for yesterday (the day the user was looking at), then the day changes.
@@ -1795,6 +1884,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setNotificationEnabled = useCallback((key: NotificationKey, enabled: boolean) => {
     dispatch({ type: "setNotificationEnabled", key, enabled });
   }, []);
+  const setHideTaskNamesInNotifications = useCallback((hidden: boolean) => {
+    dispatch({ type: "setHideTaskNamesInNotifications", hidden });
+  }, []);
   const setAutoLockEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "setAutoLockEnabled", enabled });
   }, []);
@@ -1803,6 +1895,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   }, []);
   const markOnboardingSeen = useCallback(() => {
     dispatch({ type: "markOnboardingSeen" });
+  }, []);
+  const markReorderHintSeen = useCallback(() => {
+    dispatch({ type: "markReorderHintSeen" });
   }, []);
   const completeMomentumOnboarding = useCallback((profile: MomentumProfile) => {
     dispatch({ type: "completeMomentumOnboarding", profile });
@@ -2379,15 +2474,19 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       editTask,
       deleteTask,
       notToday,
+      moveTask,
+      makeTaskNext,
       toggleTask,
       lockToday,
       unlockToday,
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      setHideTaskNamesInNotifications,
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,
+      markReorderHintSeen,
       completeMomentumOnboarding,
       updateMomentumProfile,
       regenerateMomentumPlan,
@@ -2461,15 +2560,19 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       editTask,
       deleteTask,
       notToday,
+      moveTask,
+      makeTaskNext,
       toggleTask,
       lockToday,
       unlockToday,
       resolveRollover,
       setNotificationsEnabled,
       setNotificationEnabled,
+      setHideTaskNamesInNotifications,
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,
+      markReorderHintSeen,
       completeMomentumOnboarding,
       updateMomentumProfile,
       regenerateMomentumPlan,

@@ -200,6 +200,8 @@ function normalizeNotifications(value: unknown): NotificationConfig {
         typeof value.evening === "boolean" ? value.evening : DEFAULT_NOTIFICATIONS.evening,
       hourly:
         typeof value.hourly === "boolean" ? value.hourly : DEFAULT_NOTIFICATIONS.hourly,
+      // Only a saved `true` hides them; anything else shows task names (the default).
+      hideTaskNames: value.hideTaskNames === true,
     };
   }
 
@@ -219,6 +221,7 @@ function normalizeNotifications(value: unknown): NotificationConfig {
         ? Boolean((evening ?? false) || (night ?? false))
         : DEFAULT_NOTIFICATIONS.evening,
     hourly: DEFAULT_NOTIFICATIONS.hourly,
+    hideTaskNames: value.hideTaskNames === true,
   };
 }
 
@@ -484,6 +487,8 @@ export function normalizeState(value: unknown): AppState | null {
     // Existing users (any stored state) have already used the app — skip onboarding.
     hasSeenOnboarding:
       typeof value.hasSeenOnboarding === "boolean" ? value.hasSeenOnboarding : true,
+    // Saved before 1.4: not shown yet, so the hint appears once.
+    reorderHintSeen: value.reorderHintSeen === true,
     todayReflection:
       typeof value.todayReflection === "string" ? value.todayReflection : null,
     todayReflectionResult: normalizeReflectionResult(value.todayReflectionResult),
@@ -685,6 +690,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     notifications: DEFAULT_NOTIFICATIONS,
     autoLock: DEFAULT_AUTO_LOCK,
     hasSeenOnboarding: false,
+    reorderHintSeen: false,
     todayReflection: null,
     todayReflectionResult: null,
     momentumProfile: DEFAULT_MOMENTUM_PROFILE,

@@ -197,6 +197,52 @@ describe("store: starting a focus session", () => {
     expect(tracked).toHaveBeenCalledWith("focus_session_started", { kind: "timer", minutes: 10, source: "row" });
   });
 
+  // PR #89: "Hide task names in notifications" covers the timer's end too.
+  it("with Hide task names on, its end notification says \"Time's up\" and never the task; flipping the switch reschedules it", async () => {
+    const { result } = await renderStore();
+    await act(async () => result.current.setHideTaskNamesInNotifications(true));
+    await act(async () => result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));
+    await flush();
+    const current = result.current.state.focusSession!;
+    expect(schedule).toHaveBeenCalledTimes(1);
+    expect(schedule).toHaveBeenLastCalledWith({
+      sessionId: current.id,
+      taskId: "t0",
+      kind: "timer",
+      at: new Date(START.getTime() + 10 * MIN),
+      title: "Time's up",
+      body: "5 more minutes, or mark it done?",
+    });
+    expect(JSON.stringify(schedule.mock.calls)).not.toContain("Walk");
+
+    // Names shown again while it runs: the pending one is replaced with the task's words.
+    await act(async () => result.current.setHideTaskNamesInNotifications(false));
+    await flush();
+    expect(schedule).toHaveBeenCalledTimes(2);
+    expect(schedule).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: "Walk", body: "Time's up. 5 more minutes, or mark it done?" }),
+    );
+
+    // And hidden again: replaced once more, without them.
+    await act(async () => result.current.setHideTaskNamesInNotifications(true));
+    await flush();
+    expect(schedule).toHaveBeenCalledTimes(3);
+    expect(schedule).toHaveBeenLastCalledWith(expect.objectContaining({ title: "Time's up", body: "5 more minutes, or mark it done?" }));
+  });
+
+  it("a starter's end notification hides the task and the step too", async () => {
+    const { result } = await renderStore();
+    await act(async () => result.current.setHideTaskNamesInNotifications(true));
+    await act(async () =>
+      result.current.startFocusSession("t0", { kind: "starter", minutes: 5, source: "coach", stepText: "Find the lead" }),
+    );
+    await flush();
+    expect(schedule).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "starter", title: "Time's up", body: "5 minutes in. Keep going?" }),
+    );
+    expect(JSON.stringify(schedule.mock.calls)).not.toMatch(/Walk|Find the lead/);
+  });
+
   it("does nothing on a ticked task", async () => {
     const { result } = await renderStore({ todayCompletions: ["t0"] });
     await act(async () => result.current.startFocusSession("t0", { kind: "timer", minutes: 10, source: "row" }));

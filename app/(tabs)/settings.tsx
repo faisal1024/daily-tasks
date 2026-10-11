@@ -66,6 +66,64 @@ const NOTIFICATION_LABELS: Record<
   },
 };
 
+/** Under the "Hide task names in notifications" switch (and its VoiceOver hint). */
+const HIDE_TASK_NAMES_HELP =
+  "Reminders and the timer's alert won't show what your tasks are.";
+
+/**
+ * A reminder switch with its title and help text. To VoiceOver the row is
+ * one element, the switch (role, on/off state, the title as its label and
+ * the help as its hint); the visible text is hidden from it, so nothing is
+ * read twice.
+ */
+function ReminderSwitchRow({
+  title,
+  subtitle,
+  value,
+  onValueChange,
+  disabled = false,
+  mutedColor,
+  trackColor,
+}: {
+  title: string;
+  subtitle: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  disabled?: boolean;
+  mutedColor: string;
+  trackColor: string;
+}) {
+  return (
+    <View
+      className="bg-surface rounded-2xl p-4 border border-border"
+      style={{ opacity: disabled ? 0.5 : 1 }}
+    >
+      <View className="flex-row items-center justify-between gap-4">
+        <View
+          className="flex-1"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <Text className="text-lg font-bold text-foreground">{title}</Text>
+          <Text className="text-sm mt-1" style={{ color: mutedColor }}>
+            {subtitle}
+          </Text>
+        </View>
+        <Switch
+          value={value}
+          onValueChange={onValueChange}
+          disabled={disabled}
+          accessibilityRole="switch"
+          accessibilityLabel={title}
+          accessibilityHint={subtitle}
+          accessibilityState={{ checked: value, disabled }}
+          trackColor={{ true: trackColor }}
+        />
+      </View>
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const colors = useColors();
   const {
@@ -76,6 +134,7 @@ export default function SettingsScreen() {
     unlockToday,
     setNotificationsEnabled,
     setNotificationEnabled,
+    setHideTaskNamesInNotifications,
     refreshNotificationPermission,
     requestNotificationPermission,
     completeMomentumOnboarding,
@@ -723,38 +782,34 @@ export default function SettingsScreen() {
                   state.notifications.hourly &&
                   (key === "progress" || key === "evening");
                 return (
-                  <View
+                  <ReminderSwitchRow
                     key={key}
-                    className="bg-surface rounded-2xl p-4 border border-border"
-                    style={{ opacity: pausedByHourly ? 0.5 : 1 }}
-                  >
-                    <View className="flex-row items-center justify-between gap-4">
-                      <View className="flex-1">
-                        <Text className="text-lg font-bold text-foreground">
-                          {meta.title}
-                        </Text>
-                        <Text
-                          className="text-sm mt-1"
-                          style={{ color: colors.muted }}
-                        >
-                          {pausedByHourly
-                            ? "Paused while Every hour is on."
-                            : meta.subtitle}
-                        </Text>
-                      </View>
-                      <Switch
-                        value={state.notifications[key]}
-                        onValueChange={(value) =>
-                          void handleReminderEnabled(key, value)
-                        }
-                        disabled={pausedByHourly}
-                        trackColor={{ true: colors.primary }}
-                      />
-                    </View>
-                  </View>
+                    title={meta.title}
+                    subtitle={pausedByHourly ? "Paused while Every hour is on." : meta.subtitle}
+                    value={state.notifications[key]}
+                    onValueChange={(value) => void handleReminderEnabled(key, value)}
+                    disabled={pausedByHourly}
+                    mutedColor={colors.muted}
+                    trackColor={colors.primary}
+                  />
                 );
               },
             )}
+            {/* What the reminders say, not when: it never asks for permission. */}
+            <Text
+              accessibilityRole="header"
+              className="text-sm font-semibold text-foreground mt-2"
+            >
+              What reminders say
+            </Text>
+            <ReminderSwitchRow
+              title="Hide task names in notifications"
+              subtitle={HIDE_TASK_NAMES_HELP}
+              value={state.notifications.hideTaskNames}
+              onValueChange={setHideTaskNamesInNotifications}
+              mutedColor={colors.muted}
+              trackColor={colors.primary}
+            />
           </View>
         </Section>
 
