@@ -26,7 +26,7 @@ import {
   paywallHeadline,
   paywallSubhead,
   planLabel,
-  PLUS_BENEFITS,
+  plusBenefitsFor,
   purchaseButtonLabel,
   purchaseTerms,
   shownWinBackOffer,
@@ -289,7 +289,7 @@ export function PaywallSheet({
           </View>
 
           <View className="gap-3">
-            {PLUS_BENEFITS.map((benefit) => (
+            {plusBenefitsFor(source).map((benefit) => (
               <View key={benefit.title} className="flex-row gap-3 items-start">
                 <Ionicons
                   name={benefit.icon as React.ComponentProps<typeof Ionicons>["name"]}
