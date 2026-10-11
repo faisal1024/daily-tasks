@@ -127,7 +127,7 @@ export function NagIntroSheet({
         accessibilityRole="button"
         accessibilityLabel={NAG_INTRO_COPY.primary}
         className="rounded-2xl px-4 py-3 items-center justify-center"
-        style={({ pressed }) => ({ minHeight: 50, backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 })}
+        style={{ minHeight: 50, backgroundColor: colors.primary }}
         testID="nag-intro-try"
       >
         <Text className="text-base font-semibold text-center" style={{ color: colors.onPrimary }}>
@@ -252,13 +252,11 @@ export function NagIntroSheet({
                 <Text className="text-sm font-semibold text-foreground" testID="nag-intro-preview-title">
                   {nagTitle(persona)}
                 </Text>
-                <Animated.Text
-                  className="text-sm"
-                  style={{ color: colors.foreground, opacity: fade }}
-                  testID="nag-intro-sample"
-                >
-                  {sample}
-                </Animated.Text>
+                <Animated.View style={{ opacity: fade }}>
+                  <Text className="text-sm text-foreground" testID="nag-intro-sample">
+                    {sample}
+                  </Text>
+                </Animated.View>
               </View>
             </View>
             <Pressable

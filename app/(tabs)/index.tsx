@@ -926,7 +926,7 @@ export default function HomeScreen() {
 
   // What's new (1.4): once, for someone who updated, the first time Today is
   // in front with nothing on top of it (the list above, yesterday's leftovers,
-  // a drag, a break-down on its way) and nobody typing. Otherwise it waits for
+  // a drag, a break-down on its way), nobody typing and Plus known. Otherwise it waits for
   // the next such moment, in this session or a later one.
   const keyboardUp = useKeyboardVisible();
   const todayFocused = useScreenFocused();
@@ -938,6 +938,8 @@ export default function HomeScreen() {
       appActive &&
       todayFocused &&
       !somethingUp &&
+      // Not while Plus is still being checked: the sheet and its button differ with and without it.
+      !plusPending &&
       state.pendingRollover === null &&
       !keyboardUp &&
       reorder.draggingId === null &&
