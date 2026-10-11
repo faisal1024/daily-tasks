@@ -13,6 +13,7 @@ import * as Notifications from "expo-notifications";
 
 import SettingsScreen from "@/app/(tabs)/settings";
 import { __resetAnalyticsForTests, __setAnalyticsFetchForTests, flush } from "@/lib/daily-tasks/analytics";
+import { NAME_FREE_REMINDER_BODIES } from "@/lib/daily-tasks/reminder-copy";
 import { REMINDER_SYNC_DEBOUNCE_MS } from "@/lib/daily-tasks/reminder-plan";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
@@ -187,9 +188,18 @@ describe("Hide task names on: a morning's use of the app", () => {
       expect(["5 more minutes, or mark it done?", "5 minutes in. Keep going?"]).toContain(call.content.body);
     }
     for (const call of calls.filter((each) => each.identifier.startsWith("daily-tasks:"))) {
-      expect(["A calm start | Choose Today's Three.", "A small nudge | Today's Three still need a little attention.", "Still time today | A small finish is still a finish."]).toContain(
-        `${call.content.title} | ${call.content.body}`,
-      );
+      // A general title over a fixed line that names no task.
+      expect(["A calm start", "A small nudge", "Still time today"]).toContain(call.content.title);
+      expect([
+        "Choose Today's Three.",
+        "Today's Three still need a little attention.",
+        ...NAME_FREE_REMINDER_BODIES.day,
+        ...NAME_FREE_REMINDER_BODIES.evening,
+        "Nothing picked yet. What are today's three?",
+        "Nothing picked yet. Three small things is plenty.",
+        "A fresh page. What are today's three?",
+        "Nothing picked yet. One is enough to begin.",
+      ]).toContain(call.content.body);
     }
     expect(everythingLogged()).not.toMatch(TASK_WORDS);
   });

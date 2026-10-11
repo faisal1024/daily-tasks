@@ -23,7 +23,8 @@ export function StatusLine({ status, onLock }: StatusLineProps) {
       <View
         className="flex-row items-center gap-2"
         accessible
-        accessibilityLabel={`Locked. ${status.text}`}
+        // The words already say the day is set; the lock glyph adds nothing to hear.
+        accessibilityLabel={status.text}
         accessibilityHint={LOCKED_HINT}
         testID="status-line"
       >

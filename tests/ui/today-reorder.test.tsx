@@ -316,7 +316,7 @@ describe("Today, real store: what says 'next' follows a reorder", () => {
     expect(planFocusStart(saved)).toEqual({ type: "start", taskId: "t2" });
     // Still set, exactly as it was.
     expect(saved).toMatchObject(SET);
-    expect(screen.getByTestId("status-line").props.accessibilityLabel).toMatch(/^Locked\./);
+    expect(screen.getByTestId("status-line").props.accessibilityLabel).toBe("Today is set. 3 to go.");
     // The built-in line only: a move never asks the coach again.
     expect(requestCoachNotes).not.toHaveBeenCalled();
     expect(reorderEvents()).toEqual([["task_reordered", { source: "next" }]]);

@@ -60,8 +60,9 @@ export interface ReminderCopyInput {
 export const MAX_REMINDER_TASK_CHARS = 60;
 
 /**
- * The general wording: what every reminder said before 1.4, and what they
- * all say with "Hide task names in notifications" on.
+ * The general wording: what every reminder said before 1.4. Still each
+ * kind's title, and the words whenever there is nothing better to say (a set
+ * day with nothing on it, a task with no readable name).
  */
 export const GENERIC_REMINDER_COPY: Record<ReminderKind, ReminderCopy> = {
   morning: {
@@ -289,6 +290,26 @@ const NOTHING_PICKED: string[] = [
   "Nothing picked yet. One is enough to begin.",
 ];
 
+/**
+ * With "Hide task names in notifications" on and something still open: lines
+ * that name no task, a few for the day and a few for the evening, so a day's
+ * reminders don't all read the same. Each slot takes the next one in turn.
+ */
+export const NAME_FREE_REMINDER_BODIES: { day: string[]; evening: string[] } = {
+  day: [
+    "Today's three are waiting when you are.",
+    "A small start still counts.",
+    "Five minutes is a start.",
+    "Pick one of today's three and begin anywhere.",
+  ],
+  evening: [
+    "A small finish is still a finish.",
+    "No rush. Five minutes still counts.",
+    "Still time for one of today's three.",
+    "Today's three are here if there's time tonight.",
+  ],
+};
+
 /** A small stable hash (FNV-1a), so a day's wording doesn't depend on the engine. */
 function hash(text: string): number {
   let h = 0x811c9dc5;
@@ -329,7 +350,8 @@ function shortNames(tasks: { text: string }[]): string[] {
 
 /**
  * The words for one reminder, or null when there is nothing to remind about
- * (everything picked is done). With `hideNames` no task text is in them.
+ * (everything picked is done). With `hideNames` no task text is in them:
+ * the slot's own title over a name-free line (see NAME_FREE_REMINDER_BODIES).
  */
 export function buildReminderCopy(input: ReminderCopyInput): ReminderCopy | null {
   const { kind, dayKey, slotIndex, tasks, locked, yesterdayOpen, hideNames, certain } = input;
@@ -337,7 +359,6 @@ export function buildReminderCopy(input: ReminderCopyInput): ReminderCopy | null
   const generic = GENERIC_REMINDER_COPY[kind];
   const open = tasks.filter((task) => !task.done);
   if (tasks.length > 0 && open.length === 0) return null;
-  if (hideNames) return generic;
 
   const slot = slotNumber(slotIndex);
   const slotTitle = evening ? GENERIC_REMINDER_COPY.evening.title : generic.title;
@@ -346,7 +367,8 @@ export function buildReminderCopy(input: ReminderCopyInput): ReminderCopy | null
   if (tasks.length === 0) {
     // A set day takes nothing more, so there is nothing to offer.
     if (locked) return generic;
-    const left = readable(yesterdayOpen.map((text) => ({ text })));
+    // With names hidden, yesterday's tasks aren't named either.
+    const left = hideNames ? [] : readable(yesterdayOpen.map((text) => ({ text })));
     if (left.length === 0) return { title: generic.title, body: pick(NOTHING_PICKED) };
     const pool = (certain ? FROM_YESTERDAY : FROM_YESTERDAY_AHEAD).filter(
       (line) => left.length > 1 || !ALL_OF_YESTERDAY.has(line),
@@ -371,6 +393,9 @@ export function buildReminderCopy(input: ReminderCopyInput): ReminderCopy | null
     });
   }
 
+  if (hideNames) {
+    return { title: slotTitle, body: pick(evening ? NAME_FREE_REMINDER_BODIES.evening : NAME_FREE_REMINDER_BODIES.day) };
+  }
   const named = readable(open);
   if (named.length === 0) return generic;
   const list = shortNames(tasks);

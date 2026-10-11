@@ -1,12 +1,13 @@
 // "Next on your path" in Ideas (1.4, PR #88), the pure part: which suggestions the
 // group shows (the AI's, or the built-in ones), the built-in lines themselves,
 // and the mark surviving a save.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   MAX_MILESTONE_IDEAS,
   buildMilestoneIdeaGroup,
   cutGraphemes,
+  hasMilestoneIdeaToAdd,
   localMilestoneIdeas,
   milestoneKey,
   milestoneToAskAbout,
@@ -43,6 +44,8 @@ const idea = (text: string, extra: Partial<GeneratedTask> = {}): GeneratedTask =
 /** An AI suggestion the plan marked for `milestone`. */
 const forStep = (text: string, milestone: MomentumMilestone, extra: Partial<GeneratedTask> = {}) =>
   idea(text, { milestoneKey: milestoneKey(milestone), ...extra });
+
+afterEach(() => vi.unstubAllGlobals());
 
 const group = (params: Partial<Parameters<typeof buildMilestoneIdeaGroup>[0]> = {}) =>
   buildMilestoneIdeaGroup({ milestones: PATH, completedMilestoneIds: [], today: TODAY, ...params });
@@ -153,6 +156,70 @@ describe("built-in milestone suggestions", () => {
     expect(localMilestoneIdeas(step("m", "Sign up: "), TODAY)[0].text).toMatch(/^Sign up: [^:]+$/);
   });
 
+  it("an ellipsis and full-width closing marks come off the title too", () => {
+    for (const [title, clean] of [
+      ["Keep going…", "Keep going"],
+      ["Keep going...", "Keep going"],
+      ["毎日走る。", "毎日走る"],
+      ["やった！", "やった"],
+      ["本当？", "本当"],
+      ["読む、", "読む"],
+      ["Wait…！？", "Wait"],
+    ]) {
+      expect(shortMilestoneTitle(title, 64)).toBe(clean);
+      for (const line of localMilestoneIdeas(step("m", title), TODAY)) {
+        expect(line.text.startsWith(`${clean}: `)).toBe(true);
+      }
+    }
+    // Inside the title they stay: only the end is tidied.
+    expect(shortMilestoneTitle("Wait… then go", 64)).toBe("Wait… then go");
+    // A long title cut at a word doesn't end "……" either.
+    expect(shortMilestoneTitle("Learn the first part… and then all of the rest of it", 23)).toBe("Learn the first part…");
+  });
+
+  it("a title that already names a length of time gets the two lines without a number first", () => {
+    const NUMBERED = /: \d+ (easy|focused) minutes$/;
+    for (const title of [
+      "Run for 10 minutes",
+      "Read 1 minute a day",
+      "Stretch 5 min",
+      "Practice 20 mins daily",
+      "Walk for 1 hour",
+      "Study 2 hours a week",
+      "Write for 1 hr",
+      "A 30-minute swim",
+      "Meditate 10MIN",
+    ]) {
+      for (const day of WEEK) {
+        const all = localMilestoneIdeas(step("m", title), day);
+        // All four are still there (a caller that has to skip one still has more), the plain two lead.
+        expect(all).toHaveLength(4);
+        expect(all.slice(0, 2).map((line) => line.text).filter((text) => NUMBERED.test(text))).toEqual([]);
+        expect(all.slice(2).every((line) => NUMBERED.test(line.text))).toBe(true);
+        const shown = group({ milestones: [step("m", title)], today: day })?.ideas.map((line) => line.text) ?? [];
+        expect(shown).toHaveLength(2);
+        expect(shown.join(" | ")).not.toMatch(NUMBERED);
+        // Each line's minutes are still the ones it stands for.
+        expect(all.slice(0, 2).every((line) => line.estimatedMinutes === 5)).toBe(true);
+      }
+    }
+    // On a starter path the goal's title leads, so it is the one that counts.
+    expect(
+      localMilestoneIdeas(step("m", "Start small"), TODAY, "Run 30 minutes without stopping")
+        .slice(0, 2)
+        .filter((line) => NUMBERED.test(line.text)),
+    ).toEqual([]);
+  });
+
+  it("a title with a number but no length of time keeps the day's own order", () => {
+    for (const title of ["Run 5 km", "Read 3 books", "Save 10 minds", "Lift 2 hrsx", "Run 10 miles", "Chapter 3 minus notes"]) {
+      const firsts = new Set(WEEK.map((day) => localMilestoneIdeas(step("m", title), day)[0].id));
+      // Over a week more than one line leads, the numbered ones among them.
+      expect(firsts.size).toBeGreaterThan(1);
+      expect([...firsts].some((id) => id === "milestone_local_0" || id === "milestone_local_2")).toBe(true);
+    }
+  });
+
   it("nothing for a blank or quote-only title, and then no group", () => {
     for (const title of ["", "   ", '""', " “ ” ", "«»", "..."]) {
       expect(localMilestoneIdeas(step("m", title), TODAY)).toEqual([]);
@@ -209,6 +276,11 @@ describe("built-in milestone suggestions", () => {
     for (const useIntl of [true, false]) {
       expect(splitGraphemes(`a${family}${thumbs}${flag}${accent}b`, useIntl)).toEqual(["a", family, thumbs, flag, accent, "b"]);
     }
+    // An engine with no Intl at all (not just no Segmenter): the built-in rule, no crash.
+    vi.stubGlobal("Intl", undefined);
+    expect(splitGraphemes(`a${family}${thumbs}${flag}${accent}b`)).toEqual(["a", family, thumbs, flag, accent, "b"]);
+    expect(cutGraphemes(`ab${thumbs}c`, 3)).toBe("ab");
+    vi.unstubAllGlobals();
     expect(cutGraphemes(`ab${family}`, 5)).toBe("ab");
     expect(cutGraphemes(`ab${thumbs}c`, 3)).toBe("ab");
     expect(cutGraphemes("abc", 3)).toBe("abc");
@@ -252,6 +324,26 @@ describe("built-in milestone suggestions", () => {
     ]);
     // Everything taken: no group at all.
     expect(group({ otherTexts: all.map((l) => l.text) })).toBeNull();
+  });
+});
+
+describe("is there still an idea in the group to add (Today's 'Get ideas for this')", () => {
+  const added = (...texts: string[]) => new Set(texts.map((text) => text.trim().toLowerCase()));
+  const ideas = [
+    { id: "a", text: "Run 1 km: do the first small step", estimatedMinutes: 5 },
+    { id: "b", text: "Run 1 km: plan the next small step", estimatedMinutes: 5 },
+  ];
+
+  it("yes while at least one isn't on today", () => {
+    expect(hasMilestoneIdeaToAdd({ ideas }, added())).toBe(true);
+    expect(hasMilestoneIdeaToAdd({ ideas }, added("Something else"))).toBe(true);
+    expect(hasMilestoneIdeaToAdd({ ideas }, added(ideas[0].text))).toBe(true);
+  });
+
+  it("no once every one is on today (case and outer spaces aside), or the group is empty", () => {
+    expect(hasMilestoneIdeaToAdd({ ideas }, added(ideas[0].text, ideas[1].text))).toBe(false);
+    expect(hasMilestoneIdeaToAdd({ ideas }, added(`  ${ideas[0].text.toUpperCase()} `, ideas[1].text, "Walk"))).toBe(false);
+    expect(hasMilestoneIdeaToAdd({ ideas: [] }, added())).toBe(false);
   });
 });
 

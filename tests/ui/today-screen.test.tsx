@@ -2192,7 +2192,7 @@ describe("Today card (Phase 10a)", () => {
     expect(screen.getByTestId("done-card")).toBeOnTheScreen();
     const line = screen.getByTestId("status-line");
     expect(within(line).getByTestId("status-locked")).toBeOnTheScreen();
-    expect(line.props.accessibilityLabel).toBe("Locked. Today is set. All done.");
+    expect(line.props.accessibilityLabel).toBe("Today is set. All done.");
     expect(within(line).getByText("Unlock in Settings")).toBeOnTheScreen();
   });
 
@@ -4145,7 +4145,7 @@ describe("Reordering on Today (1.4, PR #90)", () => {
     // The first open row has no menu on a set day (nothing to reorder to, no edits).
     await act(async () => getByGestureTestId("task-handle-tap-t0").handlers.onEnd?.({} as never, true));
     expect(sheet).not.toHaveBeenCalled();
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked/);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is set\. Unlock it in Settings/);
     // Another row's handle opens its menu.
     await act(async () => getByGestureTestId("task-handle-tap-t2").handlers.onEnd?.({} as never, true));
     expect(sheet).toHaveBeenCalledTimes(1);
@@ -4263,7 +4263,7 @@ describe("Today on a set day (1.4)", () => {
     // One VoiceOver element: the status, with the way out as its hint.
     const line = screen.getByTestId("status-line");
     expect(line.props.accessible).toBe(true);
-    expect(line.props.accessibilityLabel).toBe(`Locked. ${text}`);
+    expect(line.props.accessibilityLabel).toBe(text);
     expect(line.props.accessibilityHint).toBe("Unlock in Settings");
     expect(within(line).getByText(text)).toBeOnTheScreen();
     expect(within(line).getByText("Unlock in Settings")).toBeOnTheScreen();
@@ -4300,7 +4300,7 @@ describe("Today on a set day (1.4)", () => {
 
   // --- review fixes: a tap that used to change the three says why it didn't ---
 
-  const NOTE = "Today is locked. Unlock it in Settings to change your three.";
+  const NOTE = "Today is set. Unlock it in Settings to change your three.";
   /** VoiceOver hears it through the polite helper (queued on iOS). */
   const spoken = () => jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
 
@@ -4364,7 +4364,7 @@ describe("Today on a set day (1.4)", () => {
     expect(slots).toHaveLength(2);
     expect(slots[0].props.accessibilityHint).toBe("Unlock in Settings");
     await fireEvent.press(slots[0]);
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. Unlock it in Settings to change your three\./);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is set\. Unlock it in Settings to change your three\./);
     expect(announce.mock.calls).toEqual([[NOTE, { queue: true }]]);
     expect(screen.queryByPlaceholderText("What's one thing for today?")).toBeNull();
     expect(mockStore.addTask).not.toHaveBeenCalled();
@@ -4383,8 +4383,8 @@ describe("Today on a set day (1.4)", () => {
     await rerender(<HomeScreen />);
     expect(mockStore.addTask).not.toHaveBeenCalled();
     expect(mockStore.parkTasks.mock.calls).toEqual([[["Call the bank"]]]);
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. 1 saved for later in Ideas\./);
-    expect(announce.mock.calls).toEqual([["Today is locked. 1 saved for later in Ideas.", { queue: true }]]);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is set\. 1 saved for later in Ideas\./);
+    expect(announce.mock.calls).toEqual([["Today is set. 1 saved for later in Ideas.", { queue: true }]]);
     announce.mockRestore();
   });
 
@@ -4405,7 +4405,7 @@ describe("Today on a set day (1.4)", () => {
     await rerender(<HomeScreen />);
     expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
     expect(screen.getByTestId("brain-dump-review-hint")).toHaveTextContent(
-      "Today is locked, so these are saved in Ideas for another day.",
+      "Today is set, so these are saved in Ideas for another day.",
     );
     expect(screen.queryByRole("button", { name: /to today$/ })).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "Save all for later" }));
@@ -4413,6 +4413,6 @@ describe("Today on a set day (1.4)", () => {
     expect(mockStore.addTasks).not.toHaveBeenCalled();
     expect(mockStore.parkTasks.mock.calls).toEqual([[["Finish report", "Call mum", "Buy shoes"]]]);
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. 3 saved for later in Ideas\./);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is set\. 3 saved for later in Ideas\./);
   });
 });

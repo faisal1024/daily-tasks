@@ -8,6 +8,7 @@ import {
   buildReminderCopy,
   GENERIC_REMINDER_COPY,
   MAX_REMINDER_TASK_CHARS,
+  NAME_FREE_REMINDER_BODIES,
   reminderGraphemes,
   reminderTaskName,
   reminderVariantIndex,
@@ -35,6 +36,11 @@ import { DEFAULT_NOTIFICATIONS, type DayTaskRecord, type TomorrowDraft } from ".
 
 const KINDS: ReminderKind[] = ["morning", "progress", "evening"];
 const GENERIC_BODIES = KINDS.map((kind) => GENERIC_REMINDER_COPY[kind].body);
+const GENERIC_TITLES = KINDS.map((kind) => GENERIC_REMINDER_COPY[kind].title);
+/** What a reminder may say with names hidden: the general lines, the name-free ones, and the empty day's prompt. */
+const NAME_FREE_BODY = (body: string) =>
+  [...GENERIC_BODIES, ...NAME_FREE_REMINDER_BODIES.day, ...NAME_FREE_REMINDER_BODIES.evening].includes(body) ||
+  /^(Nothing picked yet\.|A fresh page\.) [^:·]+$/.test(body);
 /** The wording of a reminder written ahead of its delivery: true whether or not the task was ticked since. */
 const HEDGED =
   /Still open\?|Still open tonight\?|If it's still open|Anything still open|If there's five minutes left today|^(Today's three|On today's list): [^.]*\. Anything/;
@@ -517,11 +523,81 @@ describe("a full day's copy", () => {
     expect(hidden).toHaveLength(16);
     for (const item of hidden) {
       expect(shown(item)).not.toMatch(/dentist|report|Walk|passport/i);
-      expect([GENERIC_REMINDER_COPY.morning, GENERIC_REMINDER_COPY.progress, GENERIC_REMINDER_COPY.evening]).toContainEqual({
-        title: item.title,
-        body: item.body,
-      });
+      expect(GENERIC_TITLES).toContain(item.title);
+      expect(NAME_FREE_BODY(item.body), item.body).toBe(true);
+      expect(item.data).toBeUndefined();
     }
+  });
+
+  it("three tasks with names hidden: the day's reminders take turns, so two in a row never read the same", () => {
+    const today = planFor({
+      now: monday(7, 30),
+      tasks: [DENTIST, REPORT, WALK],
+      settings: { ...DEFAULT_NOTIFICATIONS, hideTaskNames: true },
+    }).filter((item) => item.id.includes(":2026-10-12:"));
+    expect(today.map((item) => item.fireAt.getHours())).toEqual([10, 12, 14, 16, 17, 18, 19, 20, 21, 22]);
+    for (let i = 1; i < today.length; i++) expect(today[i].body).not.toBe(today[i - 1].body);
+    // By day the day's lines under the nudge's title; from 17:00 the evening's under its own.
+    for (const item of today.slice(0, 4)) {
+      expect(item.title).toBe("A small nudge");
+      expect(NAME_FREE_REMINDER_BODIES.day).toContain(item.body);
+    }
+    for (const item of today.slice(4)) {
+      expect(item.title).toBe("Still time today");
+      expect(NAME_FREE_REMINDER_BODIES.evening).toContain(item.body);
+    }
+    // All four of each are heard over the day.
+    expect(new Set(today.slice(0, 4).map((item) => item.body)).size).toBe(4);
+    expect(new Set(today.slice(4).map((item) => item.body)).size).toBe(4);
+  });
+
+  it("the name-free lines: four by day, four for the evening, calm and plain", () => {
+    expect(NAME_FREE_REMINDER_BODIES.day).toEqual([
+      "Today's three are waiting when you are.",
+      "A small start still counts.",
+      "Five minutes is a start.",
+      "Pick one of today's three and begin anywhere.",
+    ]);
+    expect(NAME_FREE_REMINDER_BODIES.evening).toEqual([
+      "A small finish is still a finish.",
+      "No rush. Five minutes still counts.",
+      "Still time for one of today's three.",
+      "Today's three are here if there's time tonight.",
+    ]);
+    const all = [...NAME_FREE_REMINDER_BODIES.day, ...NAME_FREE_REMINDER_BODIES.evening];
+    expect(new Set(all).size).toBe(8);
+    for (const line of all) {
+      expect(line).not.toMatch(/missed|overdue|late\b|fail|behind|forgot|should|must|[\u2012-\u2015]| - |!/i);
+      expect(line.length).toBeLessThanOrEqual(60);
+    }
+  });
+
+  it("names hidden: every slot is one step on from the one before, whatever the day, and names no task", () => {
+    const tasks = [task("Call the dentist", true), REPORT, WALK];
+    for (const evening of [false, true]) {
+      const pool = evening ? NAME_FREE_REMINDER_BODIES.evening : NAME_FREE_REMINDER_BODIES.day;
+      for (const dayKey of ["2026-10-12", "2026-10-13", "2026-12-31"]) {
+        const bodies = Array.from({ length: 8 }, (_, slotIndex) => {
+          const words = copy({ kind: "progress", dayKey, slotIndex, tasks, hideNames: true, evening, certain: slotIndex === 0 });
+          expect(words?.title).toBe(evening ? "Still time today" : "A small nudge");
+          expect(words?.taskId).toBeUndefined();
+          return words?.body ?? "";
+        });
+        for (let i = 0; i < bodies.length; i++) {
+          expect(pool).toContain(bodies[i]);
+          expect(bodies[i]).toBe(pool[(pool.indexOf(bodies[0]) + i) % pool.length]);
+        }
+      }
+    }
+    // An empty day with names hidden: the plain prompt, and yesterday's tasks stay unnamed.
+    for (const words of everyVariant({ hideNames: true, yesterdayOpen: ["Renew passport"] })) {
+      expect(words.body).toMatch(/^(Nothing picked yet\.|A fresh page\.)/);
+      expect(shown(words)).not.toMatch(/passport/i);
+    }
+    // A set day with nothing on it: the general line, as with names shown.
+    expect(copy({ kind: "morning", locked: true, hideNames: true, yesterdayOpen: ["Renew passport"] })).toEqual(
+      GENERIC_REMINDER_COPY.morning,
+    );
   });
 });
 
@@ -1125,7 +1201,7 @@ describe("Hide task names in notifications", () => {
   const secret = /Secret|ring|Alpha|Bravo|passport|Your three for/;
   const hidden = { ...DEFAULT_NOTIFICATIONS, hideTaskNames: true };
 
-  it("every reminder is the general line: today's, tomorrow's from a draft, and the days after", () => {
+  it("every reminder is a line that names no task: today's, tomorrow's from a draft, and the days after", () => {
     const cases: Partial<ReminderContext>[] = [
       { now: monday(9, 5), tasks: [task("Alpha secret", true), task("Bravo")], yesterdayOpen: ["Renew passport"], draft },
       { now: monday(9, 5), tasks: [task("Alpha")], settings: { ...hidden, hourly: true }, draft },
@@ -1137,7 +1213,8 @@ describe("Hide task names in notifications", () => {
       const plan = planFor({ settings: hidden, ...overrides });
       expect(plan.length).toBeGreaterThanOrEqual(11);
       for (const item of plan) {
-        expect(GENERIC_BODIES).toContain(item.body);
+        expect(NAME_FREE_BODY(item.body), item.body).toBe(true);
+        expect(GENERIC_TITLES).toContain(item.title);
         expect(`${item.title} ${item.body}`).not.toMatch(secret);
       }
       // The same plan with names shown does name them (so the check above means something).
