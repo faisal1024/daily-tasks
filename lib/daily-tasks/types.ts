@@ -1,6 +1,7 @@
 import type { AiFailureKind } from "./ai-status";
 import type { FocusSession } from "./focus-session";
 import type { Journey } from "./journey";
+import type { NagLevel, NagPersona } from "./nag";
 
 export const MAX_TASKS = 3;
 
@@ -232,7 +233,33 @@ export interface NotificationConfig {
    * instead of the tasks' own words. Off by default.
    */
   hideTaskNames: boolean;
+  /**
+   * Reminder style (1.4): "calm" is the task-aware reminders; "nag" is Nag
+   * mode (Plus, opt-in). A saved "nag" without Plus behaves as calm and is
+   * kept, so it is back when Plus is.
+   */
+  style: ReminderStyle;
+  /** Nag mode has been confirmed once (the "Turn on Nag mode?" question). */
+  nagConfirmed: boolean;
+  nagPersona: NagPersona;
+  nagLevel: NagLevel;
+  /** When nags may arrive, in minutes of the local day. */
+  nagWindow: NagWindow;
+  /** The day (yyyy-MM-dd) "Stop nagging me today" was used; null when not. */
+  nagPausedDate: string | null;
 }
+
+export type ReminderStyle = "calm" | "nag";
+
+/** Minutes of the local day; `endMinutes` is at least NAG_WINDOW_MIN_SPAN after `startMinutes`. */
+export interface NagWindow {
+  startMinutes: number;
+  endMinutes: number;
+}
+
+export const NAG_WINDOW_MIN_SPAN = 180;
+export const NAG_WINDOW_LAST_MINUTE = 23 * 60 + 59;
+export const DEFAULT_NAG_WINDOW: NagWindow = { startMinutes: 9 * 60, endMinutes: 21 * 60 };
 
 export interface AutoLockConfig {
   enabled: boolean;
@@ -350,6 +377,12 @@ export const DEFAULT_NOTIFICATIONS: NotificationConfig = {
   evening: true,
   hourly: false,
   hideTaskNames: false,
+  style: "calm",
+  nagConfirmed: false,
+  nagPersona: "mom",
+  nagLevel: "firm",
+  nagWindow: DEFAULT_NAG_WINDOW,
+  nagPausedDate: null,
 };
 
 export const DEFAULT_AUTO_LOCK: AutoLockConfig = {
@@ -359,7 +392,7 @@ export const DEFAULT_AUTO_LOCK: AutoLockConfig = {
 };
 
 /** The reminder kinds that can be switched on and off (not the master switch, not the wording). */
-export type NotificationKey = Exclude<keyof NotificationConfig, "enabled" | "hideTaskNames">;
+export type NotificationKey = "morning" | "progress" | "evening" | "hourly";
 
 export type NotificationPermissionState =
   | "granted"

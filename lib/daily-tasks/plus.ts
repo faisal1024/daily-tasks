@@ -12,7 +12,7 @@ export const PLUS_ENTITLEMENT = "plus";
  */
 export const GRANDFATHER_BEFORE_VERSION = "1.1.0";
 
-export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "calendar" | "routines";
+export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "calendar" | "routines" | "nag_mode";
 
 export type PaywallSource =
   | "onboarding"
@@ -24,7 +24,9 @@ export type PaywallSource =
   | "win_back"
   // The gentle second paywall after a first real "aha" (lib/daily-tasks/aha-paywall.ts).
   | "aha"
-  | "routines";
+  | "routines"
+  // Choosing the Nag reminder style in Settings (1.4).
+  | "nag_mode";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -343,6 +345,8 @@ export function paywallHeadline(source: PaywallSource, options: { taskCount?: nu
       return "Want the AI helpers back?";
     case "routines":
       return "Keep all your routines";
+    case "nag_mode":
+      return "Reminders in a voice you pick";
     default:
       return "A little extra help, when you want it";
   }
@@ -361,6 +365,8 @@ export function paywallSubhead(source: PaywallSource, options: { taskCount?: num
       return "Your three tasks stay free. Plus brings back AI sorting, break it down and calendar planning.";
     case "routines":
       return "Two routines are free, and they keep working. Plus keeps as many as you like, with the AI helpers too.";
+    case "nag_mode":
+      return "Nag mode reminds you as Mom, Spouse, Coach or Drill sergeant. Calm reminders and your three stay free either way.";
     default:
       return "Your three tasks stay free forever. Plus adds the AI helpers.";
   }

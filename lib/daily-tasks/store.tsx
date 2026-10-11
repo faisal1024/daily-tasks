@@ -16,13 +16,18 @@ import {
   dismissFocusTimerNotification,
   getNotificationPermissionStatus,
   registerFocusCategory,
+  registerNagCategory,
   requestNotificationPermission,
   scheduleFocusSessionNotification,
   subscribeFocusResponses,
+  subscribeNagResponses,
   syncNotifications,
   type FocusNotificationResponse,
 } from "./notifications";
 import { createDebounced, yesterdayOpenTexts, type ReminderContext } from "./reminder-plan";
+import { ensureNagDay, nagModeStrategy } from "./nag-day";
+import type { NagLevel, NagPersona } from "./nag";
+import { adjustNagWindow, nagModeOn } from "./nag-plan";
 import {
   clampSessionMinutes,
   extend as extendSession,
@@ -178,6 +183,7 @@ import type {
   MomentumProfile,
   NotificationPermissionState,
   NotificationKey,
+  ReminderStyle,
   ReflectionResult,
   Routine,
   ReviewTrigger,
@@ -203,6 +209,11 @@ type Action =
   | { type: "setNotificationsEnabled"; enabled: boolean }
   | { type: "setNotificationEnabled"; key: NotificationKey; enabled: boolean }
   | { type: "setHideTaskNamesInNotifications"; hidden: boolean }
+  | { type: "setReminderStyle"; style: ReminderStyle }
+  | { type: "setNagPersona"; persona: NagPersona }
+  | { type: "setNagLevel"; level: NagLevel }
+  | { type: "setNagWindowEdge"; edge: "start" | "end"; minutes: number }
+  | { type: "setNagPausedDate"; date: string | null }
   | { type: "setAutoLockEnabled"; enabled: boolean }
   | { type: "setAutoLockTime"; hour: number; minute: number }
   | { type: "markOnboardingSeen" }
@@ -909,6 +920,32 @@ function reduce(state: AppState, action: Action): AppState {
           hideTaskNames: action.hidden,
         },
       };
+    case "setReminderStyle":
+      if (state.notifications.style === action.style) return state;
+      return {
+        ...state,
+        notifications: {
+          ...state.notifications,
+          style: action.style,
+          // Asked once: turning it on again later doesn't ask again.
+          nagConfirmed: state.notifications.nagConfirmed || action.style === "nag",
+        },
+      };
+    case "setNagPersona":
+      if (state.notifications.nagPersona === action.persona) return state;
+      return { ...state, notifications: { ...state.notifications, nagPersona: action.persona } };
+    case "setNagLevel":
+      if (state.notifications.nagLevel === action.level) return state;
+      return { ...state, notifications: { ...state.notifications, nagLevel: action.level } };
+    case "setNagWindowEdge": {
+      const nagWindow = adjustNagWindow(state.notifications.nagWindow, action.edge, action.minutes);
+      const current = state.notifications.nagWindow;
+      if (nagWindow.startMinutes === current.startMinutes && nagWindow.endMinutes === current.endMinutes) return state;
+      return { ...state, notifications: { ...state.notifications, nagWindow } };
+    }
+    case "setNagPausedDate":
+      if (state.notifications.nagPausedDate === action.date) return state;
+      return { ...state, notifications: { ...state.notifications, nagPausedDate: action.date } };
     case "setAutoLockEnabled":
       return {
         ...state,
@@ -1151,6 +1188,15 @@ interface StoreContextValue {
   setNotificationEnabled: (key: NotificationKey, enabled: boolean) => void;
   /** Settings › Reminders › "Hide task names in notifications". */
   setHideTaskNamesInNotifications: (hidden: boolean) => void;
+  /** Calm or Nag (1.4). Nag only applies with Plus; the choice is saved either way. */
+  setReminderStyle: (style: ReminderStyle) => void;
+  setNagPersona: (persona: NagPersona) => void;
+  setNagLevel: (level: NagLevel) => void;
+  /** Sets one end of the nag window (minutes of the day); the other end moves to keep three hours. */
+  setNagWindowEdge: (edge: "start" | "end", minutes: number) => void;
+  /** "Stop nagging me today": no nags for the rest of today. */
+  pauseNagToday: (source?: "settings" | "notification") => void;
+  resumeNag: () => void;
   setAutoLockEnabled: (enabled: boolean) => void;
   setAutoLockTime: (hour: number, minute: number) => void;
   markOnboardingSeen: () => void;
@@ -1285,13 +1331,16 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     createDebounced(() => {
       const context = reminderContext.current;
       if (!context) return;
-      void syncNotifications({ ...context, now: new Date() }).catch(() => {
+      void syncNotifications({ ...context, now: new Date(), strategy: nagModeStrategy }).catch(() => {
         // Not written: forget what was asked for, so the next change (or
         // coming to the front) asks again instead of matching it.
         lastReminderSync.current = null;
       });
     }),
   );
+  // Goes up when the day's nag lines change (nag-day.ts), so the reminders
+  // are written again with them.
+  const [nagVersion, setNagVersion] = useState(0);
   // Bumped after applying widget taps so the widget is always rewritten from
   // app state (it may be showing an optimistic tap the app didn't apply).
   const [widgetNonce, setWidgetNonce] = useState(0);
@@ -1723,19 +1772,60 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       locked: state.todayLocked,
       yesterdayOpen: yesterdayOpenTexts({ pendingRollover: state.pendingRollover }, today),
       draft: notificationDraft,
+      // Nag mode is Plus-only: leaving Plus stops the nags at the next rewrite.
+      plus: hasPlus,
     };
-    const signature = JSON.stringify(context);
+    const signature = JSON.stringify([context, nagVersion]);
     if (lastReminderSync.current === signature) return;
     lastReminderSync.current = signature;
     reminderContext.current = context;
     reminderSync.request();
   }, [
+    hasPlus,
+    nagVersion,
     notificationDraft,
     notificationPermission,
     ready,
     reminderSync,
     state.notifications,
     state.pendingRollover,
+    state.tasks,
+    state.todayCompletions,
+    state.todayLocked,
+    today,
+  ]);
+
+  // Nag mode (1.4): the day's lines. Looked at on a cold start, on coming to
+  // the front, and when the tasks, the lock or the nag settings change; it
+  // only does anything when the day needs planning or the AI should be asked
+  // (once a day, once more if the tasks, persona or level change). When the
+  // lines change the version goes up and the reminders are written again.
+  const nagOn = nagModeOn(state.notifications, hasPlus, notificationPermission);
+  useEffect(() => {
+    if (!ready || !nagOn || !appActive) return;
+    const done = new Set(state.todayCompletions);
+    void ensureNagDay(
+      {
+        today,
+        settings: state.notifications,
+        permissionState: notificationPermission,
+        plus: hasPlus,
+        // Like the other automatic AI calls: only once Plus is confirmed.
+        aiAllowed: plusConfirmed,
+        tasks: state.tasks.map((task) => ({ id: task.id, text: task.text, done: done.has(task.id) })),
+        firstName: state.momentumProfile.name,
+      },
+      { onChange: setNagVersion },
+    );
+  }, [
+    appActive,
+    hasPlus,
+    nagOn,
+    notificationPermission,
+    plusConfirmed,
+    ready,
+    state.momentumProfile.name,
+    state.notifications,
     state.tasks,
     state.todayCompletions,
     state.todayLocked,
@@ -1886,6 +1976,31 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   }, []);
   const setHideTaskNamesInNotifications = useCallback((hidden: boolean) => {
     dispatch({ type: "setHideTaskNamesInNotifications", hidden });
+  }, []);
+  const setReminderStyle = useCallback((style: ReminderStyle) => {
+    const { style: before, nagPersona, nagLevel } = stateRef.current.notifications;
+    if (before === style) return;
+    dispatch({ type: "setReminderStyle", style });
+    if (style === "nag") track("nag_mode_enabled", { persona: nagPersona, level: nagLevel });
+    else track("nag_mode_disabled");
+  }, []);
+  const setNagPersona = useCallback((persona: NagPersona) => {
+    dispatch({ type: "setNagPersona", persona });
+  }, []);
+  const setNagLevel = useCallback((level: NagLevel) => {
+    dispatch({ type: "setNagLevel", level });
+  }, []);
+  const setNagWindowEdge = useCallback((edge: "start" | "end", minutes: number) => {
+    dispatch({ type: "setNagWindowEdge", edge, minutes });
+  }, []);
+  const pauseNagToday = useCallback((source: "settings" | "notification" = "settings") => {
+    const date = todayRef.current;
+    if (stateRef.current.notifications.nagPausedDate === date) return;
+    dispatch({ type: "setNagPausedDate", date });
+    track("nag_paused_today", { source });
+  }, []);
+  const resumeNag = useCallback(() => {
+    dispatch({ type: "setNagPausedDate", date: null });
   }, []);
   const setAutoLockEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "setAutoLockEnabled", enabled });
@@ -2369,7 +2484,30 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   };
   useEffect(() => {
     void registerFocusCategory();
+    void registerNagCategory();
   }, []);
+  // "Stop for today" on a nag (1.4): the same as the button in Settings, for
+  // the day the nag was for. A tap that launched the app waits for the saved
+  // state, so the pause isn't overwritten by the load.
+  const pendingNagStops = useRef<string[]>([]);
+  const handleNagStop = useRef<(dayKey: string) => void>(() => {});
+  handleNagStop.current = (dayKey) => {
+    if (dayKey === todayRef.current) pauseNagToday("notification");
+  };
+  useEffect(
+    () =>
+      subscribeNagResponses((response) => {
+        if (readyRef.current) handleNagStop.current(response.dayKey);
+        else pendingNagStops.current.push(response.dayKey);
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (!ready) return;
+    const pending = pendingNagStops.current;
+    pendingNagStops.current = [];
+    pending.forEach((dayKey) => handleNagStop.current(dayKey));
+  }, [ready]);
   useEffect(
     () =>
       subscribeFocusResponses((response) => {
@@ -2483,6 +2621,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setNotificationsEnabled,
       setNotificationEnabled,
       setHideTaskNamesInNotifications,
+      setReminderStyle,
+      setNagPersona,
+      setNagLevel,
+      setNagWindowEdge,
+      pauseNagToday,
+      resumeNag,
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,
@@ -2569,6 +2713,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setNotificationsEnabled,
       setNotificationEnabled,
       setHideTaskNamesInNotifications,
+      setReminderStyle,
+      setNagPersona,
+      setNagLevel,
+      setNagWindowEdge,
+      pauseNagToday,
+      resumeNag,
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,

@@ -11,6 +11,7 @@ import {
   type ReminderPlanItem,
   type ReminderStrategy,
 } from "./reminder-plan";
+import { NAG_CATEGORY_ID, NAG_KIND } from "./nag-plan";
 import { MANAGED_REMINDER_PREFIX } from "./reminders";
 import type { NotificationPermissionState } from "./types";
 
@@ -285,6 +286,7 @@ function contentFor(item: ReminderPlanItem): Notifications.NotificationContentIn
     data,
     ...(item.sound !== undefined ? { sound: item.sound } : {}),
     ...(item.interruptionLevel ? { interruptionLevel: item.interruptionLevel } : {}),
+    ...(item.categoryId ? { categoryIdentifier: item.categoryId } : {}),
   };
 }
 
@@ -530,6 +532,76 @@ export function subscribeFocusResponses(listener: (response: FocusNotificationRe
       Notifications.clearLastNotificationResponse?.();
     } catch {
       // Replays are ignored anyway (the store checks the session id).
+    }
+  };
+  let subscription: { remove: () => void } | null = null;
+  try {
+    subscription = Notifications.addNotificationResponseReceivedListener(handle);
+  } catch {
+    subscription = null;
+  }
+  try {
+    handle(Notifications.getLastNotificationResponse?.());
+  } catch {
+    // No launch tap to handle.
+  }
+  return () => subscription?.remove();
+}
+
+// Nag mode (1.4): a nag carries one button, "Stop for today". Like the focus
+// buttons it opens the app, so the tap is handled even when the app wasn't
+// running (a background action is lost then). A tap on the nag itself just
+// opens the app, on Today.
+export const NAG_ACTION_STOP = "nag-stop-today";
+let nagCategoryReady = false;
+
+/** Registers the nag category's button, at every launch. Best-effort: without it a nag still arrives. */
+export function registerNagCategory(): Promise<void> {
+  if (Platform.OS === "web") return Promise.resolve();
+  return (async () => {
+    if (nagCategoryReady || typeof Notifications.setNotificationCategoryAsync !== "function") return;
+    await Notifications.setNotificationCategoryAsync(NAG_CATEGORY_ID, [
+      { identifier: NAG_ACTION_STOP, buttonTitle: "Stop for today", options: { opensAppToForeground: true } },
+    ]);
+    nagCategoryReady = true;
+  })().catch(() => {});
+}
+
+/** A tap on a nag's "Stop for today". */
+export interface NagNotificationResponse {
+  action: "stop";
+  /** The day the nag was for (yyyy-MM-dd), from its id. */
+  dayKey: string;
+}
+
+/** The nag response in a notification response, or null for anything else (a plain tap included). */
+export function parseNagNotificationResponse(response: Notifications.NotificationResponse | null | undefined): NagNotificationResponse | null {
+  const request = response?.notification?.request;
+  if (!request || !isManaged(request.identifier) || response?.actionIdentifier !== NAG_ACTION_STOP) return null;
+  const [dayKey, kind] = request.identifier.slice(MANAGED_REMINDER_PREFIX.length).split(":");
+  if (kind !== NAG_KIND || !/^\d{4}-\d{2}-\d{2}$/.test(dayKey ?? "")) return null;
+  return { action: "stop", dayKey };
+}
+
+/**
+ * Calls `listener` for each "Stop for today": while the app runs, and once
+ * for the tap that launched it. Each tap is passed on once. Returns the
+ * unsubscribe.
+ */
+export function subscribeNagResponses(listener: (response: NagNotificationResponse) => void): () => void {
+  if (Platform.OS === "web") return () => {};
+  const seen = new Set<string>();
+  const handle = (response: Notifications.NotificationResponse | null | undefined) => {
+    const parsed = parseNagNotificationResponse(response);
+    if (!parsed || !response) return;
+    const key = `${response.notification.request.identifier}|${response.notification.date}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    listener(parsed);
+    try {
+      Notifications.clearLastNotificationResponse?.();
+    } catch {
+      // A replay only pauses a day that is already paused.
     }
   };
   let subscription: { remove: () => void } | null = null;

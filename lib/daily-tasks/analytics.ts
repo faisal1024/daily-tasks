@@ -56,7 +56,11 @@ export type AnalyticsEvent =
   | "rating_prompt_requested"
   | "rate_row_tapped"
   | "feedback_row_tapped"
-  | "day_unlocked";
+  | "day_unlocked"
+  | "nag_mode_enabled"
+  | "nag_mode_disabled"
+  | "nag_paused_today"
+  | "nag_lines_loaded";
 
 type PropValue = string | number | boolean;
 export type AnalyticsProps = Partial<Record<AllowedProp, PropValue>>;
@@ -78,6 +82,9 @@ const ALLOWED_PROPS = [
   "action",
   "offer",
   "blocked",
+  // Nag mode: which voice and how hard (ids like "mom", "firm"), never a line.
+  "persona",
+  "level",
 ] as const;
 type AllowedProp = (typeof ALLOWED_PROPS)[number];
 

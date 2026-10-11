@@ -377,7 +377,7 @@ export function nagPools(persona: NagPersona, level: NagLevel, stage: NagStage):
 }
 
 /** Small seeded generator (mulberry32 over a string hash): same seed, same lines. */
-function seededRandom(seed: string): () => number {
+export function seededRandom(seed: string): () => number {
   let state = 2166136261;
   for (let index = 0; index < seed.length; index += 1) {
     state = Math.imul(state ^ seed.charCodeAt(index), 16777619) >>> 0;
