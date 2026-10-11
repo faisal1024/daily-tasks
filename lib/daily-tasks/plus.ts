@@ -317,7 +317,24 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
     title: "Tick off from your Home Screen",
     detail: "Check tasks off right from the widget, without opening the app.",
   },
+  {
+    icon: "megaphone-outline",
+    title: "Nag mode",
+    detail: "Reminders as Mom, Spouse, Coach or Drill sergeant, as pushy as you pick.",
+  },
 ];
+
+/** The benefit a paywall source is about, by title: it leads the list on that paywall. */
+const LEADING_BENEFIT: Partial<Record<PaywallSource, string>> = {
+  nag_mode: "Nag mode",
+};
+
+/** The benefits in the order to show them: the one the paywall opened for comes first. */
+export function plusBenefitsFor(source: PaywallSource | null): typeof PLUS_BENEFITS {
+  const lead = source ? LEADING_BENEFIT[source] : undefined;
+  if (!lead) return PLUS_BENEFITS;
+  return [...PLUS_BENEFITS.filter((b) => b.title === lead), ...PLUS_BENEFITS.filter((b) => b.title !== lead)];
+}
 
 /**
  * Headline per entry point, so the paywall says why it appeared. The

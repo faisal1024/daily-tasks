@@ -7,6 +7,7 @@ import {
   freeTrialDays,
   hasPlusAccess,
   PLUS_BENEFITS,
+  plusBenefitsFor,
   paywallHeadline,
   planLabel,
   purchaseButtonLabel,
@@ -120,6 +121,16 @@ describe("which plans a paywall shows (Phase 11a)", () => {
     const titles = PLUS_BENEFITS.map((b) => b.title);
     expect(titles).toContain("Plan around your calendar");
     expect(titles).not.toContain("Weekly review");
+  });
+
+  it("lists Nag mode, and leads with it on the paywall Nag mode opened", () => {
+    expect(PLUS_BENEFITS.map((b) => b.title)).toContain("Nag mode");
+    expect(plusBenefitsFor("nag_mode")[0].title).toBe("Nag mode");
+    expect(plusBenefitsFor("nag_mode")).toHaveLength(PLUS_BENEFITS.length);
+    expect(new Set(plusBenefitsFor("nag_mode").map((b) => b.title)).size).toBe(PLUS_BENEFITS.length);
+    expect(plusBenefitsFor("onboarding")).toEqual(PLUS_BENEFITS);
+    expect(plusBenefitsFor(null)).toEqual(PLUS_BENEFITS);
+    for (const benefit of PLUS_BENEFITS) expect(benefit.detail).not.toMatch(/\u2014/);
   });
 });
 
