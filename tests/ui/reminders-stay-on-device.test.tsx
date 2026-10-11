@@ -139,7 +139,7 @@ afterEach(() => {
 });
 
 /** A morning's use of the app: open it, change the tasks about, run a timer, leave and come back. */
-async function useTheApp(notifications: Partial<NotificationConfig>) {
+async function runTheApp(notifications: Partial<NotificationConfig>) {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(saved(notifications)));
   const hook = await renderHook(() => useDailyTasks(), { wrapper });
   await waitFor(() => expect(hook.result.current.ready).toBe(true));
@@ -172,7 +172,7 @@ const everythingLogged = () => JSON.stringify(consoleSpies.map((spy) => spy.mock
 
 describe("Hide task names on: a morning's use of the app", () => {
   it("no notification of any sort is handed to the system with a task's words in it: reminders and both focus timer ends", async () => {
-    const { result } = await useTheApp({ hideTaskNames: true });
+    const { result } = await runTheApp({ hideTaskNames: true });
     expect(result.current.state.notifications.hideTaskNames).toBe(true);
 
     const calls = scheduledCalls();
@@ -197,7 +197,7 @@ describe("Hide task names on: a morning's use of the app", () => {
 
 describe("nothing a reminder says leaves the phone", () => {
   it.each([false, true])("hide task names %s: analytics carries no task text and no reminder wording, and there is no other network call", async (hideTaskNames) => {
-    await useTheApp({ hideTaskNames });
+    await runTheApp({ hideTaskNames });
 
     // With names shown the words really are in the notifications (so the checks below could fail).
     const notified = JSON.stringify(scheduledCalls().map((call) => call.content));
