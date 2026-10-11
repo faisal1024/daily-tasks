@@ -15,8 +15,7 @@ import {
   cancelFocusTimerNotification,
   dismissFocusTimerNotification,
   getNotificationPermissionStatus,
-  registerFocusCategory,
-  registerNagCategory,
+  registerNotificationCategories,
   requestNotificationPermission,
   scheduleFocusSessionNotification,
   subscribeFocusResponses,
@@ -2481,8 +2480,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     track("task_completed", { count: countCompleted(current) + 1, source: "notification" });
   };
   useEffect(() => {
-    void registerFocusCategory();
-    void registerNagCategory();
+    // One call, each category in turn: two registrations in flight can wipe each other.
+    void registerNotificationCategories();
   }, []);
   // "Stop for today" on a nag (1.4): the same as the button in Settings, for
   // the day the nag was for. A tap that launched the app waits for the saved

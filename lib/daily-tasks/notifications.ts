@@ -385,29 +385,42 @@ function queueFocus(step: () => Promise<void>): Promise<void> {
   return run;
 }
 
+// expo-notifications sets a category by reading the registered set, awaiting,
+// then writing the set plus its own. Two calls in flight both read the old
+// set and the later write drops the earlier one's categories, so every
+// category registration goes through this one queue, one at a time.
+let categoryQueue: Promise<void> = Promise.resolve();
+function inCategoryQueue(work: () => Promise<void>): Promise<void> {
+  const run = categoryQueue.then(work);
+  categoryQueue = run.catch(() => {});
+  return run;
+}
+
 /**
- * Registers both categories' buttons: at every launch (so a
- * notification from before an update still gets them), and before a
- * schedule if that didn't take. Best-effort.
+ * Registers both focus categories' buttons: before a schedule if the launch
+ * registration didn't take. Best-effort. At launch, use
+ * registerNotificationCategories.
  */
 export function registerFocusCategory(): Promise<void> {
   if (Platform.OS === "web") return Promise.resolve();
   return ensureFocusCategory().catch(() => {});
 }
 
-async function ensureFocusCategory(): Promise<void> {
-  if (categoryReady || typeof Notifications.setNotificationCategoryAsync !== "function") return;
-  await Notifications.setNotificationCategoryAsync(FOCUS_CATEGORY_ID, [
-    { identifier: FOCUS_ACTION_EXTEND, buttonTitle: "5 more minutes", options: { opensAppToForeground: true } },
-    { identifier: FOCUS_ACTION_BREAK, buttonTitle: "Take a break", options: { opensAppToForeground: true } },
-    { identifier: FOCUS_ACTION_DONE, buttonTitle: "Mark done", options: { opensAppToForeground: true } },
-  ]);
-  await Notifications.setNotificationCategoryAsync(FOCUS_STARTER_CATEGORY_ID, [
-    { identifier: FOCUS_ACTION_KEEP_GOING, buttonTitle: "Keep going", options: { opensAppToForeground: true } },
-    { identifier: FOCUS_ACTION_BREAK, buttonTitle: "Stop for now", options: { opensAppToForeground: true } },
-    { identifier: FOCUS_ACTION_DONE, buttonTitle: "Mark done", options: { opensAppToForeground: true } },
-  ]);
-  categoryReady = true;
+function ensureFocusCategory(): Promise<void> {
+  return inCategoryQueue(async () => {
+    if (categoryReady || typeof Notifications.setNotificationCategoryAsync !== "function") return;
+    await Notifications.setNotificationCategoryAsync(FOCUS_CATEGORY_ID, [
+      { identifier: FOCUS_ACTION_EXTEND, buttonTitle: "5 more minutes", options: { opensAppToForeground: true } },
+      { identifier: FOCUS_ACTION_BREAK, buttonTitle: "Take a break", options: { opensAppToForeground: true } },
+      { identifier: FOCUS_ACTION_DONE, buttonTitle: "Mark done", options: { opensAppToForeground: true } },
+    ]);
+    await Notifications.setNotificationCategoryAsync(FOCUS_STARTER_CATEGORY_ID, [
+      { identifier: FOCUS_ACTION_KEEP_GOING, buttonTitle: "Keep going", options: { opensAppToForeground: true } },
+      { identifier: FOCUS_ACTION_BREAK, buttonTitle: "Stop for now", options: { opensAppToForeground: true } },
+      { identifier: FOCUS_ACTION_DONE, buttonTitle: "Mark done", options: { opensAppToForeground: true } },
+    ]);
+    categoryReady = true;
+  });
 }
 
 /** What the end notification needs from a running session. */
@@ -554,16 +567,36 @@ export function subscribeFocusResponses(listener: (response: FocusNotificationRe
 export const NAG_ACTION_STOP = "nag-stop-today";
 let nagCategoryReady = false;
 
-/** Registers the nag category's button, at every launch. Best-effort: without it a nag still arrives. */
+/** Registers the nag category's button. Best-effort: without it a nag still arrives. At launch, use registerNotificationCategories. */
 export function registerNagCategory(): Promise<void> {
   if (Platform.OS === "web") return Promise.resolve();
-  return (async () => {
+  return inCategoryQueue(async () => {
     if (nagCategoryReady || typeof Notifications.setNotificationCategoryAsync !== "function") return;
     await Notifications.setNotificationCategoryAsync(NAG_CATEGORY_ID, [
       { identifier: NAG_ACTION_STOP, buttonTitle: "Stop for today", options: { opensAppToForeground: true } },
     ]);
     nagCategoryReady = true;
-  })().catch(() => {});
+  }).catch(() => {});
+}
+
+/**
+ * Registers every notification category (the focus timer's two, then the
+ * nag's), one after the other, at every launch (so a notification from
+ * before an update still gets its buttons). In turn because two
+ * registrations in flight can wipe each other (see inCategoryQueue). One
+ * failing doesn't stop the next. Never rejects.
+ */
+export async function registerNotificationCategories(): Promise<void> {
+  try {
+    await registerFocusCategory();
+  } catch {
+    // Best-effort: the nag's is still registered.
+  }
+  try {
+    await registerNagCategory();
+  } catch {
+    // Best-effort.
+  }
 }
 
 /** A tap on a nag's "Stop for today". */

@@ -7,7 +7,7 @@
 //    and whatever day record is saved, and reads no network.
 // 2. taskAwareStrategy itself returns what it did on main before this PR:
 //    the plans for 600 fixed inputs are hashed, and CALM_DIGEST is that hash
-//    computed with main's lib/ (origin/main at e9d81e7, before this PR). A deliberate change to the calm reminders has to change it here.
+//    computed with main's lib/ (origin/main at ef29de7, after the reminder polish PR and before this one). A deliberate change to the calm reminders has to change it here.
 import { createHash } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +41,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({ default: store }))
 vi.mock("../lib/daily-tasks/analytics", () => ({ track: vi.fn() }));
 
 /** sha256 of the calm plans for the fixed inputs below, computed with main's code. */
-const CALM_DIGEST = "c3cbe06a66b69b547ef4de33d65782dd69b33b2ffb993edaabd2bf2a784854b6";
+const CALM_DIGEST = "8102136be3696b4c08cfe1d81ec9f1559a46e97a26f96ee60dc561268e0d2efc";
 
 /** mulberry32. */
 function seeded(seed: number) {

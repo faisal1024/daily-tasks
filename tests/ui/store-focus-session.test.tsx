@@ -51,6 +51,7 @@ jest.mock("@/lib/daily-tasks/notifications", () => ({
   syncNotifications: jest.fn(async () => {}),
   registerFocusCategory: jest.fn(async () => {}),
   registerNagCategory: jest.fn(async () => {}),
+  registerNotificationCategories: jest.fn(async () => {}),
   subscribeNagResponses: jest.fn(() => () => {}),
   subscribeFocusResponses: jest.fn((listener: (response: FocusNotificationResponse) => void) => {
     mockResponder = listener;
