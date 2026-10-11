@@ -16,7 +16,7 @@ import {
   validateGeneratedTasks,
   type RecentTask,
 } from "./momentum";
-import { milestoneKey } from "./milestone-ideas";
+import { cutGraphemes, milestoneKey } from "./milestone-ideas";
 import type {
   GeneratedTask,
   History,
@@ -79,7 +79,9 @@ const NEXT_MILESTONE_DESCRIPTION_MAX = 200;
 /**
  * Tag the suggestions the server marked `forMilestone: true` with the key of
  * the milestone that was sent. An older server sends no mark: nothing is
- * tagged and the app shows its built-in milestone suggestions instead.
+ * tagged and the app shows its built-in milestone suggestions instead. The
+ * store then keeps a tag only if it names the first open milestone of the
+ * path it ends up storing (settleMilestoneMarks).
  */
 function markMilestoneSuggestions(tasks: GeneratedTask[], raw: unknown, key: string | null): GeneratedTask[] {
   if (!key || !Array.isArray(raw)) return tasks;
@@ -215,7 +217,7 @@ export async function requestMomentumAiPlan({
   agenda?: string[];
   currentPath?: { title: string; done: boolean }[];
   newPath?: boolean;
-  /** The next open milestone on the kept path, if any. */
+  /** The milestone to ask about (milestoneToAskAbout): the next open one on a kept path, if any. */
   nextMilestone?: Pick<MomentumMilestone, "id" | "title" | "description"> | null;
   proxyUrl?: string | null;
   proxySecret?: string | null;
@@ -233,8 +235,12 @@ export async function requestMomentumAiPlan({
   }
   const path = currentPath.slice(0, 6).map((step) => ({ title: step.title.slice(0, 120), done: step.done }));
   // Not with a fresh path: the milestone is about to be replaced.
-  const milestoneTitle = newPath ? "" : (nextMilestone?.title ?? "").trim().slice(0, NEXT_MILESTONE_TITLE_MAX);
-  const milestoneDescription = (nextMilestone?.description ?? "").trim().slice(0, NEXT_MILESTONE_DESCRIPTION_MAX);
+  // Cut between whole characters (never through an emoji or an accent).
+  const milestoneTitle = newPath ? "" : cutGraphemes((nextMilestone?.title ?? "").trim(), NEXT_MILESTONE_TITLE_MAX).trim();
+  const milestoneDescription = cutGraphemes(
+    (nextMilestone?.description ?? "").trim(),
+    NEXT_MILESTONE_DESCRIPTION_MAX,
+  ).trim();
   const sentMilestoneKey = nextMilestone && milestoneTitle ? milestoneKey(nextMilestone) : null;
   const payload: AiPlanRequestPayload = {
     ...base,

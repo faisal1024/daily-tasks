@@ -144,29 +144,38 @@ function pathPromptLines(currentPath, newPath) {
 export const NEXT_MILESTONE_TITLE_MAX = 120;
 export const NEXT_MILESTONE_DESCRIPTION_MAX = 200;
 
-/** One line of user text: no line breaks, so it can't start a new prompt line. */
-const oneLine = (value, max) => str(value, max).replace(/\s+/g, " ").trim();
+/** At most this many of today's suggestions carry the milestone mark. */
+export const MAX_MILESTONE_MARKS = 2;
 
-/** True when the request names a next milestone the suggestions can be marked for. */
+/** One line of user text: no line breaks, so it can't start a new prompt line. */
+const oneLine = (value) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
+
+/**
+ * True when the request names a next milestone the suggestions can be marked
+ * for. A malformed or over-long one counts as none (the plan is still made;
+ * the app shows its built-in milestone suggestions), never as a bad request.
+ */
 export function hasNextMilestone(payload) {
   return (
     payload?.newPath !== true &&
     isValidNextMilestone(payload?.nextMilestone) &&
-    oneLine(payload.nextMilestone.title, NEXT_MILESTONE_TITLE_MAX).length > 0
+    oneLine(payload.nextMilestone.title).length > 0
   );
 }
 
-/** The next open milestone (1.4): at least one of today's suggestions should advance it. */
+/** The next open milestone (1.4): one or two of today's suggestions should advance it. */
 function milestonePromptLines(nextMilestone, newPath) {
   if (!hasNextMilestone({ nextMilestone, newPath })) {
     return ["Set forMilestone to false on every todaySuggestion."];
   }
-  const title = oneLine(nextMilestone.title, NEXT_MILESTONE_TITLE_MAX);
-  const description = oneLine(nextMilestone.description, NEXT_MILESTONE_DESCRIPTION_MAX);
+  // Already within the limits (hasNextMilestone checked them).
+  const title = oneLine(nextMilestone.title);
+  const description = oneLine(nextMilestone.description);
   return [
     `Their next milestone: ${title}${description ? ` (${description})` : ""}`,
     "At least one of today's suggestions must directly advance that milestone with a small, concrete step. " +
-      "Set forMilestone to true on the suggestions that do, and false on the others.",
+      "Mark exactly the one or two suggestions that most directly move that milestone forward: " +
+      "set forMilestone to true on those, and false on the others.",
   ];
 }
 
@@ -205,9 +214,8 @@ export function validatePayload(payload) {
   if (!isValidAgenda(payload.agenda)) return "Invalid agenda";
   if (payload.currentPath !== undefined && !isValidPath(payload.currentPath)) return "Invalid currentPath";
   if (payload.newPath !== undefined && typeof payload.newPath !== "boolean") return "Invalid newPath";
-  if (payload.nextMilestone !== undefined && !isValidNextMilestone(payload.nextMilestone)) {
-    return "Invalid nextMilestone";
-  }
+  // nextMilestone is not checked here: an invalid one is treated as absent
+  // (hasNextMilestone), so a plan request is never refused over it.
   return null;
 }
 
@@ -239,15 +247,17 @@ function cleanTask(task) {
 /**
  * Rebuild the plan from the fields the app reads (never raw model output).
  * `forMilestone: true` is kept on a suggestion only when the request named a
- * next milestone; anything else (false, a non-boolean, no milestone asked for)
- * is dropped, so older clients get exactly the response they always did.
+ * next milestone, and on at most two (the first two); anything else (false, a
+ * non-boolean, a third mark, no milestone asked for) is dropped, so older clients get exactly the response they always did.
  */
 export function sanitizePlan(plan, payload) {
-  const marks = hasNextMilestone(payload);
-  const cleanSuggestion = (task) => ({
-    ...cleanTask(task),
-    ...(marks && task?.forMilestone === true ? { forMilestone: true } : {}),
-  });
+  // The first two marks count; a model that marks all three has marked nothing useful.
+  let marksLeft = hasNextMilestone(payload) ? MAX_MILESTONE_MARKS : 0;
+  const cleanSuggestion = (task) => {
+    const marked = marksLeft > 0 && task?.forMilestone === true;
+    if (marked) marksLeft -= 1;
+    return { ...cleanTask(task), ...(marked ? { forMilestone: true } : {}) };
+  };
   return {
     milestones: (Array.isArray(plan?.milestones) ? plan.milestones : [])
       .slice(0, 3)

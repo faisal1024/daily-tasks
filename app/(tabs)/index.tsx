@@ -92,7 +92,7 @@ import { recordPlusUse } from "@/lib/daily-tasks/trial-note";
 import { sessionEndedAnnouncement, STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
 import { durationWords, timerMenuLengths } from "@/lib/daily-tasks/focus-timer";
 import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-storage";
-import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
+import { nextIncompleteMilestone, pathSourceOf } from "@/lib/daily-tasks/milestones";
 import { buildMilestoneIdeaGroup } from "@/lib/daily-tasks/milestone-ideas";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
@@ -164,6 +164,7 @@ export default function HomeScreen() {
     isCompleted,
     addTask,
     addTasks,
+    addSuggestions,
     editTask,
     deleteTask,
     notToday,
@@ -662,6 +663,8 @@ export default function HomeScreen() {
   // for it (Plus), otherwise built-in ones. None without a path or once every
   // milestone is reached.
   const planMilestones = state.momentumPlan?.milestones;
+  const starterGoalTitle =
+    state.momentumPlan && pathSourceOf(state.momentumPlan) === "template" ? state.momentumPlan.goalTitle : null;
   const milestoneGroup = useMemo(
     () =>
       planMilestones
@@ -672,9 +675,11 @@ export default function HomeScreen() {
             suggestions: planIdeas,
             // Listed elsewhere in the sheet: routines due today and, without plan ideas, the starters.
             otherTexts: [...dueRoutines.map((routine) => routine.text), ...(hasPlanIdeas ? [] : genericIdeas)],
+            // A starter path's steps ("Start small") don't name the goal: the built-in lines do.
+            starterGoalTitle,
           })
         : null,
-    [planMilestones, state.completedMilestoneIds, today, planIdeas, dueRoutines, hasPlanIdeas, genericIdeas],
+    [planMilestones, state.completedMilestoneIds, today, planIdeas, dueRoutines, hasPlanIdeas, genericIdeas, starterGoalTitle],
   );
   // An idea shown in the milestone group isn't listed again below it.
   const ideas: IdeaItem[] = useMemo(() => {
@@ -1154,6 +1159,13 @@ export default function HomeScreen() {
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     addTask(text);
   };
+  // A tapped suggestion: the store refuses one already on today (a double
+  // tap), and says whether it landed. Typing by hand (handleAdd) has no such rule.
+  const handleAddIdea = (text: string): boolean => {
+    if (addSuggestions([text]) === 0) return false;
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    return true;
+  };
 
   return (
     <ScreenContainer edges={["left", "right"]}>
@@ -1560,10 +1572,10 @@ export default function HomeScreen() {
         canRegenerate={getMomentumAiProxyUrl() != null && hasPlanIdeas}
         regenerating={state.momentumPlanStatus === "loading"}
         failureMessage={failureMessage}
-        onAdd={handleAdd}
+        onAdd={handleAddIdea}
         onAddAll={(texts) => {
+          if (addSuggestions(texts) === 0) return;
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
-          addTasks(texts);
         }}
         onRegenerate={() => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
@@ -1593,11 +1605,11 @@ export default function HomeScreen() {
         nextRoutine={nextRoutine}
         milestoneGroup={milestoneGroup}
         onAddMilestoneIdea={(text) => {
+          // Counted only when the store took it (a double tap lands once).
           // Only the kind of suggestion is recorded, never its text.
-          if (milestoneGroup && remainingSlots > 0 && !state.todayLocked && !addedTexts.has(text.trim().toLowerCase())) {
+          if (handleAddIdea(text) && milestoneGroup) {
             track("milestone_idea_added", { source: milestoneGroup.source });
           }
-          handleAdd(text);
         }}
         focusMilestone={ideasFocusMilestone}
       />

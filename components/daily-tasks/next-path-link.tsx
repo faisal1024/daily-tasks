@@ -25,7 +25,7 @@ export function NextPathLink({
       <Pressable
         onPress={onIdeas}
         accessibilityRole="button"
-        accessibilityLabel="Ideas for this step"
+        accessibilityLabel="Get ideas for this"
         accessibilityHint="Opens ideas for your next milestone"
         style={({ pressed }) => ({
           alignSelf: "flex-start",
@@ -37,7 +37,7 @@ export function NextPathLink({
         testID="next-path-ideas"
       >
         <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-          Ideas for this step
+          Get ideas for this
         </Text>
       </Pressable>
     </View>

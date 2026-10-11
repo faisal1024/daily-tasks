@@ -60,7 +60,8 @@ interface IdeasSheetProps {
   nextRoutine?: { text: string; when: string } | null;
   /**
    * Suggestions for the next open milestone on the goal path (1.4), shown under
-   * Today's routines. Null (no path, or every milestone reached): no group.
+   * the source chip and hint, above the general list (then headed "More
+   * ideas"). Null (no path, or every milestone reached): no group.
    */
   milestoneGroup?: { title: string; ideas: IdeaItem[] } | null;
   /** Adds a milestone suggestion; falls back to `onAdd`. */
@@ -175,24 +176,6 @@ export function IdeasSheet({
             />
           )}
 
-          {shownMilestone && (
-            <View
-              onLayout={(event) => {
-                if (!focusMilestone || scrolledToMilestone.current) return;
-                scrolledToMilestone.current = true;
-                scrollRef.current?.scrollTo({ y: Math.max(0, event.nativeEvent.layout.y - 12), animated: false });
-              }}
-            >
-              <MilestoneIdeas
-                title={shownMilestone.title}
-                ideas={shownMilestone.ideas}
-                addedTexts={addedTexts}
-                blocked={full || locked}
-                onAdd={onAddMilestoneIdea ?? onAdd}
-              />
-            </View>
-          )}
-
           <View className="flex-row items-center justify-between">
             <View
               className="flex-row items-center gap-1.5 rounded-full px-3 py-1"
@@ -269,8 +252,39 @@ export function IdeasSheet({
             </Text>
           )}
 
-          {!savedOnly && (
-          <View className="gap-2">
+          {shownMilestone && (
+            <View
+              onLayout={(event) => {
+                if (!focusMilestone || scrolledToMilestone.current) return;
+                scrolledToMilestone.current = true;
+                scrollRef.current?.scrollTo({ y: Math.max(0, event.nativeEvent.layout.y - 12), animated: false });
+              }}
+            >
+              <MilestoneIdeas
+                title={shownMilestone.title}
+                ideas={shownMilestone.ideas}
+                addedTexts={addedTexts}
+                blocked={full || locked}
+                onAdd={onAddMilestoneIdea ?? onAdd}
+              />
+            </View>
+          )}
+
+          {/* Under a milestone group the general list gets its own heading;
+              with nothing left for it (every idea is in the group), no heading. */}
+          {shownMilestone && shownIdeas.length > 0 && (
+            <Text
+              accessibilityRole="header"
+              className="text-sm font-semibold"
+              style={{ color: colors.muted }}
+              testID="more-ideas-heading"
+            >
+              More ideas
+            </Text>
+          )}
+
+          {!savedOnly && shownIdeas.length > 0 && (
+          <View className="gap-2" testID="general-ideas">
             {shownIdeas.map((idea) => {
               const added = addedTexts.has(keyOf(idea.text));
               const disabled = added || full;
@@ -310,7 +324,8 @@ export function IdeasSheet({
           </View>
           )}
 
-          {available.length > 1 && !full && (
+          {/* The general list only: never routines or the milestone group. */}
+          {!savedOnly && available.length > 1 && !full && (
             <Pressable
               onPress={() => onAddAll(available.slice(0, remainingSlots).map((idea) => idea.text))}
               accessibilityRole="button"
@@ -550,9 +565,11 @@ function MilestoneIdeas({
   const colors = useColors();
   return (
     <View className="gap-2" testID="milestone-ideas">
-      <View accessible accessibilityRole="header" accessibilityLabel={`For your next milestone: ${title}`}>
+      {/* One heading for VoiceOver, saying which step these are for: the rows
+          below are plain "Add ..." buttons and don't repeat it. */}
+      <View accessible accessibilityRole="header" accessibilityLabel={`Next on your path: ${title}`}>
         <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
-          For your next milestone
+          Next on your path
         </Text>
         <Text
           className="text-base text-foreground"
@@ -573,7 +590,6 @@ function MilestoneIdeas({
             disabled={disabled}
             accessibilityRole="button"
             accessibilityLabel={added ? `${idea.text}, added` : `Add ${idea.text}`}
-            accessibilityHint={disabled ? undefined : "Adds this step toward your next milestone to today"}
             accessibilityState={{ disabled }}
             className="rounded-2xl border p-4 flex-row items-center gap-3"
             style={{
