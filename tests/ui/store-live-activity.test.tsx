@@ -113,6 +113,8 @@ jest.mock("@/lib/daily-tasks/notifications", () => ({
   requestNotificationPermission: jest.fn(async () => "granted"),
   syncNotifications: jest.fn(async () => {}),
   registerFocusCategory: jest.fn(async () => {}),
+  registerNagCategory: jest.fn(async () => {}),
+  subscribeNagResponses: jest.fn(() => () => {}),
   subscribeFocusResponses: jest.fn(() => () => {}),
 }));
 

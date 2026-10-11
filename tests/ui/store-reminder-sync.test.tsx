@@ -253,7 +253,8 @@ describe("store: a rewrite that fails", () => {
   it("what is handed to the scheduler carries no pending list of its own (the scheduler adds it)", async () => {
     await renderOnDay({ tasks: THREE }, new Date(2026, 8, 25, 8));
     expect(Object.keys(lastSync()).sort()).toEqual(
-      ["draft", "locked", "now", "permissionState", "settings", "tasks", "today", "yesterdayOpen"].sort(),
+      // `plus` and `strategy` are for nag mode (Plus-only; see nag-mode-store.test.tsx).
+      ["draft", "locked", "now", "permissionState", "plus", "settings", "strategy", "tasks", "today", "yesterdayOpen"].sort(),
     );
   });
 });
