@@ -24,7 +24,7 @@ import {
   type FocusNotificationResponse,
 } from "./notifications";
 import { createDebounced, yesterdayOpenTexts, type ReminderContext } from "./reminder-plan";
-import { ensureNagDay, nagModeStrategy } from "./nag-day";
+import { clearNagRecord, ensureNagDay, nagModeStrategy } from "./nag-day";
 import type { NagLevel, NagPersona } from "./nag";
 import { adjustNagWindow, nagModeOn } from "./nag-plan";
 import {
@@ -1800,6 +1800,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // (once a day, once more if the tasks, persona or level change). When the
   // lines change the version goes up and the reminders are written again.
   const nagOn = nagModeOn(state.notifications, hasPlus, notificationPermission);
+  // Back to Calm: the day's record (lines that can name tasks) is removed. A
+  // saved Nag that is only waiting for Plus or permission keeps its record.
+  const reminderStyle = state.notifications.style;
+  useEffect(() => {
+    if (ready && reminderStyle === "calm") void clearNagRecord();
+  }, [ready, reminderStyle]);
   useEffect(() => {
     if (!ready || !nagOn || !appActive) return;
     const done = new Set(state.todayCompletions);
@@ -2164,7 +2170,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "setTodayReflectionResult", result, today: ensureDay(), now: new Date() });
   }, [ensureDay, dayChangePending]);
   const resetAll = useCallback(async () => {
-    await Promise.all([clearState(), resetAnalyticsIdentity()]);
+    // The nag record first: a request for lines still in flight must not save
+    // task text back after the reset (clearState removes the key too).
+    await Promise.all([clearNagRecord(), clearState(), resetAnalyticsIdentity()]);
     dispatch({ type: "reset", state: buildInitialState() });
   }, []);
   const acknowledgeLevelUp = useCallback(() => {

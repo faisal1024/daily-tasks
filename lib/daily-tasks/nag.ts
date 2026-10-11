@@ -21,6 +21,13 @@ export const NAG_PERSONA_LABELS: Record<NagPersona, string> = {
   coach: "Coach",
   drill: "Drill sergeant",
 };
+/**
+ * A nag's notification title: the app's name first, so "Mom" on a lock screen
+ * can't be taken for a message from the user's mother.
+ */
+export function nagTitle(persona: NagPersona): string {
+  return `Three Today \u00b7 ${NAG_PERSONA_LABELS[persona]}`;
+}
 export const NAG_LEVEL_LABELS: Record<NagLevel, string> = {
   gentle: "Gentle",
   firm: "Firm",
@@ -116,6 +123,10 @@ export interface NagRequestInput {
   tasks: NagTask[];
   /** How many lines to ask for (4 to 16; clamped). */
   count: number;
+  /**
+   * Reserved, not used by the app: no caller passes a name, so none leaves
+   * the phone (the privacy policy says so). The proxy still accepts one.
+   */
   firstName?: string | null;
 }
 
@@ -180,16 +191,25 @@ export async function requestNagLines({
 // ---------------------------------------------------------------------------
 
 /**
- * Built-in lines per persona, by time of day (early / mid / late) and by how
- * hard they push. Everyone gets `early`; `gentle` lines are all a Gentle day
- * uses; Firm adds the `firm` ones from the middle of the day; Relentless adds
+ * Built-in lines per persona, by stage (early / mid / late) and by how hard
+ * they push. Everyone gets `early`; `gentle` lines are all a Gentle day uses;
+ * Firm adds the `firm` ones from the middle of the day; Relentless adds
  * `relentless` ones at the end.
+ *
+ * A stage is the step's place in the day's nags, not the hour: a day planned
+ * at four in the afternoon starts with "early" lines. So no line names a
+ * time of day (NAG_CLOCK_WORDS; a test checks every line).
  *
  * Same rules as the AI lines: needling with affection, about the task and the
  * nagging, never about the person. No insults, shame, threats, profanity,
- * fake urgency, advice, emoji or em dashes. {task} is the quoted task name
- * (at most 40 characters), so a line with it is 74 characters or fewer and
- * every line fits in NAG_BUILT_IN_MAX_CHARS.
+ * fake urgency, advice, emoji or em dashes, and nothing that reads like a
+ * real message from a real person ("it's your mother", "call me"). {task} is
+ * the quoted task name (at most 40 characters), so a line with it is 74
+ * characters or fewer and every line fits in NAG_BUILT_IN_MAX_CHARS.
+ *
+ * Each pool has enough general lines (no {task}) for a full day at every
+ * level with task names hidden: early 6, mid 3 gentle and 3 firm, late 2
+ * gentle, 3 firm and 2 relentless.
  */
 export interface NagTemplates {
   early: readonly string[];
@@ -197,164 +217,238 @@ export interface NagTemplates {
   late: { gentle: readonly string[]; firm: readonly string[]; relentless: readonly string[] };
 }
 
+/** Words that say what time it is. No built-in line has one (whole words, any case). */
+export const NAG_CLOCK_WORDS = [
+  "morning",
+  "mornings",
+  "afternoon",
+  "evening",
+  "evenings",
+  "tonight",
+  "night",
+  "nights",
+  "midnight",
+  "noon",
+  "late",
+  "early",
+  "sunrise",
+  "sunset",
+  "sundown",
+  "dawn",
+  "dusk",
+  "breakfast",
+  "lunch",
+  "dinner",
+  "supper",
+  "bedtime",
+] as const;
+
 export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
   mom: {
     early: [
-      "Morning, sweetheart. Just checking on {task}. No rush.",
-      "Hi honey, it's me. Did {task} happen yet? Only asking.",
+      "Hi sweetheart. Just checking on {task}. No rush.",
+      "Hi honey. Did {task} happen yet? Only asking.",
       "I'm not mad, I'm just asking. How's the list going?",
       "Have you eaten? Also, {task}. In that order is fine.",
-      "Good morning! Your list and I are both thinking of you.",
+      "Hello, you! Your list and I are both thinking of you.",
       "Sweetheart, {task} is on today's list. I'm sure you knew.",
+      "Just a little hello from your list. And from me.",
+      "Have you had some water? Good. Now, about that list.",
+      "I'm only peeking at your list. It looks very doable.",
+      "No rush, honey. The list is there when you're ready.",
     ],
     mid: {
       gentle: [
-        "Me again. {task} is still on your list, that's all.",
+        "Just checking again. {task} is still on your list, that's all.",
         "No pressure, sweetie. I just happened to think of {task}.",
         "I'm sure you're busy. A little time for the list, maybe?",
+        "Still thinking about your list, sweetie. Fondly, of course.",
+        "One little tick would be lovely. Only if you have a minute.",
       ],
       firm: [
         "I don't want to nag, but {task} isn't going to do itself.",
-        "It's your mother. I notice {task} is still open.",
+        "I'm only looking. And I notice {task} is still open.",
         "I'm not saying anything. I'm just looking at your list. Hm.",
+        "I don't want to nag. I'm going to, but I don't want to.",
+        "The list is still open, honey. I'm sure that's on purpose.",
       ],
     },
     late: {
       gentle: [
-        "Day's winding down, honey. Still a little time for {task}.",
-        "One small thing before you rest: {task}. Then I'll hush.",
-        "Whatever you get done tonight is fine by me. Truly.",
+        "No hurry, honey. There's still a little time for {task}.",
+        "One small thing, then I'll hush: {task}.",
+        "Whatever you get done today is fine by me. Truly.",
+        "One more tick would make me smile. No pressure, sweetheart.",
       ],
       firm: [
-        "I've asked nicely all day. {task}, please, sweetheart.",
-        "It's getting late and {task} is still sitting there.",
-        "You know what would make my evening? One more tick.",
+        "I've asked nicely, more than once. {task}, please, sweetheart.",
+        "I looked again and {task} is still sitting there.",
+        "You know what would make my day? One more tick.",
+        "I keep looking at your list, honey. It keeps looking the same.",
+        "I've asked so nicely. The list is still open, sweetheart.",
       ],
       relentless: [
-        "I carried you for nine months. Carry {task} for ten minutes.",
-        "I'm lighting a candle for {task}. That's where we are now.",
-        "I'll just sit here in the dark, thinking about {task}.",
-        "This is my ninth message. I counted. Your list is still open.",
+        "I taught you to tie your shoes. You can manage ten minutes on {task}.",
+        "I've put {task} on the fridge. With a magnet. That's where we are now.",
+        "I'll just sit here with my tea, thinking about {task}.",
+        "I've lost count of my messages. Your list is still open.",
+        "I've told the houseplants about your list. They're rooting for you.",
       ],
     },
   },
   spouse: {
     early: [
       "Hey you. Loving reminder from your better half: {task}.",
-      "Morning, love. {task} is on today's list. Just saying.",
+      "Hi, love. {task} is on today's list. Just saying.",
       "Not nagging. Reminding. With love. How's the list?",
       "Today's the day for {task}. I believe in you.",
       "Coffee first, then {task}. I know how you work.",
       "Today's list looks doable. Says me, your biggest fan.",
+      "Just a fond little poke about the list. That's all.",
+      "Your list says hi. I say hi too, with more charm.",
+      "I believe in you and your list. Mostly you.",
+      "Pick any one to start, love. I'll cheer for whichever.",
     ],
     mid: {
       gentle: [
         "Thinking of you. Also thinking of {task}.",
-        "Me again, with love. {task} is still waiting for you.",
+        "Back again, with love. {task} is still waiting for you.",
         "Small reminder, big hug. The list is still open.",
+        "Still on your team. Still looking at your list.",
+        "A gentle poke about the list, from your biggest fan.",
       ],
       firm: [
         "Babe. {task}. We talked about this. Well, I talked.",
         "I love you. {task} is still not done. Both things are true.",
         "This is reminder number several. The list hasn't moved.",
+        "Babe. The list. I say this with love and a raised eyebrow.",
+        "I adore you. The list is still open. I contain both feelings.",
       ],
     },
     late: {
       gentle: [
-        "Evening, love. Still time for {task} if you're up for it.",
-        "One quick thing before we call it a day: {task}.",
+        "Hey, love. Still time for {task} if you're up for it.",
+        "One quick thing while I have you: {task}.",
         "However today went, I'm on your team. One more tick?",
+        "Whatever gets ticked today, you're still my favorite.",
       ],
       firm: [
         "I'm running out of cute ways to say {task}.",
         "Love of my life. Light of my days. {task}. Please.",
-        "The day's nearly done and the list is still open, dear.",
+        "The list is still open, dear. I checked. Twice.",
+        "I'm running out of cute ways to mention your list.",
+        "Darling. Dearest. The list. That is the whole reminder.",
       ],
       relentless: [
         "I've started telling the cat about {task}. The cat is concerned.",
         "I'm writing a ballad about {task}. It has nine verses so far.",
         "Picture me in the doorway, arms folded, saying {task}.",
         "At this point your list is basically our third housemate.",
+        "I've started humming a sad little song about your list.",
       ],
     },
   },
   coach: {
     early: [
-      "Good morning, champ. First play of the day: {task}.",
+      "Hey, champ. First play of the day: {task}.",
       "Warm-up's over. {task} is up. You've got this.",
       "New day, fresh start. Pick one thing and go.",
       "Game plan's simple today. Start with {task}.",
-      "Good to see you. Let's get an early point on the board.",
+      "Good to see you. Let's get a first point on the board.",
       "Lace up. {task} is a great place to start.",
+      "Huddle up. One task, one tick. That's the whole play.",
+      "You showed up, and that counts. Now pick a task and go.",
+      "Easy start, champ. One item, nice and smooth.",
+      "Stretch, breathe, pick one. I like our chances.",
     ],
     mid: {
       gentle: [
         "Nice and steady. {task} is your next rep.",
         "Quick huddle: you're doing fine. {task} is still open.",
         "Halftime check. One small push on the list?",
+        "Good pace, champ. One more rep on the list when you're ready.",
+        "Water break's over. The list is ready when you are.",
       ],
       firm: [
         "Clock's running. {task} needs you on the field.",
         "No more stretching. Time to move on {task}.",
         "Eyes up. The list is still open and you're still in this.",
+        "Time out's over. Back on the field, the list is waiting.",
+        "I'm pointing at the list, champ. You know what that means.",
       ],
     },
     late: {
       gentle: [
-        "Late in the game, still time. {task}, nice and easy.",
+        "Still time on the clock. {task}, nice and easy.",
         "One good rep on {task} and today counts.",
         "Whatever's left, finish at your own pace. Proud of the effort.",
+        "One more tick and we call it a good game. Your pace.",
       ],
       firm: [
         "Fourth quarter. {task}. Leave it all out there.",
         "I need one more push. {task}. Right now.",
         "Whistle's about to blow. One more tick on the board.",
+        "Dig in, champ. The list is still open and so is the game.",
+        "One more push. That's all I'm asking. One tick.",
       ],
       relentless: [
         "I'm on the sideline waving both arms. {task}! Go, go, go!",
         "I've lost my voice yelling about {task}. Worth it. GO.",
         "Overtime. Crowd on its feet. All for {task}. Bring it home.",
         "I'm doing laps around your list. Please tick something.",
+        "I'm blowing my whistle at a to-do list. That's where we are, champ.",
       ],
     },
   },
   drill: {
     early: [
-      "Rise and shine, recruit. Today's mission: {task}.",
+      "Eyes front, recruit. Today's mission: {task}.",
       "Recruit! {task} is on the board. Carry on.",
-      "Morning inspection. The list is waiting, recruit.",
+      "Inspection time. The list is waiting, recruit.",
       "Mission briefing: {task}. Simple. Doable. Yours.",
       "Fall in, recruit. {task} reports for duty.",
       "Boots on, recruit. That list won't march itself.",
+      "Attention, recruit. The list is standing by for orders.",
+      "Formation check. One list, one recruit. Good odds.",
+      "Recruit! Pick an item and move out. Any item.",
+      "Orders of the day: tick something. That is all, recruit.",
     ],
     mid: {
       gentle: [
         "At ease, recruit. Just a reminder: {task}.",
         "Status check, recruit. {task} is still on the board.",
         "Steady march. One item at a time, recruit.",
+        "Carry on, recruit. The list is still on the board.",
+        "Good marching, recruit. Next item when ready.",
       ],
       firm: [
         "Recruit! {task} is still standing. Fix that.",
         "That list is not going to clear itself. MOVE, recruit.",
         "I want {task} done, and I want it done today.",
+        "Recruit! That list is still open. I have NOTICED.",
+        "The list has not moved, recruit. Neither have I.",
       ],
     },
     late: {
       gentle: [
-        "Evening roll call. {task} is still present, recruit.",
+        "Roll call. {task} is still present, recruit.",
         "One last patrol, recruit: {task}. Then stand down.",
         "Good effort today, recruit. Anything left can be quick.",
+        "Final formation, recruit. One more tick, then at ease.",
       ],
       firm: [
         "RECRUIT. {task}. Double time.",
-        "Sun's going down and {task} is STILL on my board.",
-        "I did not get up this early to watch a list sit there. MOVE.",
+        "Hours later and {task} is STILL on my board.",
+        "I did not polish these boots to watch a list sit there. MOVE.",
+        "RECRUIT. The list. Double time.",
+        "I have inspected that list again. It is STILL open.",
       ],
       relentless: [
         "{task}! DROP AND GIVE ME TEN MINUTES, RECRUIT!",
         "I am YELLING at a to-do list. That's what {task} has done to me.",
         "That list is LAUGHING at us, recruit. Are we going to stand for that?",
         "I have saluted {task} for the last time. FINISH IT.",
+        "I am doing push-ups next to your list, recruit. TICK SOMETHING.",
       ],
     },
   },
@@ -411,10 +505,10 @@ export function nagTaskName(text: string): string {
  * for another seed. Steps go early, mid, late in thirds; within a third the
  * mildest lines come first. Lines with {task} take the open tasks in turn.
  *
- * No line is used twice, so a long Gentle day can return fewer than `count`
- * (10 or more once `count` passes 10; Firm and Relentless always have
- * `count`). With no usable task only the general lines are used, which is
- * fewer still.
+ * No line is used twice. With a task to name every level has `count` lines
+ * (up to MAX_NAG_COUNT). With no usable task (names hidden) only the general
+ * lines are used: enough for each level's own day (Gentle 4, Firm 7,
+ * Relentless 11), fewer than a larger `count`.
  */
 export function builtInNagLines({
   persona,
@@ -447,8 +541,8 @@ export function builtInNagLines({
     const pools = nagPools(persona, level, stage).map((pool) => shuffled(pool.filter(usable), random));
     let need = perStage[stageIndex];
     // Hottest pool first, so the level shows; then the mildest goes first in
-    // the stage. A stage short of lines stays short: a morning line is never
-    // borrowed for the evening.
+    // the stage. A stage short of lines stays short: an opening line is never
+    // borrowed for the end of the day.
     const byHeat = pools.map((pool) => {
       const taken = pool.slice(0, need);
       need -= taken.length;

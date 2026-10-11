@@ -16,8 +16,8 @@ import { fromDateKey, toDateKey } from "./date";
 import {
   builtInNagLines,
   NAG_LEVELS,
-  NAG_PERSONA_LABELS,
   NAG_PERSONAS,
+  nagTitle,
   seededRandom,
   type NagLevel,
   type NagLine,
@@ -135,6 +135,8 @@ export interface NagTimesInput {
   notBefore?: number | null;
   /** Which drawing of the day this is (0 for the first), so a redraw differs. */
   draw?: number;
+  /** Slot ids already used today (nags that went off), so no new time gets one of them. */
+  takenIds?: readonly string[];
 }
 
 /**
@@ -153,8 +155,14 @@ export interface NagTimesInput {
  * the way through the slack). So the nags are spread over what is left of
  * the window (a Gentle day isn't over by lunch, a Relentless one still fits
  * its eleven), and the same day, salt and inputs always give the same times.
+ *
+ * A slot's id is its local HHmm, and on the day the clocks go back an hour
+ * of the local clock happens twice, so two times 60 minutes apart can share
+ * one. The later of two such times is moved a minute at a time until its id
+ * is free, the ones after it are pushed along to stay 60 minutes apart, and
+ * one pushed past the window's end is dropped. So every time has its own id.
  */
-export function planNagTimes({ dayKey, salt, window, now, count, notBefore = null, draw = 0 }: NagTimesInput): number[] {
+export function planNagTimes({ dayKey, salt, window, now, count, notBefore = null, draw = 0, takenIds = [] }: NagTimesInput): number[] {
   const startMs = nagMinuteAt(dayKey, window.startMinutes).getTime();
   const endMs = nagMinuteAt(dayKey, window.endMinutes).getTime();
   const earliest = Math.ceil((now.getTime() + NAG_FIRST_DELAY_MINUTES * MINUTE_MS) / MINUTE_MS) * MINUTE_MS;
@@ -173,7 +181,22 @@ export function planNagTimes({ dayKey, salt, window, now, count, notBefore = nul
     at = Math.min(wanted, endMs - GAP_MS * (n - 1 - index));
     times.push(at);
   }
-  return times;
+  return withUniqueIds(times, endMs, takenIds);
+}
+
+/** `times` with no two sharing a slot id (see planNagTimes): only ever different on a clocks-back day. */
+function withUniqueIds(times: number[], endMs: number, takenIds: readonly string[]): number[] {
+  const taken = new Set(takenIds);
+  const out: number[] = [];
+  for (const time of times) {
+    let at = out.length > 0 ? Math.max(time, out[out.length - 1] + GAP_MS) : time;
+    // The repeated hour is 60 minutes long, so this ends within an hour of tries.
+    for (let tries = 0; taken.has(nagSlotId(new Date(at))) && tries < 2 * NAG_MIN_GAP_MINUTES; tries += 1) at += MINUTE_MS;
+    if (at > endMs || taken.has(nagSlotId(new Date(at)))) break;
+    taken.add(nagSlotId(new Date(at)));
+    out.push(at);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -386,7 +409,8 @@ function withLines(
   });
 }
 
-export interface NagDayInput {
+/** What planNagDay plans from (nag-day.ts has its own NagDayInput: what ensureNagDay is given). */
+export interface NagDayPlanInput {
   /** The record as saved (any day's), or null. */
   previous: NagDayRecord | null;
   now: Date;
@@ -405,7 +429,7 @@ export interface NagDayInput {
  * yesterday's last). Built-in lines fill the slots; the AI's lines from
  * earlier today are put back when they still fit.
  */
-export function planNagDay({ previous, now, dayKey, settings, open, salt: freshSalt }: NagDayInput): NagDayRecord {
+export function planNagDay({ previous, now, dayKey, settings, open, salt: freshSalt }: NagDayPlanInput): NagDayRecord {
   const { nagPersona: persona, nagLevel: level, nagWindow: window } = settings;
   const hideNames = settings.hideTaskNames === true;
   const nowMs = now.getTime();
@@ -433,6 +457,7 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
       count: NAG_LEVEL_COUNTS[level] - past.length,
       notBefore: Number.isFinite(last) ? last + GAP_MS : null,
       draw: draws,
+      takenIds: past.map((slot) => slot.id),
     });
     total = past.length + times.length;
     future = times.map((fireAtMs, index) => ({
@@ -480,7 +505,7 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
  * Whether the day has to be planned again: a new day, another persona, level
  * or window, names hidden or shown, or a task the slots don't know.
  */
-export function nagDayNeedsPlan(previous: NagDayRecord | null, input: Omit<NagDayInput, "previous" | "now" | "salt">): boolean {
+export function nagDayNeedsPlan(previous: NagDayRecord | null, input: Omit<NagDayPlanInput, "previous" | "now" | "salt">): boolean {
   if (!previous || previous.dayKey !== input.dayKey) return true;
   const { nagPersona, nagLevel, nagWindow, hideTaskNames } = input.settings;
   return (
@@ -566,7 +591,8 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
       {
         id: slot.id,
         fireAt: new Date(slot.fireAtMs),
-        title: NAG_PERSONA_LABELS[record.persona],
+        // "Three Today · Mom", never the persona alone: it must not read as a real person's message.
+        title: nagTitle(record.persona),
         body: words.text,
         kind: NAG_KIND,
         // Ids and numbers only, never the words.

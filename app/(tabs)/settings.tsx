@@ -25,6 +25,7 @@ import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { requestAgendaAccess } from "@/lib/daily-tasks/agenda";
 import { aiFailureMessage } from "@/lib/daily-tasks/ai-status";
 import { getPostHogKey, track } from "@/lib/daily-tasks/analytics";
+import { formatTime } from "@/lib/daily-tasks/date";
 import {
   FEEDBACK_URL,
   MANAGE_SUBSCRIPTIONS_URL,
@@ -87,13 +88,19 @@ const REMINDER_STYLE_HELP: Record<ReminderStyle, string> = {
 /** Asked the first time Nag is turned on. */
 const NAG_CONFIRM_TITLE = "Turn on Nag mode?";
 const NAG_CONFIRM_MESSAGE =
-  "Once a day, your open tasks are sent to our AI so it can write reminders in the voice you pick. They arrive at random times, at most one an hour, and get pushier while tasks stay open.";
-const NAG_HIDDEN_NAMES_NOTE = "With task names hidden, nags won't name your tasks.";
+  "Up to twice a day, your open tasks are sent to our AI service so it can write reminders in the voice you pick. They arrive at random times, at most one an hour, and get pushier while tasks stay open.";
+/** Under the style choice, only while Nag is the style in use (chosen, with Plus) and names are hidden. */
+const NAG_HIDDEN_NAMES_NOTE = "With task names hidden, nags won't name your tasks and nothing is sent to our AI service.";
+/** One line under the reminder switches while Nag is on (the three it replaces are disabled). */
+const NAG_CALM_SWITCHES_NOTE = "Morning reminders still apply. The other calm nudges are paused while Nag is on.";
+/** What VoiceOver says of a switch Nag has paused (the visible line is NAG_CALM_SWITCHES_NOTE). */
+const NAG_SWITCH_PAUSED_HINT = "Paused while Nag is on.";
 
 /**
  * One choice out of a few, as a row of chips. To VoiceOver it is a radio
  * group with its label, and each chip a radio button that says whether it is
- * the one chosen.
+ * the one chosen. With `spokenGroup` each chip's label carries the group
+ * ("Voice: Mom"), for when focus lands on a chip without passing the group.
  */
 function ChoiceChips<T extends string>({
   label,
@@ -101,12 +108,14 @@ function ChoiceChips<T extends string>({
   value,
   onChange,
   testID,
+  spokenGroup = false,
 }: {
   label: string;
   options: readonly { value: T; label: string; accessibilityLabel?: string }[];
   value: T;
   onChange: (value: T) => void;
   testID?: string;
+  spokenGroup?: boolean;
 }) {
   const colors = useColors();
   return (
@@ -123,9 +132,10 @@ function ChoiceChips<T extends string>({
             key={option.value}
             onPress={() => onChange(option.value)}
             accessibilityRole="radio"
-            accessibilityLabel={option.accessibilityLabel ?? option.label}
+            accessibilityLabel={`${spokenGroup ? `${label}: ` : ""}${option.accessibilityLabel ?? option.label}`}
             accessibilityState={{ checked: selected }}
-            className="flex-1 rounded-full px-3 items-center justify-center border"
+            // Vertical padding too: at large text sizes the label wraps and must not touch the border.
+            className="flex-1 rounded-full px-3 py-2 items-center justify-center border"
             style={{
               minHeight: 44,
               minWidth: 84,
@@ -158,11 +168,15 @@ function ReminderSwitchRow({
   value,
   onValueChange,
   disabled = false,
+  showSubtitle = true,
   mutedColor,
   trackColor,
 }: {
   title: string;
+  /** The help under the title, and the switch's VoiceOver hint. */
   subtitle: string;
+  /** False: the help is only the VoiceOver hint (one shared line on screen says it for several rows). */
+  showSubtitle?: boolean;
   value: boolean;
   onValueChange: (value: boolean) => void;
   disabled?: boolean;
@@ -181,9 +195,11 @@ function ReminderSwitchRow({
           importantForAccessibility="no-hide-descendants"
         >
           <Text className="text-lg font-bold text-foreground">{title}</Text>
-          <Text className="text-sm mt-1" style={{ color: mutedColor }}>
-            {subtitle}
-          </Text>
+          {showSubtitle ? (
+            <Text className="text-sm mt-1" style={{ color: mutedColor }}>
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
         <Switch
           value={value}
@@ -394,6 +410,11 @@ export default function SettingsScreen() {
     [nagPersona, nagLevel, sampleTask],
   );
   const sample = samples.length > 0 ? samples[sampleTurn % samples.length] : "";
+  // The window's two pickers sit behind one row, so the card stays short.
+  const [nagHoursOpen, setNagHoursOpen] = useState(false);
+  const { startMinutes: nagStart, endMinutes: nagEnd } = state.notifications.nagWindow;
+  // The device's own 12 or 24 hour format.
+  const nagHours = `${formatTime(Math.floor(nagStart / 60), nagStart % 60)} to ${formatTime(Math.floor(nagEnd / 60), nagEnd % 60)}`;
 
   const handleAgendaEnabled = async (value: boolean) => {
     // Only Plus requests use it: don't ask for access a free user can't use.
@@ -943,7 +964,7 @@ export default function SettingsScreen() {
             <Text className="text-xs" style={{ color: colors.muted }}>
               {REMINDER_STYLE_HELP[reminderStyle]}
             </Text>
-            {state.notifications.hideTaskNames ? (
+            {nagActive && state.notifications.hideTaskNames ? (
               <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-hidden-names">
                 {NAG_HIDDEN_NAMES_NOTE}
               </Text>
@@ -961,6 +982,7 @@ export default function SettingsScreen() {
                 <Text className="text-sm font-semibold text-foreground">Voice</Text>
                 <ChoiceChips
                   label="Voice"
+                  spokenGroup
                   value={nagPersona}
                   onChange={setNagPersona}
                   options={NAG_PERSONAS.map((persona) => ({ value: persona, label: NAG_PERSONA_LABELS[persona] }))}
@@ -970,6 +992,7 @@ export default function SettingsScreen() {
                 <Text className="text-sm font-semibold text-foreground">Level</Text>
                 <ChoiceChips
                   label="Level"
+                  spokenGroup
                   value={nagLevel}
                   onChange={setNagLevel}
                   options={NAG_LEVELS.map((level) => ({ value: level, label: NAG_LEVEL_LABELS[level] }))}
@@ -1004,23 +1027,45 @@ export default function SettingsScreen() {
                 </Pressable>
               </View>
               <View className="gap-3">
-                <TimePickerRow
-                  label="From"
-                  accessibilityLabel="Nag from"
-                  hour={Math.floor(state.notifications.nagWindow.startMinutes / 60)}
-                  minute={state.notifications.nagWindow.startMinutes % 60}
-                  onChange={(hour, minute) => setNagWindowEdge("start", hour * 60 + minute)}
-                />
-                <TimePickerRow
-                  label="Until"
-                  accessibilityLabel="Nag until"
-                  hour={Math.floor(state.notifications.nagWindow.endMinutes / 60)}
-                  minute={state.notifications.nagWindow.endMinutes % 60}
-                  onChange={(hour, minute) => setNagWindowEdge("end", hour * 60 + minute)}
-                />
-                <Text className="text-xs" style={{ color: colors.muted }}>
-                  Nags only arrive between these times. The window is at least 3 hours long.
-                </Text>
+                <Pressable
+                  onPress={() => setNagHoursOpen(!nagHoursOpen)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Nag hours: ${nagHours}`}
+                  accessibilityHint={nagHoursOpen ? "Hides the start and end times" : "Shows the start and end times"}
+                  accessibilityState={{ expanded: nagHoursOpen }}
+                  className="flex-row items-center justify-between gap-3"
+                  style={{ minHeight: 44 }}
+                  testID="settings-nag-hours"
+                >
+                  <Text className="text-sm font-semibold text-foreground">Nag hours</Text>
+                  <View className="flex-1 flex-row items-center justify-end gap-1">
+                    <Text className="text-sm text-right" style={{ color: colors.muted, flexShrink: 1 }}>
+                      {nagHours}
+                    </Text>
+                    <Ionicons name={nagHoursOpen ? "chevron-up" : "chevron-down"} size={18} color={colors.muted} />
+                  </View>
+                </Pressable>
+                {nagHoursOpen ? (
+                  <>
+                    <TimePickerRow
+                      label="From"
+                      accessibilityLabel="Nag from"
+                      hour={Math.floor(nagStart / 60)}
+                      minute={nagStart % 60}
+                      onChange={(hour, minute) => setNagWindowEdge("start", hour * 60 + minute)}
+                    />
+                    <TimePickerRow
+                      label="Until"
+                      accessibilityLabel="Nag until"
+                      hour={Math.floor(nagEnd / 60)}
+                      minute={nagEnd % 60}
+                      onChange={(hour, minute) => setNagWindowEdge("end", hour * 60 + minute)}
+                    />
+                    <Text className="text-xs" style={{ color: colors.muted }}>
+                      Nags only arrive between these times. The window is at least 3 hours long.
+                    </Text>
+                  </>
+                ) : null}
               </View>
               {nagPaused ? (
                 <View className="flex-row items-center justify-between gap-4" style={{ minHeight: 44 }}>
@@ -1084,7 +1129,7 @@ export default function SettingsScreen() {
                     title={meta.title}
                     subtitle={
                       replacedByNags
-                        ? "Not used while Nag is on."
+                        ? NAG_SWITCH_PAUSED_HINT
                         : pausedByHourly
                           ? "Paused while Every hour is on."
                           : meta.subtitle
@@ -1092,12 +1137,19 @@ export default function SettingsScreen() {
                     value={state.notifications[key]}
                     onValueChange={(value) => void handleReminderEnabled(key, value)}
                     disabled={pausedByHourly || replacedByNags}
+                    // One line under the switches says it for all three.
+                    showSubtitle={!replacedByNags}
                     mutedColor={colors.muted}
                     trackColor={colors.primary}
                   />
                 );
               },
             )}
+            {nagActive ? (
+              <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-calm-note">
+                {NAG_CALM_SWITCHES_NOTE}
+              </Text>
+            ) : null}
             {/* What the reminders say, not when: it never asks for permission. */}
             <Text
               accessibilityRole="header"

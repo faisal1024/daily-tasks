@@ -51,6 +51,25 @@ async function saveNagRecord(record: NagDayRecord): Promise<boolean> {
   }
 }
 
+// Goes up each time the record is removed on purpose (clearNagRecord), so a
+// run that was already under way doesn't save it back.
+let cleared = 0;
+
+/**
+ * Removes the day's record (its lines can hold task text): when the style is
+ * set back to Calm, and on "Reset all data". At once, not behind a run in
+ * progress (a request for lines can take 20 seconds); that run saves nothing
+ * more once this was called. Never throws.
+ */
+export async function clearNagRecord(): Promise<void> {
+  cleared += 1;
+  try {
+    await AsyncStorage.removeItem(NAG_STORAGE_KEY);
+  } catch {
+    // Nothing to do: the next plan overwrites it.
+  }
+}
+
 function newSalt(): string {
   return Math.random().toString(36).slice(2, 12) || "salt";
 }
@@ -94,7 +113,11 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
   const open = nagOpenTasks(input.tasks);
   if (open.length === 0) return;
 
+  const run = cleared;
+  // "Reset all data" or back to Calm while this run was waiting on storage or the AI: nothing more is saved.
+  const stopped = () => cleared !== run;
   const previous = await loadNagRecord();
+  if (stopped()) return;
   let record = previous;
   let planned = false;
   if (!record || nagDayNeedsPlan(record, { dayKey: today, settings, open })) {
@@ -108,7 +131,8 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
   if (asked) {
     // Counted before it is sent, so a crash mid-request can't lead to more.
     record = { ...record, aiCalls: record.aiCalls + 1, aiFor: nagAiKey(record.persona, record.level, open), aiFetchedAt: now.getTime() };
-    if (!(await saveNagRecord(record))) return;
+    if (stopped() || !(await saveNagRecord(record))) return;
+    const marker = record.aiFetchedAt;
     try {
       // The open tasks, the persona and the level; not the user's name (no
       // AI request carries it, as the privacy policy says).
@@ -120,7 +144,13 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
         timeoutMs: NAG_REQUEST_TIMEOUT_MS,
       });
       const next = applyAiNagLines(record, lines, open, new Date(Math.max(Date.now(), now.getTime())));
-      if (await saveNagRecord(next)) {
+      // The request can take 20 seconds. If the record was removed meanwhile
+      // ("Reset all data" clears storage directly) or isn't the one this
+      // request was made for, the answer is thrown away: saving it would put
+      // task text back after a reset.
+      const current = await loadNagRecord();
+      const stillOurs = current !== null && current.dayKey === record.dayKey && current.aiFetchedAt === marker && current.aiFor === record.aiFor;
+      if (!stopped() && stillOurs && (await saveNagRecord(next))) {
         record = next;
         onChange?.(record.version);
       }
