@@ -10,9 +10,13 @@
 //
 // On release the ghost settles onto where the row will be, then ONE render
 // removes the ghost, shows the row, saves the order (the rows now really are
-// in that order) and zeroes the slides, so nothing moves on screen. A moment
-// later the "Up next" styling follows the new order, eased by a layout
-// transition.
+// in that order) and drops the slides, so nothing moves on screen. "Drops" is
+// done with the rows' keys: that render mounts the rows anew (a new `epoch`),
+// and a slide only counts for the epoch it was made in. Zeroing the slides
+// from here instead would land a frame or more after the new order did (the
+// slides live on the UI thread and are re-applied to every React commit), and
+// the rows would flash out of place in between. A moment later the "Up next"
+// styling follows the new order, eased by a layout transition.
 //
 // The order itself (only open tasks move; done tasks keep their slots) is
 // lib/daily-tasks/reorder.ts, shared with the store.
@@ -66,13 +70,15 @@ const TRANSITION_HOLD_MS = DRAG_SETTLE_MS + 150;
 
 /** Where the rows are while a drag previews its drop. */
 export interface RowShifts {
+  /** The drag these are for: rows mounted for a later one (after its drop) ignore them. */
+  epoch: number;
   /** Each row's `translateY` from its own place, by task id (none: 0). */
   offsets: Record<string, number>;
   /** Slide there, or just be there (Reduce Motion, and the drop's own render). */
   animate: boolean;
 }
 
-const AT_REST: RowShifts = { offsets: {}, animate: false };
+const AT_REST: RowShifts = { epoch: -1, offsets: {}, animate: false };
 
 interface DragState {
   id: string;
@@ -122,6 +128,11 @@ export interface TaskReorder {
   liftId: SharedValue<string | null>;
   /** The other rows making room. */
   shifts: SharedValue<RowShifts>;
+  /**
+   * Goes up with every drop that changed the order. Part of each row's key
+   * (the drop's render mounts the rows anew, free of the drag's slides).
+   */
+  epoch: number;
   /** Each task's handle gesture, by task id. */
   gestures: Record<string, GestureType>;
   /** A row wrapper's onLayout (its frame among the rows, hairline included). */
@@ -171,6 +182,8 @@ export function useTaskReorder<T extends { id: string }>({
   // The UI thread's side of a drag is to be let go (after a drop or a cancel).
   const needsRelease = useRef(false);
   const [releaseTick, setReleaseTick] = useState(0);
+  // See the top of the file: the rows are mounted anew by each drop.
+  const [epoch, setEpoch] = useState(0);
   // Where the rows land after the last drop, until their layout says so itself.
   const landed = useRef<RowFrame[] | null>(null);
   const mounted = useRef(true);
@@ -203,6 +216,8 @@ export function useTaskReorder<T extends { id: string }>({
   const lift = useSharedValue(0);
   const liftId = useSharedValue<string | null>(null);
   const shifts = useSharedValue<RowShifts>(AT_REST);
+  // `epoch`, for the gesture's worklets.
+  const epochValue = useSharedValue(0);
 
   const layouts = useRef(new Map<string, { y: number; height: number }>());
   const tasksRef = useRef(tasks);
@@ -261,9 +276,8 @@ export function useTaskReorder<T extends { id: string }>({
   }, [drag, listKey]);
 
   // Every render that follows a list change, a drop or a cancel: the rows'
-  // frames for the UI thread and, when a drag is over, letting go of it. The
-  // drop's own render is the one that puts the rows in their new order, so
-  // the slides are zeroed here, in the same commit: nothing jumps.
+  // frames for the UI thread and, when a drag is over, letting go of it. (By
+  // then a drop's rows are already free of their slides: see `epoch`.)
   useLayoutEffect(() => {
     if (drag) return;
     const ids = new Set(tasksRef.current.map((task) => task.id));
@@ -275,12 +289,13 @@ export function useTaskReorder<T extends { id: string }>({
       for (const row of places) layouts.current.set(row.id, { y: row.y, height: row.height });
     }
     syncFrames();
+    epochValue.value = epoch;
     if (!needsRelease.current) return;
     needsRelease.current = false;
     shifts.value = AT_REST;
     activeId.value = null;
     settling.value = false;
-  }, [drag, listKey, releaseTick, syncFrames, shifts, activeId, settling]);
+  }, [drag, listKey, releaseTick, epoch, syncFrames, shifts, activeId, settling, epochValue]);
 
   // Pick-ups are allowed again once nothing is easing into place.
   useEffect(() => {
@@ -349,6 +364,8 @@ export function useTaskReorder<T extends { id: string }>({
       if (active.listKey !== listKeyRef.current) return;
       if (toIndex !== fromIndex) {
         landed.current = places;
+        // The rows come back in their new order, mounted anew: no slides.
+        setEpoch((current) => current + 1);
         if (!reduceMotionRef.current) {
           // The "Up next" look changes rows' heights: not in the render that
           // must not move anything. It follows, eased.
@@ -399,7 +416,7 @@ export function useTaskReorder<T extends { id: string }>({
           targetIndex.value = from;
           startTravel.value = event.translationY;
           dragY.value = 0;
-          shifts.value = { offsets: {}, animate: !reduceMotion };
+          shifts.value = { epoch: epochValue.value, offsets: {}, animate: !reduceMotion };
           liftId.value = taskId;
           lift.value = reduceMotion ? 1 : withTiming(1, { duration: LIFT_MS });
           runOnJS(begin)(taskId, frame.y, frame.height, snapshot.key);
@@ -421,6 +438,7 @@ export function useTaskReorder<T extends { id: string }>({
             targetIndex.value = over;
             // The other rows make room, here on the UI thread: no render.
             shifts.value = {
+              epoch: epochValue.value,
               offsets: rowShifts(snapshot, originIndex.value, over, ROW_GAP),
               animate: !reduceMotion,
             };
@@ -445,7 +463,11 @@ export function useTaskReorder<T extends { id: string }>({
           const to = success ? targetIndex.value : from;
           if (to !== targetIndex.value) {
             targetIndex.value = to;
-            shifts.value = { offsets: rowShifts(snapshot, from, to, ROW_GAP), animate: !reduceMotion };
+            shifts.value = {
+              epoch: epochValue.value,
+              offsets: rowShifts(snapshot, from, to, ROW_GAP),
+              animate: !reduceMotion,
+            };
           }
           const places = restackRows(snapshot, from, to, ROW_GAP);
           const place = frame ? frameOf(places, taskId) : null;
@@ -475,6 +497,7 @@ export function useTaskReorder<T extends { id: string }>({
       busy,
       dragY,
       end,
+      epochValue,
       frames,
       lift,
       liftId,
@@ -511,6 +534,7 @@ export function useTaskReorder<T extends { id: string }>({
     lift,
     liftId,
     shifts,
+    epoch,
     gestures,
     onRowLayout,
     rowTransition,
@@ -523,6 +547,9 @@ export function useTaskReorder<T extends { id: string }>({
  * One task row's place in the card. It stays put in the tree for a whole
  * drag: while another row is held it slides out of the way (`shifts`), and
  * when its own handle is touched it lifts a little (`lift`).
+ *
+ * Key it with `reorderRowKey`: a drop that changes the order must mount the
+ * rows anew (see the top of the file).
  */
 export function ReorderRow({
   id,
@@ -531,15 +558,19 @@ export function ReorderRow({
   children,
 }: {
   id: string;
-  reorder: Pick<TaskReorder, "draggingId" | "shifts" | "lift" | "liftId" | "onRowLayout" | "rowTransition">;
+  reorder: Pick<
+    TaskReorder,
+    "draggingId" | "shifts" | "epoch" | "lift" | "liftId" | "onRowLayout" | "rowTransition"
+  >;
   /** Its place in the list (the first row has no hairline above it). */
   index: number;
   children: ReactNode;
 }) {
-  const { shifts, lift, liftId, onRowLayout } = reorder;
+  const { shifts, epoch, lift, liftId, onRowLayout } = reorder;
   const slide = useAnimatedStyle(() => {
     const state = shifts.value;
-    const y = state.offsets[id] ?? 0;
+    // Only the slides of the drag this row was there for.
+    const y = state.epoch === epoch ? (state.offsets[id] ?? 0) : 0;
     return { transform: [{ translateY: state.animate ? withTiming(y, { duration: DRAG_SETTLE_MS }) : y }] };
   });
   // Its own view, so a lift never restarts a slide.
@@ -557,6 +588,11 @@ export function ReorderRow({
       <Animated.View style={lifted}>{children}</Animated.View>
     </Animated.View>
   );
+}
+
+/** A row's key in the list: its task, and the drop it was last mounted by. */
+export function reorderRowKey(id: string, epoch: number): string {
+  return `${id}:${epoch}`;
 }
 
 /**

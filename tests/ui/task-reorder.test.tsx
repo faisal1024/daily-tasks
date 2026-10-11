@@ -4,7 +4,7 @@
 // order) until the drop, which reports once; a list change underneath puts
 // the row back without a move.
 import { useState } from "react";
-import { AccessibilityInfo, ActionSheetIOS } from "react-native";
+import { AccessibilityInfo, ActionSheetIOS, StyleSheet, Text } from "react-native";
 import { act, fireEvent, renderHook, screen } from "@testing-library/react-native";
 import { Gesture, type GestureType } from "react-native-gesture-handler";
 import { getByGestureTestId } from "react-native-gesture-handler/jest-utils";
@@ -14,7 +14,10 @@ import {
   DRAG_FAIL_X_PT,
   DROP_SWAP_DELAY_MS,
   HANDLE_HIT_SLOP,
+  ReorderRow,
+  reorderRowKey,
   useTaskReorder,
+  type RowShifts,
 } from "@/components/daily-tasks/task-reorder";
 import { TaskRow } from "@/components/daily-tasks/task-row";
 import type { FocusSession } from "@/lib/daily-tasks/focus-session";
@@ -485,6 +488,7 @@ async function settle() {
 }
 const offsets = (result: Reorder) => result.current.shifts.value.offsets;
 const NONE = { a: 0, b: 0, c: 0 };
+const AT_REST = { epoch: -1, offsets: {}, animate: false };
 
 describe("useTaskReorder: the handle's gesture", () => {
   it("picks up on the first vertical movement (no hold), and a sideways one is left to the row's swipe", async () => {
@@ -569,7 +573,7 @@ describe("useTaskReorder: a drag", () => {
     expect(result.current.dragY.value).toBe(142);
     expect(result.current.lift.value).toBe(0);
     // In the drop's own render the slides are gone, without a slide back.
-    expect(result.current.shifts.value).toEqual({ offsets: {}, animate: false });
+    expect(result.current.shifts.value).toEqual(AT_REST);
     expect(onPickUp).toHaveBeenCalledTimes(1);
   });
 
@@ -678,7 +682,7 @@ describe("useTaskReorder: races", () => {
     expect(onDrop).toHaveBeenCalledTimes(1);
     expect(onDrop).toHaveBeenCalledWith("a", 2, 0);
     expect(result.current.draggingId).toBeNull();
-    expect(result.current.shifts.value).toEqual({ offsets: {}, animate: false });
+    expect(result.current.shifts.value).toEqual(AT_REST);
 
     // Not stuck: once the drop has settled, the next drag picks up and drops as usual.
     await settle();
@@ -757,7 +761,7 @@ describe("useTaskReorder: the list changes under a drag", () => {
     // "c" is ticked in the widget while "a" is in the air.
     await rerender({ tasks: LIST, completedIds: ["c"] });
     expect(result.current.draggingId).toBeNull();
-    expect(result.current.shifts.value).toEqual({ offsets: {}, animate: false });
+    expect(result.current.shifts.value).toEqual(AT_REST);
 
     // The finger keeps moving, then lifts: nothing follows it and nothing is saved.
     await dragBy(gesture, 82);
@@ -807,6 +811,99 @@ describe("useTaskReorder: the list changes under a drag", () => {
   });
 });
 
+describe("the drop's own render moves nothing", () => {
+  // The slides are on the UI thread and get re-applied to every React commit,
+  // so they can't be zeroed "at the same time" as the new order from here.
+  // Instead the drop mounts the rows anew, and a slide only counts for the
+  // rows of the drag it was made in.
+  const slot = (id: string) => screen.getByTestId(`task-slot-${id}`, { includeHiddenElements: true });
+  const translateY = (id: string) =>
+    (StyleSheet.flatten(slot(id).props.style).transform as { translateY?: number }[]).find(
+      (part) => part.translateY !== undefined,
+    )?.translateY;
+  const rowFor = (epoch: number, shifts: RowShifts, draggingId: string | null = null) => (
+    <ReorderRow
+      id="a"
+      index={0}
+      reorder={{
+        draggingId,
+        shifts: { value: shifts } as never,
+        epoch,
+        lift: { value: 0 } as never,
+        liftId: { value: null } as never,
+        onRowLayout: () => {},
+        rowTransition: undefined,
+      }}
+    >
+      <Text>Row</Text>
+    </ReorderRow>
+  );
+
+  it("a row slides only for the drag it was mounted in: one mounted by the drop starts at rest", async () => {
+    const sliding: RowShifts = { epoch: 3, offsets: { a: 61, b: -61 }, animate: true };
+    await render(rowFor(3, sliding));
+    expect(translateY("a")).toBe(61);
+    await screen.unmount();
+    // The same slides, still there on the UI thread, when the drop's render mounts the row.
+    await render(rowFor(4, sliding));
+    expect(translateY("a")).toBe(0);
+    await screen.unmount();
+    // At rest, and a row that isn't moving.
+    await render(rowFor(4, { epoch: -1, offsets: {}, animate: false }));
+    expect(translateY("a")).toBe(0);
+    await screen.unmount();
+    await render(rowFor(4, { epoch: 4, offsets: { b: 12 }, animate: true }));
+    expect(translateY("a")).toBe(0);
+  });
+
+  it("the held row's own place is invisible (the ghost shows), and comes back", async () => {
+    const at: RowShifts = { epoch: 0, offsets: {}, animate: false };
+    await render(rowFor(0, at, "a"));
+    expect(StyleSheet.flatten(slot("a").props.style).opacity).toBe(0);
+    await screen.unmount();
+    await render(rowFor(0, at, "b"));
+    expect(StyleSheet.flatten(slot("a").props.style).opacity).toBeUndefined();
+  });
+
+  it("a drop that changed the order gives the rows new keys; one that didn't, a cancel and a plain reorder don't", async () => {
+    jest.useFakeTimers();
+    const { result } = await renderReorderWithStore(LIST);
+    await layOut(() => result.current.reorder, LIST, [40, 40, 40]);
+    const gesture = result.current.reorder.gestures.a;
+    expect(result.current.reorder.epoch).toBe(0);
+    expect(reorderRowKey("a", 0)).not.toBe(reorderRowKey("a", 1));
+
+    // Held, and slid over a place: the rows keep their keys the whole time.
+    await pickUp(gesture);
+    await dragBy(gesture, 41);
+    expect(result.current.reorder.epoch).toBe(0);
+    expect(result.current.reorder.shifts.value.epoch).toBe(0);
+    await dragBy(gesture, 0);
+    await letGo(gesture);
+    // Dropped back where it started.
+    expect(result.current.reorder.epoch).toBe(0);
+    await settle();
+
+    // "Do this next": the saved order changes, the rows stay mounted.
+    await act(async () => result.current.moveNext("c"));
+    expect(result.current.tasks.map((task) => task.id)).toEqual(["c", "a", "b"]);
+    expect(result.current.reorder.epoch).toBe(0);
+
+    // A real drop: new keys in the very render that has the new order.
+    await layOut(() => result.current.reorder, result.current.tasks, [40, 40, 40]);
+    const held = result.current.reorder.gestures.b;
+    await pickUp(held);
+    await dragBy(held, -82);
+    await letGo(held);
+    expect(result.current.tasks.map((task) => task.id)).toEqual(["b", "c", "a"]);
+    expect(result.current.reorder.epoch).toBe(1);
+    // And the next drag's slides are for the rows as they are now.
+    await settle();
+    await pickUp(held);
+    expect(result.current.reorder.shifts.value.epoch).toBe(1);
+  });
+});
+
 describe("useTaskReorder: after the drop", () => {
   it("the rows are known to be where the drop put them, before their layout says so", async () => {
     jest.useFakeTimers();
@@ -818,7 +915,7 @@ describe("useTaskReorder: after the drop", () => {
     await letGo(gesture);
     expect(onDrop).toHaveBeenCalledWith("a", 2, 0);
     expect(result.current.tasks.map((task) => task.id)).toEqual(["b", "c", "a"]);
-    expect(result.current.reorder.shifts.value).toEqual({ offsets: {}, animate: false });
+    expect(result.current.reorder.shifts.value).toEqual(AT_REST);
 
     // No layout events since. A drag once things have settled starts from a's
     // new place: under b (80) and c (60) and their hairlines.

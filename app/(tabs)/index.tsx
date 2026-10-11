@@ -42,7 +42,7 @@ import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
-import { ReorderGhost, ReorderRow, useTaskReorder } from "@/components/daily-tasks/task-reorder";
+import { ReorderGhost, ReorderRow, reorderRowKey, useTaskReorder } from "@/components/daily-tasks/task-reorder";
 import { TaskRow } from "@/components/daily-tasks/task-row";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
 import { TodaysRoutinesCard } from "@/components/daily-tasks/todays-routines-card";
@@ -1336,7 +1336,13 @@ export default function HomeScreen() {
                       index > 0 ? <View style={{ height: 1, backgroundColor: colors.border, marginLeft: 58 }} /> : null;
                     if (task) {
                       return (
-                        <ReorderRow key={task.id} id={task.id} index={index} reorder={reorder}>
+                        <ReorderRow
+                          // Mounted anew by each drop that changed the order.
+                          key={reorderRowKey(task.id, reorder.epoch)}
+                          id={task.id}
+                          index={index}
+                          reorder={reorder}
+                        >
                           {divider}
                           {renderTaskRow(task, index)}
                         </ReorderRow>
