@@ -78,14 +78,18 @@ export function RowTimerPill({
   taskText,
   controls,
   onOpen,
+  bare = false,
 }: {
   clock: RowSessionClock;
   taskText: string;
   controls: FocusSessionControls;
   /** Opens the focus screen (the pill at time's up). */
   onOpen?: () => void;
+  /** For looking at only (a dragged row's copy): no testIDs. */
+  bare?: boolean;
 }) {
   const colors = useColors();
+  const tid = (id: string) => (bare ? undefined : id);
   const { width } = useWindowDimensions();
   const { session, phase, left } = clock;
   const paused = phase === "paused";
@@ -119,7 +123,7 @@ export function RowTimerPill({
         accessibilityHint="Opens focus"
         hitSlop={{ top: 7, bottom: 7 }}
         style={({ pressed }) => ({ ...pill, opacity: pressed ? 0.7 : 1 })}
-        testID={`task-timer-running-${session.taskId}`}
+        testID={tid(`task-timer-running-${session.taskId}`)}
       >
         {/* Time's up, not done: a bell on the full ring, never a green tick. */}
         <ProgressRing completed={session.durationMs} total={session.durationMs} color={colors.primary} size={22} strokeWidth={2.5}>
@@ -127,7 +131,7 @@ export function RowTimerPill({
             name="notifications-outline"
             size={11}
             color={colors.primary}
-            testID={`task-timer-times-up-${session.taskId}`}
+            testID={tid(`task-timer-times-up-${session.taskId}`)}
           />
         </ProgressRing>
       </Pressable>
@@ -150,7 +154,7 @@ export function RowTimerPill({
       accessibilityHint={paused ? "Resumes the timer." : "Pauses the timer."}
       hitSlop={{ top: 7, bottom: 7 }}
       style={({ pressed }) => ({ ...pill, opacity: pressed ? 0.7 : 1 })}
-      testID={`task-timer-running-${session.taskId}`}
+      testID={tid(`task-timer-running-${session.taskId}`)}
     >
       {/* The ring drains (what's left), like Clock and the Live Activity.
           Paused: it goes quiet and the glyph offers ▶. */}
@@ -165,7 +169,7 @@ export function RowTimerPill({
           name={paused ? "play" : "pause"}
           size={11}
           color={colors.primary}
-          testID={`task-timer-${paused ? "play" : "pause"}-${session.taskId}`}
+          testID={tid(`task-timer-${paused ? "play" : "pause"}-${session.taskId}`)}
         />
       </ProgressRing>
       {ringOnly ? null : (
@@ -178,7 +182,7 @@ export function RowTimerPill({
           }}
           maxFontSizeMultiplier={1.3}
           numberOfLines={1}
-          testID={`task-timer-left-${session.taskId}`}
+          testID={tid(`task-timer-left-${session.taskId}`)}
         >
           {formatRemaining(left)}
         </Text>
@@ -192,14 +196,14 @@ export function RowTimerPill({
  * after "Stuck?", kept at time's up) and, until then, a 5-minute starter's
  * "Just start" line, or just "Paused." while paused.
  */
-export function RowSessionLine({ clock }: { clock: RowSessionClock }) {
+export function RowSessionLine({ clock, bare = false }: { clock: RowSessionClock; bare?: boolean }) {
   const colors = useColors();
   const { session, phase } = clock;
   const step = session.stepText ? `Now: ${session.stepText}` : null;
   const status = phase === "ended" ? null : phase === "paused" ? "Paused." : starterLine(session);
   if (!step && !status) return null;
   return (
-    <View testID={`task-session-line-${session.taskId}`}>
+    <View testID={bare ? undefined : `task-session-line-${session.taskId}`}>
       {step ? (
         <Text className="text-sm" style={{ color: colors.muted }}>
           {step}

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
@@ -13,6 +14,7 @@ import {
   type TextInput as TextInputType,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Gesture, GestureDetector, type GestureType } from "react-native-gesture-handler";
 import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from "react-native-gesture-handler/ReanimatedSwipeable";
@@ -32,8 +34,10 @@ import {
   toggleTimer,
   useRowSessionClock,
 } from "@/components/daily-tasks/row-timer";
+import { HANDLE_HIT_SLOP } from "@/components/daily-tasks/task-reorder";
 import { useColors } from "@/hooks/use-colors";
-import type { FocusSession } from "@/lib/daily-tasks/focus-session";
+import { remainingMs, sessionPhase, type FocusSession } from "@/lib/daily-tasks/focus-session";
+import { REORDER_HANDLE_OPACITY } from "@/lib/daily-tasks/reorder";
 import {
   TASK_ROW_ACTION_LABELS,
   LOCKED_CHANGE_NOTE,
@@ -74,6 +78,37 @@ interface TaskRowBaseProps {
    * `"timer"` for the pill at time's up.
    */
   onOpenTimer?: (via: "words" | "timer") => void;
+  /**
+   * Reordering (1.4), for an open row: what it can do right now. "Do this
+   * next" is in the row's menu; all three are VoiceOver actions, so dragging
+   * is never needed.
+   */
+  reorder?: { canDoNext: boolean; canMoveUp: boolean; canMoveDown: boolean };
+  /** Make this the next task (the first open one). */
+  onDoNext?: () => void;
+  /** One place up or down among the open tasks. */
+  onMove?: (direction: "up" | "down") => void;
+  /**
+   * The drag handle's gesture (touch it and move up or down). The handle
+   * shows only with it: the list passes one when there are two or more open
+   * tasks and the row has room. A tap on the handle opens the row's menu.
+   */
+  dragGesture?: GestureType;
+  /**
+   * No room for the handle (a narrow window, large text): the menu offers
+   * Move up / Move down beside "Do this next" instead.
+   */
+  moveInMenu?: boolean;
+  /** A row is being dragged: an open swipe closes. */
+  dragActive?: boolean;
+  /** Changes when VoiceOver's focus should come back to this row (after a move). */
+  focusTick?: number;
+  /**
+   * The dragged row's copy under the finger: looks the same (handle
+   * included), does nothing. No swipe, no ticking clock, no testIDs (the real
+   * row keeps them).
+   */
+  ghost?: boolean;
 }
 
 /**
@@ -92,6 +127,13 @@ const ACTION_WIDTH = 84;
 const START_TIMER_ACTION = "startTimer";
 /** The checkbox's VoiceOver action for the timed task's focus screen. */
 const OPEN_FOCUS_ACTION = "openFocus";
+/** The checkbox's VoiceOver actions for reordering (1.4). */
+const DO_NEXT_ACTION = "doNext";
+const MOVE_UP_ACTION = "moveUp";
+const MOVE_DOWN_ACTION = "moveDown";
+export const DO_NEXT_LABEL = "Do this next";
+export const MOVE_UP_LABEL = "Move up";
+export const MOVE_DOWN_LABEL = "Move down";
 /** The row's words start after the circle's column (30) and the gap (12). */
 const TEXT_INSET = 42;
 
@@ -102,6 +144,8 @@ const TEXT_INSET = 42;
  * While the focus session is on this task, tapping the words opens the focus
  * screen instead and a long press opens the menu, led by the timer's own
  * choices (Open focus, Pause/Resume timer, Stop timer).
+ * An open row that isn't first offers "Do this next" in that menu, and, with
+ * two or more open tasks, a handle at its end: drag it up or down (1.4).
  */
 export function TaskRow({
   task,
@@ -124,14 +168,46 @@ export function TaskRow({
   session = null,
   controls,
   onOpenTimer,
+  reorder,
+  onDoNext,
+  onMove,
+  dragGesture,
+  moveInMenu = false,
+  dragActive = false,
+  focusTick = 0,
+  ghost = false,
 }: TaskRowProps) {
   const colors = useColors();
+  /** The real row's testIDs; its copy under the finger has none. */
+  const tid = (id: string) => (ghost ? undefined : id);
+  const dragHandle = (
+    <View
+      collapsable={false}
+      // The 44 by 44 target. On iOS it's this (the view's own hit slop) that
+      // widens what a touch lands on; the gestures carry the same slop so a
+      // touch in that margin isn't failed as outside the view (and for Android).
+      hitSlop={HANDLE_HIT_SLOP}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      // Pulled into the row's gaps, so the words lose as little as possible.
+      style={{ width: 26, height: 30, marginLeft: -6, marginRight: -4, alignItems: "center", justifyContent: "center" }}
+      testID={tid(`task-drag-${task.id}`)}
+    >
+      <Ionicons
+        name="reorder-three-outline"
+        size={18}
+        color={colors.muted}
+        style={{ opacity: REORDER_HANDLE_OPACITY }}
+      />
+    </View>
+  );
   const reduceMotion = useReducedMotion();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.text);
   const inputRef = useRef<TextInputType | null>(null);
   const swipeRef = useRef<SwipeableMethods | null>(null);
   const timerRef = useRef<View | null>(null);
+  const boxRef = useRef<View | null>(null);
   const committed = useRef(false);
 
   const hasSteps = Boolean(task.steps && task.steps.length > 0);
@@ -155,11 +231,25 @@ export function TaskRow({
     return () => clearTimeout(t);
   }, [editing]);
   // An open row mustn't stay open (and tappable) once its actions change,
-  // e.g. the day was set meanwhile, or editing started.
+  // e.g. the day was set meanwhile, or editing started, or a row is picked up.
   const swipeKey = swipeActions.join(",");
   useEffect(() => {
     swipeRef.current?.close();
-  }, [swipeKey, editing]);
+  }, [swipeKey, editing, dragActive]);
+  // After a move the rows change places and VoiceOver loses the row it was
+  // on: bring its focus back, once the rows have settled.
+  // (Only when it changes: a row mounted with an old tick, as after a drop or
+  // as the dragged copy, has nothing to bring back.)
+  const lastFocusTick = useRef(focusTick);
+  useEffect(() => {
+    if (focusTick === lastFocusTick.current) return;
+    lastFocusTick.current = focusTick;
+    if (!focusTick || ghost) return;
+    const timer = setTimeout(() => {
+      if (boxRef.current) AccessibilityInfo.sendAccessibilityEvent(boxRef.current, "focus");
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [focusTick, ghost]);
 
   // A small bounce when it's checked off (not on first render, not with Reduce Motion).
   const checkScale = useSharedValue(1);
@@ -193,9 +283,28 @@ export function TaskRow({
   const startTimer = () => onTimer?.(timerRef.current ? findNodeHandle(timerRef.current) : null);
   // The timed task: its words open the focus screen (the detail view).
   const opensFocus = Boolean(session && onOpenTimer) && !completed;
-  // One clock for the timed row's pill, line and check-in.
-  const clock = useRowSessionClock(session);
+  // One clock for the timed row's pill, line and check-in. The dragged copy
+  // doesn't tick: it shows the time it was picked up at.
+  const liveClock = useRowSessionClock(ghost ? null : session);
+  const [pickedUpAt] = useState(() => Date.now());
+  const clock =
+    ghost && session
+      ? { session, phase: sessionPhase(session, pickedUpAt), left: remainingMs(session, pickedUpAt) }
+      : liveClock;
   const timed = clock && controls && !completed && !editing ? { clock, controls } : null;
+
+  // Reordering is for open rows (a done task keeps its place).
+  const canDoNext = Boolean(reorder?.canDoNext && onDoNext) && !completed;
+  const canMoveUp = Boolean(reorder?.canMoveUp && onMove) && !completed;
+  const canMoveDown = Boolean(reorder?.canMoveDown && onMove) && !completed;
+  const doNext = () => {
+    swipeRef.current?.close();
+    onDoNext?.();
+  };
+  const move = (direction: "up" | "down") => {
+    swipeRef.current?.close();
+    onMove?.(direction);
+  };
 
   // The row's menu (a tap on the words, or a long press while it's timed).
   // The timed task's own timer choices come first: Open focus, Pause or
@@ -208,6 +317,10 @@ export function TaskRow({
         ? [{ label: "Resume timer", onPress: () => toggleTimer(timed.controls, "resume") }]
         : []),
     ...(timed ? [{ label: "Stop timer", onPress: () => timed.controls.stop() }] : []),
+    ...(canDoNext ? [{ label: DO_NEXT_LABEL, onPress: doNext }] : []),
+    // Without the handle (no room for it), one place at a time is here too.
+    ...(moveInMenu && canMoveUp ? [{ label: MOVE_UP_LABEL, onPress: () => move("up") }] : []),
+    ...(moveInMenu && canMoveDown ? [{ label: MOVE_DOWN_LABEL, onPress: () => move("down") }] : []),
     ...actions.map((action) => ({
       label: TASK_ROW_ACTION_LABELS[action],
       onPress: () => run(action),
@@ -262,12 +375,48 @@ export function TaskRow({
       if (opensFocus) onOpenTimer?.("words");
       return;
     }
+    if (event.nativeEvent.actionName === DO_NEXT_ACTION) {
+      if (canDoNext) doNext();
+      return;
+    }
+    if (event.nativeEvent.actionName === MOVE_UP_ACTION) {
+      if (canMoveUp) move("up");
+      return;
+    }
+    if (event.nativeEvent.actionName === MOVE_DOWN_ACTION) {
+      if (canMoveDown) move("down");
+      return;
+    }
     const name = event.nativeEvent.actionName as TaskRowAction;
     if (actions.includes(name)) run(name);
   };
 
+  // The handle: dragging it moves the row; a tap that never moved opens the
+  // row's menu, so the control is never dead. Whichever happens first wins.
+  const openMenuRef = useRef(openMenu);
+  useEffect(() => {
+    openMenuRef.current = openMenu;
+  });
+  const handleGesture = useMemo(
+    () =>
+      dragGesture
+        ? Gesture.Race(
+            dragGesture,
+            Gesture.Tap()
+              .withTestId(`task-handle-tap-${task.id}`)
+              .runOnJS(true)
+              .hitSlop(HANDLE_HIT_SLOP)
+              .maxDistance(10)
+              .onEnd((_event, success) => {
+                if (success) openMenuRef.current();
+              }),
+          )
+        : null,
+    [dragGesture, task.id],
+  );
+
   const renderActions = () => (
-    <View className="flex-row" testID={`row-actions-${task.id}`}>
+    <View className="flex-row" testID={tid(`row-actions-${task.id}`)}>
       {swipeActions.map((action) => {
         const [fill, onFill] =
           action === "delete" ? [colors.error, colors.onError] : [colors.primary, colors.onPrimary];
@@ -306,16 +455,7 @@ export function TaskRow({
 
   const textSize = hero ? 21 : completed ? 15 : 17;
 
-  return (
-    <ReanimatedSwipeable
-      ref={swipeRef}
-      enabled={swipeActions.length > 0 && !editing}
-      enableTrackpadTwoFingerGesture
-      friction={2}
-      rightThreshold={40}
-      overshootRight={false}
-      renderRightActions={swipeActions.length > 0 ? renderActions : undefined}
-    >
+  const row = (
       <View
         style={{
           backgroundColor: colors.surface,
@@ -324,7 +464,7 @@ export function TaskRow({
           // The check-in's last line is a 44pt link: its own air is enough.
           ...(timed && timed.clock.phase === "ended" ? { paddingBottom: 8 } : {}),
         }}
-        testID={`task-row-${task.id}`}
+        testID={tid(`task-row-${task.id}`)}
       >
         {hero ? (
           <Text
@@ -341,6 +481,7 @@ export function TaskRow({
           {/* Fixed-width column so the words line up whatever the circle's size. */}
           <Animated.View style={[{ width: 30, alignItems: "center", paddingTop: completed ? 1 : 0 }, checkStyle]}>
             <Pressable
+              ref={boxRef}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: completed }}
               accessibilityLabel={`${hero ? "Up next. " : ""}Task ${index + 1}: ${task.text}${task.routineId ? ", routine" : ""}`}
@@ -349,6 +490,9 @@ export function TaskRow({
                 ...actions.map((action) => ({ name: action, label: TASK_ROW_ACTION_LABELS[action] })),
                 ...(canStartTimer ? [{ name: START_TIMER_ACTION, label: "Start timer" }] : []),
                 ...(opensFocus ? [{ name: OPEN_FOCUS_ACTION, label: "Open focus" }] : []),
+                ...(canDoNext ? [{ name: DO_NEXT_ACTION, label: DO_NEXT_LABEL }] : []),
+                ...(canMoveUp ? [{ name: MOVE_UP_ACTION, label: MOVE_UP_LABEL }] : []),
+                ...(canMoveDown ? [{ name: MOVE_DOWN_ACTION, label: MOVE_DOWN_LABEL }] : []),
               ]}
               onAccessibilityAction={onA11yAction}
               onPress={() => {
@@ -391,7 +535,7 @@ export function TaskRow({
                 onLongPress={openMenu}
                 disabled={menuItems.length === 0 && !opensFocus && !(onLockedPress && !editable)}
                 hitSlop={4}
-                testID={`task-words-${task.id}`}
+                testID={tid(`task-words-${task.id}`)}
                 // The checkbox already announces this task, its state and actions.
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
@@ -410,7 +554,7 @@ export function TaskRow({
                   {task.routineId ? (
                     // A small repeat glyph after the words, as on Today's routines and in Ideas.
                     // Never struck through with a completed title (it's a marker, not words).
-                    <Text style={{ fontWeight: "400", textDecorationLine: "none" }} testID={`task-routine-${task.id}`}>
+                    <Text style={{ fontWeight: "400", textDecorationLine: "none" }} testID={tid(`task-routine-${task.id}`)}>
                       {" "}
                       <Ionicons name="repeat" size={Math.round(textSize * 0.8)} color={colors.muted} />
                     </Text>
@@ -419,11 +563,11 @@ export function TaskRow({
               </Pressable>
             )}
 
-            {timed ? <RowSessionLine clock={timed.clock} /> : null}
+            {timed ? <RowSessionLine clock={timed.clock} bare={ghost} /> : null}
 
             {task.carriedOver && !completed && !editing ? (
               // Quiet, not a warning: muted (AA) with a small "carried" arrow.
-              <View className="flex-row items-center gap-1" testID={`task-carried-${task.id}`}>
+              <View className="flex-row items-center gap-1" testID={tid(`task-carried-${task.id}`)}>
                 <Ionicons name="arrow-redo-outline" size={12} color={colors.muted} />
                 <Text className="text-xs" style={{ color: colors.muted }}>
                   Carried over
@@ -432,7 +576,7 @@ export function TaskRow({
             ) : null}
 
             {!editing && !completed && hasSteps ? (
-              <View className="gap-1.5 mt-1" testID={`steps-${task.id}`}>
+              <View className="gap-1.5 mt-1" testID={tid(`steps-${task.id}`)}>
                 {task.steps?.map((step, stepIndex) => (
                   <Pressable
                     key={step.id}
@@ -507,7 +651,7 @@ export function TaskRow({
                       <View
                         className="rounded-full px-1.5 flex-row items-center gap-0.5"
                         style={{ backgroundColor: `${colors.primary}1f` }}
-                        testID="break-down-plus"
+                        testID={tid("break-down-plus")}
                       >
                         <Ionicons name="sparkles" size={10} color={colors.primary} />
                         <Text className="text-xs font-semibold" style={{ color: colors.primary }}>
@@ -545,6 +689,7 @@ export function TaskRow({
               taskText={task.text}
               controls={timed.controls}
               onOpen={onOpenTimer ? () => onOpenTimer("timer") : undefined}
+              bare={ghost}
             />
           ) : canStartTimer ? (
             <Pressable
@@ -562,16 +707,43 @@ export function TaskRow({
                 justifyContent: "center",
                 opacity: pressed ? 0.6 : 1,
               })}
-              testID={`task-timer-${task.id}`}
+              testID={tid(`task-timer-${task.id}`)}
             >
               <Ionicons name="timer-outline" size={23} color={colors.muted} />
             </Pressable>
           ) : null}
+
+          {/* Reorder (1.4): drag the handle up or down; a tap opens the menu.
+              The row's last thing, no taller than the circle, with a 44pt
+              target (its hit slop). VoiceOver skips it: the checkbox has
+              Do this next / Move up / Move down. */}
+          {completed || editing ? null : ghost ? (
+            dragHandle
+          ) : handleGesture ? (
+            <GestureDetector gesture={handleGesture}>{dragHandle}</GestureDetector>
+          ) : null}
         </View>
 
-        {/* Time's up: the check-in, right under its task, in line with the words. */}
-        {timed ? <RowCheckIn clock={timed.clock} controls={timed.controls} inset={TEXT_INSET} /> : null}
+        {/* Time's up: the check-in, right under its task, in line with the
+            words. Not in the dragged copy (which is as tall as its row anyway). */}
+        {timed && !ghost ? <RowCheckIn clock={timed.clock} controls={timed.controls} inset={TEXT_INSET} /> : null}
       </View>
+  );
+
+  // The dragged copy is for looking at: no swipe of its own.
+  if (ghost) return row;
+
+  return (
+    <ReanimatedSwipeable
+      ref={swipeRef}
+      enabled={swipeActions.length > 0 && !editing}
+      enableTrackpadTwoFingerGesture
+      friction={2}
+      rightThreshold={40}
+      overshootRight={false}
+      renderRightActions={swipeActions.length > 0 ? renderActions : undefined}
+    >
+      {row}
     </ReanimatedSwipeable>
   );
 }

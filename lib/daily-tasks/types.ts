@@ -260,6 +260,8 @@ export interface AppState {
   notifications: NotificationConfig;
   autoLock: AutoLockConfig;
   hasSeenOnboarding: boolean;
+  // The one-time "Drag ≡ to reorder…" line under Today's card has been shown (1.4).
+  reorderHintSeen: boolean;
   todayReflection: string | null;
   todayReflectionResult: ReflectionResult | null;
   momentumProfile: MomentumProfile;

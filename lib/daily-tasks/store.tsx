@@ -92,6 +92,7 @@ import {
   buildMomentumPlan,
   isMomentumProfileComplete,
 } from "./momentum";
+import { moveOpenTask } from "./reorder";
 import {
   applyRollover,
   resolvePendingRollover,
@@ -193,6 +194,8 @@ type Action =
   | { type: "deleteTask"; id: TaskId; today: string }
   | { type: "notToday"; id: TaskId; today: string; at: string }
   | { type: "toggleTask"; id: TaskId; today: string }
+  | { type: "moveTask"; taskId: TaskId; toIndex: number; today: string }
+  | { type: "makeTaskNext"; taskId: TaskId; today: string }
   | { type: "lockToday"; today: string; at: string }
   | { type: "unlockToday"; today: string }
   | { type: "autoLockToday"; today: string; at: string }
@@ -203,6 +206,7 @@ type Action =
   | { type: "setAutoLockEnabled"; enabled: boolean }
   | { type: "setAutoLockTime"; hour: number; minute: number }
   | { type: "markOnboardingSeen" }
+  | { type: "markReorderHintSeen" }
   | { type: "completeMomentumOnboarding"; profile: MomentumProfile }
   | { type: "updateMomentumProfile"; profile: MomentumProfile }
   | { type: "regenerateMomentumPlan"; now: Date }
@@ -817,6 +821,20 @@ function reduce(state: AppState, action: Action): AppState {
         action.today,
       );
     }
+    // Reordering (1.4): which open task comes next. Allowed on a set day
+    // (it changes the order, not the plan). Only open tasks move, among
+    // themselves; a done task keeps its slot (see reorder.ts for the rule).
+    // Nothing to move gives back the same state.
+    case "moveTask":
+    case "makeTaskNext": {
+      const tasks = moveOpenTask(
+        state.tasks,
+        state.todayCompletions,
+        action.taskId,
+        action.type === "makeTaskNext" ? 0 : action.toIndex,
+      );
+      return tasks === state.tasks ? state : syncTodayHistory({ ...state, tasks }, action.today);
+    }
     case "lockToday":
       if (state.todayLocked) return state;
       return syncTodayHistory(
@@ -916,6 +934,8 @@ function reduce(state: AppState, action: Action): AppState {
     case "markOnboardingSeen":
       if (state.hasSeenOnboarding) return state;
       return { ...state, hasSeenOnboarding: true };
+    case "markReorderHintSeen":
+      return state.reorderHintSeen ? state : { ...state, reorderHintSeen: true };
     case "completeMomentumOnboarding":
       {
         const momentumProfile = {
@@ -1111,6 +1131,13 @@ interface StoreContextValue {
   deleteTask: (id: TaskId) => void;
   /** Take an open task off today and save it for later (not on a set day: unlock it in Settings first). */
   notToday: (id: TaskId) => void;
+  /**
+   * Move an open task to `toIndex` among today's open tasks (0 = next). Done
+   * tasks keep their slots. Works on a set day.
+   */
+  moveTask: (taskId: TaskId, toIndex: number) => void;
+  /** Make an open task the first open one: what everything calls "next". */
+  makeTaskNext: (taskId: TaskId) => void;
   toggleTask: (id: TaskId) => void;
   lockToday: () => void;
   /**
@@ -1127,6 +1154,8 @@ interface StoreContextValue {
   setAutoLockEnabled: (enabled: boolean) => void;
   setAutoLockTime: (hour: number, minute: number) => void;
   markOnboardingSeen: () => void;
+  /** The one-time reorder hint under Today's card was shown (1.4). */
+  markReorderHintSeen: () => void;
   completeMomentumOnboarding: (profile: MomentumProfile) => void;
   updateMomentumProfile: (profile: MomentumProfile) => void;
   regenerateMomentumPlan: () => void;
@@ -1811,6 +1840,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const notToday = useCallback((id: TaskId) => {
     dispatch({ type: "notToday", id, today: ensureDay(), at: new Date().toISOString() });
   }, [ensureDay]);
+  const moveTask = useCallback((taskId: TaskId, toIndex: number) => {
+    dispatch({ type: "moveTask", taskId, toIndex, today: ensureDay() });
+  }, [ensureDay]);
+  const makeTaskNext = useCallback((taskId: TaskId) => {
+    dispatch({ type: "makeTaskNext", taskId, today: ensureDay() });
+  }, [ensureDay]);
   const toggleTask = useCallback((id: TaskId) => {
     // Ticked just after midnight while yesterday is still on screen: it counts
     // for yesterday (the day the user was looking at), then the day changes.
@@ -1860,6 +1895,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   }, []);
   const markOnboardingSeen = useCallback(() => {
     dispatch({ type: "markOnboardingSeen" });
+  }, []);
+  const markReorderHintSeen = useCallback(() => {
+    dispatch({ type: "markReorderHintSeen" });
   }, []);
   const completeMomentumOnboarding = useCallback((profile: MomentumProfile) => {
     dispatch({ type: "completeMomentumOnboarding", profile });
@@ -2436,6 +2474,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       editTask,
       deleteTask,
       notToday,
+      moveTask,
+      makeTaskNext,
       toggleTask,
       lockToday,
       unlockToday,
@@ -2446,6 +2486,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,
+      markReorderHintSeen,
       completeMomentumOnboarding,
       updateMomentumProfile,
       regenerateMomentumPlan,
@@ -2519,6 +2560,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       editTask,
       deleteTask,
       notToday,
+      moveTask,
+      makeTaskNext,
       toggleTask,
       lockToday,
       unlockToday,
@@ -2529,6 +2572,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,
+      markReorderHintSeen,
       completeMomentumOnboarding,
       updateMomentumProfile,
       regenerateMomentumPlan,
