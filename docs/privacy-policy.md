@@ -22,12 +22,13 @@ This data is not synced to any server or account. The Home Screen and Lock Scree
 
 ## Smart features (AI)
 
-Four optional features use an AI model. When you use them, the app sends a request to our own server, which asks an AI model (currently provided by Anthropic) to respond. Each request contains only what that feature needs:
+Five optional features use an AI model. When you use them, the app sends a request to our own server, which asks an AI model (currently provided by Anthropic) to respond. Each request contains only what that feature needs:
 
 - **Goal-based suggestions:** your goal and onboarding answers, a summary of recent completion counts, the titles of up to 12 of your recent tasks and whether each was completed, and your most recent optional reflection.
 - **Brain dump:** the text you type or dictate into the brain dump (up to 2,000 characters), how many open slots you have today, and your goal. When you first open the app, what you type on the first screen is sorted this way, and free users also get a few more AI-sorted brain dumps to try (the app shows how many are left); after that, brain dumps are sorted on your device unless you have Plus.
 - **Break it down:** the title of the task you ask to break down, and your goal.
 - **Evening check-in:** how your day felt (the option you tap), the titles of today's tasks and whether each was done, your optional note, your goal, and your coach memory (below).
+- **Nag mode (optional, Plus):** if you turn on the Nag reminder style in Settings, once a day (at most twice) the app sends the titles of today's unfinished tasks, and the voice and level you picked, so the reminders can be written in that voice. Nothing is sent while "Hide task names in notifications" is on, or on a day you pause it; the reminders then use lines built into the app. The reminders themselves are still local notifications scheduled on your device.
 
 **Calendar and Reminders (optional, iPhone only).** If you turn on "Plan around my calendar" in Settings and allow access, the app reads the titles and times of today's calendar events and of reminders due by the end of today (including overdue ones), up to 12 items. They are sent with goal-based suggestion and brain dump requests so your three fit around your day. They are never stored on our server, and the app never changes your calendar or reminders. You can turn this off in Settings, or remove access in iOS Settings, at any time.
 

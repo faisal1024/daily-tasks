@@ -11,8 +11,7 @@ import {
   type ReminderPlanItem,
   type ReminderStrategy,
 } from "./reminder-plan";
-import { NAG_CATEGORY_ID, NAG_KIND } from "./nag-plan";
-import { MANAGED_REMINDER_PREFIX } from "./reminders";
+import { MANAGED_REMINDER_PREFIX, NAG_CATEGORY_ID, NAG_KIND } from "./reminders";
 import type { NotificationPermissionState } from "./types";
 
 let handlerConfigured = false;

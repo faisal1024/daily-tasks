@@ -1813,7 +1813,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         // Like the other automatic AI calls: only once Plus is confirmed.
         aiAllowed: plusConfirmed,
         tasks: state.tasks.map((task) => ({ id: task.id, text: task.text, done: done.has(task.id) })),
-        firstName: state.momentumProfile.name,
       },
       { onChange: setNagVersion },
     );
@@ -1824,7 +1823,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     notificationPermission,
     plusConfirmed,
     ready,
-    state.momentumProfile.name,
     state.notifications,
     state.tasks,
     state.todayCompletions,

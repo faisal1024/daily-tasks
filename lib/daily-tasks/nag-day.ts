@@ -61,7 +61,6 @@ export type NagDayInput = Pick<ReminderContext, "today" | "settings" | "permissi
   plus: boolean;
   /** Plus is confirmed, so the proxy will answer: only then is the AI asked. */
   aiAllowed: boolean;
-  firstName?: string | null;
 };
 
 export interface NagDayDeps {
@@ -111,12 +110,13 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
     record = { ...record, aiCalls: record.aiCalls + 1, aiFor: nagAiKey(record.persona, record.level, open), aiFetchedAt: now.getTime() };
     if (!(await saveNagRecord(record))) return;
     try {
+      // The open tasks, the persona and the level; not the user's name (no
+      // AI request carries it, as the privacy policy says).
       const { lines } = await request({
         persona: record.persona,
         level: record.level,
         tasks: open,
         count: record.total,
-        firstName: input.firstName ?? null,
         timeoutMs: NAG_REQUEST_TIMEOUT_MS,
       });
       const next = applyAiNagLines(record, lines, open, new Date(Math.max(Date.now(), now.getTime())));

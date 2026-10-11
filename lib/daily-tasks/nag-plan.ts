@@ -24,6 +24,7 @@ import {
   type NagPersona,
 } from "./nag";
 import type { ReminderContext, ReminderPlan } from "./reminder-plan";
+import { NAG_CATEGORY_ID, NAG_KIND } from "./reminders";
 import {
   DEFAULT_NAG_WINDOW,
   NAG_WINDOW_LAST_MINUTE,
@@ -35,10 +36,7 @@ import {
 
 /** Where the day's record is kept (AsyncStorage). */
 export const NAG_STORAGE_KEY = "daily-tasks/nag/v1";
-/** A nag's `kind` in its plan item and its notification's data. */
-export const NAG_KIND = "nag";
-/** The notification category that gives a nag its "Stop for today" button. */
-export const NAG_CATEGORY_ID = "three-today:nag";
+export { NAG_CATEGORY_ID, NAG_KIND };
 
 /** Nags a day, by level. */
 export const NAG_LEVEL_COUNTS: Record<NagLevel, number> = { gentle: 4, firm: 7, relentless: 11 };
@@ -48,6 +46,9 @@ export const NAG_MIN_GAP_MINUTES = 60;
 export const NAG_FIRST_DELAY_MINUTES = 20;
 /** AI requests for lines per day: the day's batch, and one more if the tasks, persona or level change. */
 export const MAX_NAG_AI_CALLS_PER_DAY = 2;
+
+/** How much of the spare room the random gaps use, on average three quarters of it (see planNagTimes). */
+const NAG_SPREAD = 1.5;
 
 const MINUTE_MS = 60_000;
 const GAP_MS = NAG_MIN_GAP_MINUTES * MINUTE_MS;
@@ -143,14 +144,15 @@ export interface NagTimesInput {
  *   base   = the latest of: the window's start, now + 20 min, `notBefore`
  *   n      = min(count, whole hours between base and the window's end)
  *   slack  = (end - base) - 60 min x (n - 1)
- *   J      = floor(2 x slack / n)
+ *   J      = floor(1.5 x slack / n)     (slack itself for a single nag)
  *   t(0)   = base + random(0..J)
  *   t(i+1) = t(i) + 60 min + random(0..J)
  *
  * and each t(i) is held back to `end - 60 min x (n - 1 - i)` so the rest
- * still fit. So the nags are spread over what is left of the window (a
- * Gentle day isn't over by lunch, a Relentless one still fits its eleven),
- * and the same day, salt and inputs always give the same times.
+ * still fit (rarely needed: on average the last nag lands three quarters of
+ * the way through the slack). So the nags are spread over what is left of
+ * the window (a Gentle day isn't over by lunch, a Relentless one still fits
+ * its eleven), and the same day, salt and inputs always give the same times.
  */
 export function planNagTimes({ dayKey, salt, window, now, count, notBefore = null, draw = 0 }: NagTimesInput): number[] {
   const startMs = nagMinuteAt(dayKey, window.startMinutes).getTime();
@@ -162,7 +164,7 @@ export function planNagTimes({ dayKey, salt, window, now, count, notBefore = nul
   const n = Math.min(Math.floor(Number.isFinite(count) ? count : 0), Math.floor(room / NAG_MIN_GAP_MINUTES));
   if (n <= 0) return [];
   const slack = room - NAG_MIN_GAP_MINUTES * (n - 1);
-  const jitter = Math.floor((2 * slack) / n);
+  const jitter = Math.floor(((n > 1 ? NAG_SPREAD : 1) * slack) / n);
   const random = seededRandom(`${dayKey}|${salt}|${draw}`);
   const times: number[] = [];
   let at = base;

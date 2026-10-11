@@ -238,7 +238,8 @@ describe("nag mode", () => {
   });
 
   it("one request for the day, with the open tasks and nothing else of the user's", async () => {
-    await openApp(NAG_ON, { todayCompletions: ["t2"] });
+    // A name is saved: it must not be sent.
+    await openApp(NAG_ON, { todayCompletions: ["t2"], momentumProfile: { ...buildInitialState().momentumProfile, name: "Sam" } });
     expect(nagRequests()).toHaveLength(1);
     expect(networkFetch).toHaveBeenCalledTimes(1);
     const [url, init] = nagRequests()[0] as [string, RequestInit];

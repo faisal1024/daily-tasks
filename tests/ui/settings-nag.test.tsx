@@ -121,7 +121,7 @@ const pressAlertButton = (text: string) => act(async () => lastAlert()[2].find((
 describe("Settings: Reminder style", () => {
   it("is Calm by default: two choices in a radio group, no nag controls", async () => {
     await renderSettings();
-    expect(screen.getByLabelText("Reminder style", { selector: (node) => node.props.accessibilityRole === "radiogroup" } as never)).toBeTruthy();
+    expect(screen.getAllByLabelText("Reminder style").some((node) => node.props.accessibilityRole === "radiogroup")).toBe(true);
     expect(checked("Calm")).toBe(true);
     expect(checked("Nag")).toBe(false);
     expect(screen.getByText("Calm nudges at set times that say what's still open.")).toBeOnTheScreen();

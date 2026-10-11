@@ -39,7 +39,6 @@ const input = (overrides: Partial<NagDayInput> = {}): NagDayInput => ({
   plus: true,
   aiAllowed: true,
   tasks: TASKS,
-  firstName: "Sam",
   ...overrides,
 });
 
@@ -109,7 +108,7 @@ describe("the day's lines", () => {
         { id: "t2", text: "Walk the dog" },
       ],
       count: 7,
-      firstName: "Sam",
+      // No name: no AI request carries it.
       timeoutMs: NAG_REQUEST_TIMEOUT_MS,
     });
     const record = await saved();
@@ -175,7 +174,7 @@ describe("the day's lines", () => {
   it.each([
     ["offline", new MomentumAiError("network", "offline")],
     ["a timeout", new MomentumAiError("timeout", "timed out")],
-    ["not Plus on the server", new MomentumAiError("not_entitled", "402", 402)],
+    ["not Plus on the server", new MomentumAiError("needs_plus", "402", 402)],
     ["an unusable answer", new MomentumAiError("invalid_response", "empty")],
     ["anything else", new TypeError("boom")],
   ])("%s: the built-in lines stay, nothing is thrown, and it isn't asked again", async (_name, failure) => {
