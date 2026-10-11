@@ -3944,3 +3944,101 @@ describe("Day-5 trial note placement", () => {
     expect(noteAt).toBeGreaterThan(cardAt);
   });
 });
+
+// --- 1.4 (PR #87): a set day on Today has nothing that changes the three ------
+
+describe("Today on a set day (1.4)", () => {
+  const parked = [
+    { id: "p1", text: "Buy shoes", parkedAt: "2026-09-26T08:00:00.000Z" },
+    { id: "p2", text: "Call mum", parkedAt: "2026-09-26T08:00:00.000Z" },
+  ];
+  const everywhere = { includeHiddenElements: true };
+  /** Every "Not today" on the screen: visible text, the swipe buttons, the hero's line. */
+  const notTodays = () => [
+    ...screen.queryAllByText(/Not today/, everywhere),
+    ...screen.queryAllByLabelText(/Not today/, everywhere),
+  ];
+  const changes = () => [
+    ...screen.queryAllByText(/^Change/, everywhere),
+    ...screen.queryAllByLabelText(/^Change/, everywhere),
+  ];
+
+  it.each([
+    ["set by hand", SET, "Today is set. 1 to go."],
+    [
+      "set automatically",
+      {
+        todayLocked: true,
+        todayLockSource: "auto" as const,
+        // Local noon: the line shows local time.
+        todayLockedAt: new Date(2026, 8, 26, 12, 0).toISOString(),
+      },
+      "Set automatically at 12:00 PM. 1 to go.",
+    ],
+  ])("%s: no Change and no Not today anywhere, and the status is one element pointing to Settings", async (_how, lock, text) => {
+    const sheet = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+    // Walk is done, so Stretch is the hero ("Up next"): the row that used to carry a Not today line.
+    const day = { tasks: tasks("Walk", "Stretch"), todayCompletions: ["t0"] };
+    mockStore = makeStore(day);
+    const { rerender } = await render(<HomeScreen />);
+    // The same day while open does offer it (so the checks below can't pass on a bad query).
+    expect(notTodays().length).toBeGreaterThan(0);
+
+    mockStore = makeStore({ ...day, ...lock });
+    await rerender(<HomeScreen />);
+    expect(screen.getByRole("checkbox", { name: "Up next. Task 2: Stretch" })).toBeOnTheScreen();
+    expect(notTodays()).toEqual([]);
+    expect(changes()).toEqual([]);
+
+    // The hero's menu and its VoiceOver actions.
+    await fireEvent.press(screen.getByTestId("task-words-t1", everywhere));
+    for (const call of sheet.mock.calls) {
+      expect(call[0].options).not.toEqual(expect.arrayContaining(["Not today"]));
+      expect(call[0].options).not.toEqual(expect.arrayContaining(["Edit"]));
+      expect(call[0].options).not.toEqual(expect.arrayContaining(["Delete"]));
+    }
+    for (const box of screen.getAllByRole("checkbox", everywhere)) {
+      const names = (box.props.accessibilityActions ?? []).map((a: { name: string }) => a.name);
+      expect(names).not.toContain("notToday");
+      expect(names).not.toContain("edit");
+      expect(names).not.toContain("delete");
+    }
+
+    // One VoiceOver element: the status, with the way out as its hint.
+    const line = screen.getByTestId("status-line");
+    expect(line.props.accessible).toBe(true);
+    expect(line.props.accessibilityLabel).toBe(`Locked. ${text}`);
+    expect(line.props.accessibilityHint).toBe("Unlock in Settings");
+    expect(within(line).getByText(text)).toBeOnTheScreen();
+    expect(within(line).getByText("Unlock in Settings")).toBeOnTheScreen();
+    // Nothing to tap inside it, and Today never unlocks.
+    expect(within(line).queryAllByRole("button")).toEqual([]);
+    expect(line.props.onPress).toBeUndefined();
+    expect(mockStore.unlockToday).not.toHaveBeenCalled();
+    expect(mockStore.notToday).not.toHaveBeenCalled();
+    sheet.mockRestore();
+  });
+
+  it("saved for later with room left: Add is off, Remove works, and the copy points to Settings", async () => {
+    mockStore = makeStore({ ...SET, tasks: tasks("Walk"), parkedTasks: parked });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("saved-ideas-link"));
+    const sheet = within(screen.getByTestId("ideas-sheet"));
+    expect(sheet.getByTestId("ideas-hint")).toHaveTextContent("Today is set. Unlock it in Settings to add one.");
+    expect(sheet.queryByText(/Free a slot/)).toBeNull();
+
+    for (const item of parked) {
+      const add = sheet.getByRole("button", { name: `Add ${item.text}` });
+      expect(add).toBeDisabled();
+      await fireEvent.press(add);
+    }
+    expect(mockStore.addParkedTask).not.toHaveBeenCalled();
+    expect(mockStore.addTask).not.toHaveBeenCalled();
+
+    const remove = sheet.getByRole("button", { name: "Remove Buy shoes from saved" });
+    expect(remove).toBeEnabled();
+    await fireEvent.press(remove);
+    expect(mockStore.removeParkedTask).toHaveBeenCalledTimes(1);
+    expect(mockStore.removeParkedTask).toHaveBeenCalledWith("p1");
+  });
+});
