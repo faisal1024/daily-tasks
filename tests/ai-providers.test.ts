@@ -178,4 +178,22 @@ describe("providers name the structured output per route", () => {
     await getProvider("openai").generatePlan(callArgs);
     expect(body().text.format.name).toBe("momentum_plan");
   });
+
+  it("a route's output cap reaches both providers; without one the defaults are unchanged", async () => {
+    const anthropicReply = { ok: true, json: async () => ({ content: [{ type: "tool_use", name: "emit_nag_lines", input: {} }] }) };
+    let body = captureFetch(anthropicReply);
+    await getProvider("anthropic").generatePlan({ ...callArgs, toolName: "emit_nag_lines", toolDescription: "d", maxTokens: 1200 });
+    expect(body().max_tokens).toBe(1200);
+    body = captureFetch(anthropicReply);
+    await getProvider("anthropic").generatePlan({ ...callArgs, toolName: "emit_nag_lines", toolDescription: "d" });
+    expect(body().max_tokens).toBe(1500);
+
+    const openaiReply = { ok: true, json: async () => ({ output_text: "{}" }) };
+    body = captureFetch(openaiReply);
+    await getProvider("openai").generatePlan({ ...callArgs, toolName: "emit_nag_lines", maxTokens: 1200 });
+    expect(body().max_output_tokens).toBe(1200);
+    body = captureFetch(openaiReply);
+    await getProvider("openai").generatePlan({ ...callArgs, toolName: "emit_nag_lines" });
+    expect(body()).not.toHaveProperty("max_output_tokens");
+  });
 });

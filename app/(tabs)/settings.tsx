@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
@@ -25,6 +25,7 @@ import { getCurrentVersion } from "@/lib/daily-tasks/app-update";
 import { requestAgendaAccess } from "@/lib/daily-tasks/agenda";
 import { aiFailureMessage } from "@/lib/daily-tasks/ai-status";
 import { getPostHogKey, track } from "@/lib/daily-tasks/analytics";
+import { formatTime } from "@/lib/daily-tasks/date";
 import {
   FEEDBACK_URL,
   MANAGE_SUBSCRIPTIONS_URL,
@@ -33,6 +34,16 @@ import {
   WRITE_REVIEW_URL,
   WRITE_REVIEW_WEB_URL,
 } from "@/lib/daily-tasks/links";
+import {
+  builtInNagLines,
+  MAX_NAG_COUNT,
+  NAG_LEVEL_LABELS,
+  NAG_LEVELS,
+  NAG_PERSONA_LABELS,
+  NAG_PERSONAS,
+  type NagLevel,
+} from "@/lib/daily-tasks/nag";
+import { NAG_LEVEL_COUNTS } from "@/lib/daily-tasks/nag-plan";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { announcePolitely } from "@/lib/daily-tasks/announce";
@@ -41,6 +52,7 @@ import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type {
   NotificationKey,
   NotificationPermissionState,
+  ReminderStyle,
 } from "@/lib/daily-tasks/types";
 
 
@@ -70,6 +82,90 @@ const NOTIFICATION_LABELS: Record<
 const HIDE_TASK_NAMES_HELP =
   "Reminders and the timer's alert won't show what your tasks are.";
 
+/** Under the "Reminder style" choice, by what is chosen. */
+const REMINDER_STYLE_HELP: Record<ReminderStyle, string> = {
+  calm: "Calm nudges at set times that say what's still open.",
+  nag: "Reminders in a voice you pick, at random times, at most one an hour.",
+};
+/** Asked the first time Nag is turned on. */
+const NAG_CONFIRM_TITLE = "Turn on Nag mode?";
+const NAG_CONFIRM_MESSAGE =
+  "Up to twice a day, your open tasks are sent to our AI service so it can write reminders in the voice you pick. They arrive at random times, at most one an hour, and get pushier while tasks stay open.";
+/** Under the style choice, only while Nag is the style in use (chosen, with Plus) and names are hidden. */
+const NAG_HIDDEN_NAMES_NOTE = "With task names hidden, nags won't name your tasks and nothing is sent to our AI service.";
+/** One line under the reminder switches while Nag is on (the three it replaces are disabled). */
+const NAG_CALM_SWITCHES_NOTE = "Morning reminders still apply. The other calm nudges are paused while Nag is on.";
+/** Under the Level chips: how many nags a day the chosen level means. */
+const NAG_LEVEL_COUNT_NOTE: Record<NagLevel, string> = {
+  gentle: `About ${NAG_LEVEL_COUNTS.gentle} a day`,
+  firm: `About ${NAG_LEVEL_COUNTS.firm} a day`,
+  relentless: `About ${NAG_LEVEL_COUNTS.relentless} a day`,
+};
+/** Nag is the style in use but iOS won't deliver anything. */
+const NAG_PERMISSION_DENIED_NOTE = "Notifications are off in System Settings, so no nags arrive.";
+/** What VoiceOver says of a switch Nag has paused (the visible line is NAG_CALM_SWITCHES_NOTE). */
+const NAG_SWITCH_PAUSED_HINT = "Paused while Nag is on.";
+
+/**
+ * One choice out of a few, as a row of chips. To VoiceOver it is a radio
+ * group with its label, and each chip a radio button that says whether it is
+ * the one chosen. With `spokenGroup` each chip's label carries the group
+ * ("Voice: Mom"), for when focus lands on a chip without passing the group.
+ */
+function ChoiceChips<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  testID,
+  spokenGroup = false,
+}: {
+  label: string;
+  options: readonly { value: T; label: string; accessibilityLabel?: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  testID?: string;
+  spokenGroup?: boolean;
+}) {
+  const colors = useColors();
+  return (
+    <View
+      className="flex-row flex-wrap gap-2"
+      accessibilityRole="radiogroup"
+      accessibilityLabel={label}
+      testID={testID}
+    >
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            accessibilityRole="radio"
+            accessibilityLabel={`${spokenGroup ? `${label}: ` : ""}${option.accessibilityLabel ?? option.label}`}
+            accessibilityState={{ checked: selected }}
+            // Vertical padding too: at large text sizes the label wraps and must not touch the border.
+            className="flex-1 rounded-full px-3 py-2 items-center justify-center border"
+            style={{
+              minHeight: 44,
+              minWidth: 84,
+              borderColor: selected ? colors.primary : colors.border,
+              backgroundColor: selected ? `${colors.primary}16` : colors.background,
+            }}
+          >
+            <Text
+              className="text-sm font-semibold text-center"
+              style={{ color: selected ? colors.primary : colors.text }}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 /**
  * A reminder switch with its title and help text. To VoiceOver the row is
  * one element, the switch (role, on/off state, the title as its label and
@@ -82,11 +178,15 @@ function ReminderSwitchRow({
   value,
   onValueChange,
   disabled = false,
+  showSubtitle = true,
   mutedColor,
   trackColor,
 }: {
   title: string;
+  /** The help under the title, and the switch's VoiceOver hint. */
   subtitle: string;
+  /** False: the help is only the VoiceOver hint (one shared line on screen says it for several rows). */
+  showSubtitle?: boolean;
   value: boolean;
   onValueChange: (value: boolean) => void;
   disabled?: boolean;
@@ -105,9 +205,11 @@ function ReminderSwitchRow({
           importantForAccessibility="no-hide-descendants"
         >
           <Text className="text-lg font-bold text-foreground">{title}</Text>
-          <Text className="text-sm mt-1" style={{ color: mutedColor }}>
-            {subtitle}
-          </Text>
+          {showSubtitle ? (
+            <Text className="text-sm mt-1" style={{ color: mutedColor }}>
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
         <Switch
           value={value}
@@ -128,6 +230,7 @@ export default function SettingsScreen() {
   const colors = useColors();
   const {
     state,
+    today,
     notificationPermission,
     setAutoLockEnabled,
     setAutoLockTime,
@@ -135,6 +238,12 @@ export default function SettingsScreen() {
     setNotificationsEnabled,
     setNotificationEnabled,
     setHideTaskNamesInNotifications,
+    setReminderStyle,
+    setNagPersona,
+    setNagLevel,
+    setNagWindowEdge,
+    pauseNagToday,
+    resumeNag,
     refreshNotificationPermission,
     requestNotificationPermission,
     completeMomentumOnboarding,
@@ -147,8 +256,14 @@ export default function SettingsScreen() {
     setAnalyticsEnabled,
   } = useDailyTasks();
   const plus = usePlus();
-  // Nothing to resume from these gates: the toggle or button is right there.
-  const showPaywall = usePaywallGate<never>(() => {});
+  // Only Nag mode picks up after the paywall (it still has a question to
+  // ask); for the other gates the toggle or button is right there.
+  const hasPlusRef = useRef(hasPlus);
+  hasPlusRef.current = hasPlus;
+  const turnNagOnRef = useRef<() => Promise<void>>(async () => {});
+  const showPaywall = usePaywallGate<"nag">(() => {
+    if (hasPlusRef.current) void turnNagOnRef.current();
+  });
   const [routinesOpen, setRoutinesOpen] = useState(false);
   const pausedRoutines = state.routines.filter((routine) => routine.paused).length;
   const [restoring, setRestoring] = useState(false);
@@ -243,6 +358,73 @@ export default function SettingsScreen() {
 
     setNotificationsEnabled(true);
   };
+
+  // Nag mode (1.4): Plus-only and opt-in. A saved "nag" without Plus shows
+  // and behaves as Calm; the choice itself is kept.
+  const nagActive = state.notifications.style === "nag" && hasPlus;
+  const reminderStyle: ReminderStyle = nagActive ? "nag" : "calm";
+  const nagPaused = state.notifications.nagPausedDate === today;
+
+  const turnNagOn = async () => {
+    if (notificationPermission !== "granted") {
+      const status = await requestNotificationPermission();
+      if (status !== "granted") {
+        Alert.alert(
+          "Notifications unavailable",
+          "Allow notifications in System Settings to get reminders for Today's Three.",
+        );
+        return;
+      }
+    }
+    // Asked once: after that Nag turns on with one tap.
+    if (state.notifications.nagConfirmed) {
+      setReminderStyle("nag");
+      return;
+    }
+    Alert.alert(NAG_CONFIRM_TITLE, NAG_CONFIRM_MESSAGE, [
+      { text: "Not now", style: "cancel" },
+      { text: "Turn on", style: "default", onPress: () => setReminderStyle("nag") },
+    ]);
+  };
+  turnNagOnRef.current = turnNagOn;
+
+  const chooseReminderStyle = (style: ReminderStyle) => {
+    if (style === reminderStyle) return;
+    if (style === "calm") {
+      setReminderStyle("calm");
+      return;
+    }
+    if (!hasPlus) {
+      showPaywall("nag_mode", { feature: "nag_mode", resume: "nag" });
+      return;
+    }
+    void turnNagOn();
+  };
+
+  // A sample of how the chosen voice and level sound: built-in lines, about
+  // the next open task unless names are hidden. Nothing is sent for it.
+  const [sampleTurn, setSampleTurn] = useState(0);
+  const sampleTask = state.notifications.hideTaskNames
+    ? null
+    : (state.tasks.find((task) => !state.todayCompletions.includes(task.id))?.text ?? null);
+  const { nagPersona, nagLevel } = state.notifications;
+  const samples = useMemo(
+    () =>
+      builtInNagLines({
+        persona: nagPersona,
+        level: nagLevel,
+        tasks: sampleTask ? [{ text: sampleTask }] : [],
+        count: MAX_NAG_COUNT,
+        seed: "sample",
+      }).map((line) => line.text),
+    [nagPersona, nagLevel, sampleTask],
+  );
+  const sample = samples.length > 0 ? samples[sampleTurn % samples.length] : "";
+  // The window's two pickers sit behind one row, so the card stays short.
+  const [nagHoursOpen, setNagHoursOpen] = useState(false);
+  const { startMinutes: nagStart, endMinutes: nagEnd } = state.notifications.nagWindow;
+  // The device's own 12 or 24 hour format.
+  const nagHours = `${formatTime(Math.floor(nagStart / 60), nagStart % 60)} to ${formatTime(Math.floor(nagEnd / 60), nagEnd % 60)}`;
 
   const handleAgendaEnabled = async (value: boolean) => {
     // Only Plus requests use it: don't ask for access a free user can't use.
@@ -773,28 +955,219 @@ export default function SettingsScreen() {
               )}
           </View>
 
+          {/* Calm or Nag (1.4). Nag is Plus-only and opt-in. */}
+          <View className="bg-surface rounded-2xl p-4 border border-border gap-3" testID="settings-reminder-style">
+            <Text accessibilityRole="header" className="text-base font-semibold text-foreground">
+              Reminder style
+            </Text>
+            <ChoiceChips<ReminderStyle>
+              label="Reminder style"
+              value={reminderStyle}
+              onChange={chooseReminderStyle}
+              options={[
+                { value: "calm", label: "Calm" },
+                hasPlus
+                  ? { value: "nag", label: "Nag" }
+                  : { value: "nag", label: "Nag · Plus", accessibilityLabel: "Nag, Plus" },
+              ]}
+            />
+            <Text className="text-xs" style={{ color: colors.muted }}>
+              {REMINDER_STYLE_HELP[reminderStyle]}
+            </Text>
+            {nagActive && state.notifications.hideTaskNames ? (
+              <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-hidden-names">
+                {NAG_HIDDEN_NAMES_NOTE}
+              </Text>
+            ) : null}
+            {nagActive && !state.notifications.enabled ? (
+              <Text className="text-xs" style={{ color: colors.muted }}>
+                Notifications are off, so no nags arrive.
+              </Text>
+            ) : null}
+            {nagActive && notificationPermission === "denied" ? (
+              <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-permission-denied">
+                {NAG_PERMISSION_DENIED_NOTE}
+              </Text>
+            ) : null}
+          </View>
+
+          {nagActive ? (
+            <View className="bg-surface rounded-2xl p-4 border border-border gap-4" testID="settings-nag">
+              <View className="gap-2">
+                <Text className="text-sm font-semibold text-foreground">Voice</Text>
+                <ChoiceChips
+                  label="Voice"
+                  spokenGroup
+                  value={nagPersona}
+                  onChange={setNagPersona}
+                  options={NAG_PERSONAS.map((persona) => ({ value: persona, label: NAG_PERSONA_LABELS[persona] }))}
+                />
+              </View>
+              <View className="gap-2">
+                <Text className="text-sm font-semibold text-foreground">Level</Text>
+                <ChoiceChips
+                  label="Level"
+                  spokenGroup
+                  value={nagLevel}
+                  onChange={setNagLevel}
+                  options={NAG_LEVELS.map((level) => ({ value: level, label: NAG_LEVEL_LABELS[level] }))}
+                />
+                <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-level-count">
+                  {NAG_LEVEL_COUNT_NOTE[nagLevel]}
+                </Text>
+              </View>
+              <View className="gap-1">
+                <Text className="text-sm font-semibold text-foreground">Sample</Text>
+                <Text
+                  className="text-sm"
+                  style={{ color: colors.muted }}
+                  accessibilityLabel={`Sample: ${sample}`}
+                  testID="settings-nag-sample"
+                >
+                  {sample}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    setSampleTurn(sampleTurn + 1);
+                    // The line changes in place: say the new one.
+                    if (samples.length > 0) announcePolitely(samples[(sampleTurn + 1) % samples.length]);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Show another"
+                  accessibilityHint="Shows another sample line"
+                  hitSlop={8}
+                  className="self-start justify-center"
+                  style={{ minHeight: 32 }}
+                >
+                  <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                    Show another
+                  </Text>
+                </Pressable>
+              </View>
+              <View className="gap-3">
+                <Pressable
+                  onPress={() => setNagHoursOpen(!nagHoursOpen)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Nag hours: ${nagHours}`}
+                  accessibilityHint={nagHoursOpen ? "Hides the start and end times" : "Shows the start and end times"}
+                  accessibilityState={{ expanded: nagHoursOpen }}
+                  className="flex-row items-center justify-between gap-3"
+                  style={{ minHeight: 44 }}
+                  testID="settings-nag-hours"
+                >
+                  <Text className="text-sm font-semibold text-foreground">Nag hours</Text>
+                  <View className="flex-1 flex-row items-center justify-end gap-1">
+                    <Text className="text-sm text-right" style={{ color: colors.muted, flexShrink: 1 }}>
+                      {nagHours}
+                    </Text>
+                    <Ionicons name={nagHoursOpen ? "chevron-up" : "chevron-down"} size={18} color={colors.muted} />
+                  </View>
+                </Pressable>
+                {nagHoursOpen ? (
+                  <>
+                    <TimePickerRow
+                      label="From"
+                      accessibilityLabel="Nag from"
+                      hour={Math.floor(nagStart / 60)}
+                      minute={nagStart % 60}
+                      onChange={(hour, minute) => setNagWindowEdge("start", hour * 60 + minute)}
+                    />
+                    <TimePickerRow
+                      label="Until"
+                      accessibilityLabel="Nag until"
+                      hour={Math.floor(nagEnd / 60)}
+                      minute={nagEnd % 60}
+                      onChange={(hour, minute) => setNagWindowEdge("end", hour * 60 + minute)}
+                    />
+                    <Text className="text-xs" style={{ color: colors.muted }}>
+                      Nags only arrive between these times. The window is at least 3 hours long.
+                    </Text>
+                  </>
+                ) : null}
+              </View>
+              {nagPaused ? (
+                <View className="flex-row items-center justify-between gap-4" style={{ minHeight: 44 }}>
+                  <Text
+                    className="flex-1 text-sm text-foreground"
+                    testID="settings-nag-paused"
+                  >
+                    Nagging is off until tomorrow
+                  </Text>
+                  <Pressable
+                    onPress={() => {
+                      resumeNag();
+                      announcePolitely("Nagging is back on");
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Resume"
+                    accessibilityHint="Turns today's nags back on"
+                    hitSlop={8}
+                    className="rounded-full px-4 justify-center"
+                    style={{ minHeight: 44, backgroundColor: `${colors.primary}16` }}
+                  >
+                    <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                      Resume
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    pauseNagToday("settings");
+                    announcePolitely("Nagging is off until tomorrow");
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Stop nagging me today"
+                  accessibilityHint="No more nags today. Morning reminders stay."
+                  className="rounded-full px-4 items-center justify-center self-start"
+                  style={{ minHeight: 44, backgroundColor: `${colors.primary}16` }}
+                >
+                  <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                    Stop nagging me today
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          ) : null}
+
           <View className="gap-3">
             {(Object.keys(NOTIFICATION_LABELS) as NotificationKey[]).map(
               (key) => {
                 const meta = NOTIFICATION_LABELS[key];
+                // Nags take the place of the daytime and evening nudges.
+                const replacedByNags = nagActive && key !== "morning";
                 // Hourly mode supersedes the spaced progress/evening nudges.
                 const pausedByHourly =
+                  !replacedByNags &&
                   state.notifications.hourly &&
                   (key === "progress" || key === "evening");
                 return (
                   <ReminderSwitchRow
                     key={key}
                     title={meta.title}
-                    subtitle={pausedByHourly ? "Paused while Every hour is on." : meta.subtitle}
+                    subtitle={
+                      replacedByNags
+                        ? NAG_SWITCH_PAUSED_HINT
+                        : pausedByHourly
+                          ? "Paused while Every hour is on."
+                          : meta.subtitle
+                    }
                     value={state.notifications[key]}
                     onValueChange={(value) => void handleReminderEnabled(key, value)}
-                    disabled={pausedByHourly}
+                    disabled={pausedByHourly || replacedByNags}
+                    // One line under the switches says it for all three.
+                    showSubtitle={!replacedByNags}
                     mutedColor={colors.muted}
                     trackColor={colors.primary}
                   />
                 );
               },
             )}
+            {nagActive ? (
+              <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-calm-note">
+                {NAG_CALM_SWITCHES_NOTE}
+              </Text>
+            ) : null}
             {/* What the reminders say, not when: it never asks for permission. */}
             <Text
               accessibilityRole="header"

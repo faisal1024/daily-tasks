@@ -138,6 +138,41 @@ describe("worker fetch", () => {
     expect(stub.spend).toHaveBeenCalledWith({ keys: ["ip:203.0.113.7", userKey], free: [] });
   });
 
+  it("serves nag-lines on the Worker too: Plus-only, sanitised, with the route's output cap", async () => {
+    const payload = { persona: "mom", level: "gentle", tasks: [{ text: "Call the dentist" }], count: 4 };
+    provider.generatePlan.mockResolvedValueOnce({
+      lines: [
+        { step: 1, taskIndex: 0, text: "Dentist, honey. Just asking." },
+        { step: 2, taskIndex: null, text: "Still open, sweetie." },
+        { step: 3, taskIndex: null, text: "One more tick?" },
+        { step: 4, taskIndex: 5, text: "A task that was never sent." },
+      ],
+    } as unknown as typeof PLAN_RESULT);
+    const { default: worker } = await loadWorker();
+    const { env } = fakeEnv();
+    const res = await worker.fetch(request("/api/momentum/nag-lines", { body: JSON.stringify(payload) }), env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      lines: [
+        { step: 1, taskIndex: 0, text: "Dentist, honey. Just asking." },
+        { step: 2, taskIndex: null, text: "Still open, sweetie." },
+        { step: 3, taskIndex: null, text: "One more tick?" },
+      ],
+    });
+    const calls = provider.generatePlan.mock.calls as unknown as [{ toolName: string; maxTokens: number }][];
+    expect(calls[0][0]).toMatchObject({ toolName: "emit_nag_lines", maxTokens: 1200 });
+
+    // A free user is refused once the Plus check is enforced.
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ subscriber: { entitlements: {} } })));
+    const { default: enforced } = await loadWorker();
+    const refused = await enforced.fetch(
+      request("/api/momentum/nag-lines", { body: JSON.stringify(payload), headers: { "x-rc-user": RC } }),
+      fakeEnv({ ENTITLEMENT_MODE: "enforce", REVENUECAT_SECRET_KEY: "sk_test" }).env,
+    );
+    expect(refused.status).toBe(402);
+    expect(await refused.json()).toEqual({ error: "Plus required" });
+  });
+
   it("answers a clean 503 JSON with CORS when the Limits object throws", async () => {
     const { default: worker } = await loadWorker();
     const { env, stub } = fakeEnv({ CORS_ORIGIN: "https://app.example" });

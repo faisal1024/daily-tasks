@@ -49,6 +49,8 @@ export interface ReminderPlanItem {
   interruptionLevel?: "passive" | "active" | "timeSensitive" | "critical";
   /** true for the default sound, or a bundled sound's file name. Silent without it. */
   sound?: boolean | string;
+  /** A registered notification category, for its buttons (a nag's "Stop for today"). */
+  categoryId?: string;
 }
 
 export type ReminderPlan = ReminderPlanItem[];
@@ -95,6 +97,8 @@ export interface ReminderContext {
    * time has passed); null when unknown. For spacing, e.g. one an hour.
    */
   lastDeliveredAt: Date | null;
+  /** Plus is active, for a strategy that is Plus-only (nag mode). Absent means no. */
+  plus?: boolean;
 }
 
 export type ReminderStrategy = (context: ReminderContext) => ReminderPlan | Promise<ReminderPlan>;

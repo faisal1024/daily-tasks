@@ -235,6 +235,8 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
         schema: route.schema,
         toolName: route.toolName,
         toolDescription: route.toolDescription,
+        // Only routes that set their own output cap pass one on.
+        ...(route.maxTokens ? { maxTokens: route.maxTokens } : {}),
       });
       if (!route.isValidResult(result, payload)) {
         logger.error(`[momentum-ai] ${provider.id} returned an invalid ${route.name}; keys=${summarizeForLog(result)}`);

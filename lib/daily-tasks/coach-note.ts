@@ -103,7 +103,8 @@ export function coachNoteKind(completedCount: number): CoachNoteKind {
 export function localCoachLine(kind: CoachNoteKind, taskText: string, dateKey: string): string {
   const lines = kind === "start" ? START_LINES : MOMENTUM_LINES;
   const template = pickStable<string>([...lines], [dateKey, kind, coachTaskKey(taskText)]);
-  return template.replace("{task}", quoteTask(taskText));
+  // A function, so "$$" or "$&" in a task is put in as typed, not read as a replacement pattern.
+  return template.replace("{task}", () => quoteTask(taskText));
 }
 
 /** Today's AI lines for this task, if the cache has them. */

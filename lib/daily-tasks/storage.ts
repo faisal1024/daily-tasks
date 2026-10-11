@@ -5,6 +5,8 @@ import { todayKey } from "./date";
 import { migrateCompletedMilestoneIds, migrateMilestoneId } from "./milestones";
 import { DEFAULT_JOURNEY, type Journey } from "./journey";
 import { MAX_SESSION_MS, type FocusSession } from "./focus-session";
+import { NAG_LEVELS, NAG_PERSONAS } from "./nag";
+import { NAG_STORAGE_KEY, normalizeNagWindow } from "./nag-plan";
 import { normalizeRoutines } from "./routines";
 import { isReviewTrigger } from "./review-prompt";
 import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
@@ -177,6 +179,33 @@ function getLegacySlotEnabled(value: unknown): boolean | undefined {
   return typeof value.enabled === "boolean" ? value.enabled : undefined;
 }
 
+/**
+ * The Nag mode settings (1.4). Anything missing or damaged loads as the
+ * default: Calm, Mom, Firm, 9:00 to 21:00, not paused. A saved "nag" is kept
+ * whoever has Plus; whether it applies is decided when reminders are planned.
+ */
+function normalizeNagSettings(
+  value: Record<string, unknown>,
+): Pick<NotificationConfig, "style" | "nagConfirmed" | "nagPersona" | "nagLevel" | "nagWindow" | "nagPausedDate"> {
+  const style = value.style === "nag" ? "nag" : "calm";
+  return {
+    style,
+    // A saved "nag" was confirmed when it was chosen.
+    nagConfirmed: value.nagConfirmed === true || style === "nag",
+    nagPersona: (NAG_PERSONAS as readonly unknown[]).includes(value.nagPersona)
+      ? (value.nagPersona as NotificationConfig["nagPersona"])
+      : DEFAULT_NOTIFICATIONS.nagPersona,
+    nagLevel: (NAG_LEVELS as readonly unknown[]).includes(value.nagLevel)
+      ? (value.nagLevel as NotificationConfig["nagLevel"])
+      : DEFAULT_NOTIFICATIONS.nagLevel,
+    nagWindow: normalizeNagWindow(value.nagWindow),
+    nagPausedDate:
+      typeof value.nagPausedDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.nagPausedDate)
+        ? value.nagPausedDate
+        : null,
+  };
+}
+
 function normalizeNotifications(value: unknown): NotificationConfig {
   if (!isRecord(value)) {
     return DEFAULT_NOTIFICATIONS;
@@ -202,6 +231,7 @@ function normalizeNotifications(value: unknown): NotificationConfig {
         typeof value.hourly === "boolean" ? value.hourly : DEFAULT_NOTIFICATIONS.hourly,
       // Only a saved `true` hides them; anything else shows task names (the default).
       hideTaskNames: value.hideTaskNames === true,
+      ...normalizeNagSettings(value),
     };
   }
 
@@ -222,6 +252,7 @@ function normalizeNotifications(value: unknown): NotificationConfig {
         : DEFAULT_NOTIFICATIONS.evening,
     hourly: DEFAULT_NOTIFICATIONS.hourly,
     hideTaskNames: value.hideTaskNames === true,
+      ...normalizeNagSettings(value),
   };
 }
 
@@ -808,8 +839,9 @@ export async function clearState(): Promise<void> {
   // "Reset all data" is deliberate: drop the backup too, and allow writes again.
   writesBlocked = false;
   try {
-    // The trial note's local counts and record go too (they're about this data).
-    await AsyncStorage.multiRemove([STORAGE_KEY, BACKUP_KEY, PLUS_USES_KEY, TRIAL_NOTE_KEY]);
+    // The trial note's local counts and record go too (they're about this data),
+    // and the day's nag lines (they can hold task text).
+    await AsyncStorage.multiRemove([STORAGE_KEY, BACKUP_KEY, PLUS_USES_KEY, TRIAL_NOTE_KEY, NAG_STORAGE_KEY]);
   } catch (err) {
     console.warn("[daily-tasks] failed to clear state", err);
   }
