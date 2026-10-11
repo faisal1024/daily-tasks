@@ -1,7 +1,8 @@
 // Phase 3 components: BrainDumpSheet, the parked section + Set these three of the
 // IdeasSheet, and TaskRow's step checklist / Break it down link.
 import { Ionicons } from "@expo/vector-icons";
-import { act, fireEvent, screen } from "@testing-library/react-native";
+import { ActionSheetIOS } from "react-native";
+import { act, fireEvent, screen, within } from "@testing-library/react-native";
 
 import { BrainDumpSheet } from "@/components/daily-tasks/brain-dump-sheet";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
@@ -122,6 +123,80 @@ describe("BrainDumpSheet", () => {
     );
     expect(p.onConfirm).toHaveBeenCalledWith([], ["Finish report", "Call mum", "Buy shoes"]);
     expect(p.onClose).not.toHaveBeenCalled();
+  });
+
+  describe("on a set day (the day was set while the sheet was open)", () => {
+    it("the write step says everything will be saved, not that some go on today", async () => {
+      const p = props({ openSlots: 2 });
+      const { rerender } = await render(<BrainDumpSheet {...p} />);
+      expect(screen.getByTestId("brain-dump-write-hint")).toHaveTextContent(
+        "Get it all out of your head: errands, worries, ideas. We'll suggest up to 2 for today and save the rest.",
+      );
+      await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "call mum");
+      await rerender(<BrainDumpSheet {...p} locked />);
+      expect(screen.getByTestId("brain-dump-write-hint")).toHaveTextContent(
+        "Get it all out of your head: errands, worries, ideas. Today is set, so everything is saved in Ideas.",
+      );
+      expect(screen.queryByText(/for today/)).toBeNull();
+      // What was typed is still there, and can still be sorted.
+      expect(screen.getByLabelText("Brain dump text").props.value).toBe("call mum");
+      expect(screen.getByRole("button", { name: "Sort it for me" })).toBeEnabled();
+    });
+
+    it("the review lists every item plainly: nothing ticked, nothing to tick, no 'add to today' hint", async () => {
+      const p = props({ locked: true });
+      await render(<BrainDumpSheet {...p} />);
+      await writeAndSort();
+      expect(screen.getByTestId("brain-dump-review-hint")).toHaveTextContent(
+        "Today is set, so these are saved in Ideas for another day.",
+      );
+      expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+      const saved = screen.getAllByTestId("brain-dump-saved-row");
+      expect(saved.map((row) => row.props.accessibilityLabel)).toEqual([
+        "Finish report, saved for later",
+        "Call mum, saved for later",
+        "Buy shoes, saved for later",
+      ]);
+      for (const row of saved) {
+        expect(row.props.accessibilityHint).toBeUndefined();
+        expect(row.props.onPress).toBeUndefined();
+        await fireEvent.press(row);
+      }
+      expect(screen.queryByText("Later")).toBeNull();
+      expect(screen.queryByText(/to today/)).toBeNull();
+      expect(screen.queryByRole("button", { name: /to today$/ })).toBeNull();
+      // Nothing is lost: the one button saves all three.
+      await fireEvent.press(screen.getByRole("button", { name: "Save all for later" }));
+      expect(p.onConfirm).toHaveBeenCalledTimes(1);
+      expect(p.onConfirm).toHaveBeenCalledWith([], ["Finish report", "Call mum", "Buy shoes"]);
+    });
+
+    it("set while the review is open: the ticks go, and closing still saves everything", async () => {
+      const p = props();
+      const { rerender } = await render(<BrainDumpSheet {...p} />);
+      await writeAndSort();
+      expect(screen.getByRole("checkbox", { name: "Finish report" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Finish report" }).props.accessibilityHint).toBe(
+        "Double-tap to save for later instead",
+      );
+      expect(screen.getByRole("checkbox", { name: "Buy shoes" }).props.accessibilityHint).toBe("Double-tap to add to today");
+
+      await rerender(<BrainDumpSheet {...p} locked />);
+      expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+      expect(screen.getAllByTestId("brain-dump-saved-row")).toHaveLength(3);
+      expect(screen.getByRole("button", { name: "Save all for later" })).toBeOnTheScreen();
+      await fireEvent.press(screen.getByRole("button", { name: "Close and save everything for later" }));
+      expect(p.onConfirm).toHaveBeenCalledTimes(1);
+      expect(p.onConfirm).toHaveBeenCalledWith([], ["Finish report", "Call mum", "Buy shoes"]);
+      expect(p.onClose).not.toHaveBeenCalled();
+    });
+
+    it("Edit what I wrote is still there, with the words kept", async () => {
+      await render(<BrainDumpSheet {...props({ locked: true })} />);
+      await writeAndSort("a\nb");
+      await fireEvent.press(screen.getByRole("button", { name: "Edit what I wrote" }));
+      expect(screen.getByLabelText("Brain dump text").props.value).toBe("a\nb");
+    });
   });
 
   it("shows the fallback notice when sorting fell back to the simple split", async () => {
@@ -337,6 +412,52 @@ describe("TaskRow: steps and Break it down", () => {
     await rerender(<TaskRow {...props()} hero task={base} onBreakDown={onBreakDown} />);
     await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
     expect(onBreakDown).toHaveBeenCalledTimes(1);
+  });
+
+  it("the hero's line of links is only there when it has one: no empty gap under a set day's task", async () => {
+    const line = () => screen.queryByTestId("task-hero-actions-t1");
+    // An open day: Not today (and Break it down, with a handler), as before.
+    const { rerender } = await render(<TaskRow {...props()} hero task={base} />);
+    expect(line()).not.toBeNull();
+    expect(line()?.props.style).toMatchObject({ marginTop: 6 });
+    expect(within(line()!).getByRole("button", { name: "Not today: Clean kitchen" })).toBeOnTheScreen();
+    await rerender(<TaskRow {...props()} hero task={base} onBreakDown={jest.fn()} />);
+    expect(line()?.props.children.filter(Boolean)).toHaveLength(2);
+
+    // A set day: no Not today. With nothing else to offer, the line is gone, margin and all.
+    await rerender(<TaskRow {...props()} editable={false} hero task={base} />);
+    expect(line()).toBeNull();
+    expect(screen.queryByRole("button", { name: "Not today: Clean kitchen" })).toBeNull();
+    expect(screen.queryByText("Not today")).toBeNull();
+    await rerender(<TaskRow {...props()} editable={false} hero task={base} onBreakDown={jest.fn()} breakDownDisabled />);
+    expect(line()).toBeNull();
+    await rerender(<TaskRow {...props()} editable={false} hero task={withSteps} onBreakDown={jest.fn()} />);
+    expect(line()).toBeNull();
+    // Break it down is a finishing aid, so it stays on a set day, and its line with it.
+    await rerender(<TaskRow {...props()} editable={false} hero task={base} onBreakDown={jest.fn()} />);
+    expect(line()).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Break down Clean kitchen" })).toBeOnTheScreen();
+    expect(line()?.props.children.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("an edit still open when the day is set closes without saving: the task keeps its words (the store refuses edits on a set day)", async () => {
+    const sheet = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+    const p = props();
+    const { rerender } = await render(<TaskRow {...p} task={base} />);
+    await fireEvent.press(screen.getByTestId("task-words-t1", { includeHiddenElements: true }));
+    const [{ options }, pick] = sheet.mock.calls[0] as [{ options: string[] }, (index: number) => void];
+    await act(async () => pick(options.indexOf("Edit")));
+    await fireEvent.changeText(screen.getByLabelText("Edit task 1"), "Clean the whole kitchen");
+
+    await rerender(<TaskRow {...p} editable={false} task={base} />);
+    expect(screen.queryByLabelText("Edit task 1")).toBeNull();
+    expect(p.onEdit).not.toHaveBeenCalled();
+    expect(screen.getByText("Clean kitchen", { includeHiddenElements: true })).toBeOnTheScreen();
+    // Unlocked again: the field doesn't come back by itself, and nothing was saved meanwhile.
+    await rerender(<TaskRow {...p} task={base} />);
+    expect(screen.queryByLabelText("Edit task 1")).toBeNull();
+    expect(p.onEdit).not.toHaveBeenCalled();
+    sheet.mockRestore();
   });
 
   it("shows progress while breaking down, with no Break it down link", async () => {

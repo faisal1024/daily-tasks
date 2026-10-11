@@ -629,9 +629,18 @@ export function TaskRow({
             {/* The next task shows its secondary actions; the rest use the menu.
                 Not while it's timed: the check-in, focus screen and long-press
                 menu have them, and the row stays calm. */}
-            {hero && !editing && !completed && !breakingDown && !session ? (
+            {hero &&
+            !editing &&
+            !completed &&
+            !breakingDown &&
+            !session &&
+            // Nothing to show (a set day's row that can't be broken down): no empty line under the words.
+            (actions.includes("breakDown") || actions.includes("notToday")) ? (
               // Wraps at the larger text sizes rather than running off the card.
-              <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 16, rowGap: 4, marginTop: 6 }}>
+              <View
+                style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 16, rowGap: 4, marginTop: 6 }}
+                testID={tid(`task-hero-actions-${task.id}`)}
+              >
                 {actions.includes("breakDown") ? (
                   <Pressable
                     onPress={() => run("breakDown")}

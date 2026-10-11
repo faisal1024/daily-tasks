@@ -44,12 +44,17 @@ export function milestoneKey(milestone: Pick<MomentumMilestone, "id" | "title">)
 
 // The title leads and a small, concrete action follows, so the line reads as
 // a task on today's list. Each line's minutes match what the line says.
-const TEMPLATES: { minutes: number; action: string }[] = [
-  { minutes: 10, action: "10 easy minutes" },
+const TEMPLATES: { minutes: number; action: string; timed?: boolean }[] = [
+  { minutes: 10, action: "10 easy minutes", timed: true },
   { minutes: 5, action: "do the first small step" },
-  { minutes: 15, action: "15 focused minutes" },
+  { minutes: 15, action: "15 focused minutes", timed: true },
   { minutes: 5, action: "plan the next small step" },
 ];
+/**
+ * A title that already names a length of time ("Run for 10 minutes", "Read
+ * 1 hr a day"): a digit followed by min, minute(s), hour(s) or hr(s).
+ */
+const NAMES_A_DURATION = /\d[\s-]*(?:min(?:ute)?s?|hours?|hrs?)\b/i;
 const SEPARATOR = ": ";
 
 const inRange = (code: number, from: number, to: number) => code >= from && code <= to;
@@ -72,9 +77,13 @@ const isFlagHalf = (code: number) => inRange(code, 0x1f1e6, 0x1f1ff);
  * Uses Intl.Segmenter where the engine has it; otherwise a small built-in rule.
  */
 export function splitGraphemes(text: string, useIntl = true): string[] {
-  const Segmenter = (Intl as unknown as { Segmenter?: new (locale?: string, options?: object) => {
-    segment(input: string): Iterable<{ segment: string }>;
-  } }).Segmenter;
+  // Some engines have no Intl at all: then it's the built-in rule.
+  const Segmenter =
+    typeof Intl !== "undefined"
+      ? (Intl as unknown as { Segmenter?: new (locale?: string, options?: object) => {
+          segment(input: string): Iterable<{ segment: string }>;
+        } }).Segmenter
+      : undefined;
   if (useIntl && typeof Segmenter === "function") {
     try {
       return Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
@@ -107,7 +116,7 @@ export function cutGraphemes(text: string, max: number): string {
   return out;
 }
 
-const TRAILING_PUNCTUATION = /[\s.,;:!?\-–—]+$/;
+const TRAILING_PUNCTUATION = /[\s.,;:!?\-–—…。！？、]+$/;
 
 /** One line, no quote marks, no closing punctuation, cut at a word with an ellipsis if long. */
 export function shortMilestoneTitle(title: string, max: number): string {
@@ -150,8 +159,13 @@ export function localMilestoneIdeas(
   const opener = shortMilestoneTitle(lead, MAX_IDEA_TEXT) ? lead : milestone.title;
   if (!shortMilestoneTitle(opener, MAX_IDEA_TEXT)) return [];
   const start = hash(`${today}|${milestone.id}`) % TEMPLATES.length;
-  return TEMPLATES.map((_, offset) => {
-    const index = (start + offset) % TEMPLATES.length;
+  const order = TEMPLATES.map((_, offset) => (start + offset) % TEMPLATES.length);
+  // A title with its own length of time gets the lines without one first, so
+  // the pair shown never reads "Run for 10 minutes: 10 easy minutes".
+  const preferred = NAMES_A_DURATION.test(opener)
+    ? [...order.filter((index) => !TEMPLATES[index].timed), ...order.filter((index) => TEMPLATES[index].timed)]
+    : order;
+  return preferred.map((index) => {
     const template = TEMPLATES[index];
     const room = MAX_IDEA_TEXT - SEPARATOR.length - template.action.length;
     return {
@@ -160,6 +174,15 @@ export function localMilestoneIdeas(
       estimatedMinutes: template.minutes,
     };
   });
+}
+
+/**
+ * Whether the group still has an idea that isn't on today's list. `addedTexts`
+ * holds today's task texts, trimmed and lower-cased (as the Ideas sheet marks
+ * an idea as added).
+ */
+export function hasMilestoneIdeaToAdd(group: Pick<MilestoneIdeaGroup, "ideas">, addedTexts: ReadonlySet<string>): boolean {
+  return group.ideas.some((idea) => !addedTexts.has(textKey(idea.text)));
 }
 
 /**

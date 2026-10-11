@@ -92,13 +92,13 @@ import {
   requestCoachNotes,
   showsCoachNote,
 } from "@/lib/daily-tasks/coach-note";
-import { addDays, fromDateKey, greetingFor, greetingText } from "@/lib/daily-tasks/date";
+import { addDays, fromDateKey, greetingFor, greetingText, storeDayFor, todayKey } from "@/lib/daily-tasks/date";
 import { recordPlusUse } from "@/lib/daily-tasks/trial-note";
 import { sessionEndedAnnouncement, STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
 import { durationWords, timerMenuLengths } from "@/lib/daily-tasks/focus-timer";
 import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-storage";
 import { nextIncompleteMilestone, pathSourceOf } from "@/lib/daily-tasks/milestones";
-import { buildMilestoneIdeaGroup } from "@/lib/daily-tasks/milestone-ideas";
+import { buildMilestoneIdeaGroup, hasMilestoneIdeaToAdd } from "@/lib/daily-tasks/milestone-ideas";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import {
@@ -465,10 +465,17 @@ export default function HomeScreen() {
       reorderTo(id, toIndex, fromIndex, "drag");
     },
   });
+  // The list as it is now, for a choice made in a menu that was opened
+  // earlier: the menu's handlers still hold the list as it was then, and a
+  // widget tick or midnight may have changed it underneath.
+  const listNow = useRef({ tasks: state.tasks, completions: state.todayCompletions, today });
+  listNow.current = { tasks: state.tasks, completions: state.todayCompletions, today };
   const handleMove = (id: string, direction: "up" | "down") => {
-    const from = openTaskIndex(state.tasks, state.todayCompletions, id);
+    // The list as it is now, not as it was when the menu opened.
+    const now = listNow.current;
+    const from = openTaskIndex(now.tasks, now.completions, id);
     if (from < 0) return;
-    const options = reorderOptions(state.tasks, state.todayCompletions, id);
+    const options = reorderOptions(now.tasks, now.completions, id);
     // "Up" from the second place is "Do this next": still a move if it's asked for.
     if (direction === "up" ? from < 1 : !options.canMoveDown) return;
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
@@ -477,7 +484,18 @@ export default function HomeScreen() {
     setMovedFocus((current) => ({ id, tick: (current?.tick ?? 0) + 1 }));
   };
   const handleDoNext = (id: string, text: string) => {
-    if (!reorderOptions(state.tasks, state.todayCompletions, id).canDoNext) return;
+    const now = listNow.current;
+    // Already next, done or gone by now (the menu was opened before a widget
+    // tick or another change): the store would do nothing, so nothing is
+    // tracked or said.
+    if (!reorderOptions(now.tasks, now.completions, id).canDoNext) return;
+    // Past midnight with yesterday still on screen: the store turns the day
+    // first and the move lands on the new day, where this task may not be.
+    // Let it through, but don't count or announce a move that may not happen.
+    if (storeDayFor(now.today, todayKey()) !== now.today) {
+      makeTaskNext(id);
+      return;
+    }
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     reorder.animateNext(() => makeTaskNext(id));
     setReordered(true);
@@ -1670,7 +1688,8 @@ export default function HomeScreen() {
                         title={nextMilestone.title}
                         onPress={openProgress}
                         onIdeas={
-                          ideasVisible && milestoneGroup
+                          // Not when every idea for it is already on today: nothing left to get.
+                          ideasVisible && milestoneGroup && hasMilestoneIdeaToAdd(milestoneGroup, addedTexts)
                             ? () => {
                                 setIdeasFocusMilestone(true);
                                 setIdeasOpen(true);
@@ -1936,8 +1955,12 @@ export default function HomeScreen() {
           return sorted;
         }}
         onSet={(picks, parked) => {
-          if (picks.length > 0) addTasks(picks.slice(0, remainingSlots));
-          parkTasks([...picks.slice(remainingSlots), ...parked]);
+          // A day set meanwhile (auto-set fired mid-dump) takes nothing (the
+          // store refuses): save every pick for later instead of losing it.
+          const room = state.todayLocked ? 0 : remainingSlots;
+          const accepted = picks.slice(0, room);
+          if (accepted.length > 0) addTasks(accepted);
+          parkTasks([...picks.slice(room), ...parked]);
         }}
         onAskNudge={async () => (await requestNotificationPermission()) === "granted"}
         showWidgetStep={Platform.OS === "ios"}

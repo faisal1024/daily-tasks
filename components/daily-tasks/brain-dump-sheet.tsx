@@ -74,7 +74,8 @@ export function BrainDumpSheet({
 
   // Every sorted item, today's suggestions first; any of them can be chosen.
   const items = sorted ? [...sorted.result.picks, ...sorted.result.parked] : [];
-  const chosenItems = items.filter((item) => chosen.has(item));
+  // A set day takes nothing: no row is ticked, and every item is saved for later.
+  const chosenItems = locked ? [] : items.filter((item) => chosen.has(item));
   const full = chosenItems.length >= openSlots;
 
   const sort = async () => {
@@ -92,7 +93,7 @@ export function BrainDumpSheet({
     if (!sorted) return;
     onConfirm(
       chosenItems,
-      items.filter((item) => !chosen.has(item)),
+      items.filter((item) => !chosenItems.includes(item)),
     );
     setText("");
   };
@@ -108,6 +109,7 @@ export function BrainDumpSheet({
   };
 
   const toggle = (item: string) => {
+    if (locked) return;
     setChosen((current) => {
       const next = new Set(current);
       if (next.has(item)) next.delete(item);
@@ -154,9 +156,11 @@ export function BrainDumpSheet({
         >
           {stage === "write" && (
             <>
-              <Text className="text-base" style={{ color: colors.muted }}>
-                Get it all out of your head: errands, worries, ideas. We'll suggest {slotWord} for
-                today and save the rest.
+              <Text className="text-base" style={{ color: colors.muted }} testID="brain-dump-write-hint">
+                Get it all out of your head: errands, worries, ideas.{" "}
+                {locked
+                  ? "Today is set, so everything is saved in Ideas."
+                  : `We'll suggest ${slotWord} for today and save the rest.`}
               </Text>
               <TextInput
                 value={text}
@@ -270,10 +274,28 @@ export function BrainDumpSheet({
               )}
               <Text className="text-base" style={{ color: colors.muted }} testID="brain-dump-review-hint">
                 {locked
-                  ? "Today is locked, so these are saved in Ideas for another day."
+                  ? "Today is set, so these are saved in Ideas for another day."
                   : `Tick ${openSlots === 1 ? "1" : `up to ${openSlots}`} for today. Everything else is saved in Ideas for another day.`}
               </Text>
               {items.map((item) => {
+                // On a set day the rows only list what is being saved: nothing to tick.
+                if (locked) {
+                  return (
+                    <View
+                      key={item}
+                      accessible
+                      accessibilityLabel={`${item}, saved for later`}
+                      className="rounded-2xl border p-4 flex-row items-center gap-3"
+                      style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+                      testID="brain-dump-saved-row"
+                    >
+                      <Ionicons name="bookmark-outline" size={22} color={colors.muted} />
+                      <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "700" }}>
+                        {item}
+                      </Text>
+                    </View>
+                  );
+                }
                 const on = chosen.has(item);
                 const blocked = !on && full;
                 return (
@@ -316,7 +338,7 @@ export function BrainDumpSheet({
                 style={{ backgroundColor: colors.primary }}
               >
                 <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: colors.onPrimary }}>
-                  {locked || chosenItems.length === 0 ? "Save all for later" : `Add ${chosenItems.length} to today`}
+                  {chosenItems.length === 0 ? "Save all for later" : `Add ${chosenItems.length} to today`}
                 </Text>
               </Pressable>
               <Pressable

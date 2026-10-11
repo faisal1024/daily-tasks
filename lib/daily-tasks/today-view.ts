@@ -1,6 +1,7 @@
 // Pure view logic for the Today (Tasks) screen, kept free of React Native so it
 // can be unit-tested. Components render what these functions decide.
 
+import { formatTime } from "./date";
 import type { LockSource, MomentumPlan } from "./types";
 import { MAX_TASKS } from "./types";
 
@@ -73,7 +74,7 @@ export function todayStatus(params: {
   lockSource: LockSource | null;
   taskCount: number;
   completedCount: number;
-  /** Auto-lock time, e.g. "12:00 PM", to explain an automatic lock. */
+  /** When the day was set automatically, in the device's format ("12:00 PM" or "12:00"). */
   autoLockTime?: string | null;
 }): TodayStatus {
   const { locked, lockSource, taskCount, completedCount, autoLockTime } = params;
@@ -218,7 +219,7 @@ export const LOCKED_HINT = "Unlock in Settings";
  * three: a row's words, an empty slot, Not today (1.4). Also the message on a
  * set row's menu, which has no Edit, Not today or Delete.
  */
-export const LOCKED_CHANGE_NOTE = "Today is locked. Unlock it in Settings to change your three.";
+export const LOCKED_CHANGE_NOTE = "Today is set. Unlock it in Settings to change your three.";
 
 /** Shown in Settings (and announced) once "Unlock" has unlocked today (1.4). */
 export const UNLOCKED_NOTE = "Today is unlocked.";
@@ -239,7 +240,7 @@ export interface UnlockConfirmation {
  */
 export function unlockConfirmation(params: {
   lockSource: LockSource | null;
-  /** When auto-set set today, e.g. "12:00 PM". */
+  /** When auto-set set today, in the device's format ("12:00 PM" or "12:00"). */
   autoLockTime?: string | null;
 }): UnlockConfirmation {
   const { lockSource, autoLockTime } = params;
@@ -255,19 +256,40 @@ export function unlockConfirmation(params: {
   };
 }
 
-/** "12:00 PM" style time for status copy. */
-export function formatClockTime(hour: number, minute: number): string {
+/** A clock time in words from an hour and a minute, e.g. the device's own format. */
+export type ClockTimeFormat = (hour: number, minute: number) => string;
+
+/** "12:00 PM": what the time reads as when the device's own format can't be had. */
+function twelveHourClockTime(hour: number, minute: number): string {
   const h = ((hour + 11) % 12) + 1;
   const m = String(minute).padStart(2, "0");
   return `${h}:${m} ${hour < 12 ? "AM" : "PM"}`;
 }
 
-/** Local clock time ("12:03 PM") for an ISO timestamp, or null if invalid. */
-export function clockTimeOf(iso: string | null): string | null {
+/**
+ * A clock time for status copy, in the device's own format: "12:00 PM" on a
+ * 12-hour device, "12:00" on a 24-hour one (the same helper the time pickers
+ * in Settings show). The status line on Today and the unlock confirm in
+ * Settings both come through here, so they always agree. Falls back to
+ * "12:00 PM" if the device's format can't be had.
+ */
+export function formatClockTime(hour: number, minute: number, format: ClockTimeFormat = formatTime): string {
+  try {
+    // Some locales put a no-break space before AM/PM: a plain one reads the same.
+    const text = format(hour, minute).replace(/[\u00a0\u202f]/g, " ").trim();
+    if (text) return text;
+  } catch {
+    // Fall through to the built-in format.
+  }
+  return twelveHourClockTime(hour, minute);
+}
+
+/** Local clock time ("12:03 PM", or "12:03" on a 24-hour device) for an ISO timestamp, or null if invalid. */
+export function clockTimeOf(iso: string | null, format: ClockTimeFormat = formatTime): string | null {
   if (!iso) return null;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  return formatClockTime(date.getHours(), date.getMinutes());
+  return formatClockTime(date.getHours(), date.getMinutes(), format);
 }
 
 /**
@@ -280,7 +302,7 @@ export function brainDumpToast(added: number, saved: number, options?: { locked?
   if (added > 0) parts.push(`Added ${added}.`);
   if (saved > 0) parts.push(`${saved} saved for later in Ideas.`);
   if (parts.length === 0) return null;
-  if (options?.locked && added === 0) parts.unshift("Today is locked.");
+  if (options?.locked && added === 0) parts.unshift("Today is set.");
   return parts.join(" ");
 }
 

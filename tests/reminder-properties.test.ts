@@ -22,6 +22,7 @@ import {
   buildReminderCopy,
   cleanReminderText,
   GENERIC_REMINDER_COPY,
+  NAME_FREE_REMINDER_BODIES,
   MAX_REMINDER_BODY_CHARS,
   MAX_REMINDER_TITLE_CHARS,
   reminderGraphemes,
@@ -194,7 +195,17 @@ const withoutNames = (text: string, names: string[]) =>
   [...names].sort((a, b) => b.length - a.length).reduce((out, name) => out.split(name).join("§"), text);
 
 const KINDS: ReminderKind[] = ["morning", "progress", "evening"];
-const GENERIC = KINDS.map((kind) => shown(GENERIC_REMINDER_COPY[kind]));
+const GENERIC_TITLES = KINDS.map((kind) => GENERIC_REMINDER_COPY[kind].title);
+/** Every body a reminder may have with names hidden: fixed strings, none built from a task. */
+const NAME_FREE_BODIES = [
+  ...KINDS.map((kind) => GENERIC_REMINDER_COPY[kind].body),
+  ...NAME_FREE_REMINDER_BODIES.day,
+  ...NAME_FREE_REMINDER_BODIES.evening,
+  "Nothing picked yet. What are today's three?",
+  "Nothing picked yet. Three small things is plenty.",
+  "A fresh page. What are today's three?",
+  "Nothing picked yet. One is enough to begin.",
+];
 
 /** Wording that is true whether or not the task was ticked since it was written. */
 const HEDGED = /\?|If it's still open|If there's five minutes left today/;
@@ -216,9 +227,9 @@ describe("Hide task names: no task text on any path", () => {
           const fitted = fitPlanToLimit(plan, { now: made.context.now, otherPending: 0 });
           for (const item of [...plan, ...fitted]) {
             expect(mentions(JSON.stringify(item), secrets), `${zone} run ${run}: ${shown(item)}`).toEqual([]);
-            // Not just "none of these words": exactly the general line for its kind.
-            expect(GENERIC).toContain(shown(item));
-            expect(shown(item)).toBe(shown(GENERIC_REMINDER_COPY[item.kind as ReminderKind]));
+            // Not just "none of these words": a general title over one of the fixed name-free lines.
+            expect(GENERIC_TITLES, `${zone} run ${run}: ${shown(item)}`).toContain(item.title);
+            expect(NAME_FREE_BODIES, `${zone} run ${run}: ${shown(item)}`).toContain(item.body);
             expect(item.data).toBeUndefined();
           }
         }
@@ -226,7 +237,7 @@ describe("Hide task names: no task text on any path", () => {
     });
   });
 
-  it("every kind, slot and situation of the copy builder is the general line (or nothing, when all done)", () => {
+  it("every kind, slot and situation of the copy builder is a general title over a fixed name-free line (or nothing, when all done)", () => {
     const random = seeded(89_002);
     for (let run = 0; run < 400; run++) {
       const made = scenario(random);
@@ -244,8 +255,34 @@ describe("Hide task names: no task text on any path", () => {
       });
       const allDone = made.context.tasks.length > 0 && made.context.tasks.every((task) => task.done);
       if (allDone) expect(words).toBeNull();
-      else expect(words).toEqual(GENERIC_REMINDER_COPY[kind]);
+      else {
+        expect(GENERIC_TITLES).toContain(words?.title);
+        expect(NAME_FREE_BODIES).toContain(words?.body);
+        expect(words?.taskId).toBeUndefined();
+        // A set day with nothing on it: still the general line for its kind.
+        if (made.context.tasks.length === 0 && made.context.locked) expect(words).toEqual(GENERIC_REMINDER_COPY[kind]);
+      }
     }
+  });
+
+  it("with something open, two reminders in a row never say the same thing, all day", () => {
+    inEachZone((zone) => {
+      const random = seeded(89_004);
+      for (let run = 0; run < RUNS; run++) {
+        const made = scenario(random, {
+          taskCount: random.int(1, 3),
+          done: () => false,
+          draft: "none",
+          settings: { hideTaskNames: true, hourly: random.bool() },
+        });
+        const today = planOf(made.context)
+          .filter((item) => item.id.includes(`:${made.context.today}:`))
+          .sort((a, b) => a.fireAt.getTime() - b.fireAt.getTime());
+        for (let i = 1; i < today.length; i++) {
+          expect(today[i].body, `${zone} run ${run}: ${today[i].id}`).not.toBe(today[i - 1].body);
+        }
+      }
+    });
   });
 
   it("the focus timer's end says \"Time's up\" and nothing of the task or its step, timer or starter", () => {
@@ -355,6 +392,8 @@ describe("truth: what a reminder written ahead may say", () => {
       startSession({ id: "s", taskId: "t", taskText: "Walk", date: "2026-10-12", kind, minutes: 10, now: 0 });
     const fixed = [
       ...KINDS.flatMap((kind) => [GENERIC_REMINDER_COPY[kind].title, GENERIC_REMINDER_COPY[kind].body]),
+      ...NAME_FREE_REMINDER_BODIES.day,
+      ...NAME_FREE_REMINDER_BODIES.evening,
       NOTIFICATION_TITLE_HIDDEN,
       ...[true, false].flatMap((hide) => [notificationBody(session("timer"), hide), notificationBody(session("starter"), hide)]),
     ];

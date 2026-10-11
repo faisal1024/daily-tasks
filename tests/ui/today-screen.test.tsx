@@ -21,6 +21,7 @@ import { MomentumAiError } from "@/lib/daily-tasks/ai-status";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
 import { coachTaskKey, localCoachLine, requestCoachNotes } from "@/lib/daily-tasks/coach-note";
 import { addDays } from "@/lib/daily-tasks/date";
+import { buildMilestoneIdeaGroup } from "@/lib/daily-tasks/milestone-ideas";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import { themeColors } from "@/theme.config";
@@ -338,6 +339,28 @@ describe("Today screen layout", () => {
     expect(
       screen.getByText("Set automatically at 2:07 PM. 2 to go."),
     ).toBeOnTheScreen();
+  });
+
+  it("on a 24-hour device the automatic lock's time reads the 24-hour way (the saved time, or the configured one)", async () => {
+    // What the system hands back with 24-hour time on (the app passes no locale or hour cycle of its own).
+    const clock = jest.spyOn(Date.prototype, "toLocaleTimeString").mockImplementation(function (this: Date) {
+      return `${String(this.getHours()).padStart(2, "0")}:${String(this.getMinutes()).padStart(2, "0")}`;
+    });
+    const auto = { tasks: tasks("Walk", "Stretch"), todayLocked: true, todayLockSource: "auto" as const };
+    mockStore = makeStore({
+      ...auto,
+      todayLockedAt: new Date(2026, 8, 26, 14, 7).toISOString(),
+      autoLock: { enabled: true, hour: 13, minute: 30 },
+    });
+    const { rerender } = await render(<HomeScreen />);
+    expect(screen.getByText("Set automatically at 14:07. 2 to go.")).toBeOnTheScreen();
+    expect(screen.queryByText(/AM|PM/)).toBeNull();
+    mockStore = makeStore({ ...auto, todayLockedAt: "not a time", autoLock: { enabled: true, hour: 9, minute: 5 } });
+    await rerender(<HomeScreen />);
+    expect(screen.getByText("Set automatically at 09:05. 2 to go.")).toBeOnTheScreen();
+    expect(clock.mock.calls.length).toBeGreaterThan(0);
+    for (const call of clock.mock.calls) expect(call).toEqual([undefined, { hour: "numeric", minute: "2-digit" }]);
+    clock.mockRestore();
   });
 
   it("falls back to the configured time for a garbled saved lock time", async () => {
@@ -2192,7 +2215,7 @@ describe("Today card (Phase 10a)", () => {
     expect(screen.getByTestId("done-card")).toBeOnTheScreen();
     const line = screen.getByTestId("status-line");
     expect(within(line).getByTestId("status-locked")).toBeOnTheScreen();
-    expect(line.props.accessibilityLabel).toBe("Locked. Today is set. All done.");
+    expect(line.props.accessibilityLabel).toBe("Today is set. All done.");
     expect(within(line).getByText("Unlock in Settings")).toBeOnTheScreen();
   });
 
@@ -2415,6 +2438,43 @@ describe("Today by time of day (1.2)", () => {
     expect(screen.getByTestId("week-row")).toBeOnTheScreen();
     expect(screen.queryByTestId("done-card")).toBeNull();
     await fireEvent.press(link);
+    expect(mockNavigate).toHaveBeenCalledWith("/journey");
+  });
+
+  it("midday: 'Get ideas for this' is there while an idea for the milestone can still be added, and goes once both are on today", async () => {
+    at(14);
+    const path = [milestone("m1", "Run 1 km"), milestone("m2", "Run 3 km")];
+    const group = buildMilestoneIdeaGroup({
+      milestones: path,
+      completedMilestoneIds: ["m1"],
+      today: TODAY,
+      starterGoalTitle: "Run a 5K",
+    });
+    const [first, second] = group!.ideas.map((idea) => idea.text);
+    const day = (...texts: string[]) => ({
+      tasks: tasks(...texts),
+      todayCompletions: ["t0"],
+      momentumPlan: plan(path),
+      completedMilestoneIds: ["m1"],
+    });
+    const ideasLink = () => screen.queryByRole("button", { name: "Get ideas for this" });
+
+    // Neither is on today.
+    mockStore = makeStore(day("Walk", "Read"));
+    const { rerender } = await render(<HomeScreen />);
+    expect(screen.getByTestId("next-path-link")).toBeOnTheScreen();
+    expect(ideasLink()).not.toBeNull();
+    // One of the two is: the other can still be added.
+    mockStore = makeStore(day("Walk", first));
+    await rerender(<HomeScreen />);
+    expect(ideasLink()).not.toBeNull();
+    // Both are on today (in any case), with a slot still open: nothing left to get, so no link.
+    mockStore = makeStore(day(second.toUpperCase(), ` ${first} `));
+    await rerender(<HomeScreen />);
+    expect(mockStore.remainingSlots).toBe(1);
+    expect(ideasLink()).toBeNull();
+    // The milestone itself still shows, and still opens Progress.
+    await fireEvent.press(screen.getByTestId("next-path-link"));
     expect(mockNavigate).toHaveBeenCalledWith("/journey");
   });
 
@@ -4048,6 +4108,64 @@ describe("Reordering on Today (1.4, PR #90)", () => {
     announce.mockRestore();
   });
 
+  it.each([
+    ["ticked from the widget", () => makeStore({ tasks: THREE(), todayCompletions: ["t2"] })],
+    ["already made next", () => makeStore({ tasks: tasks("Walk", "Stretch", "Hydrate").reverse() })],
+    ["gone from today", () => makeStore({ tasks: tasks("Walk", "Stretch") })],
+    ["the only open task left", () => makeStore({ tasks: THREE(), todayCompletions: ["t0", "t1"] })],
+  ])("Do this next from a menu opened before the list changed (%s): no move, no event, nothing said", async (_what, changed) => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
+    mockStore = makeStore({ tasks: THREE() });
+    const { rerender } = await render(<HomeScreen />);
+    const menu = await menuOf("t2");
+    expect(menu.options).toContain("Do this next");
+
+    // The list changes while the menu is still up. (The menu's handlers are
+    // the ones from when it opened, so they hold that render's store.)
+    const before = mockStore;
+    mockStore = changed();
+    await rerender(<HomeScreen />);
+    (Haptics.impactAsync as jest.Mock).mockClear();
+    await menu.pick("Do this next");
+    expect(before.makeTaskNext).not.toHaveBeenCalled();
+    expect(mockStore.makeTaskNext).not.toHaveBeenCalled();
+    expect(reorderEvents()).toEqual([]);
+    expect(announce.mock.calls.filter(([text]) => /is next/.test(String(text)))).toEqual([]);
+    expect(Haptics.impactAsync).not.toHaveBeenCalled();
+    announce.mockRestore();
+  });
+
+  it("Do this next from a menu opened earlier still works when the list changed but the task can still move", async () => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
+    mockStore = makeStore({ tasks: THREE() });
+    const { rerender } = await render(<HomeScreen />);
+    const menu = await menuOf("t2");
+    // Walk is ticked meanwhile: Hydrate is still behind Stretch.
+    const before = mockStore;
+    mockStore = makeStore({ tasks: THREE(), todayCompletions: ["t0"] });
+    await rerender(<HomeScreen />);
+    await menu.pick("Do this next");
+    expect([...before.makeTaskNext.mock.calls, ...mockStore.makeTaskNext.mock.calls]).toEqual([["t2"]]);
+    expect(reorderEvents()).toEqual([["task_reordered", { source: "next" }]]);
+    expect(announce).toHaveBeenCalledWith("Hydrate is next", { queue: true });
+    announce.mockRestore();
+  });
+
+  it("Do this next after midnight with yesterday still on screen: handed to the store (which turns the day), not counted or said", async () => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
+    mockStore = makeStore({ tasks: THREE() });
+    await render(<HomeScreen />);
+    const menu = await menuOf("t2");
+    const clock = new Date();
+    jest.setSystemTime(new Date(2026, 8, 27, 0, 0, 10));
+    await menu.pick("Do this next");
+    jest.setSystemTime(clock);
+    expect(mockStore.makeTaskNext.mock.calls).toEqual([["t2"]]);
+    expect(reorderEvents()).toEqual([]);
+    expect(announce.mock.calls.filter(([text]) => /is next/.test(String(text)))).toEqual([]);
+    announce.mockRestore();
+  });
+
   it("after a move VoiceOver's focus is sent back to the moved row", async () => {
     const focus = AccessibilityInfo.sendAccessibilityEvent as jest.Mock;
     focus.mockClear();
@@ -4145,7 +4263,7 @@ describe("Reordering on Today (1.4, PR #90)", () => {
     // The first open row has no menu on a set day (nothing to reorder to, no edits).
     await act(async () => getByGestureTestId("task-handle-tap-t0").handlers.onEnd?.({} as never, true));
     expect(sheet).not.toHaveBeenCalled();
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked/);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is set\. Unlock it in Settings/);
     // Another row's handle opens its menu.
     await act(async () => getByGestureTestId("task-handle-tap-t2").handlers.onEnd?.({} as never, true));
     expect(sheet).toHaveBeenCalledTimes(1);
@@ -4263,7 +4381,7 @@ describe("Today on a set day (1.4)", () => {
     // One VoiceOver element: the status, with the way out as its hint.
     const line = screen.getByTestId("status-line");
     expect(line.props.accessible).toBe(true);
-    expect(line.props.accessibilityLabel).toBe(`Locked. ${text}`);
+    expect(line.props.accessibilityLabel).toBe(text);
     expect(line.props.accessibilityHint).toBe("Unlock in Settings");
     expect(within(line).getByText(text)).toBeOnTheScreen();
     expect(within(line).getByText("Unlock in Settings")).toBeOnTheScreen();
@@ -4300,7 +4418,7 @@ describe("Today on a set day (1.4)", () => {
 
   // --- review fixes: a tap that used to change the three says why it didn't ---
 
-  const NOTE = "Today is locked. Unlock it in Settings to change your three.";
+  const NOTE = "Today is set. Unlock it in Settings to change your three.";
   /** VoiceOver hears it through the polite helper (queued on iOS). */
   const spoken = () => jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
 
@@ -4364,7 +4482,7 @@ describe("Today on a set day (1.4)", () => {
     expect(slots).toHaveLength(2);
     expect(slots[0].props.accessibilityHint).toBe("Unlock in Settings");
     await fireEvent.press(slots[0]);
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. Unlock it in Settings to change your three\./);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is set\. Unlock it in Settings to change your three\./);
     expect(announce.mock.calls).toEqual([[NOTE, { queue: true }]]);
     expect(screen.queryByPlaceholderText("What's one thing for today?")).toBeNull();
     expect(mockStore.addTask).not.toHaveBeenCalled();
@@ -4383,8 +4501,8 @@ describe("Today on a set day (1.4)", () => {
     await rerender(<HomeScreen />);
     expect(mockStore.addTask).not.toHaveBeenCalled();
     expect(mockStore.parkTasks.mock.calls).toEqual([[["Call the bank"]]]);
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. 1 saved for later in Ideas\./);
-    expect(announce.mock.calls).toEqual([["Today is locked. 1 saved for later in Ideas.", { queue: true }]]);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is set\. 1 saved for later in Ideas\./);
+    expect(announce.mock.calls).toEqual([["Today is set. 1 saved for later in Ideas.", { queue: true }]]);
     announce.mockRestore();
   });
 
@@ -4405,7 +4523,7 @@ describe("Today on a set day (1.4)", () => {
     await rerender(<HomeScreen />);
     expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
     expect(screen.getByTestId("brain-dump-review-hint")).toHaveTextContent(
-      "Today is locked, so these are saved in Ideas for another day.",
+      "Today is set, so these are saved in Ideas for another day.",
     );
     expect(screen.queryByRole("button", { name: /to today$/ })).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "Save all for later" }));
@@ -4413,6 +4531,6 @@ describe("Today on a set day (1.4)", () => {
     expect(mockStore.addTasks).not.toHaveBeenCalled();
     expect(mockStore.parkTasks.mock.calls).toEqual([[["Finish report", "Call mum", "Buy shoes"]]]);
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. 3 saved for later in Ideas\./);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is set\. 3 saved for later in Ideas\./);
   });
 });
