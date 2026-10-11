@@ -108,5 +108,43 @@ export async function generatePlan({
     throw new Error(`Anthropic response did not include the ${toolName} tool call`);
   }
 
-  return toolUse.input;
+  return unstringify(toolUse.input, schema);
+}
+
+function schemaTypes(schema) {
+  const type = schema?.type;
+  return Array.isArray(type) ? type : type ? [type] : [];
+}
+
+/**
+ * Haiku 5.5 sometimes hands back a nested array or object as a JSON string
+ * (`"taskPool": "[{...}]"`) where the schema asks for the array itself. Where
+ * the schema wants an array or object and a string arrived, parse it; anything
+ * that doesn't parse to the wanted kind is left as it was for the route's own
+ * validation to refuse.
+ */
+export function unstringify(value, schema, depth = 0) {
+  if (!schema || depth > 6) return value;
+  const types = schemaTypes(schema);
+  let current = value;
+  if (typeof current === "string" && (types.includes("array") || types.includes("object")) && !types.includes("string")) {
+    try {
+      const parsed = JSON.parse(current);
+      const fits = Array.isArray(parsed) ? types.includes("array") : parsed !== null && typeof parsed === "object" && types.includes("object");
+      if (fits) current = parsed;
+    } catch {
+      return value;
+    }
+  }
+  if (Array.isArray(current) && schema.items) {
+    return current.map((item) => unstringify(item, schema.items, depth + 1));
+  }
+  if (current && typeof current === "object" && !Array.isArray(current) && schema.properties) {
+    const out = { ...current };
+    for (const key of Object.keys(schema.properties)) {
+      if (key in out) out[key] = unstringify(out[key], schema.properties[key], depth + 1);
+    }
+    return out;
+  }
+  return current;
 }

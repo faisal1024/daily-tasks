@@ -217,6 +217,35 @@ describe("providers name the structured output per route", () => {
     await expect(getProvider("anthropic").generatePlan(callArgs)).rejects.toThrow(/max_tokens \(2200\)/);
   });
 
+  it("anthropic: an array or object handed back as a JSON string is parsed where the schema asks for the real thing", async () => {
+    const { unstringify } = await import("../server/providers/anthropic.mjs");
+    const schema = {
+      type: "object",
+      properties: {
+        milestones: { type: "array", items: { type: "object", properties: { title: { type: "string" } } } },
+        taskPool: { type: "array", items: { type: "object", properties: { text: { type: "string" }, tags: { type: "array", items: { type: "string" } } } } },
+        note: { type: "string" },
+        extra: { type: ["object", "null"], properties: { a: { type: "integer" } } },
+      },
+    };
+    const fixed = unstringify(
+      { milestones: [{ title: "One" }], taskPool: '[{"text":"Run","tags":"[\\"a\\"]"}]', note: "[1,2]", extra: '{"a":1}' },
+      schema,
+    );
+    expect(fixed).toEqual({ milestones: [{ title: "One" }], taskPool: [{ text: "Run", tags: ["a"] }], note: "[1,2]", extra: { a: 1 } });
+    // Not JSON, or JSON of the wrong kind: left alone for the route to refuse.
+    expect(unstringify({ taskPool: "nope" }, schema)).toEqual({ taskPool: "nope" });
+    expect(unstringify({ taskPool: '{"text":"Run"}' }, schema)).toEqual({ taskPool: '{"text":"Run"}' });
+    expect(unstringify({ taskPool: "12" }, schema)).toEqual({ taskPool: "12" });
+    // Already right: unchanged in value.
+    const good = { milestones: [], taskPool: [{ text: "Run", tags: [] }], note: "x", extra: null };
+    expect(unstringify(good, schema)).toEqual(good);
+
+    captureFetch({ ok: true, json: async () => ({ content: [{ type: "tool_use", name: PLAN_TOOL_NAME, input: { taskPool: '[{"text":"Run"}]' } }] }) });
+    const result = await getProvider("anthropic").generatePlan({ ...callArgs, schema });
+    expect(result.taskPool).toEqual([{ text: "Run" }]);
+  });
+
   it("a route's output cap reaches both providers; without one the defaults are unchanged", async () => {
     const anthropicReply = { ok: true, json: async () => ({ content: [{ type: "tool_use", name: "emit_nag_lines", input: {} }] }) };
     let body = captureFetch(anthropicReply);

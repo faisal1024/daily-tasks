@@ -25,11 +25,27 @@ const USER_ID_PATTERN = /^\$RCAnonymousID:[0-9a-f]{32}$/;
 // The AI provider refused for billing/quota: that's "busy for today", not a bug.
 const PROVIDER_QUOTA_PATTERN = /credit balance|usage limit|quota|billing/i;
 
+/** A value's shape with no content: its type, a string's length, an array's length and its items' shapes. */
+function shapeOf(value, depth = 0) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) {
+    if (depth >= 2) return `array(${value.length})`;
+    return `array(${value.length})[${value.slice(0, 4).map((item) => shapeOf(item, depth + 1)).join(",")}]`;
+  }
+  if (typeof value === "string") return `string(${value.length})`;
+  if (typeof value === "number") return Number.isInteger(value) ? `int(${value})` : "number";
+  if (typeof value === "object") {
+    if (depth >= 2) return "object";
+    return `{${Object.keys(value).slice(0, 8).map((key) => `${key}:${shapeOf(value[key], depth + 1)}`).join(",")}}`;
+  }
+  return typeof value;
+}
+
 function summarizeForLog(value) {
   // Never log full AI output (it can echo user task titles); keep enough shape
-  // to debug a malformed response.
+  // to debug a malformed response: keys, types and lengths, never the words.
   if (!value || typeof value !== "object") return String(value);
-  return JSON.stringify(Object.keys(value));
+  return `${JSON.stringify(Object.keys(value))} shape=${shapeOf(value)}`;
 }
 
 /** The caller's RevenueCat id when it's a real anonymous id, else null. */
