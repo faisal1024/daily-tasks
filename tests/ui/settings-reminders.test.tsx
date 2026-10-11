@@ -27,7 +27,7 @@ jest.mock("expo-notifications", () => ({
   SchedulableTriggerInputTypes: { DAILY: "daily", DATE: "date", TIME_INTERVAL: "timeInterval" },
 }));
 
-const HELP = "Reminders won't show what your tasks are. Good if others can see your lock screen.";
+const HELP = "Reminders and the timer's alert won't show what your tasks are.";
 
 async function renderSettings(saved: Partial<AppState> = {}) {
   await AsyncStorage.setItem(

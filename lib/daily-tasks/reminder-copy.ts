@@ -165,9 +165,15 @@ export function cleanReminderText(text: unknown, max: number): string {
   return reminderTaskName(text, max);
 }
 
-/** The name as the end of a sentence: no second full stop after "Call mom." or a cut "…". */
+/**
+ * The name as the end of a sentence: no second full stop after "Call mom."
+ * or a cut "…", and none after a trailing comma, semicolon or colon either
+ * ("Buy milk," reads "Buy milk.").
+ */
 function sentence(name: string): string {
-  return /[.!?…]$/.test(name) ? name : `${name}.`;
+  if (/[.!?…]$/.test(name)) return name;
+  const bare = name.replace(/[\s,;:]+$/u, "");
+  return `${bare || name}.`;
 }
 
 /** A shorter cut for a name that shares a line with others. */
@@ -230,7 +236,7 @@ const ONE_LEFT: Line[] = [
 // The next reminder, in the evening.
 const TONIGHT: Line[] = [
   (w) => ({ title: w.slotTitle, body: `Still open tonight: ${sentence(w.name)} Five minutes still counts.` }),
-  (w) => ({ title: w.slotTitle, body: `${w.name} is still open. A small finish is still a finish.` }),
+  (w) => ({ title: w.slotTitle, body: `Still open: ${sentence(w.name)} A small finish is still a finish.` }),
   (w) => ({ title: w.slotTitle, body: `No rush. If there's five minutes left today: ${sentence(w.name)}` }),
   (w) => ({ title: w.name, body: "Still open tonight. Five minutes still counts." }),
 ];
@@ -268,7 +274,7 @@ const FROM_YESTERDAY: Line[] = [
 // The same, written the evening before. `list` is "A · B".
 const FROM_YESTERDAY_AHEAD: Line[] = [
   (w) => ({ title: w.slotTitle, body: `From yesterday: ${sentence(w.name)} Still open? It could be one of today's three.` }),
-  (w) => ({ title: w.slotTitle, body: `${w.name} was on yesterday's list. Want it in today's three?` }),
+  (w) => ({ title: w.slotTitle, body: `From yesterday's list: ${sentence(w.name)} Want it in today's three?` }),
   (w) => ({ title: w.slotTitle, body: `Yesterday's list: ${sentence(w.list)} Anything to bring into today?` }),
 ];
 

@@ -159,6 +159,11 @@ public enum FocusGroup {
   static let timerCategoryId = "three-today:focus-session"
   /// A timer's body (lib/daily-tasks/focus-session.ts notificationBody).
   static let timerNotificationBody = "Time's up. 5 more minutes, or mark it done?"
+  /// The title with "Hide task names in notifications" on, and a timer's body
+  /// under it (NOTIFICATION_TITLE_HIDDEN and notificationBody(session, true)):
+  /// the title already says "Time's up", so the body doesn't say it again.
+  static let hiddenNotificationTitle = "Time's up"
+  static let hiddenTimerNotificationBody = "5 more minutes, or mark it done?"
   static let heldNotificationKey = "focus.heldNotification"
   static let heldNotificationSessionKey = "focus.heldNotificationSession"
   /// Queues are kept short even if the app isn't opened for a long time.
@@ -275,10 +280,12 @@ public enum FocusGroup {
 
   /// A tick made here (the widget, the Live Activity's Done) isn't known to
   /// the app until it next opens, so the reminders it scheduled would still
-  /// arrive. When that tick was the last open task, they go: the rest of
-  /// today's, and tomorrow morning's (written from what was open today). The
-  /// app schedules them afresh when it next opens. Does nothing while a task
-  /// is still open, or if the snapshot isn't today's. Call outside `withLock`.
+  /// arrive. When that tick was the last open task, the rest of today's go
+  /// (ids starting "daily-tasks:<today>:"), and only those: tomorrow
+  /// morning's nudge stays, since nothing here can write another and the
+  /// app may not be opened before it is due. The app schedules them afresh
+  /// when it next opens. Does nothing while a task is still open, or if the
+  /// snapshot isn't today's. Call outside `withLock`.
   static func clearRemindersIfAllDone(now: Date = Date()) async {
     let today = todayKey(now)
     guard let raw = defaults?.string(forKey: snapshotKey), let data = raw.data(using: .utf8),
@@ -287,17 +294,9 @@ public enum FocusGroup {
       !tasks.isEmpty, !tasks.contains(where: { ($0["done"] as? Bool) != true })
     else { return }
     let todayPrefix = "\(reminderPrefix)\(today):"
-    var tomorrowMorningPrefix: String? = nil
-    if let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: now) {
-      tomorrowMorningPrefix = "\(reminderPrefix)\(todayKey(tomorrow)):morning:"
-    }
     let center = UNUserNotificationCenter.current()
     let pending = await center.pendingNotificationRequests()
-    let ids = pending.map { $0.identifier }.filter { id in
-      if id.hasPrefix(todayPrefix) { return true }
-      if let prefix = tomorrowMorningPrefix { return id.hasPrefix(prefix) }
-      return false
-    }
+    let ids = pending.map { $0.identifier }.filter { $0.hasPrefix(todayPrefix) }
     guard !ids.isEmpty else { return }
     center.removePendingNotificationRequests(withIdentifiers: ids)
   }
@@ -553,8 +552,11 @@ public enum FocusActions {
     guard let last else { return }
     var content: UNNotificationContent = last.request.content
     if asTimer, let timer = last.request.content.mutableCopy() as? UNMutableNotificationContent {
-      // The title (the task's words) and the data (the session) stay.
-      timer.body = FocusGroup.timerNotificationBody
+      // The title (the task's words, or "Time's up" with names hidden) and
+      // the data (the session) stay.
+      timer.body =
+        last.request.content.title == FocusGroup.hiddenNotificationTitle
+        ? FocusGroup.hiddenTimerNotificationBody : FocusGroup.timerNotificationBody
       timer.categoryIdentifier = FocusGroup.timerCategoryId
       content = timer
     }

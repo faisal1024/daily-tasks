@@ -39,7 +39,7 @@ const GENERIC_BODIES = KINDS.map((kind) => GENERIC_REMINDER_COPY[kind].body);
 const HEDGED =
   /Still open\?|Still open tonight\?|If it's still open|Anything still open|If there's five minutes left today|^(Today's three|On today's list): [^.]*\. Anything/;
 /** Words that would be wrong after a tick the app never saw. */
-const ASSERTS_OPEN = /is still open|Still open tonight[:.]|First up|Next:|to go|\d/;
+const ASSERTS_OPEN = /Still open:|Still open tonight[:.]|First up|Next:|to go|\d/;
 
 const task = (text: string, done = false): ReminderTask => ({ id: `id-${text}`, text, done });
 /** A reminder as it shows: title, then body. */
@@ -123,7 +123,7 @@ describe("which reminders may state counts", () => {
     const today = planFor({ now: monday(16, 30), tasks }).filter((item) => item.id.includes(":2026-10-12:"));
     expect(today[0].id).toBe("daily-tasks:2026-10-12:evening:1700");
     // The next one says it plainly, in the evening's words.
-    expect(shown(today[0])).toMatch(/Still open tonight|Bravo is still open|No rush\. If there's five minutes left today: Bravo\./);
+    expect(shown(today[0])).toMatch(/Still open tonight|Still open: Bravo\.|No rush\. If there's five minutes left today: Bravo\./);
     expect(today.slice(1).every((item) => HEDGED.test(item.body))).toBe(true);
     expect(today.slice(1).some((item) => ASSERTS_OPEN.test(shown(item)))).toBe(false);
 
@@ -151,7 +151,7 @@ describe("which reminders may state counts", () => {
     const [tomorrow, ...after] = mornings;
     expect(tomorrow.title).toBe("A calm start");
     expect(tomorrow.body).toMatch(
-      /^(From yesterday: (Bravo|Charlie)\. Still open\? It could be one of today's three\.|(Bravo|Charlie) was on yesterday's list\. Want it in today's three\?|Yesterday's list: Bravo · Charlie\. Anything to bring into today\?)$/,
+      /^(From yesterday: (Bravo|Charlie)\. Still open\? It could be one of today's three\.|From yesterday's list: (Bravo|Charlie)\. Want it in today's three\?|Yesterday's list: Bravo · Charlie\. Anything to bring into today\?)$/,
     );
     expect(tomorrow.body).not.toMatch(/\d|Alpha/);
     for (const later of after) {
@@ -173,7 +173,7 @@ describe("which reminders may state counts", () => {
     for (const slot of slots) {
       expect(shown(slot)).toMatch(/Still open from yesterday/);
       expect(shown(slot)).toContain("Renew passport.");
-      expect(shown(slot)).not.toMatch(/Still open\?|was on yesterday's list|Yesterday's list/);
+      expect(shown(slot)).not.toMatch(/Still open\?|From yesterday's list|Yesterday's list/);
     }
   });
 });
@@ -289,7 +289,7 @@ describe("what a reminder says", () => {
     expect(new Set(lines({ kind: "evening", tasks }))).toEqual(
       new Set([
         "Still time today | Still open tonight: Write the report. Five minutes still counts.",
-        "Still time today | Write the report is still open. A small finish is still a finish.",
+        "Still time today | Still open: Write the report. A small finish is still a finish.",
         "Still time today | No rush. If there's five minutes left today: Write the report.",
         "Write the report | Still open tonight. Five minutes still counts.",
       ]),
@@ -344,8 +344,8 @@ describe("what a reminder says", () => {
       new Set([
         "A calm start | From yesterday: Renew passport. Still open? It could be one of today's three.",
         "A calm start | From yesterday: Buy stamps. Still open? It could be one of today's three.",
-        "A calm start | Renew passport was on yesterday's list. Want it in today's three?",
-        "A calm start | Buy stamps was on yesterday's list. Want it in today's three?",
+        "A calm start | From yesterday's list: Renew passport. Want it in today's three?",
+        "A calm start | From yesterday's list: Buy stamps. Want it in today's three?",
         "A calm start | Yesterday's list: Renew passport · Buy stamps. Anything to bring into today?",
       ]),
     );
@@ -975,6 +975,52 @@ describe("task names made safe for a notification", () => {
           for (const situation of [{ tasks: [task(text)] }, { tasks }, { yesterdayOpen: [text] }, { yesterdayOpen: [text, text] }]) {
             for (const kind of KINDS) {
               expect(copy({ ...situation, kind, certain, slotIndex })?.body).not.toMatch(/[.!?…]\./);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("a trailing comma, semicolon or colon gives way to the full stop; a name that is only those is kept", () => {
+    const oneThing = (text: string) => lines({ kind: "progress", tasks: [task(text)] });
+    for (const ending of [",", ";", ":", " ,", ",;:", ": ;"]) {
+      expect(oneThing(`Buy milk${ending}`)).toContain("A small nudge | Today's one thing: Buy milk. Five minutes is a start.");
+    }
+    // Only at the end: inside the name they stay.
+    expect(oneThing("Milk, eggs; bread: today")).toContain("A small nudge | Just one today: Milk, eggs; bread: today. Begin anywhere.");
+    // As a title the name is left as written.
+    expect(oneThing("Buy milk,")).toContain("Buy milk, | Today's one thing. A small start counts.");
+    expect(oneThing(";")).toContain("A small nudge | Just one today: ;. Begin anywhere.");
+    // No wording on any path ends a name with one of them and then a stop.
+    for (const text of ["Buy milk,", "Buy milk;", "Buy milk:", "Buy milk ,"]) {
+      for (const certain of [true, false]) {
+        for (let slotIndex = 0; slotIndex < 4; slotIndex++) {
+          const tasks = [task("Done", true), task(text), task(text)];
+          for (const situation of [{ tasks: [task(text)] }, { tasks }, { yesterdayOpen: [text] }]) {
+            for (const kind of KINDS) {
+              expect(copy({ ...situation, kind, certain, slotIndex })?.body).not.toMatch(/[,;:]\s*\./);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("a name is never a sentence's subject: its own punctuation can't land mid-sentence", () => {
+    // "Call mom! is still open." and "Call mom! was on yesterday's list." read badly: the name comes last.
+    const tonight = lines({ kind: "evening", tasks: [task("Done", true), task("Call mom!")] });
+    expect(tonight).toContain("Still time today | Still open: Call mom! A small finish is still a finish.");
+    const ahead = lines({ kind: "morning", yesterdayOpen: ["Call mom!"], certain: false });
+    expect(ahead).toContain("A calm start | From yesterday's list: Call mom! Want it in today's three?");
+    for (const text of ["Call mom!", "Really?", "Wait…", "Ship it."]) {
+      for (const certain of [true, false]) {
+        for (let slotIndex = 0; slotIndex < 4; slotIndex++) {
+          const tasks = [task("Done", true), task(text), task("Other")];
+          for (const situation of [{ tasks: [task(text)] }, { tasks }, { yesterdayOpen: [text] }, { yesterdayOpen: [text, "Other"] }]) {
+            for (const kind of KINDS) {
+              // After the name's own ending: the end, a new sentence, or the list's next name. Never a lower-case word.
+              expect(copy({ ...situation, kind, certain, slotIndex })?.body).not.toMatch(/[.!?…] (is|was|are|were)\b/);
             }
           }
         }

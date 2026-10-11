@@ -100,25 +100,17 @@ const centre = {
   others(): Stored[] {
     return [...this.pending.values()].filter((item) => !item.identifier.startsWith("daily-tasks:"));
   },
-  /** As the system hands them back: iOS as calendar components, Android as a timestamp. */
+  /**
+   * As the system hands them back: iOS as a time interval (the seconds are
+   * from when it was scheduled, so they don't tell when), Android as a timestamp.
+   */
   report(): object[] {
     return [...this.pending.values()].map(({ identifier, content, at }) =>
       this.platform === "ios"
         ? {
             identifier,
             content: { ...content, subtitle: null, sound: null },
-            trigger: {
-              type: "calendar",
-              repeats: false,
-              dateComponents: {
-                year: at.getFullYear(),
-                month: at.getMonth() + 1,
-                day: at.getDate(),
-                hour: at.getHours(),
-                minute: at.getMinutes(),
-                second: at.getSeconds(),
-              },
-            },
+            trigger: { type: "timeInterval", seconds: Math.max(1, Math.round((at.getTime() - NOW.getTime()) / 1000)), repeats: false },
           }
         : { identifier, content, trigger: { type: "date", value: at.getTime() } },
     );
@@ -621,8 +613,8 @@ describe("Hide task names, end to end through the scheduler", () => {
     expect(centre.owned()).toHaveLength(16);
     for (const item of centre.owned()) {
       expect(["A calm start", "A small nudge", "Still time today"]).toContain(item.content.title);
-      // The kind rides along; no task id any more, since no task is named.
-      expect(Object.keys(item.content.data ?? {})).toEqual(["kind"]);
+      // The kind and its own time ride along; no task id any more, since no task is named.
+      expect(Object.keys(item.content.data ?? {})).toEqual(["kind", "fireAt"]);
     }
     // Same times as with names: hiding changes the words only.
     expect(cancelledIds()).toEqual([]);

@@ -71,8 +71,12 @@ function isManaged(identifier: unknown): identifier is string {
 
 /**
  * When a pending notification will go off, from its trigger as the system
- * reports it: iOS gives a one-off date back as calendar components, Android
- * as a timestamp. null when it can't be told (it is then rescheduled).
+ * reports it: a timestamp (Android) or calendar components. null when it
+ * can't be told. On iOS it can't: expo-notifications schedules a one-off
+ * date as a time interval and reports it back as `{ type: "timeInterval",
+ * seconds, repeats }`, the seconds counted from when it was scheduled, which
+ * isn't known here. So each reminder also carries its time in its own data
+ * (see contentFor and pendingTime); this is the fallback.
  */
 export function pendingFireAt(trigger: unknown): Date | null {
   if (!trigger || typeof trigger !== "object") return null;
@@ -99,6 +103,17 @@ export function pendingFireAt(trigger: unknown): Date | null {
   return null;
 }
 
+/**
+ * When one of our pending reminders will go off: the time it carries in its
+ * data (written by contentFor; the only way to know on iOS), else what its
+ * trigger says. null when neither tells (it is then rescheduled).
+ */
+function pendingTime(data: unknown, trigger: unknown): Date | null {
+  const stamp = data && typeof data === "object" ? (data as Record<string, unknown>).fireAt : undefined;
+  if (typeof stamp === "number" && Number.isFinite(stamp) && stamp > 0) return new Date(stamp);
+  return pendingFireAt(trigger);
+}
+
 interface PendingState {
   /** Our pending reminders, soonest first (unknown times last). */
   managed: PendingReminder[];
@@ -114,7 +129,7 @@ async function readPending(): Promise<PendingState> {
       const data = request.content?.data;
       return {
         id: request.identifier,
-        fireAt: pendingFireAt(request.trigger),
+        fireAt: pendingTime(data, request.trigger),
         title: request.content?.title ?? "",
         body: request.content?.body ?? "",
         ...(data && typeof data === "object" ? { data: data as Record<string, unknown> } : {}),
@@ -260,11 +275,14 @@ function alreadyPending(pending: PendingReminder | undefined, item: ReminderPlan
 }
 
 function contentFor(item: ReminderPlanItem): Notifications.NotificationContentInput {
-  const data = item.kind ? { ...item.data, kind: item.kind } : item.data;
+  // Its own time goes with it: iOS doesn't report a pending one-off's date
+  // back (see pendingFireAt), and without it every sync would reschedule
+  // every reminder.
+  const data = { ...item.data, ...(item.kind ? { kind: item.kind } : {}), fireAt: item.fireAt.getTime() };
   return {
     title: item.title,
     body: item.body,
-    ...(data ? { data } : {}),
+    data,
     ...(item.sound !== undefined ? { sound: item.sound } : {}),
     ...(item.interruptionLevel ? { interruptionLevel: item.interruptionLevel } : {}),
   };

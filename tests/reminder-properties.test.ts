@@ -199,7 +199,7 @@ const GENERIC = KINDS.map((kind) => shown(GENERIC_REMINDER_COPY[kind]));
 /** Wording that is true whether or not the task was ticked since it was written. */
 const HEDGED = /\?|If it's still open|If there's five minutes left today/;
 /** Wording that says a task is open, or how many are done. */
-const ASSERTS = /is still open|Still open tonight[:.]|Still open from|First up|Next:|to go|Just one|one thing|\bdone\b|\d/i;
+const ASSERTS = /Still open:|Still open tonight[:.]|Still open from|First up|Next:|to go|Just one|one thing|\bdone\b|\d/i;
 
 const RUNS = 250;
 

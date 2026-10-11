@@ -55,27 +55,23 @@ interface Request {
   trigger: { type: string; date: Date };
 }
 
-/** A pending request as iOS reports it: a one-off date comes back as calendar components. */
-const asIosPending = (request: Request): object => {
-  const at = request.trigger.date;
-  return {
-    identifier: request.identifier,
-    content: { ...request.content, subtitle: null, sound: null },
-    trigger: {
-      type: "calendar",
-      repeats: false,
-      dateComponents: {
-        year: at.getFullYear(),
-        month: at.getMonth() + 1,
-        day: at.getDate(),
-        hour: at.getHours(),
-        minute: at.getMinutes(),
-        second: at.getSeconds(),
-        isLeapMonth: false,
-      },
-    },
-  };
-};
+/**
+ * A pending request as iOS reports it. expo-notifications schedules a one-off
+ * date as a time interval (ios/EXNotifications/Notifications/Records.swift,
+ * DateTriggerRecord), so it comes back as seconds counted from when it was
+ * scheduled: its time can't be read from the trigger, only from its data.
+ */
+const asIosPending = (request: Request): object => ({
+  identifier: request.identifier,
+  content: { ...request.content, subtitle: null, sound: null },
+  trigger: { type: "timeInterval", seconds: Math.max(1, Math.round((request.trigger.date.getTime() - NOW.getTime()) / 1000)), repeats: false },
+});
+/** The same request as if it had been scheduled for `date`. */
+const at = (request: Request, date: Date): Request => ({
+  ...request,
+  content: { ...request.content, data: { ...request.content.data, fireAt: date.getTime() } },
+  trigger: { type: "date", date },
+});
 /** The same on Android: a timestamp. */
 const asAndroidPending = (request: Request): object => ({
   identifier: request.identifier,
@@ -177,8 +173,8 @@ describe("a reminder sync and the notifications it doesn't own", () => {
     expect(next.identifier).toBe("daily-tasks:2026-10-12:progress:1000");
     expect(next.trigger).toEqual({ type: "date", date: new Date(2026, 9, 12, 10, 0) });
     expect(`${next.content.title} | ${next.content.body}`).toMatch(/One to go: Walk|Just one left: Walk\./);
-    // The task's id and the reminder's kind ride along; never the words.
-    expect(next.content.data).toEqual({ taskId: "t1", kind: "progress" });
+    // The task's id, the reminder's kind and its own time ride along; never the words.
+    expect(next.content.data).toEqual({ taskId: "t1", kind: "progress", fireAt: next.trigger.date.getTime() });
     expect(Object.keys(next.content).sort()).toEqual(["body", "data", "title"]);
     for (const request of scheduledRequests()) {
       expect(JSON.stringify(request.content.data)).not.toMatch(/dentist|Walk/);
@@ -244,7 +240,7 @@ describe("a reminder sync and the notifications it doesn't own", () => {
 
 describe("what is already pending", () => {
   it.each([
-    ["iOS (calendar components)", asIosPending],
+    ["iOS (a time interval: the time is in its data)", asIosPending],
     ["Android (a timestamp)", asAndroidPending],
   ])("a reminder that already says the same at the same time is left alone: %s", async (_label, asPending) => {
     const { syncNotifications } = load();
@@ -261,8 +257,9 @@ describe("what is already pending", () => {
 
     // One whose words, and one whose time, no longer match: only those are rewritten.
     const reworded = asPending({ ...first[2], content: { ...first[2].content, body: "Something older" } });
-    const retimed = asPending({ ...first[4], trigger: { type: "date", date: minutes(3) } });
-    const untimed = { ...asPending(first[6]), trigger: null };
+    const retimed = asPending(at(first[4], minutes(3)));
+    // One from before reminders carried their time (or one whose data was lost).
+    const untimed = { ...asPending(first[6]), content: { ...first[6].content, data: { kind: "evening" } }, trigger: null };
     pending(first.map((request, i) => (i === 2 ? reworded : i === 4 ? retimed : i === 6 ? untimed : asPending(request))));
     await syncNotifications(input());
     expect(scheduledIds()).toEqual([first[2].identifier, first[4].identifier, first[6].identifier]);
@@ -326,8 +323,8 @@ describe("what is already pending", () => {
     pending([asIosPending(c), FOCUS_ID, asIosPending(b)]);
     await syncNotifications(input({ now: minutes(4), strategy: keep() }));
     expect(seen[2].pending).toEqual([
-      { id: "daily-tasks:nag:b", fireAt: minutes(20), title: "Nag", body: "b" },
-      { id: "daily-tasks:nag:c", fireAt: minutes(50), title: "Nag", body: "c" },
+      { id: "daily-tasks:nag:b", fireAt: minutes(20), title: "Nag", body: "b", data: { fireAt: minutes(20).getTime() } },
+      { id: "daily-tasks:nag:c", fireAt: minutes(50), title: "Nag", body: "c", data: { fireAt: minutes(50).getTime() } },
     ]);
     expect(seen[2].lastDeliveredAt).toEqual(a.trigger.date);
     expect(mocked.scheduleNotificationAsync).not.toHaveBeenCalled();
@@ -375,9 +372,10 @@ describe("a plan item's extras", () => {
     );
     expect(scheduledRequests().map((request) => request.content)).toEqual([
       // Cleaned on the way in, whichever strategy wrote it.
-      { title: "Nag mode", body: "Line one line two", data: { taskId: "t1", kind: "nag" }, sound: true, interruptionLevel: "timeSensitive" },
-      { title: "Plain", body: "Plain", sound: "chime.wav" },
-      { title: "Bare", body: "Bare" },
+      { title: "Nag mode", body: "Line one line two", data: { taskId: "t1", kind: "nag", fireAt: minutes(5).getTime() }, sound: true, interruptionLevel: "timeSensitive" },
+      // Its own time always rides along: iOS doesn't report a pending one's date back.
+      { title: "Plain", body: "Plain", data: { fireAt: minutes(6).getTime() }, sound: "chime.wav" },
+      { title: "Bare", body: "Bare", data: { fireAt: minutes(7).getTime() } },
     ]);
   });
 

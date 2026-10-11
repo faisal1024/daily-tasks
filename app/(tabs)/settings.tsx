@@ -68,7 +68,7 @@ const NOTIFICATION_LABELS: Record<
 
 /** Under the "Hide task names in notifications" switch (and its VoiceOver hint). */
 const HIDE_TASK_NAMES_HELP =
-  "Reminders won't show what your tasks are. Good if others can see your lock screen.";
+  "Reminders and the timer's alert won't show what your tasks are.";
 
 /**
  * A reminder switch with its title and help text. To VoiceOver the row is
