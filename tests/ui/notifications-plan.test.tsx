@@ -56,7 +56,7 @@ interface Request {
 }
 
 /** A pending request as iOS reports it: a one-off date comes back as calendar components. */
-const asIosPending = (request: Request) => {
+const asIosPending = (request: Request): object => {
   const at = request.trigger.date;
   return {
     identifier: request.identifier,
@@ -77,7 +77,7 @@ const asIosPending = (request: Request) => {
   };
 };
 /** The same on Android: a timestamp. */
-const asAndroidPending = (request: Request) => ({
+const asAndroidPending = (request: Request): object => ({
   identifier: request.identifier,
   content: request.content,
   trigger: { type: "date", value: request.trigger.date.getTime() },
@@ -97,8 +97,9 @@ const scheduledRequests = () => mocked.scheduleNotificationAsync.mock.calls.map(
 const scheduledIds = () => scheduledRequests().map((request) => request.identifier);
 const cancelledIds = () => mocked.cancelScheduledNotificationAsync.mock.calls.map(([id]) => id);
 const dismissedIds = () => mocked.dismissNotificationAsync.mock.calls.map(([id]) => id);
-const firstOrder = (mock: jest.Mock) => Math.min(...mock.mock.invocationCallOrder);
-const lastOrder = (mock: jest.Mock) => Math.max(...mock.mock.invocationCallOrder);
+type Calls = { mock: { invocationCallOrder: number[] } };
+const firstOrder = (mock: Calls) => Math.min(...mock.mock.invocationCallOrder);
+const lastOrder = (mock: Calls) => Math.max(...mock.mock.invocationCallOrder);
 
 /** `count` owned reminders a minute apart, latest first. */
 const bigPlan = (count: number): ReminderPlan =>
@@ -259,7 +260,7 @@ describe("what is already pending", () => {
     expect(mocked.cancelScheduledNotificationAsync).not.toHaveBeenCalled();
 
     // One whose words, and one whose time, no longer match: only those are rewritten.
-    const reworded = { ...asPending(first[2]), content: { ...first[2].content, body: "Something older" } };
+    const reworded = asPending({ ...first[2], content: { ...first[2].content, body: "Something older" } });
     const retimed = asPending({ ...first[4], trigger: { type: "date", date: minutes(3) } });
     const untimed = { ...asPending(first[6]), trigger: null };
     pending(first.map((request, i) => (i === 2 ? reworded : i === 4 ? retimed : i === 6 ? untimed : asPending(request))));

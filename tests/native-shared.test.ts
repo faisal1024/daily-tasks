@@ -9,9 +9,44 @@ import { describe, expect, it } from "vitest";
 import { parseFocusCommands } from "../lib/daily-tasks/focus-commands";
 import { parseFocusStartLink, parseFocusStartRequest } from "../lib/daily-tasks/focus-link";
 import { notificationBody, startSession } from "../lib/daily-tasks/focus-session";
+import { buildReminderIdentifier, MANAGED_REMINDER_PREFIX } from "../lib/daily-tasks/reminders";
 
 const root = join(__dirname, "..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
+
+// PR #89: a tick the app can't see (the widget, the Live Activity's Done)
+// removes the app's pending reminders once nothing is open. The native side
+// finds them by the same id shape the app schedules them with.
+describe("native tick paths and the app's reminders", () => {
+  const swift = read("targets/widget/FocusActivityShared.swift");
+
+  it("uses the app's reminder id prefix and its morning ids", () => {
+    expect(swift).toContain(`static let reminderPrefix = "${MANAGED_REMINDER_PREFIX}"`);
+    const at = new Date(2026, 9, 13, 8, 0);
+    expect(buildReminderIdentifier("morning", at)).toBe("daily-tasks:2026-10-13:morning:0800");
+    // Today's: "<prefix><yyyy-MM-dd>:"; tomorrow morning's: "<prefix><yyyy-MM-dd>:morning:".
+    expect(swift).toContain(String.raw`"\(reminderPrefix)\(today):"`);
+    expect(swift).toContain(String.raw`"\(reminderPrefix)\(todayKey(tomorrow)):morning:"`);
+    // Only by removing listed ids: never everything, never the focus timer's by accident.
+    expect(swift).not.toContain("removeAllPendingNotificationRequests");
+  });
+
+  it("both tick paths clear them, after the tick is saved and outside the lock", () => {
+    const intent = read("targets/widget/ToggleTaskIntent.swift");
+    expect(intent.indexOf("FocusGroup.withLock { apply() }")).toBeGreaterThan(-1);
+    expect(intent.indexOf("await FocusGroup.clearRemindersIfAllDone()")).toBeGreaterThan(
+      intent.indexOf("FocusGroup.withLock { apply() }"),
+    );
+    const done = swift.slice(swift.indexOf("public static func done("), swift.indexOf("static func reflectApp("));
+    expect(done.indexOf("await FocusGroup.clearRemindersIfAllDone()")).toBeGreaterThan(
+      done.indexOf("FocusGroup.markDoneInSnapshot(taskId: taskId, date: date)"),
+    );
+    // Nothing goes while a task is still open, or for another day's snapshot.
+    const clear = swift.slice(swift.indexOf("static func clearRemindersIfAllDone"), swift.indexOf('/// "Start my next task"'));
+    expect(clear).toContain('snapshot["date"] as? String == today');
+    expect(clear).toContain('!tasks.isEmpty, !tasks.contains(where: { ($0["done"] as? Bool) != true })');
+  });
+});
 
 describe("shared Swift sources", () => {
   it("keeps FocusActivityShared.swift identical in the app module and the widget", () => {
