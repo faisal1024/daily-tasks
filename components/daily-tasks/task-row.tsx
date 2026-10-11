@@ -13,6 +13,7 @@ import {
   type TextInput as TextInputType,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { GestureDetector, type GestureType } from "react-native-gesture-handler";
 import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from "react-native-gesture-handler/ReanimatedSwipeable";
@@ -71,6 +72,23 @@ interface TaskRowBaseProps {
    * `"timer"` for the pill at time's up.
    */
   onOpenTimer?: (via: "words" | "timer") => void;
+  /**
+   * Reordering (1.4), for an open row: what it can do right now. "Do this
+   * next" is in the row's menu; all three are VoiceOver actions, so dragging
+   * is never needed.
+   */
+  reorder?: { canDoNext: boolean; canMoveUp: boolean; canMoveDown: boolean };
+  /** Make this the next task (the first open one). */
+  onDoNext?: () => void;
+  /** One place up or down among the open tasks. */
+  onMove?: (direction: "up" | "down") => void;
+  /**
+   * The drag handle's gesture (press and hold, then drag). The handle shows
+   * only with it: the list passes one when there are two or more open tasks.
+   */
+  dragGesture?: GestureType;
+  /** The handle without its gesture: the dragged row's copy under the finger. */
+  dragHandleOnly?: boolean;
 }
 
 /**
@@ -89,6 +107,11 @@ const ACTION_WIDTH = 84;
 const START_TIMER_ACTION = "startTimer";
 /** The checkbox's VoiceOver action for the timed task's focus screen. */
 const OPEN_FOCUS_ACTION = "openFocus";
+/** The checkbox's VoiceOver actions for reordering (1.4). */
+const DO_NEXT_ACTION = "doNext";
+const MOVE_UP_ACTION = "moveUp";
+const MOVE_DOWN_ACTION = "moveDown";
+export const DO_NEXT_LABEL = "Do this next";
 /** The row's words start after the circle's column (30) and the gap (12). */
 const TEXT_INSET = 42;
 
@@ -99,6 +122,8 @@ const TEXT_INSET = 42;
  * While the focus session is on this task, tapping the words opens the focus
  * screen instead and a long press opens the menu, led by the timer's own
  * choices (Open focus, Pause/Resume timer, Stop timer).
+ * An open row that isn't first offers "Do this next" in that menu, and, with
+ * two or more open tasks, a handle at its end: hold it, then drag (1.4).
  */
 export function TaskRow({
   task,
@@ -120,8 +145,24 @@ export function TaskRow({
   session = null,
   controls,
   onOpenTimer,
+  reorder,
+  onDoNext,
+  onMove,
+  dragGesture,
+  dragHandleOnly = false,
 }: TaskRowProps) {
   const colors = useColors();
+  const dragHandle = (
+    <View
+      collapsable={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{ width: 28, height: 30, marginRight: -6, alignItems: "center", justifyContent: "center" }}
+      testID={`task-drag-${task.id}`}
+    >
+      <Ionicons name="reorder-two-outline" size={22} color={colors.muted} />
+    </View>
+  );
   const reduceMotion = useReducedMotion();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.text);
@@ -193,6 +234,15 @@ export function TaskRow({
   const clock = useRowSessionClock(session);
   const timed = clock && controls && !completed && !editing ? { clock, controls } : null;
 
+  // Reordering is for open rows (a done task keeps its place).
+  const canDoNext = Boolean(reorder?.canDoNext && onDoNext) && !completed;
+  const canMoveUp = Boolean(reorder?.canMoveUp && onMove) && !completed;
+  const canMoveDown = Boolean(reorder?.canMoveDown && onMove) && !completed;
+  const doNext = () => {
+    swipeRef.current?.close();
+    onDoNext?.();
+  };
+
   // The row's menu (a tap on the words, or a long press while it's timed).
   // The timed task's own timer choices come first: Open focus, Pause or
   // Resume timer (not at time's up: the check-in answers that), Stop timer.
@@ -204,6 +254,7 @@ export function TaskRow({
         ? [{ label: "Resume timer", onPress: () => toggleTimer(timed.controls, "resume") }]
         : []),
     ...(timed ? [{ label: "Stop timer", onPress: () => timed.controls.stop() }] : []),
+    ...(canDoNext ? [{ label: DO_NEXT_LABEL, onPress: doNext }] : []),
     ...actions.map((action) => ({
       label: TASK_ROW_ACTION_LABELS[action],
       onPress: () => run(action),
@@ -250,6 +301,18 @@ export function TaskRow({
     }
     if (event.nativeEvent.actionName === OPEN_FOCUS_ACTION) {
       if (opensFocus) onOpenTimer?.("words");
+      return;
+    }
+    if (event.nativeEvent.actionName === DO_NEXT_ACTION) {
+      if (canDoNext) doNext();
+      return;
+    }
+    if (event.nativeEvent.actionName === MOVE_UP_ACTION) {
+      if (canMoveUp) onMove?.("up");
+      return;
+    }
+    if (event.nativeEvent.actionName === MOVE_DOWN_ACTION) {
+      if (canMoveDown) onMove?.("down");
       return;
     }
     const name = event.nativeEvent.actionName as TaskRowAction;
@@ -339,6 +402,9 @@ export function TaskRow({
                 ...actions.map((action) => ({ name: action, label: TASK_ROW_ACTION_LABELS[action] })),
                 ...(canStartTimer ? [{ name: START_TIMER_ACTION, label: "Start timer" }] : []),
                 ...(opensFocus ? [{ name: OPEN_FOCUS_ACTION, label: "Open focus" }] : []),
+                ...(canDoNext ? [{ name: DO_NEXT_ACTION, label: DO_NEXT_LABEL }] : []),
+                ...(canMoveUp ? [{ name: MOVE_UP_ACTION, label: "Move up" }] : []),
+                ...(canMoveDown ? [{ name: MOVE_DOWN_ACTION, label: "Move down" }] : []),
               ]}
               onAccessibilityAction={onA11yAction}
               onPress={() => {
@@ -556,6 +622,15 @@ export function TaskRow({
             >
               <Ionicons name="timer-outline" size={23} color={colors.muted} />
             </Pressable>
+          ) : null}
+
+          {/* Reorder (1.4): hold the handle, then drag. No taller than the
+              circle; its 44pt target is the gesture's hit slop. VoiceOver
+              skips it: the checkbox has Do this next / Move up / Move down. */}
+          {completed || editing ? null : dragGesture && !dragHandleOnly ? (
+            <GestureDetector gesture={dragGesture}>{dragHandle}</GestureDetector>
+          ) : dragHandleOnly ? (
+            dragHandle
           ) : null}
         </View>
 

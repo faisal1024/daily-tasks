@@ -167,6 +167,8 @@ function makeStore(overrides: Partial<AppState> = {}) {
     editTask: jest.fn(),
     deleteTask: jest.fn(),
     notToday: jest.fn(),
+    moveTask: jest.fn(),
+    makeTaskNext: jest.fn(),
     toggleTask: jest.fn(),
     lockToday: jest.fn(),
     resolveRollover: jest.fn(),
@@ -2227,7 +2229,13 @@ describe("Today card (Phase 10a)", () => {
     mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch") });
     await render(<HomeScreen />);
     const box = screen.getByRole("checkbox", { name: "Task 2: Stretch" });
-    expect(box.props.accessibilityActions.map((a: { name: string }) => a.name)).toEqual(["notToday", "startTimer"]);
+    expect(box.props.accessibilityActions.map((a: { name: string }) => a.name)).toEqual([
+      "notToday",
+      "startTimer",
+      // Reordering (1.4) is allowed on a set day: the second open task can go first.
+      "doNext",
+      "moveUp",
+    ]);
     await fireEvent(box, "accessibilityAction", { nativeEvent: { actionName: "delete" } });
     expect(alert).not.toHaveBeenCalled();
     expect(mockStore.deleteTask).not.toHaveBeenCalled();

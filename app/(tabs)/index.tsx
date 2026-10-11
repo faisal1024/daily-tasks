@@ -16,7 +16,7 @@ import {
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useReducedMotion } from "react-native-reanimated";
+import Animated, { useReducedMotion } from "react-native-reanimated";
 
 import { useColors } from "@/hooks/use-colors";
 import { useRoutinesCardShownEvent, useTodaysRoutines } from "@/hooks/use-todays-routines";
@@ -40,6 +40,7 @@ import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
+import { ReorderGhost, useTaskReorder } from "@/components/daily-tasks/task-reorder";
 import { TaskRow } from "@/components/daily-tasks/task-row";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
 import { TodaysRoutinesCard } from "@/components/daily-tasks/todays-routines-card";
@@ -116,6 +117,8 @@ import {
   todayProgress,
   todayStatus,
 } from "@/lib/daily-tasks/today-view";
+import { announcePolitely } from "@/lib/daily-tasks/announce";
+import { openTaskIndex, reorderAnnouncement, reorderOptions } from "@/lib/daily-tasks/reorder";
 import { buildWeekSummary, todayPhase } from "@/lib/daily-tasks/today-phase";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
 import {
@@ -125,7 +128,7 @@ import {
   isDayClosed,
   showEveningCheckIn,
 } from "@/lib/daily-tasks/evening";
-import type { ReflectionResult } from "@/lib/daily-tasks/types";
+import type { ReflectionResult, Task } from "@/lib/daily-tasks/types";
 
 /** Wait this long after the app becomes active before asking. */
 const REVIEW_SETTLE_MS = 2000;
@@ -166,6 +169,8 @@ export default function HomeScreen() {
     editTask,
     deleteTask,
     notToday,
+    moveTask,
+    makeTaskNext,
     toggleTask,
     lockToday,
     unlockToday,
@@ -394,6 +399,42 @@ export default function HomeScreen() {
     return next ? { text: next.routine.text, when: nextDayPhrase(next) } : null;
   }, [state.routines, today]);
   const reduceMotion = useReducedMotion();
+  // Reordering (1.4): pick which open task is next, by dragging a row's
+  // handle or with "Do this next". Fine on a set day: the plan is the same.
+  // A move one place up or down (VoiceOver's actions, and a drop).
+  const reorderTo = (id: string, toIndex: number, fromIndex: number) => {
+    if (toIndex === fromIndex) return;
+    const text = state.tasks.find((task) => task.id === id)?.text;
+    moveTask(id, toIndex);
+    track("task_reordered", { source: "drag" });
+    if (text) announcePolitely(reorderAnnouncement(text, toIndex, toIndex < fromIndex ? "up" : "down"));
+  };
+  const reorder = useTaskReorder({
+    tasks: state.tasks,
+    completedIds: state.todayCompletions,
+    reduceMotion,
+    onPickUp: () => haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
+    onDrop: (id, toIndex, fromIndex) => {
+      haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+      reorderTo(id, toIndex, fromIndex);
+    },
+  });
+  const handleMove = (id: string, direction: "up" | "down") => {
+    const from = openTaskIndex(state.tasks, state.todayCompletions, id);
+    if (from < 0) return;
+    const options = reorderOptions(state.tasks, state.todayCompletions, id);
+    if (direction === "up" ? !options.canMoveUp : !options.canMoveDown) return;
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    reorderTo(id, from + (direction === "up" ? -1 : 1), from);
+  };
+  const handleDoNext = (id: string, text: string) => {
+    if (!reorderOptions(state.tasks, state.todayCompletions, id).canDoNext) return;
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    makeTaskNext(id);
+    track("task_reordered", { source: "next" });
+    // After the menu has closed, and without cutting its own words off.
+    announcePolitely(`${text} is next`);
+  };
   const handleAddRoutine = (id: string, source: RoutineAddSource) => {
     const text = dueRoutines.find((routine) => routine.id === id)?.text;
     // The last row leaving takes the card with it: ease it out rather than jump.
@@ -1125,6 +1166,47 @@ export default function HomeScreen() {
     addTask(text);
   };
 
+  // One task's row: in the list, and again as the drag's ghost.
+  const draggedTask = reorder.draggingId
+    ? (state.tasks.find((task) => task.id === reorder.draggingId) ?? null)
+    : null;
+  const renderTaskRow = (task: Task, index: number, ghost = false) => {
+    const options = reorderOptions(state.tasks, state.todayCompletions, task.id);
+    return (
+      <TaskRow
+        task={task}
+        index={index}
+        hero={task.id === heroTaskId}
+        completed={isCompleted(task.id)}
+        editable={!state.todayLocked}
+        onToggle={() => handleToggle(task.id)}
+        onEdit={(text) => editTask(task.id, text)}
+        onDelete={() => handleDelete(task.id, task.text)}
+        onNotToday={() => handleNotToday(task.id)}
+        onBreakDown={
+          breakDownAvailable ? () => handleBreakDown(task.id, task.text) : undefined
+        }
+        breakingDown={breakingTaskId === task.id}
+        breakDownNeedsPlus={!hasPlus}
+        breakDownDisabled={breakingTaskId !== null && breakingTaskId !== task.id}
+        onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
+        // Steps are a finishing aid, so clearing them is fine on a set day.
+        onClearSteps={() => clearTaskSteps(task.id)}
+        // A timer is fine on a set day too: it's for doing the day.
+        onTimer={(anchor) => openTimerMenu(task.id, task.text, anchor)}
+        session={focusSession?.taskId === task.id ? focusSession : null}
+        controls={sessionControls}
+        onOpenTimer={(via) => openFocus(task.id, via === "words" ? "row_words" : "row")}
+        reorder={options}
+        onDoNext={() => handleDoNext(task.id, task.text)}
+        onMove={(direction) => handleMove(task.id, direction)}
+        // The ghost shows the handle but must not hold the gesture too.
+        dragGesture={options.canDrag && !ghost ? reorder.gestures[task.id] : undefined}
+        dragHandleOnly={ghost}
+      />
+    );
+  };
+
   return (
     <ScreenContainer edges={["left", "right"]}>
       <KeyboardAvoidingView
@@ -1133,6 +1215,8 @@ export default function HomeScreen() {
       >
         <ScrollView
           contentContainerStyle={{ paddingBottom: 48 }}
+          // A picked-up row moves, not the page.
+          scrollEnabled={reorder.draggingId === null}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
         >
@@ -1195,39 +1279,22 @@ export default function HomeScreen() {
                 testID="today-tasks"
               >
                 {Array.from({ length: MAX_TASKS }).map((_, index) => {
-                  const task = state.tasks[index];
+                  // The saved order, or a drag's preview of where the row would land.
+                  const task = reorder.displayTasks[index];
                   const divider =
                     index > 0 ? <View style={{ height: 1, backgroundColor: colors.border, marginLeft: 58 }} /> : null;
                   if (task) {
                     return (
-                      <View key={task.id}>
+                      <Animated.View
+                        key={task.id}
+                        layout={reorder.rowTransition}
+                        onLayout={(event) => reorder.onRowLayout(task.id, index, event)}
+                        // Under the finger it's the ghost that shows (below).
+                        style={reorder.draggingId === task.id ? { opacity: 0 } : undefined}
+                      >
                         {divider}
-                        <TaskRow
-                          task={task}
-                          index={index}
-                          hero={task.id === heroTaskId}
-                          completed={isCompleted(task.id)}
-                          editable={!state.todayLocked}
-                          onToggle={() => handleToggle(task.id)}
-                          onEdit={(text) => editTask(task.id, text)}
-                          onDelete={() => handleDelete(task.id, task.text)}
-                          onNotToday={() => handleNotToday(task.id)}
-                          onBreakDown={
-                            breakDownAvailable ? () => handleBreakDown(task.id, task.text) : undefined
-                          }
-                          breakingDown={breakingTaskId === task.id}
-                          breakDownNeedsPlus={!hasPlus}
-                          breakDownDisabled={breakingTaskId !== null && breakingTaskId !== task.id}
-                          onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
-                          // Steps are a finishing aid, so clearing them is fine on a set day.
-                          onClearSteps={() => clearTaskSteps(task.id)}
-                          // A timer is fine on a set day too: it's for doing the day.
-                          onTimer={(anchor) => openTimerMenu(task.id, task.text, anchor)}
-                          session={focusSession?.taskId === task.id ? focusSession : null}
-                          controls={sessionControls}
-                          onOpenTimer={(via) => openFocus(task.id, via === "words" ? "row_words" : "row")}
-                        />
-                      </View>
+                        {renderTaskRow(task, index)}
+                      </Animated.View>
                     );
                   }
                   if (remainingSlots <= 0) return null;
@@ -1243,6 +1310,11 @@ export default function HomeScreen() {
                     </View>
                   );
                 })}
+                {draggedTask ? (
+                  <ReorderGhost top={reorder.ghostTop} dragY={reorder.dragY}>
+                    {renderTaskRow(draggedTask, state.tasks.indexOf(draggedTask), true)}
+                  </ReorderGhost>
+                ) : null}
               </View>
 
               {/* A full three-for-three day: the card and gradient say it all.
