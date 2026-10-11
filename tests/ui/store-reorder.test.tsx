@@ -349,3 +349,318 @@ describe("store: the one-time reorder hint", () => {
     expect(result.current.state.reorderHintSeen).toBe(false);
   });
 });
+
+// --- Principal tester (PR #90) ------------------------------------------------
+
+/** The rule, written out another way: the open ids re-sequenced, dealt back into the open slots. */
+function expectedOrder(ids: string[], done: string[], id: string, to: number): string[] {
+  const openIds = ids.filter((item) => !done.includes(item));
+  if (!openIds.includes(id)) return ids;
+  const rest = openIds.filter((item) => item !== id);
+  const at = Math.max(0, Math.min(to, rest.length));
+  const sequence = [...rest.slice(0, at), id, ...rest.slice(at)];
+  let next = 0;
+  return ids.map((item) => (done.includes(item) ? item : sequence[next++]));
+}
+const ids = (result: Store) => result.current.state.tasks.map((item) => item.id);
+
+describe("store: every list of 1, 2 and 3 tasks, every done/open combination", () => {
+  const LISTS = [[A], [A, B], [A, B, C]];
+  const cases = LISTS.flatMap((tasks) => {
+    const out: { tasks: Task[]; done: string[]; name: string }[] = [];
+    for (let mask = 0; mask < 1 << tasks.length; mask += 1) {
+      const done = tasks.filter((_, bit) => mask & (1 << bit)).map((item) => item.id);
+      out.push({ tasks, done, name: tasks.map((item) => (done.includes(item.id) ? `${item.id}✓` : item.id)).join(" ") });
+    }
+    return out;
+  });
+
+  it.each(cases)("[$name]: makeTaskNext and moveTask follow the rule; a no-op is the same state", async ({ tasks, done }) => {
+    const { result } = await renderStore({ tasks, todayCompletions: done });
+    const all = [...tasks.map((item) => item.id), "nope"];
+    const moves: { label: string; id: string; to: number; run: () => void }[] = [];
+    for (const id of all) {
+      moves.push({ label: `next ${id}`, id, to: 0, run: () => result.current.makeTaskNext(id) });
+      for (const to of [-1, 0, 1, 2, 3]) {
+        moves.push({ label: `move ${id} to ${to}`, id, to, run: () => result.current.moveTask(id, to) });
+      }
+    }
+    // One after another, each from wherever the last one left the list.
+    const check = async (move: (typeof moves)[number]) => {
+      const before = result.current.state;
+      const want = expectedOrder(ids(result), done, move.id, move.to);
+      const changes = want.join() !== ids(result).join();
+      await act(async () => move.run());
+      const after = result.current.state;
+      expect(ids(result)).toEqual(want);
+      if (!changes) {
+        expect(after).toBe(before);
+        return;
+      }
+      expect(after).not.toBe(before);
+      // Done tasks kept their slots; the completions are the very same array.
+      expect(after.todayCompletions).toBe(before.todayCompletions);
+      before.tasks.forEach((item, index) => {
+        if (done.includes(item.id)) expect(after.tasks[index]).toBe(item);
+      });
+      // Today's record follows, with each task's done mark still its own.
+      expect(after.history[TODAY].tasks.map((item) => [item.id, item.completed])).toEqual(
+        want.map((id) => [id, done.includes(id)]),
+      );
+      expect(after.history[TODAY].completed).toBe(done.length);
+      // After makeTaskNext the task is the first open one.
+      if (move.to <= 0) {
+        expect(after.tasks.find((item) => !done.includes(item.id))?.id).toBe(move.id);
+      }
+    };
+    for (const move of moves) {
+      try {
+        await check(move);
+      } catch (error) {
+        // Say which move it was.
+        (error as Error).message = `${move.label}: ${(error as Error).message}`;
+        throw error;
+      }
+    }
+    // With fewer than two open tasks nothing above ever changed the state.
+    if (tasks.length - done.length < 2) expect(ids(result)).toEqual(tasks.map((item) => item.id));
+  });
+});
+
+describe("store: a set day stays set through a reorder", () => {
+  it("both actions reorder it, and what the lock forbids is still forbidden afterwards", async () => {
+    const lockedAt = new Date(2026, 9, 10, 8, 30).toISOString();
+    const { result } = await renderStore({
+      tasks: [A, B],
+      parkedTasks: [{ id: "p1", text: "Parked", parkedAt: lockedAt }],
+      todayLocked: true,
+      todayLockSource: "manual",
+      todayLockedAt: lockedAt,
+    });
+    await act(async () => result.current.makeTaskNext("b"));
+    expect(order(result)).toBe("b a");
+    await act(async () => result.current.moveTask("b", 1));
+    expect(order(result)).toBe("a b");
+    await act(async () => result.current.moveTask("b", 0));
+    expect(order(result)).toBe("b a");
+
+    // Nothing that changes the plan got through with it.
+    const set = result.current.state;
+    await act(async () => result.current.addTask("Delta"));
+    await act(async () => result.current.addTasks(["Echo"]));
+    await act(async () => result.current.editTask("a", "Changed"));
+    await act(async () => result.current.deleteTask("a"));
+    await act(async () => result.current.notToday("b"));
+    await act(async () => result.current.addParkedTask("p1"));
+    await act(async () => result.current.lockToday());
+    expect(result.current.state).toBe(set);
+    expect(set.tasks.map((item) => item.text)).toEqual(["Bravo", "Alpha"]);
+    expect(set).toMatchObject({ todayLocked: true, todayLockSource: "manual", todayLockedAt: lockedAt });
+    expect(set.parkedTasks).toHaveLength(1);
+
+    // What a set day does allow still works on the reordered list: ticking.
+    await act(async () => result.current.toggleTask("a"));
+    expect(order(result)).toBe("b a✓");
+    // And now there is one open task: nothing left to reorder.
+    const ticked = result.current.state;
+    await act(async () => result.current.makeTaskNext("b"));
+    await act(async () => result.current.moveTask("b", 1));
+    expect(result.current.state).toBe(ticked);
+    expect(ticked.todayLocked).toBe(true);
+  });
+
+  it("unlocking afterwards keeps the new order, and the day can be changed again", async () => {
+    const { result } = await renderStore({ todayLocked: true, todayLockSource: "manual" });
+    await act(async () => result.current.makeTaskNext("c"));
+    await act(async () => result.current.unlockToday());
+    expect(result.current.state.todayLocked).toBe(false);
+    expect(order(result)).toBe("c a b");
+    await act(async () => result.current.deleteTask("a"));
+    expect(order(result)).toBe("c b");
+  });
+});
+
+describe("store: the order is saved, and survives a relaunch", () => {
+  it("a new launch reads back the reordered list, the done marks, today's record and the widget's snapshot", async () => {
+    const first = await renderStore({ todayCompletions: ["b"] });
+    await act(async () => first.result.current.moveTask("a", 1));
+    await flush();
+    expect(order(first.result)).toBe("c b✓ a");
+    await first.unmount();
+    (writeWidgetSnapshot as jest.Mock).mockClear();
+    __resetStorageForTests();
+
+    // The relaunch: nothing but what was saved.
+    const second = await renderHook(() => useDailyTasks(), { wrapper });
+    await flush();
+    expect(second.result.current.ready).toBe(true);
+    expect(order(second.result)).toBe("c b✓ a");
+    expect(second.result.current.state.history[TODAY].tasks.map((item) => [item.id, item.completed])).toEqual([
+      ["c", false],
+      ["b", true],
+      ["a", false],
+    ]);
+    expect(lastSnapshot().tasks.map((item) => `${item.id}${item.done ? "✓" : ""}`)).toEqual(["c", "b✓", "a"]);
+    expect(nextOpenTask(second.result.current.state.tasks, second.result.current.state.todayCompletions)?.id).toBe("c");
+    expect(planFocusStart(second.result.current.state)).toEqual({ type: "start", taskId: "c" });
+
+    // And it can be reordered again from there.
+    await act(async () => second.result.current.makeTaskNext("a"));
+    await flush();
+    expect(order(second.result)).toBe("a b✓ c");
+    expect((await savedState()).tasks.map((item) => item.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("several moves in one go save the last order, not an earlier one", async () => {
+    const { result } = await renderStore();
+    await act(async () => {
+      result.current.makeTaskNext("c");
+      result.current.makeTaskNext("b");
+      result.current.moveTask("c", 2);
+    });
+    await flush();
+    expect(order(result)).toBe("b a c");
+    expect((await savedState()).tasks.map((item) => item.id)).toEqual(["b", "a", "c"]);
+    expect((await savedState()).history[TODAY].tasks.map((item) => item.id)).toEqual(["b", "a", "c"]);
+  });
+});
+
+describe("store: the day after a reorder", () => {
+  const TOMORROW = "2026-10-11";
+
+  it("yesterday's record keeps the reordered list, and the open tasks wait for the rollover in that order", async () => {
+    const { result } = await renderStore({ todayCompletions: ["b"] });
+    await act(async () => result.current.makeTaskNext("c"));
+    await flush();
+    expect(order(result)).toBe("c b✓ a");
+
+    // Past midnight; the next thing the user does runs the day change first.
+    jest.setSystemTime(new Date(2026, 9, 11, 7, 0));
+    await act(async () => result.current.addTask("Delta"));
+    await flush();
+    const state = result.current.state;
+    expect(result.current.today).toBe(TOMORROW);
+    expect(state.history[TODAY].tasks.map((item) => [item.id, item.completed])).toEqual([
+      ["c", false],
+      ["b", true],
+      ["a", false],
+    ]);
+    expect(state.history[TODAY]).toMatchObject({ total: 3, completed: 1 });
+    // The two open ones, in the order the user left them.
+    expect(state.pendingRollover?.tasks.map((item) => item.id)).toEqual(["c", "a"]);
+    expect(state.tasks.map((item) => item.text)).toEqual(["Delta"]);
+    expect(state.todayCompletions).toEqual([]);
+  });
+
+  it("a reorder asked for just after midnight changes the day first: yesterday's list isn't touched", async () => {
+    const { result } = await renderStore({ todayLocked: true, todayLockSource: "manual" });
+    jest.setSystemTime(new Date(2026, 9, 11, 0, 0, 10));
+    // Yesterday's rows are still on screen when the handle is let go.
+    await act(async () => result.current.moveTask("a", 2));
+    await act(async () => result.current.makeTaskNext("c"));
+    await flush();
+    const state = result.current.state;
+    expect(result.current.today).toBe(TOMORROW);
+    expect(state.history[TODAY].tasks.map((item) => item.id)).toEqual(["a", "b", "c"]);
+    expect(state.history[TODAY]).toMatchObject({ locked: true, lockSource: "manual" });
+    expect(state.pendingRollover?.tasks.map((item) => item.id)).toEqual(["a", "b", "c"]);
+    // The new day is empty and open; the move found nothing to move in it.
+    expect(state.tasks).toEqual([]);
+    expect(state.todayLocked).toBe(false);
+    expect(state.history[TOMORROW]?.tasks ?? []).toEqual([]);
+  });
+
+  it("carried-over tasks can be reordered the next day like any others, keeping their mark", async () => {
+    const { result } = await renderStore();
+    await act(async () => result.current.makeTaskNext("c"));
+    jest.setSystemTime(new Date(2026, 9, 11, 7, 0));
+    await act(async () => result.current.resolveRollover(["c", "a", "b"]));
+    await flush();
+    expect(result.current.today).toBe(TOMORROW);
+    const carried = result.current.state.tasks;
+    expect(carried.map((item) => item.text)).toEqual(["Charlie", "Alpha", "Bravo"]);
+    expect(carried.every((item) => item.carriedOver)).toBe(true);
+
+    await act(async () => result.current.makeTaskNext(carried[2].id));
+    expect(result.current.state.tasks.map((item) => [item.text, item.carriedOver])).toEqual([
+      ["Bravo", true],
+      ["Charlie", true],
+      ["Alpha", true],
+    ]);
+    expect(result.current.state.history[TOMORROW].tasks.map((item) => item.text)).toEqual(["Bravo", "Charlie", "Alpha"]);
+    // Yesterday's record is as it was left.
+    expect(result.current.state.history[TODAY].tasks.map((item) => item.id)).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("store: a timer and steps ride along", () => {
+  it("the timed task stays timed through a relaunch after a reorder, and its steps stay its own", async () => {
+    const steps = [{ id: "s1", text: "Shoes on", done: true }];
+    const first = await renderStore({ tasks: [A, task("b", "Bravo", { steps }), C] });
+    await act(async () =>
+      first.result.current.startFocusSession("b", { kind: "timer", minutes: 10, source: "row" }),
+    );
+    await act(async () => first.result.current.makeTaskNext("c"));
+    await act(async () => first.result.current.moveTask("b", 2));
+    await flush();
+    const session = first.result.current.state.focusSession!;
+    expect(order(first.result)).toBe("c a b");
+    await first.unmount();
+    __resetStorageForTests();
+
+    const second = await renderHook(() => useDailyTasks(), { wrapper });
+    await flush();
+    expect(order(second.result)).toBe("c a b");
+    expect(second.result.current.state.focusSession).toMatchObject({
+      id: session.id,
+      taskId: "b",
+      status: "running",
+      endAt: session.endAt,
+    });
+    expect(second.result.current.state.tasks[2].steps).toEqual(steps);
+    // "Start my next task" asks about the new next one rather than replacing the timer.
+    expect(planFocusStart(second.result.current.state)).toEqual({ type: "confirm", taskId: "c" });
+  });
+
+  it("ticking the timed task off after it was moved ends its timer, not another task's", async () => {
+    const { result } = await renderStore();
+    await act(async () => result.current.startFocusSession("a", { kind: "timer", minutes: 10, source: "row" }));
+    await act(async () => result.current.moveTask("a", 2));
+    expect(order(result)).toBe("b c a");
+    await act(async () => result.current.toggleTask("b"));
+    expect(result.current.state.focusSession).toMatchObject({ taskId: "a", status: "running" });
+    await act(async () => result.current.toggleTask("a"));
+    await flush();
+    expect(result.current.state.focusSession).toBeNull();
+    expect(order(result)).toBe("b✓ c a✓");
+  });
+});
+
+describe("store: the hint flag in saved state", () => {
+  it.each([
+    ["missing (saved by 1.3)", undefined, false],
+    ["false", false, false],
+    ["true", true, true],
+    ["not a boolean", "yes", false],
+    ["null", null, false],
+  ])("%s loads fine", async (_name, saved, loaded) => {
+    const { result } = await renderStore({ reorderHintSeen: saved as never });
+    expect(result.current.state.reorderHintSeen).toBe(loaded);
+    // The rest of the day is all there.
+    expect(order(result)).toBe("a b c");
+    expect(result.current.state.hasSeenOnboarding).toBe(true);
+  });
+
+  it("stays marked through a relaunch and a day change", async () => {
+    const first = await renderStore();
+    await act(async () => first.result.current.markReorderHintSeen());
+    await flush();
+    await first.unmount();
+    __resetStorageForTests();
+    jest.setSystemTime(new Date(2026, 9, 11, 7, 0));
+    const second = await renderHook(() => useDailyTasks(), { wrapper });
+    await flush();
+    expect(second.result.current.today).toBe("2026-10-11");
+    expect(second.result.current.state.reorderHintSeen).toBe(true);
+  });
+});

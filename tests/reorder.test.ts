@@ -275,3 +275,252 @@ describe("the drag handle's glyph", () => {
     expect(contrast(glyph, surface)).toBeLessThan(contrast(muted, surface));
   });
 });
+
+// --- Principal tester (PR #90): the rule and the geometry, exhaustively ------
+
+/** The rule, written out another way: the open ids re-sequenced, dealt back into the open slots. */
+function expectedOrder(ids: string[], done: string[], id: string, to: number): string[] {
+  const openIds = ids.filter((item) => !done.includes(item));
+  if (!openIds.includes(id)) return ids;
+  const rest = openIds.filter((item) => item !== id);
+  const at = Math.max(0, Math.min(to, rest.length));
+  const sequence = [...rest.slice(0, at), id, ...rest.slice(at)];
+  let next = 0;
+  return ids.map((item) => (done.includes(item) ? item : sequence[next++]));
+}
+
+/** Every done/open combination of `ids`, as the list of done ids. */
+function doneCombinations(ids: string[]): string[][] {
+  const out: string[][] = [];
+  for (let mask = 0; mask < 1 << ids.length; mask += 1) out.push(ids.filter((_, bit) => mask & (1 << bit)));
+  return out;
+}
+
+describe("moveOpenTask: every list of 1, 2 and 3 tasks, every done/open combination", () => {
+  const LISTS = [["A"], ["A", "B"], ["A", "B", "C"]];
+  const cases = LISTS.flatMap((ids) => doneCombinations(ids).map((done) => ({ ids, done })));
+  // 2 + 4 + 8 combinations.
+  it("covers all 14 combinations", () => expect(cases).toHaveLength(14));
+
+  it.each(cases)("[$ids] with [$done] done: every task (and one that isn't there) to every index", ({ ids, done }) => {
+    for (const id of [...ids, "nope"]) {
+      for (const to of [-2, -1, 0, 1, 2, 3, 4]) {
+        const tasks = list(...ids);
+        const frozen = tasks.slice();
+        const moved = moveOpenTask(tasks, done, id, to);
+        const want = expectedOrder(ids, done, id, to);
+        const label = `${id} to ${to}`;
+        expect(moved.map((task) => task.id), label).toEqual(want);
+        // The store's array is never changed in place.
+        expect(tasks, label).toEqual(frozen);
+        tasks.forEach((task, index) => expect(task, label).toBe(frozen[index]));
+        // Nothing to do: the very same array. Something to do: a new one, same task objects.
+        if (want.join() === ids.join()) expect(moved, label).toBe(tasks);
+        else expect(moved, label).not.toBe(tasks);
+        expect([...moved].sort((a, b) => a.id.localeCompare(b.id)), label).toEqual(frozen);
+        // A done task keeps its slot (the very same object at the same index): never a landing place.
+        ids.forEach((item, index) => {
+          if (done.includes(item)) expect(moved[index], label).toBe(tasks[index]);
+        });
+        // An unknown or done task, or fewer than two open: always a no-op.
+        const openCount = ids.length - done.length;
+        if (!ids.includes(id) || done.includes(id) || openCount < 2) expect(moved, label).toBe(tasks);
+      }
+    }
+  });
+
+  it.each(cases)("[$ids] with [$done] done: 'next' (index 0) puts the task first among the open ones", ({ ids, done }) => {
+    const openIds = ids.filter((item) => !done.includes(item));
+    for (const id of openIds) {
+      const tasks = list(...ids);
+      const moved = moveOpenTask(tasks, done, id, 0);
+      // The first open task is now this one; the other open ones keep their order behind it.
+      expect(moved.filter((task) => !done.includes(task.id)).map((task) => task.id)).toEqual([
+        id,
+        ...openIds.filter((item) => item !== id),
+      ]);
+      expect(reorderOptions(moved, done, id)).toMatchObject({ openIndex: 0, canDoNext: false, canMoveUp: false });
+      // Already first: the same array; and doing it twice is the same as once.
+      if (openIds[0] === id) expect(moved).toBe(tasks);
+      expect(moveOpenTask(moved, done, id, 0)).toBe(moved);
+    }
+  });
+
+  it.each(cases)("[$ids] with [$done] done: what a row offers is what would change the order", ({ ids, done }) => {
+    const tasks = list(...ids);
+    for (const id of [...ids, "nope"]) {
+      const options = reorderOptions(tasks, done, id);
+      const at = options.openIndex;
+      const changes = (to: number) => at >= 0 && moveOpenTask(tasks, done, id, to) !== tasks;
+      expect(options.canDoNext).toBe(changes(0));
+      expect(options.canMoveDown).toBe(changes(at + 1));
+      // Up one place, unless that is exactly what "Do this next" does (the second open row).
+      expect(options.canMoveUp).toBe(at > 1 && changes(at - 1));
+      expect(options.canDrag).toBe(at >= 0 && ids.length - done.length >= 2);
+      if (done.includes(id) || !ids.includes(id)) expect(at).toBe(-1);
+    }
+  });
+
+  it("completedIds that aren't on the list (yesterday's, a removed task's) change nothing", () => {
+    const tasks = list("A", "B", "C");
+    expect(show(moveOpenTask(tasks, ["gone", "B"], "C", 0), ["B"])).toBe("C B✓ A");
+    expect(reorderOptions(tasks, ["gone"], "C")).toMatchObject({ openIndex: 2, canMoveDown: false, canDrag: true });
+  });
+});
+
+describe("the drag's geometry: 2 and 3 rows, every done/open combination, mixed heights", () => {
+  const HEIGHT_SETS = [
+    [40, 80, 60],
+    [64, 44, 52],
+    [30, 30, 30],
+    [120, 20, 48],
+  ];
+  const build = (count: number, heights: number[], done: number[], gap: number, top: number): RowFrame[] => {
+    const frames: RowFrame[] = [];
+    let y = top;
+    for (let i = 0; i < count; i += 1) {
+      if (i > 0) y += gap;
+      frames.push({ id: "ABC"[i], y, height: heights[i], open: !done.includes(i) });
+      y += heights[i];
+    }
+    return frames;
+  };
+  const layouts: { name: string; frames: RowFrame[]; gap: number }[] = [];
+  for (const count of [2, 3]) {
+    for (const heights of HEIGHT_SETS) {
+      for (let mask = 0; mask < 1 << count; mask += 1) {
+        const done = [0, 1, 2].filter((bit) => bit < count && mask & (1 << bit));
+        for (const [gap, top] of [
+          [1, 0],
+          [0, 12],
+        ]) {
+          const frames = build(count, heights, done, gap, top);
+          layouts.push({
+            name: frames.map((frame) => `${frame.id}${frame.open ? "" : "✓"}:${frame.height}`).join(" ") + ` gap ${gap}`,
+            frames,
+            gap,
+          });
+        }
+      }
+    }
+  }
+  const openOf = (frames: RowFrame[]) => frames.filter((frame) => frame.open);
+  const bottom = (frames: RowFrame[]) => frames[frames.length - 1].y + frames[frames.length - 1].height;
+
+  it.each(layouts)("$name: every move restacks into the same card, done rows in their slots", ({ frames, gap }) => {
+    const open = openOf(frames);
+    const frozen = JSON.stringify(frames);
+    for (let from = 0; from < open.length; from += 1) {
+      for (let to = 0; to < open.length; to += 1) {
+        const stacked = restackRows(frames, from, to, gap);
+        const shifts = rowShifts(frames, from, to, gap);
+        // The same rows, in the order the store will save.
+        const want = expectedOrder(
+          frames.map((frame) => frame.id),
+          frames.filter((frame) => !frame.open).map((frame) => frame.id),
+          open[from].id,
+          to,
+        );
+        expect(stacked.map((row) => row.id)).toEqual(want);
+        // The card doesn't grow, shrink or move: same top, same bottom, no gaps or overlaps.
+        expect(stacked[0].y).toBe(frames[0].y);
+        expect(bottom(stacked)).toBe(bottom(frames));
+        for (let i = 1; i < stacked.length; i += 1) {
+          expect(stacked[i].y).toBe(stacked[i - 1].y + stacked[i - 1].height + gap);
+        }
+        // Each row keeps its own height and open/done; a done row keeps its slot.
+        frames.forEach((frame, index) => {
+          const placed = stacked.find((row) => row.id === frame.id)!;
+          expect(placed.height).toBe(frame.height);
+          expect(placed.open).toBe(frame.open);
+          if (!frame.open) expect(stacked[index].id).toBe(frame.id);
+          // The slide is exactly the way from the old place to the new one.
+          expect(frame.y + shifts[frame.id]).toBe(placed.y);
+        });
+        expect(Object.keys(shifts).sort()).toEqual(frames.map((frame) => frame.id).sort());
+        // The slides balance: what moves down is paid for by what moves up
+        // (each row weighted by the room it takes, hairline included).
+        const balance = frames.reduce((sum, frame) => sum + (frame.height + gap) * shifts[frame.id], 0);
+        expect(balance).toBe(0);
+        // A move to the same place moves nothing at all.
+        if (from === to) for (const frame of frames) expect(shifts[frame.id]).toBe(0);
+        // Rows above the higher of the two places and below the lower one stay put.
+        const fromSlot = frames.indexOf(open[from]);
+        const toSlot = frames.indexOf(open[to]);
+        frames.forEach((frame, index) => {
+          if (index < Math.min(fromSlot, toSlot) || index > Math.max(fromSlot, toSlot)) {
+            expect(shifts[frame.id]).toBe(0);
+          }
+        });
+      }
+    }
+    // Pure: the frames handed in are untouched.
+    expect(JSON.stringify(frames)).toBe(frozen);
+  });
+
+  it.each(layouts)("$name: the place a dragged row is over is the place it lands in", ({ frames, gap }) => {
+    const open = openOf(frames);
+    for (const frame of frames) {
+      if (!frame.open) {
+        expect(dragTargetIndex(frames, frame.id, frame.y, gap)).toBe(-1);
+        continue;
+      }
+      const from = open.indexOf(frame);
+      // Not moved at all: where it is.
+      expect(dragTargetIndex(frames, frame.id, frame.y, gap)).toBe(from);
+      // A point either way (less than the 6pt that picks the row up) is still its own place.
+      expect(dragTargetIndex(frames, frame.id, frame.y + 1, gap)).toBe(from);
+      expect(dragTargetIndex(frames, frame.id, frame.y - 1, gap)).toBe(from);
+      // Held exactly on each resting place: that place, and the ghost's travel there is its slide.
+      for (let to = 0; to < open.length; to += 1) {
+        const landing = restackRows(frames, from, to, gap).find((row) => row.id === frame.id)!;
+        expect(dragTargetIndex(frames, frame.id, landing.y, gap)).toBe(to);
+        expect(landing.y - frame.y).toBe(rowShifts(frames, from, to, gap)[frame.id]);
+      }
+      // Past either end: the first or the last open place, never off the list.
+      expect(dragTargetIndex(frames, frame.id, frames[0].y - 10_000, gap)).toBe(0);
+      expect(dragTargetIndex(frames, frame.id, bottom(frames) + 10_000, gap)).toBe(open.length - 1);
+      // Top to bottom, the place only ever goes up, one open place at a time, and reaches them all.
+      const seen: number[] = [];
+      for (let top = frames[0].y - 5; top <= bottom(frames) + 5; top += 1) {
+        const over = dragTargetIndex(frames, frame.id, top, gap);
+        expect(over).toBeGreaterThanOrEqual(0);
+        expect(over).toBeLessThan(open.length);
+        if (seen.length === 0 || seen[seen.length - 1] !== over) seen.push(over);
+      }
+      expect(seen).toEqual(open.map((_, index) => index));
+    }
+  });
+
+  it("one open row among done ones has one place: wherever it is held", () => {
+    const frames = build(3, [40, 80, 60], [0, 2], 1, 0);
+    for (const top of [-500, 0, 41, 122, 900]) expect(dragTargetIndex(frames, "B", top, 1)).toBe(0);
+    expect(rowShifts(frames, 0, 0, 1)).toEqual({ A: 0, B: 0, C: 0 });
+    expect(rowShifts(frames, 0, 1, 1)).toEqual({ A: 0, B: 0, C: 0 });
+  });
+
+  it("two rows of different heights: each slides by the other's height and the hairline", () => {
+    const frames = build(2, [40, 90], [], 1, 0);
+    expect(rowShifts(frames, 0, 1, 1)).toEqual({ A: 91, B: -41 });
+    expect(rowShifts(frames, 1, 0, 1)).toEqual({ A: 91, B: -41 });
+    // A (centre 20) rests first, or last with its centre at 111: halfway is 65.5.
+    expect(dragTargetIndex(frames, "A", 45, 1)).toBe(0); // centre 65
+    expect(dragTargetIndex(frames, "A", 46, 1)).toBe(1); // centre 66
+    // Exactly halfway between two places it stays with the earlier one (no flicker at the midpoint).
+    const even = build(2, [40, 40], [], 0, 0);
+    expect(dragTargetIndex(even, "A", 20, 0)).toBe(0);
+    expect(dragTargetIndex(even, "B", 20, 0)).toBe(0);
+  });
+});
+
+describe("reorderHandleFits: the edges", () => {
+  it("360 wide and anything under 1.5x text keeps the handle; a hair less room loses it", () => {
+    expect(reorderHandleFits(360, 1)).toBe(true);
+    expect(reorderHandleFits(359.99, 1)).toBe(false);
+    expect(reorderHandleFits(360, 1.4999)).toBe(true);
+    expect(reorderHandleFits(360, 1.5)).toBe(false);
+    expect(reorderHandleFits(359, 1.5)).toBe(false);
+    // Smaller than standard text is fine.
+    expect(reorderHandleFits(390, 0.85)).toBe(true);
+  });
+});
