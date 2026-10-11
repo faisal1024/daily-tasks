@@ -184,7 +184,8 @@ export function TaskRow({
     <View
       collapsable={false}
       // The 44 by 44 target. On iOS it's this (the view's own hit slop) that
-      // widens what a touch lands on; the gesture's is for Android.
+      // widens what a touch lands on; the gestures carry the same slop so a
+      // touch in that margin isn't failed as outside the view (and for Android).
       hitSlop={HANDLE_HIT_SLOP}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"

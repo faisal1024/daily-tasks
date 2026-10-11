@@ -56,8 +56,10 @@ export const DRAG_ACTIVATE_PT = 6;
 export const DRAG_FAIL_X_PT = 12;
 /**
  * The handle is 26 by 30: this makes its touch target 44 by 44. It is the
- * handle view's own `hitSlop` too (task-row.tsx): on iOS only that one widens
- * what a touch can land on; the gesture's is for Android.
+ * handle view's own `hitSlop` too (task-row.tsx), and both are needed. On iOS
+ * only the view's widens what a touch can land on; the gestures' (the drag's,
+ * and the tap's beside it) keeps a touch in that margin from failing as
+ * outside the view, and is what widens the target on Android.
  */
 export const HANDLE_HIT_SLOP = { top: 7, bottom: 7, left: 6, right: 12 };
 /** After a drop, how long the old "Up next" row keeps its look before the swap is eased in. */
@@ -590,7 +592,11 @@ export function ReorderRow({
   );
 }
 
-/** A row's key in the list: its task, and the drop it was last mounted by. */
+/**
+ * A row's key in the list: its task, and the drop it was last mounted by.
+ * So a drop discards whatever state a row keeps to itself (an edit in
+ * progress, an open swipe): Today saves an open edit at pick-up, before it can.
+ */
 export function reorderRowKey(id: string, epoch: number): string {
   return `${id}:${epoch}`;
 }

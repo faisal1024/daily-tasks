@@ -4,6 +4,7 @@ import {
   ActionSheetIOS,
   Alert,
   AppState as RNAppState,
+  Keyboard,
   KeyboardAvoidingView,
   LayoutAnimation,
   Platform,
@@ -448,7 +449,13 @@ export default function HomeScreen() {
     reduceMotion,
     heroId: heroTaskId,
     scrollRef,
-    onPickUp: () => haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
+    onPickUp: () => {
+      // A task's words being edited (on any row) are saved first: the blur
+      // commits them. The drop mounts every row anew, which would lose them,
+      // and the drag takes the touch, so nothing else would blur the field.
+      Keyboard.dismiss();
+      haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    },
     // A tick as the held row passes each place.
     onSlotChange: () => haptic(() => Haptics.selectionAsync()),
     onDrop: (id, toIndex, fromIndex) => {
@@ -1458,8 +1465,8 @@ export default function HomeScreen() {
                   testID="reorder-hint"
                 >
                   {handleFits
-                    ? "Drag ≡ to reorder, or tap a task and choose Do this next"
-                    : "To reorder, tap a task and choose Do this next"}
+                    ? "Drag ≡ to reorder"
+                    : "To reorder, open a task's menu and choose Move up or Move down"}
                 </Text>
               ) : null}
 

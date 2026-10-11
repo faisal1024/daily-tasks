@@ -4153,7 +4153,7 @@ describe("Reordering on Today (1.4, PR #90)", () => {
   });
 
   describe("the one-time hint under the card", () => {
-    const HINT = "Drag ≡ to reorder, or tap a task and choose Do this next";
+    const HINT = "Drag ≡ to reorder";
 
     it("shows the first time two or more tasks are open, and is marked as shown", async () => {
       mockStore = makeStore({ tasks: THREE(), reorderHintSeen: false });
@@ -4194,7 +4194,9 @@ describe("Reordering on Today (1.4, PR #90)", () => {
       mockWindow = { width: 320, height: 568, scale: 2, fontScale: 1 };
       mockStore = makeStore({ tasks: THREE(), reorderHintSeen: false });
       await render(<HomeScreen />);
-      expect(screen.getByTestId("reorder-hint")).toHaveTextContent("To reorder, tap a task and choose Do this next");
+      expect(screen.getByTestId("reorder-hint")).toHaveTextContent(
+        "To reorder, open a task's menu and choose Move up or Move down",
+      );
     });
   });
 });
