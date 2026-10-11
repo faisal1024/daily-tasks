@@ -195,6 +195,29 @@ describe("Settings: What is Nag mode?", () => {
     expect(eventsNamed("whats_new_action")).toEqual([{ id: ID, action: "try", persona: "spouse", level: "relentless", source: "settings" }]);
   });
 
+  it("a double tap asks one question, from the sheet and from the style choice; answered, it can be asked again", async () => {
+    await renderSettings();
+    await openIntro();
+    const primary = inSheet().getByRole("button", { name: "Try Nag mode" });
+    await fireEvent.press(primary);
+    await fireEvent.press(primary);
+    await wait(50);
+    expect(alert).toHaveBeenCalledTimes(1);
+    await pressAlertButton("Not now");
+    await fireEvent.press(inSheet().getByRole("button", { name: "Not now" }));
+    await waitFor(() => expect(sheet()).toBeNull());
+
+    const nag = screen.getByRole("radio", { name: "Nag" });
+    await fireEvent.press(nag);
+    await fireEvent.press(nag);
+    await wait(50);
+    expect(alert).toHaveBeenCalledTimes(2);
+    expect(lastAlert()[0]).toBe("Turn on Nag mode?");
+    await pressAlertButton("Turn on");
+    await waitFor(() => expect(styleChecked("Nag")).toBe(true));
+    expect(eventsNamed("nag_mode_enabled")).toHaveLength(1);
+  });
+
   it("Plus, the question already answered once: it turns on with one tap", async () => {
     await renderSettings({ nagConfirmed: true });
     await openIntro();
@@ -206,12 +229,15 @@ describe("Settings: What is Nag mode?", () => {
     await waitFor(async () => expect((await saved()).notifications).toMatchObject({ style: "nag", nagPersona: "coach", nagLevel: "firm" }));
   });
 
-  it("free: Try Nag mode closes the sheet and opens the paywall (source nag_mode); bought there, the question follows", async () => {
+  it("free: See Plus closes the sheet and opens the paywall (source nag_mode); bought there, the question follows", async () => {
     mockPlus = { ...FREE };
     const view = await renderSettings();
     await openIntro();
     await fireEvent.press(inSheet().getByRole("radio", { name: "Voice: Drill sergeant" }));
-    await fireEvent.press(inSheet().getByRole("button", { name: "Try Nag mode" }));
+    // Without Plus the button says where it leads, under the line that says Nag mode is paid.
+    expect(inSheet().getByText("Nag mode is part of Plus. Calm reminders stay free.")).toBeOnTheScreen();
+    expect(inSheet().queryByRole("button", { name: "Try Nag mode" })).toBeNull();
+    await fireEvent.press(inSheet().getByRole("button", { name: "See Plus" }));
     await waitFor(() => expect(sheet()).toBeNull());
     expect(mockOpenPaywall).not.toHaveBeenCalled();
     await wait(SHEET_SWAP_DELAY_MS + 100);
@@ -238,7 +264,7 @@ describe("Settings: What is Nag mode?", () => {
     const view = await renderSettings({ style: "nag", nagConfirmed: true, nagPersona: "mom" });
     await openIntro();
     await fireEvent.press(inSheet().getByRole("radio", { name: "Voice: Coach" }));
-    await fireEvent.press(inSheet().getByRole("button", { name: "Try Nag mode" }));
+    await fireEvent.press(inSheet().getByRole("button", { name: "See Plus" }));
     await wait(SHEET_SWAP_DELAY_MS + 100);
     mockPlus = { ...FREE, paywallSource: "nag_mode" };
     await view.rerender(tree());

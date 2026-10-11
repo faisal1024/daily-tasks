@@ -9,6 +9,7 @@ import {
   Alert,
   AppState as RNAppState,
   Keyboard,
+  Text,
   TextInput,
   type AlertButton,
 } from "react-native";
@@ -18,6 +19,7 @@ import { useReducedMotion } from "react-native-reanimated";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { SHEET_SWAP_DELAY_MS } from "@/hooks/use-paywall-gate";
+import { useWhatsNew } from "@/hooks/use-whats-new";
 import { track } from "@/lib/daily-tasks/analytics";
 import { requestNotificationPermission, getNotificationPermissionStatus } from "@/lib/daily-tasks/notifications";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
@@ -27,8 +29,10 @@ import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/sto
 import { DEFAULT_AUTO_LOCK, DEFAULT_NOTIFICATIONS, type AppState, type Task } from "@/lib/daily-tasks/types";
 import {
   __setAnnouncementsForTests,
+  todayIdleForWhatsNew,
   WHATS_NEW_DELAY_MS,
   WHATS_NEW_RETRY_MS,
+  whatsNewMoment,
 } from "@/lib/daily-tasks/whats-new";
 
 import { renderWithProviders as render } from "./render";
@@ -127,6 +131,7 @@ const reducedMotion = useReducedMotion as jest.Mock;
 
 let alert: jest.SpyInstance;
 let keyboardHandlers: Record<string, ((event: unknown) => void)[]>;
+let appStateHandlers: ((status: string) => void)[];
 const appState = RNAppState as unknown as { currentState: unknown };
 const realCurrentState = appState.currentState;
 
@@ -142,7 +147,11 @@ beforeEach(async () => {
   requestPermission.mockImplementation(async () => "granted");
   reducedMotion.mockReturnValue(false);
   appState.currentState = "active";
-  jest.spyOn(RNAppState, "addEventListener").mockImplementation((() => ({ remove: () => {} })) as never);
+  appStateHandlers = [];
+  jest.spyOn(RNAppState, "addEventListener").mockImplementation(((_event: string, handler: (status: string) => void) => {
+    appStateHandlers.push(handler);
+    return { remove: () => void appStateHandlers.splice(appStateHandlers.indexOf(handler), 1) };
+  }) as never);
   jest.spyOn(console, "error").mockImplementation(() => {});
   alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
   jest.spyOn(AccessibilityInfo, "sendAccessibilityEvent").mockImplementation(() => {});
@@ -222,8 +231,24 @@ const radio = (name: string) => inSheet().getByRole("radio", { name });
 const checked = (name: string) => radio(name).props.accessibilityState.checked as boolean;
 const lastAlert = () => alert.mock.calls[alert.mock.calls.length - 1] as [string, string, AlertButton[]];
 const pressAlertButton = (text: string) => act(async () => lastAlert()[2].find((button) => button.text === text)!.onPress?.());
-/** Past the delay after Today went idle. */
-const settle = () => advance(WHATS_NEW_DELAY_MS + 50);
+/** iOS has put the sheet on screen (the Modal's onShow), which is what stops it being taken back. */
+const sheetShown = async () => {
+  const modal = sheet()?.parent;
+  if (modal) await act(async () => modal.props.onShow?.());
+};
+/** Past the quiet window after a launch or a return to the foreground. */
+const settle = async () => {
+  await advance(WHATS_NEW_DELAY_MS + 50);
+  await sheetShown();
+};
+/** The app goes to the background and comes back: a new foreground session. */
+const comeBack = async () => {
+  for (const status of ["background", "active"]) {
+    appState.currentState = status;
+    await act(async () => [...appStateHandlers].forEach((handler) => handler(status)));
+    await flush(2);
+  }
+};
 async function openSheet(saved: Partial<AppState> = {}) {
   const view = await openToday(saved);
   await settle();
@@ -363,36 +388,43 @@ describe("the profile form (Journey, Settings) and what's new", () => {
 });
 
 describe("the quiet moment", () => {
-  it("the keyboard coming up during the wait cancels it; the wait starts over once it has gone", async () => {
+  it("the keyboard coming up during the wait ends this session's chance; the next foreground gets a full wait", async () => {
     await openToday();
     await advance(WHATS_NEW_DELAY_MS - 100);
     await act(async () => keyboardHandlers.keyboardDidShow.forEach((handler) => handler({})));
     await advance(5000);
     expect(sheet()).toBeNull();
     await act(async () => keyboardHandlers.keyboardDidHide.forEach((handler) => handler({})));
-    // A full wait again, not the 100 ms that were left.
+    // Not as the keyboard goes down: they are in the middle of planning.
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    await comeBack();
     await advance(WHATS_NEW_DELAY_MS - 100);
     expect(sheet()).toBeNull();
     await advance(200);
     expect(sheet()).toBeOnTheScreen();
   });
 
-  it("with the keyboard already up as Today opens it waits too", async () => {
+  it("with the keyboard already up as Today opens it does not show in that session", async () => {
     jest.spyOn(Keyboard, "isVisible").mockReturnValue(true);
     await openToday();
     await advance(5000);
     expect(sheet()).toBeNull();
+    jest.spyOn(Keyboard, "isVisible").mockReturnValue(false);
     await act(async () => keyboardHandlers.keyboardDidHide.forEach((handler) => handler({})));
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    await comeBack();
     await settle();
     expect(sheet()).toBeOnTheScreen();
   });
 
-  it("held back by a field in use, it asks again after the longer retry delay, not the first one", async () => {
-    const focused = jest.spyOn(TextInput.State, "currentlyFocusedInput").mockReturnValue({} as never);
+  it("held back by a launch-time blocker (iOS not active yet), it asks again after the longer retry delay, not the first one", async () => {
+    appState.currentState = "inactive";
     await openToday();
     await advance(WHATS_NEW_DELAY_MS + 50);
     expect(sheet()).toBeNull();
-    focused.mockReturnValue(null as never);
+    appState.currentState = "active";
     await advance(WHATS_NEW_DELAY_MS + 100);
     expect(sheet()).toBeNull();
     await advance(WHATS_NEW_RETRY_MS - WHATS_NEW_DELAY_MS);
@@ -409,7 +441,7 @@ describe("the quiet moment", () => {
     expect((await savedState()).whatsNewSeen ?? []).toEqual([]);
   });
 
-  it("not while another tab is showing: it comes up when Today is back in front", async () => {
+  it("not while another tab is showing, nor on coming back to Today mid-session: at the next foreground on Today", async () => {
     let tabFocused = false;
     const listeners: Record<string, (() => void)[]> = {};
     const navigation = {
@@ -432,6 +464,9 @@ describe("the quiet moment", () => {
     expect(sheet()).toBeNull();
     tabFocused = true;
     await act(async () => listeners.focus.forEach((handler) => handler()));
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    await comeBack();
     await settle();
     expect(sheet()).toBeOnTheScreen();
   });
@@ -447,17 +482,18 @@ describe("the quiet moment", () => {
     expect(appReview).not.toHaveBeenCalled();
   });
 
-  it("not right after a rating ask: it waits for the quiet time after it", async () => {
+  it("not right after a rating ask: it waits for the quiet time after it, asking again every 2 s", async () => {
     await save({
       reviewDueAt: new Date(START.getTime() - 2 * 60 * 60 * 1000).toISOString(),
       reviewDueSource: "perfect_day",
     } as Partial<AppState>);
-    await launch();
-    // Typing as the app opens, so the rating ask (2 s in) gets there first.
-    await act(async () => keyboardHandlers.keyboardDidShow.forEach((handler) => handler({})));
+    // Plus is still being checked as the app opens, so the rating ask (2 s in) gets there first.
+    mockPlus = { ...PLUS, entitlementKnown: false };
+    const view = await launch();
     await advance(2500);
     expect(appReview).toHaveBeenCalledTimes(1);
-    await act(async () => keyboardHandlers.keyboardDidHide.forEach((handler) => handler({})));
+    mockPlus = { ...PLUS };
+    await view.rerender(tree());
     await advance(WHATS_NEW_DELAY_MS + 100);
     expect(sheet()).toBeNull();
     await advance(WHATS_NEW_RETRY_MS + 100);
@@ -470,13 +506,106 @@ describe("the quiet moment", () => {
   });
 });
 
+// The three conditions the screen tests cannot reach (the aha paywall's timer,
+// a drag, a break-down on its way), with the hook given what Today gives it.
+describe("the hook, with Today's inputs", () => {
+  const IDLE = {
+    todayFocused: true,
+    somethingUp: false,
+    rolloverPending: false,
+    keyboardUp: false,
+    dragging: false,
+    breakingDown: false,
+  };
+  const QUIET = { appActive: true, busy: false, menuOpen: false, fieldInUse: false, ratingRecent: false, ahaPending: false };
+  let moment = { ...QUIET };
+  function Probe({ idle = IDLE }: { idle?: typeof IDLE }) {
+    const whatsNew = useWhatsNew({
+      active: true,
+      idle: todayIdleForWhatsNew(idle),
+      pending: false,
+      activity: "",
+      canShowNow: () => whatsNewMoment(moment),
+    });
+    return <Text testID="probe">{whatsNew.openId ?? "none"}</Text>;
+  }
+  const probe = (idle?: typeof IDLE) => (
+    <DailyTasksProvider>
+      <Probe idle={idle} />
+    </DailyTasksProvider>
+  );
+  const opened = () => screen.getByTestId("probe").props.children as string;
+  async function mount(idle?: typeof IDLE) {
+    moment = { ...QUIET };
+    await save();
+    const view = await render(probe(idle));
+    await flush();
+    return view;
+  }
+
+  it("idle and quiet: it opens after the delay", async () => {
+    await mount();
+    await advance(WHATS_NEW_DELAY_MS - 50);
+    expect(opened()).toBe("none");
+    await advance(100);
+    expect(opened()).toBe(ID);
+  });
+
+  it("waits while the aha paywall's timer is pending, asking again every 2 s, then opens", async () => {
+    await mount();
+    moment = { ...QUIET, ahaPending: true };
+    await advance(WHATS_NEW_DELAY_MS + 50);
+    expect(opened()).toBe("none");
+    await advance(WHATS_NEW_RETRY_MS + 50);
+    expect(opened()).toBe("none");
+    moment = { ...QUIET };
+    await advance(WHATS_NEW_RETRY_MS + 50);
+    expect(opened()).toBe(ID);
+  });
+
+  it("a row being dragged: not then, and not when it is dropped (this session is over for it)", async () => {
+    const view = await mount({ ...IDLE, dragging: true });
+    await advance(5000);
+    expect(opened()).toBe("none");
+    await view.rerender(probe(IDLE));
+    await advance(10_000);
+    expect(opened()).toBe("none");
+  });
+
+  it("a drag starting inside the wait cancels it", async () => {
+    const view = await mount();
+    await advance(WHATS_NEW_DELAY_MS - 100);
+    await view.rerender(probe({ ...IDLE, dragging: true }));
+    await advance(5000);
+    expect(opened()).toBe("none");
+  });
+
+  it("a break-down in flight: not then, and not when it lands", async () => {
+    const view = await mount({ ...IDLE, breakingDown: true });
+    await advance(5000);
+    expect(opened()).toBe("none");
+    await view.rerender(probe(IDLE));
+    await advance(10_000);
+    expect(opened()).toBe("none");
+  });
+
+  it("a break-down starting inside the wait cancels it", async () => {
+    const view = await mount();
+    await advance(WHATS_NEW_DELAY_MS - 100);
+    await view.rerender(probe({ ...IDLE, breakingDown: true }));
+    await advance(5000);
+    expect(opened()).toBe("none");
+    expect((await savedState()).whatsNewSeen ?? []).toEqual([]);
+  });
+});
+
 describe("Try Nag mode: the other endings", () => {
   async function tryFreeThenBuy() {
     mockPlus = { ...FREE };
     const view = await openSheet();
     await fireEvent.press(radio("Voice: Coach"));
     await fireEvent.press(radio("Level: Relentless"));
-    await fireEvent.press(inSheet().getByRole("button", { name: "Try Nag mode" }));
+    await fireEvent.press(inSheet().getByRole("button", { name: "See Plus" }));
     await flush();
     await advance(SHEET_SWAP_DELAY_MS + 50);
     expect(mockOpenPaywall).toHaveBeenCalledWith("nag_mode");
@@ -568,7 +697,7 @@ describe("Try Nag mode: the other endings", () => {
     mockOpenPaywall.mockImplementation(() => false);
     mockPlus = { ...FREE };
     const view = await openSheet();
-    await fireEvent.press(inSheet().getByRole("button", { name: "Try Nag mode" }));
+    await fireEvent.press(inSheet().getByRole("button", { name: "See Plus" }));
     await advance(SHEET_SWAP_DELAY_MS + 50);
     mockPlus = { ...PLUS };
     await view.rerender(tree());
@@ -665,7 +794,7 @@ describe("nothing about a task leaves the phone", () => {
     );
     await openSheet({ tasks: [SECRET] });
     expect(sample()).toMatch(LEAK);
-    await fireEvent.press(inSheet().getByRole("button", { name: "Try Nag mode" }));
+    await fireEvent.press(inSheet().getByRole("button", { name: "See Plus" }));
     await advance(SHEET_SWAP_DELAY_MS + 50);
     expect(JSON.stringify(mockOpenPaywall.mock.calls)).toBe('[["nag_mode"]]');
     expect(JSON.stringify(tracked.mock.calls)).not.toMatch(LEAK);

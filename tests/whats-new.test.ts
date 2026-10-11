@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { NAG_LEVELS, NAG_PERSONAS, NAG_TEMPLATES, nagTaskName } from "../lib/daily-tasks/nag";
 import { NAG_CONFIRM_MESSAGE, NAG_CONFIRM_TITLE, NAG_LEVEL_COUNT_NOTE } from "../lib/daily-tasks/nag-copy";
 import { NAG_LEVEL_COUNTS } from "../lib/daily-tasks/nag-plan";
+import { SHEET_SWAP_DELAY_MS } from "../lib/daily-tasks/sheet-swap";
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
 import { DEFAULT_NOTIFICATIONS } from "../lib/daily-tasks/types";
 import {
@@ -17,8 +18,14 @@ import {
   NAG_ON_TOAST,
   nagIntroSamples,
   normalizeWhatsNewSeen,
+  todayIdleForWhatsNew,
   WHATS_NEW_DELAY_MS,
+  WHATS_NEW_MAX_TRIES,
+  WHATS_NEW_RETRY_MS,
+  WHATS_NEW_SHOW_TIMEOUT_MS,
+  whatsNewActivity,
   whatsNewDecision,
+  whatsNewMoment,
   withWhatsNewSeen,
   type WhatsNewState,
 } from "../lib/daily-tasks/whats-new";
@@ -64,8 +71,69 @@ describe("who is shown what's new", () => {
     expect(whatsNewDecision(state({ whatsNewSeen: ["1.4-nag", "1.5-a", "1.6-b"] }), list)).toEqual({ show: null, skip: [] });
   });
 
-  it("waits a moment after Today goes idle", () => {
-    expect(WHATS_NEW_DELAY_MS).toBe(600);
+  it("an id keeps letters, digits, dots, dashes and underscores (40 at most), and nothing else", () => {
+    expect(normalizeWhatsNewSeen(["1.4-nag", "1.5_focus", "A.b-C_9", "x".repeat(40)])).toEqual([
+      "1.4-nag",
+      "1.5_focus",
+      "A.b-C_9",
+      "x".repeat(40),
+    ]);
+    expect(normalizeWhatsNewSeen(["1.4 nag", "nag!", "x".repeat(41), "", "a/b"])).toEqual([]);
+  });
+});
+
+describe("when it may show", () => {
+  const IDLE = {
+    todayFocused: true,
+    somethingUp: false,
+    rolloverPending: false,
+    keyboardUp: false,
+    dragging: false,
+    breakingDown: false,
+  };
+  const QUIET = { appActive: true, busy: false, menuOpen: false, fieldInUse: false, ratingRecent: false, ahaPending: false };
+
+  it("waits longer than a sheet takes to animate away (650 ms), so it is never presented over one still closing", () => {
+    expect(SHEET_SWAP_DELAY_MS).toBe(650);
+    expect(WHATS_NEW_DELAY_MS).toBe(SHEET_SWAP_DELAY_MS + 150);
+    expect(WHATS_NEW_RETRY_MS).toBe(2000);
+    expect(WHATS_NEW_SHOW_TIMEOUT_MS).toBe(1500);
+    expect(WHATS_NEW_MAX_TRIES).toBe(3);
+  });
+
+  it("Today is idle only with nothing up, nothing pending, nobody typing, no drag and no break-down in flight", () => {
+    expect(todayIdleForWhatsNew(IDLE)).toBe(true);
+    expect(todayIdleForWhatsNew({ ...IDLE, todayFocused: false })).toBe(false);
+    for (const key of ["somethingUp", "rolloverPending", "keyboardUp", "dragging", "breakingDown"] as const) {
+      expect(todayIdleForWhatsNew({ ...IDLE, [key]: true })).toBe(false);
+    }
+  });
+
+  it("as the delay ends: what the user did is a no for this session, a launch-time blocker is asked again", () => {
+    expect(whatsNewMoment(QUIET)).toBe("yes");
+    for (const key of ["busy", "menuOpen", "fieldInUse"] as const) {
+      expect(whatsNewMoment({ ...QUIET, [key]: true })).toBe("no");
+    }
+    for (const key of ["ratingRecent", "ahaPending"] as const) {
+      expect(whatsNewMoment({ ...QUIET, [key]: true })).toBe("later");
+    }
+    expect(whatsNewMoment({ ...QUIET, appActive: false })).toBe("later");
+    // The user's doing wins over a blocker.
+    expect(whatsNewMoment({ ...QUIET, ahaPending: true, menuOpen: true })).toBe("no");
+  });
+
+  it("a task added, removed, edited, moved or ticked changes the activity; nothing else does", () => {
+    const tasks = [
+      { id: "a", text: "Walk" },
+      { id: "b", text: "Stretch" },
+    ];
+    const base = whatsNewActivity(tasks, []);
+    expect(whatsNewActivity([...tasks.map((task) => ({ ...task, createdAt: "x" }))], [])).toBe(base);
+    expect(whatsNewActivity([...tasks, { id: "c", text: "Read" }], [])).not.toBe(base);
+    expect(whatsNewActivity(tasks.slice(0, 1), [])).not.toBe(base);
+    expect(whatsNewActivity([tasks[0], { id: "b", text: "Stretch more" }], [])).not.toBe(base);
+    expect(whatsNewActivity([tasks[1], tasks[0]], [])).not.toBe(base);
+    expect(whatsNewActivity(tasks, ["a"])).not.toBe(base);
   });
 });
 
@@ -130,6 +198,8 @@ describe("the Meet Nag mode sheet's words", () => {
     ...NAG_INTRO_COPY.points.map((point) => point.text),
     NAG_INTRO_COPY.plus,
     NAG_INTRO_COPY.primary,
+    NAG_INTRO_COPY.primaryFree,
+    NAG_INTRO_COPY.primaryFreeHint,
     NAG_INTRO_COPY.secondary,
     NAG_INTRO_COPY.footer,
     NAG_INTRO_COPY.close,
@@ -144,10 +214,13 @@ describe("the Meet Nag mode sheet's words", () => {
     expect(NAG_INTRO_COPY.points.map((point) => point.text)).toEqual([
       "Random times, at most one an hour.",
       "Gets pushier while your tasks stay open.",
-      "One tap stops it for the day. It never breaks through a Focus.",
+      "One tap stops it for the day. It stays quiet during Do Not Disturb and Focus.",
     ]);
     expect(NAG_INTRO_COPY.plus).toBe("Nag mode is part of Plus. Calm reminders stay free.");
     expect(NAG_INTRO_COPY.primary).toBe("Try Nag mode");
+    // Without Plus the main button opens the paywall, and says so.
+    expect(NAG_INTRO_COPY.primaryFree).toBe("See Plus");
+    expect(NAG_INTRO_COPY.primaryFreeHint).toBe("Shows what Plus includes");
     expect(NAG_INTRO_COPY.secondary).toBe("Not now");
     expect(NAG_INTRO_COPY.footer).toBe(
       "Also new: drag to reorder your three, reminders that name your tasks, and ideas for your next milestone.",
@@ -205,15 +278,27 @@ describe("the preview's lines", () => {
     }
   });
 
-  it("the pushiest comes first, so the level shows: Relentless opens on a relentless line, Gentle never leaves gentle", () => {
+  it("Firm and Relentless are pushiest first, so the level shows: each opens on a line of its own level", () => {
     for (const persona of NAG_PERSONAS) {
       const templates = NAG_TEMPLATES[persona];
       expect(templates.late.relentless).toContain(nagIntroSamples({ persona, level: "relentless", taskText: null })[0]);
       expect(templates.late.firm).toContain(nagIntroSamples({ persona, level: "firm", taskText: null })[0]);
-      const gentle = nagIntroSamples({ persona, level: "gentle", taskText: null });
-      expect(templates.late.gentle).toContain(gentle[0]);
+    }
+  });
+
+  it("Gentle opens on the day's opening line, not on the end of the day, and never leaves the gentle lines", () => {
+    for (const persona of NAG_PERSONAS) {
+      const templates = NAG_TEMPLATES[persona];
+      const early = (taskText: string | null) =>
+        templates.early.map((line) => (taskText ? line.replace("{task}", nagTaskName(taskText)) : line));
+      for (const taskText of [null, "Walk"]) {
+        const gentle = nagIntroSamples({ persona, level: "gentle", taskText });
+        expect(early(taskText)).toContain(gentle[0]);
+        // The day's own order when no line names a task: early, then mid, then late.
+        if (taskText === null) expect(templates.late.gentle).toContain(gentle[gentle.length - 1]);
+      }
       const mild = [...templates.early, ...templates.mid.gentle, ...templates.late.gentle];
-      for (const line of gentle) expect(mild).toContain(line);
+      for (const line of nagIntroSamples({ persona, level: "gentle", taskText: null })) expect(mild).toContain(line);
     }
   });
 

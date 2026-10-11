@@ -5,6 +5,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   AccessibilityInfo,
+  ActionSheetIOS,
   Alert,
   Animated,
   AppState as RNAppState,
@@ -17,7 +18,9 @@ import { useReducedMotion } from "react-native-reanimated";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { SHEET_SWAP_DELAY_MS } from "@/hooks/use-paywall-gate";
+import { __resetActionSheetForTests } from "@/lib/daily-tasks/action-sheet";
 import { track } from "@/lib/daily-tasks/analytics";
+import { queueFocusOpen, queueFocusStart } from "@/lib/daily-tasks/focus-link";
 import { NAG_TEMPLATES } from "@/lib/daily-tasks/nag";
 import { requestNotificationPermission, getNotificationPermissionStatus } from "@/lib/daily-tasks/notifications";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
@@ -28,7 +31,9 @@ import {
   __setAnnouncementsForTests,
   nagIntroSamples,
   WHATS_NEW_DELAY_MS,
+  WHATS_NEW_MAX_TRIES,
   WHATS_NEW_RETRY_MS,
+  WHATS_NEW_SHOW_TIMEOUT_MS,
 } from "@/lib/daily-tasks/whats-new";
 
 import { renderWithProviders as render } from "./render";
@@ -128,6 +133,7 @@ const reducedMotion = useReducedMotion as jest.Mock;
 let alert: jest.SpyInstance;
 let focusEvents: jest.SpyInstance;
 let keyboardHandlers: Record<string, ((event: unknown) => void)[]>;
+let appStateHandlers: ((status: string) => void)[];
 const appState = RNAppState as unknown as { currentState: unknown };
 const realCurrentState = appState.currentState;
 
@@ -143,7 +149,11 @@ beforeEach(async () => {
   requestPermission.mockImplementation(async () => "granted");
   reducedMotion.mockReturnValue(false);
   appState.currentState = "active";
-  jest.spyOn(RNAppState, "addEventListener").mockImplementation((() => ({ remove: () => {} })) as never);
+  appStateHandlers = [];
+  jest.spyOn(RNAppState, "addEventListener").mockImplementation(((_event: string, handler: (status: string) => void) => {
+    appStateHandlers.push(handler);
+    return { remove: () => void appStateHandlers.splice(appStateHandlers.indexOf(handler), 1) };
+  }) as never);
   jest.spyOn(console, "error").mockImplementation(() => {});
   alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
   focusEvents = jest.spyOn(AccessibilityInfo, "sendAccessibilityEvent").mockImplementation(() => {});
@@ -155,6 +165,7 @@ beforeEach(async () => {
     return { remove: () => {} };
   }) as never);
   __resetStorageForTests();
+  __resetActionSheetForTests();
   await AsyncStorage.clear();
 });
 
@@ -223,8 +234,24 @@ const radio = (name: string) => inSheet().getByRole("radio", { name });
 const checked = (name: string) => radio(name).props.accessibilityState.checked as boolean;
 const lastAlert = () => alert.mock.calls[alert.mock.calls.length - 1] as [string, string, AlertButton[]];
 const pressAlertButton = (text: string) => act(async () => lastAlert()[2].find((button) => button.text === text)!.onPress?.());
-/** Past the delay after Today went idle. */
-const settle = () => advance(WHATS_NEW_DELAY_MS + 50);
+/** iOS has put the sheet on screen (the Modal's onShow), which is what stops it being taken back. */
+const sheetShown = async () => {
+  const modal = sheet()?.parent;
+  if (modal) await act(async () => modal.props.onShow?.());
+};
+/** Past the quiet window after a launch or a return to the foreground. */
+const settle = async () => {
+  await advance(WHATS_NEW_DELAY_MS + 50);
+  await sheetShown();
+};
+/** The app goes to the background and comes back: a new foreground session. */
+const comeBack = async () => {
+  for (const status of ["background", "active"]) {
+    appState.currentState = status;
+    await act(async () => [...appStateHandlers].forEach((handler) => handler(status)));
+    await flush(2);
+  }
+};
 async function openSheet(saved: Partial<AppState> = {}) {
   const view = await openToday(saved);
   await settle();
@@ -287,24 +314,47 @@ describe("who sees it", () => {
 });
 
 describe("when it shows", () => {
-  it("waits behind yesterday's leftovers, then appears once they are dealt with", async () => {
-    await openToday({
-      tasks: [],
-      pendingRollover: { sourceDate: "2026-10-11", tasks: [{ id: "y0", text: "Call the dentist", completed: false, carriedOver: false, rolloverOutcome: null }],
-      },
-    });
+  const ROLLOVER = {
+    sourceDate: "2026-10-11",
+    tasks: [{ id: "y0", text: "Call the dentist", completed: false, carriedOver: false, rolloverOutcome: null }],
+  };
+
+  it("the wait is longer than a sheet takes to animate away, so it is never presented over one still closing", () => {
+    expect(WHATS_NEW_DELAY_MS).toBe(SHEET_SWAP_DELAY_MS + 150);
+  });
+
+  it("yesterday's leftovers come first: not once they are dealt with (that is planning), but at the next foreground", async () => {
+    await openToday({ tasks: [], pendingRollover: ROLLOVER } as Partial<AppState>);
     expect(screen.getByTestId("rollover-card")).toBeOnTheScreen();
     await advance(5000);
     expect(sheet()).toBeNull();
     await fireEvent.press(screen.getByTestId("rollover-fresh"));
-    await flush();
+    await advance(10_000);
     expect(sheet()).toBeNull();
+    expect((await savedState()).whatsNewSeen ?? []).toEqual([]);
+    await comeBack();
+    await advance(WHATS_NEW_DELAY_MS - 50);
+    expect(sheet()).toBeNull();
+    await advance(100);
+    expect(sheet()).toBeOnTheScreen();
+  });
+
+  it("a paywall up at launch: not right after it closes, but at the next foreground", async () => {
+    mockPlus = { ...FREE, paywallSource: "win_back" };
+    const view = await openToday();
+    await advance(5000);
+    expect(sheet()).toBeNull();
+    mockPlus = { ...FREE };
+    await view.rerender(tree());
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    await comeBack();
     await settle();
     expect(sheet()).toBeOnTheScreen();
   });
 
-  it("waits behind a paywall, then appears once it has closed", async () => {
-    mockPlus = { ...FREE, paywallSource: "win_back" };
+  it("waits until it is known whether they have Plus (the sheet differs with and without), then shows in the same session", async () => {
+    mockPlus = { ...FREE, entitlementKnown: false };
     const view = await openToday();
     await advance(5000);
     expect(sheet()).toBeNull();
@@ -313,21 +363,38 @@ describe("when it shows", () => {
     await advance(WHATS_NEW_DELAY_MS - 50);
     expect(sheet()).toBeNull();
     await advance(100);
-    expect(sheet()).toBeOnTheScreen();
-  });
-
-  it("waits until it is known whether they have Plus (the sheet differs with and without)", async () => {
-    mockPlus = { ...FREE, entitlementKnown: false };
-    const view = await openToday();
-    await advance(5000);
-    expect(sheet()).toBeNull();
-    mockPlus = { ...FREE };
-    await view.rerender(tree());
-    await settle();
     expect(inSheet().getByText("Nag mode is part of Plus. Calm reminders stay free.")).toBeOnTheScreen();
   });
 
-  it("waits behind a celebration", async () => {
+  it("the user did something while Plus was still being checked: not in this session", async () => {
+    mockPlus = { ...FREE, entitlementKnown: false };
+    const view = await openToday();
+    await advance(1000);
+    await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+    mockPlus = { ...FREE };
+    await view.rerender(tree());
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    await comeBack();
+    await settle();
+    expect(sheet()).toBeOnTheScreen();
+  });
+
+  it("a task ticked inside the quiet window: it gives up for this session and tries at the next foreground", async () => {
+    await openToday();
+    await advance(WHATS_NEW_DELAY_MS - 200);
+    await fireEvent.press(screen.getByRole("checkbox", { name: /Task 1: Walk/ }));
+    await advance(30_000);
+    expect(sheet()).toBeNull();
+    expect((await savedState()).whatsNewSeen ?? []).toEqual([]);
+    await comeBack();
+    await settle();
+    expect(sheet()).toBeOnTheScreen();
+    // The preview names the task still open.
+    expect(sample()).toContain("“Stretch”");
+  });
+
+  it("not after a celebration either", async () => {
     const hydrate: Task = { id: "t2", text: "Hydrate", createdAt: "", carriedOver: false };
     await openToday({ tasks: [WALK, STRETCH, hydrate], todayCompletions: [WALK.id, STRETCH.id] });
     await fireEvent.press(screen.getByRole("checkbox", { name: /Task 3: Hydrate/ }));
@@ -336,11 +403,14 @@ describe("when it shows", () => {
     await advance(5000);
     expect(sheet()).toBeNull();
     await fireEvent.press(screen.getByTestId("celebration"));
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    await comeBack();
     await settle();
     expect(sheet()).toBeOnTheScreen();
   });
 
-  it("waits behind a brain dump", async () => {
+  it("a brain dump opened first: not when it closes, but at the next foreground", async () => {
     await openToday();
     await fireEvent.press(screen.getByTestId("brain-dump-entry"));
     await flush();
@@ -348,6 +418,9 @@ describe("when it shows", () => {
     await advance(5000);
     expect(sheet()).toBeNull();
     await fireEvent.press(screen.getByLabelText("Close brain dump"));
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    await comeBack();
     await settle();
     expect(sheet()).toBeOnTheScreen();
   });
@@ -374,27 +447,52 @@ describe("when it shows", () => {
     expect((await savedState()).whatsNewSeen ?? []).toEqual([]);
   });
 
-  it("never interrupts typing: it waits for the keyboard to go", async () => {
+  it("never interrupts typing, and does not slide up as the keyboard goes down: the next foreground shows it", async () => {
     await openToday();
     await act(async () => keyboardHandlers.keyboardDidShow.forEach((handler) => handler({})));
     await advance(5000);
     expect(sheet()).toBeNull();
     await act(async () => keyboardHandlers.keyboardDidHide.forEach((handler) => handler({})));
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    await comeBack();
     await settle();
     expect(sheet()).toBeOnTheScreen();
   });
 
-  it("a field in use without the on-screen keyboard holds it back too; it asks again a little later", async () => {
+  it("a field in use without the on-screen keyboard is the user typing too: no retry, the next foreground", async () => {
     const focused = jest.spyOn(TextInput.State, "currentlyFocusedInput").mockReturnValue({} as never);
     await openToday();
     await advance(5000);
     expect(sheet()).toBeNull();
     focused.mockReturnValue(null as never);
-    await advance(WHATS_NEW_RETRY_MS + 50);
+    await advance(WHATS_NEW_RETRY_MS * 3);
+    expect(sheet()).toBeNull();
+    await comeBack();
+    await settle();
     expect(sheet()).toBeOnTheScreen();
   });
 
-  it("not while the app isn't in front", async () => {
+  it("a menu open as the wait ends (iOS would drop the sheet): not in this session", async () => {
+    __resetActionSheetForTests();
+    const menu = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+    await openToday();
+    await fireEvent.press(screen.getByLabelText("Start a timer: Walk"));
+    expect(menu).toHaveBeenCalledTimes(1);
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    expect(eventsNamed("whats_new_shown")).toEqual([]);
+    // Cancel: the menu has gone.
+    const [options, answer] = menu.mock.calls[0];
+    await act(async () => answer(options.cancelButtonIndex!));
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    await comeBack();
+    await settle();
+    expect(sheet()).toBeOnTheScreen();
+  });
+
+  it("iOS not active yet as the wait ends (a launch-time blocker): it asks again a little later", async () => {
     appState.currentState = "inactive";
     await openToday();
     await advance(5000);
@@ -402,6 +500,86 @@ describe("when it shows", () => {
     appState.currentState = "active";
     await advance(WHATS_NEW_RETRY_MS + 50);
     expect(sheet()).toBeOnTheScreen();
+  });
+
+  it("each return to the foreground is one chance: used up by the user, new at the next", async () => {
+    await openToday();
+    await act(async () => keyboardHandlers.keyboardDidShow.forEach((handler) => handler({})));
+    await act(async () => keyboardHandlers.keyboardDidHide.forEach((handler) => handler({})));
+    await comeBack();
+    await advance(200);
+    await fireEvent.press(screen.getByRole("checkbox", { name: /Task 2: Stretch/ }));
+    await advance(10_000);
+    expect(sheet()).toBeNull();
+    await comeBack();
+    await settle();
+    expect(sheet()).toBeOnTheScreen();
+    expect(eventsNamed("whats_new_shown")).toHaveLength(1);
+  });
+});
+
+describe("iOS dropped the sheet", () => {
+  it("never on screen 1.5 s after it was asked to open: it is taken back, not seen, and asked again a little later", async () => {
+    await openToday();
+    await advance(WHATS_NEW_DELAY_MS + 50);
+    // Asked to open, but onShow never comes.
+    expect(sheet()).toBeOnTheScreen();
+    await advance(WHATS_NEW_SHOW_TIMEOUT_MS - 100);
+    expect(sheet()).toBeOnTheScreen();
+    await advance(150);
+    expect(sheet()).toBeNull();
+    expect((await savedState()).whatsNewSeen ?? []).toEqual([]);
+    // It asks again a little later, and this time it comes up and stays.
+    await advance(WHATS_NEW_RETRY_MS);
+    expect(sheet()).toBeOnTheScreen();
+    await sheetShown();
+    await advance(WHATS_NEW_SHOW_TIMEOUT_MS * 4);
+    expect(sheet()).toBeOnTheScreen();
+    expect((await savedState()).whatsNewSeen ?? []).toEqual([]);
+  });
+
+  it("dropped every time: three tries in a session, then it leaves Today alone until the next foreground", async () => {
+    await openToday();
+    // In small steps: each try is set up by the one before.
+    for (let step = 0; step < 60; step++) await advance(500);
+    expect(sheet()).toBeNull();
+    expect(eventsNamed("whats_new_shown")).toHaveLength(WHATS_NEW_MAX_TRIES);
+    expect((await savedState()).whatsNewSeen ?? []).toEqual([]);
+    await comeBack();
+    await settle();
+    expect(sheet()).toBeOnTheScreen();
+    await advance(WHATS_NEW_SHOW_TIMEOUT_MS * 4);
+    expect(sheet()).toBeOnTheScreen();
+  });
+
+  it("on screen in time: it stays", async () => {
+    await openSheet();
+    await advance(WHATS_NEW_SHOW_TIMEOUT_MS * 4);
+    expect(sheet()).toBeOnTheScreen();
+  });
+});
+
+describe("a focus prompt while the sheet is up", () => {
+  it("the sheet closes first, not seen; the focus screen opens only once it has gone", async () => {
+    await openSheet();
+    // A timer is started from the widget, then its Live Activity is tapped.
+    await act(async () => queueFocusStart({ kind: "timer", source: "widget" }));
+    await flush();
+    const session = (await savedState()).focusSession!;
+    expect(session.taskId).toBe(WALK.id);
+    expect(sheet()).toBeOnTheScreen();
+    await act(async () => queueFocusOpen({ sessionId: session.id }));
+    await flush();
+    // One modal at a time.
+    expect(sheet()).toBeNull();
+    expect(screen.queryByTestId("focus-modal")).toBeNull();
+    await advance(SHEET_SWAP_DELAY_MS - 100);
+    expect(screen.queryByTestId("focus-modal")).toBeNull();
+    await advance(150);
+    expect(screen.getByTestId("focus-modal")).toBeOnTheScreen();
+    expect(sheet()).toBeNull();
+    expect((await savedState()).whatsNewSeen ?? []).toEqual([]);
+    expect(eventsNamed("whats_new_action")).toEqual([]);
   });
 });
 
@@ -476,14 +654,14 @@ describe("the sheet", () => {
     expect(view.getByText("Reminders with a personality. Pick who nags you and how hard.")).toBeOnTheScreen();
     expect(view.getByText("Random times, at most one an hour.")).toBeOnTheScreen();
     expect(view.getByText("Gets pushier while your tasks stay open.")).toBeOnTheScreen();
-    expect(view.getByText("One tap stops it for the day. It never breaks through a Focus.")).toBeOnTheScreen();
+    expect(view.getByText("One tap stops it for the day. It stays quiet during Do Not Disturb and Focus.")).toBeOnTheScreen();
     expect(
       view.getByText("Also new: drag to reorder your three, reminders that name your tasks, and ideas for your next milestone."),
     ).toBeOnTheScreen();
-    // Focus is sent to the title a frame after it opens.
+    // Focus is sent to the title as it opens (a frame later, and again once it is on screen).
     await advance(50);
-    expect(focusEvents).toHaveBeenCalledTimes(1);
-    expect(focusEvents.mock.calls[0][1]).toBe("focus");
+    expect(focusEvents).toHaveBeenCalled();
+    expect(focusEvents.mock.calls.every((call) => call[1] === "focus")).toBe(true);
     // Buttons are at least 44 points tall.
     for (const id of ["nag-intro-try", "nag-intro-not-now", "nag-intro-close", "nag-intro-another"]) {
       const style = screen.getByTestId(id).props.style;
@@ -492,15 +670,77 @@ describe("the sheet", () => {
     }
   });
 
-  it("the Plus line shows only without Plus", async () => {
+  /** Where each of these comes in the sheet, top to bottom. */
+  const order = (...ids: string[]) => {
+    const json = JSON.stringify(screen.toJSON());
+    return ids.map((id) => json.indexOf(`"testID":"${id}"`));
+  };
+  const ascending = (positions: number[]) =>
+    positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1]));
+
+  it("with Plus: Try Nag mode, and no Plus line", async () => {
     await openSheet();
     expect(screen.queryByText("Nag mode is part of Plus. Calm reminders stay free.")).toBeNull();
-    await screen.unmount();
-    __resetStorageForTests();
+    expect(screen.queryByTestId("nag-intro-plus")).toBeNull();
+    const primary = screen.getByTestId("nag-intro-try");
+    expect(primary.props.accessibilityLabel).toBe("Try Nag mode");
+    expect(primary.props.accessibilityHint).toBeUndefined();
+    expect(within(primary).getByText("Try Nag mode")).toBeOnTheScreen();
+    expect(inSheet().queryByText("See Plus")).toBeNull();
+  });
+
+  it("without Plus: it says Nag mode is paid directly above the main button, which reads See Plus, before any tap", async () => {
     mockPlus = { ...FREE };
-    await launch();
-    await settle();
+    await openSheet();
     expect(inSheet().getByText("Nag mode is part of Plus. Calm reminders stay free.")).toBeOnTheScreen();
+    const primary = screen.getByTestId("nag-intro-try");
+    expect(primary.props.accessibilityRole).toBe("button");
+    expect(primary.props.accessibilityLabel).toBe("See Plus");
+    expect(primary.props.accessibilityHint).toBe("Shows what Plus includes");
+    expect(within(primary).getByText("See Plus")).toBeOnTheScreen();
+    expect(inSheet().queryByText("Try Nag mode")).toBeNull();
+    // Pinned under the scrolling part: after its last line, the Plus line, then the two buttons.
+    expect(ascending(order("nag-intro-footer", "nag-intro-plus", "nag-intro-try", "nag-intro-not-now"))).toBe(true);
+    const plusLine = screen.getByTestId("nag-intro-plus");
+    const siblings = plusLine.parent!.children as { props: { testID?: string } }[];
+    expect(siblings.map((child) => child.props.testID)).toEqual(["nag-intro-plus", "nag-intro-try", "nag-intro-not-now"]);
+    // Nothing was opened by looking.
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+  });
+
+  it("without Plus at large text sizes: the Plus line is directly above the buttons in the scrolling part", async () => {
+    mockPlus = { ...FREE };
+    mockWindow = { width: 320, height: 568, scale: 2, fontScale: 3.1 };
+    await openSheet();
+    expect(ascending(order("nag-intro-plus", "nag-intro-try", "nag-intro-not-now", "nag-intro-footer"))).toBe(true);
+    const siblings = screen.getByTestId("nag-intro-plus").parent!.children as { props: { testID?: string } }[];
+    expect(siblings.map((child) => child.props.testID)).toEqual(["nag-intro-plus", "nag-intro-try", "nag-intro-not-now"]);
+    expect(screen.getByTestId("nag-intro-try").props.accessibilityLabel).toBe("See Plus");
+  });
+
+  it("VoiceOver hears the new sample when a Voice or Level chip changes it, as with Show another", async () => {
+    const said = AccessibilityInfo.announceForAccessibilityWithOptions as jest.Mock;
+    await openSheet();
+    said.mockClear();
+    await fireEvent.press(radio("Voice: Coach"));
+    expect(said.mock.calls).toEqual([[nagIntroSamples({ persona: "coach", level: "firm", taskText: "Walk" })[0], { queue: true }]]);
+    expect(said.mock.calls[0][0]).toBe(sample());
+    await fireEvent.press(radio("Level: Gentle"));
+    expect(said).toHaveBeenCalledTimes(2);
+    expect(said.mock.calls[1]).toEqual([nagIntroSamples({ persona: "coach", level: "gentle", taskText: "Walk" })[0], { queue: true }]);
+    expect(said.mock.calls[1][0]).toBe(sample());
+    // The chip already chosen changes nothing: nothing more is said.
+    await fireEvent.press(radio("Level: Gentle"));
+    expect(said).toHaveBeenCalledTimes(2);
+    await fireEvent.press(inSheet().getByRole("button", { name: "Show another" }));
+    expect(said).toHaveBeenCalledTimes(3);
+    expect(said.mock.calls[2][0]).toBe(sample());
+  });
+
+  it("Gentle opens on the day's first line, not on the end of the day", async () => {
+    await openSheet({ tasks: [] });
+    await fireEvent.press(radio("Level: Gentle"));
+    expect(NAG_TEMPLATES.mom.early).toContain(sample());
   });
 
   it("the chips are radio buttons that carry their group, starting on the saved voice and level", async () => {
@@ -670,6 +910,44 @@ describe("Try Nag mode with Plus", () => {
     expect(eventsNamed("whats_new_action").map((props) => props.action)).toEqual(["try", "dismiss"]);
   });
 
+  it("a double tap asks one question, not two; once it is answered the button works again", async () => {
+    await openSheet();
+    const primary = inSheet().getByRole("button", { name: "Try Nag mode" });
+    await fireEvent.press(primary);
+    await fireEvent.press(primary);
+    await flush();
+    await fireEvent.press(primary);
+    await flush();
+    expect(alert).toHaveBeenCalledTimes(1);
+    await pressAlertButton("Not now");
+    await flush();
+    await fireEvent.press(primary);
+    await flush();
+    expect(alert).toHaveBeenCalledTimes(2);
+    await pressAlertButton("Turn on");
+    await flush();
+    expect((await savedState()).notifications).toMatchObject({ style: "nag", nagConfirmed: true });
+    expect(eventsNamed("nag_mode_enabled")).toHaveLength(1);
+  });
+
+  it("a double tap while iOS is being asked for notifications asks iOS once, and one question follows", async () => {
+    permissionStatus.mockImplementation(async () => "undetermined");
+    let answer: (status: string) => void = () => {};
+    requestPermission.mockImplementation(() => new Promise<string>((resolve) => (answer = resolve)));
+    await openSheet();
+    const primary = inSheet().getByRole("button", { name: "Try Nag mode" });
+    await fireEvent.press(primary);
+    await flush();
+    await fireEvent.press(primary);
+    await flush();
+    expect(requestPermission).toHaveBeenCalledTimes(1);
+    expect(alert).not.toHaveBeenCalled();
+    await act(async () => answer("granted"));
+    await flush();
+    expect(alert).toHaveBeenCalledTimes(1);
+    expect(lastAlert()[0]).toBe("Turn on Nag mode?");
+  });
+
   it("asks iOS for notifications first when it hasn't been asked", async () => {
     permissionStatus.mockImplementation(async () => "undetermined");
     await openSheet();
@@ -703,7 +981,7 @@ describe("Try Nag mode without Plus", () => {
     const view = await openSheet();
     await fireEvent.press(radio("Voice: Spouse"));
     await fireEvent.press(radio("Level: Gentle"));
-    await fireEvent.press(inSheet().getByRole("button", { name: "Try Nag mode" }));
+    await fireEvent.press(inSheet().getByRole("button", { name: "See Plus" }));
     await flush();
     return view;
   }
@@ -722,6 +1000,38 @@ describe("Try Nag mode without Plus", () => {
     const saved = await savedState();
     expect(saved.whatsNewSeen).toEqual([ID]);
     expect(saved.notifications).toEqual(DEFAULT_NOTIFICATIONS);
+  });
+
+  it("VoiceOver's focus is not sent to Today's title as the sheet closes for the paywall", async () => {
+    mockPlus = { ...FREE };
+    await openSheet();
+    focusEvents.mockClear();
+    await fireEvent.press(inSheet().getByRole("button", { name: "See Plus" }));
+    await advance(SHEET_SWAP_DELAY_MS + 50);
+    expect(mockOpenPaywall).toHaveBeenCalledTimes(1);
+    await advance(5000);
+    expect(focusEvents).not.toHaveBeenCalled();
+  });
+
+  it("Today stays busy between the sheet closing and the paywall opening: no rating ask slips in", async () => {
+    mockPlus = { ...FREE };
+    const appReview = jest.requireMock("@/lib/daily-tasks/app-review").requestAppReview as jest.Mock;
+    await openSheet({
+      reviewDueAt: new Date(START.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+      reviewDueSource: "perfect_day",
+    } as Partial<AppState>);
+    // The rating ask is due 2 s after launch: close the sheet just before it.
+    await advance(1900 - (Date.now() - START.getTime()));
+    await fireEvent.press(inSheet().getByRole("button", { name: "See Plus" }));
+    expect(sheet()).toBeNull();
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+    await advance(300);
+    expect(Date.now() - START.getTime()).toBeGreaterThan(2000);
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+    expect(appReview).not.toHaveBeenCalled();
+    await advance(SHEET_SWAP_DELAY_MS);
+    expect(mockOpenPaywall).toHaveBeenCalledTimes(1);
+    expect(appReview).not.toHaveBeenCalled();
   });
 
   it("Plus bought there: the question follows, and Turn on saves the picked voice and level", async () => {
