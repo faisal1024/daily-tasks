@@ -21,7 +21,7 @@ const PAYLOAD = {
 };
 const NEXT = { title: "Run 3K", description: "Three times a week" };
 
-describe("proxy: validating nextMilestone", () => {
+describe("proxy: nextMilestone never fails a plan request", () => {
   const check = (nextMilestone: unknown) => validatePayload({ ...PAYLOAD, nextMilestone });
 
   it("is optional (older apps), and accepts a title with or without a description at the limits", () => {
@@ -40,8 +40,22 @@ describe("proxy: validating nextMilestone", () => {
     ["a string", "Run 3K"],
     ["an array", [{ title: "Run 3K" }]],
     ["null", null],
-  ])("rejects %s", (_label, nextMilestone) => {
-    expect(check(nextMilestone)).toBe("Invalid nextMilestone");
+  ])("treats %s as if none was sent, rather than refusing the request", (_label, nextMilestone) => {
+    expect(check(nextMilestone)).toBeNull();
+    const payload = { ...PAYLOAD, nextMilestone };
+    const lines = buildPrompt(payload).split("\n");
+    expect(lines.some((line) => line.startsWith("Their next milestone"))).toBe(false);
+    expect(lines).toContain("Set forMilestone to false on every todaySuggestion.");
+    const model = {
+      milestones: [],
+      todaySuggestions: [{ text: "A", estimatedMinutes: 10, difficulty: "easy", reason: "r", forMilestone: true }],
+      taskPool: [],
+    };
+    expect(sanitizePlan(model, payload).todaySuggestions[0]).not.toHaveProperty("forMilestone");
+  });
+
+  it("the rest of the payload is still checked", () => {
+    expect(validatePayload({ ...PAYLOAD, nextMilestone: NEXT, newPath: "yes" })).toBe("Invalid newPath");
   });
 });
 
@@ -51,7 +65,9 @@ describe("proxy: the next milestone in the prompt", () => {
   it("names the milestone and asks for the mark; without one, asks for false everywhere", () => {
     const withStep = promptLines({ nextMilestone: NEXT });
     expect(withStep).toContain("Their next milestone: Run 3K (Three times a week)");
-    expect(withStep.join("\n")).toMatch(/Set forMilestone to true on the suggestions that do/);
+    expect(withStep.join("\n")).toMatch(
+      /Mark exactly the one or two suggestions that most directly move that milestone forward: set forMilestone to true on those, and false on the others\./,
+    );
 
     for (const payload of [{}, { nextMilestone: NEXT, newPath: true }, { nextMilestone: { title: "   " } }]) {
       const lines = promptLines(payload);
@@ -126,6 +142,21 @@ describe("proxy: which forMilestone marks are passed on", () => {
     );
     // The pool never carries it.
     expect(plan.taskPool).toEqual([{ ...clean, text: "P" }]);
+  });
+
+  it("keeps at most two marks: the first two", () => {
+    expect(sanitizePlan(model([true, true, true]), asked).todaySuggestions).toEqual([
+      { ...clean, text: "A", forMilestone: true },
+      { ...clean, text: "B", forMilestone: true },
+      { ...clean, text: "C" },
+    ]);
+    expect(sanitizePlan(model([false, true, true]), asked).todaySuggestions.map((t: object) => "forMilestone" in t)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+    // Each call counts on its own.
+    expect(sanitizePlan(model([true, false, false]), asked).todaySuggestions[0]).toHaveProperty("forMilestone", true);
   });
 
   it.each([
@@ -217,6 +248,15 @@ describe("app: sending the next milestone", () => {
     });
     expect(sent.nextMilestone).toEqual({ title: "t".repeat(120), description: "d".repeat(200) });
     expect(validatePayload(sent)).toBeNull();
+  });
+
+  it("cuts between whole characters, never through an emoji", async () => {
+    const runner = "🏃🏽‍♀️";
+    const { sent } = await request({ nextMilestone: { id: "m", title: runner.repeat(30), description: "" } });
+    const title = (sent.nextMilestone as { title: string }).title;
+    expect(title.length).toBeLessThanOrEqual(120);
+    expect(title).toBe(runner.repeat(title.length / runner.length));
+    expect(title.length).toBeGreaterThan(100);
   });
 
   it.each([

@@ -1,4 +1,4 @@
-// "For your next milestone" in Ideas (1.4, PR #88) with the REAL store, AI
+// "Next on your path" in Ideas (1.4, PR #88) with the REAL store, AI
 // client and screen; only the proxy's answer is faked. Which suggestions the
 // group shows (the AI's or the built-in ones) as the path changes, what stays
 // in the general list, the add rules, and the analytics event.
@@ -8,6 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-
 
 import HomeScreen from "@/app/(tabs)/index";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
+import { NextPathLink } from "@/components/daily-tasks/next-path-link";
 import { track } from "@/lib/daily-tasks/analytics";
 import { localMilestoneIdeas, milestoneKey } from "@/lib/daily-tasks/milestone-ideas";
 import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
@@ -250,9 +251,9 @@ describe("milestone suggestions: free (built-in, nothing sent)", () => {
   it("shows two built-in lines for the next open milestone; the general ideas stay as they were", async () => {
     await openToday({ momentumPlan: templatePlan(), completedMilestoneIds: [M1.id] });
     await openIdeas();
-    expect(screen.getByLabelText("For your next milestone: Run 3 km")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Next on your path: Run 3 km")).toBeOnTheScreen();
     expect(groupTexts()).toEqual(builtIn(M2));
-    for (const text of groupTexts()) expect(text).toContain("“Run 3 km”");
+    for (const text of groupTexts()) expect(text.startsWith("Run 3 km: ")).toBe(true);
     // Built on this device, and the path is still the user's.
     expect(store.state.momentumPlan?.provider).toBe("template");
     expect(planIdeaTexts()).toHaveLength(3);
@@ -309,12 +310,9 @@ describe("milestone suggestions: free (built-in, nothing sent)", () => {
     expect(milestoneEvents()).toEqual([["milestone_idea_added", { source: "local" }]]);
   });
 
-  // KNOWN BUG (PR #88, app/(tabs)/index.tsx onAddMilestoneIdea): the guard reads
-  // this render's slots and tasks, so a second tap before the redraw is counted
-  // although the store refuses it (today is full). Routines got the same fix in
-  // PR #86. `it.failing` passes while the bug is there: when it is fixed this
-  // test fails, and `.failing` comes off.
-  it.failing("a double tap on the last free slot adds once and records once", async () => {
+  // The store says whether the add landed (like routines, PR #86): a second
+  // tap before the redraw is refused, and not counted.
+  it("a double tap on the last free slot adds once and records once", async () => {
     await openToday({ momentumPlan: templatePlan(), tasks: [task("t0", "Read"), task("t1", "Walk")] });
     await openIdeas();
     const [first] = builtIn(M1);
@@ -326,6 +324,77 @@ describe("milestone suggestions: free (built-in, nothing sent)", () => {
     });
     expect(todayTaskNames()).toEqual(["Read", "Walk", first]);
     expect(milestoneEvents()).toEqual([["milestone_idea_added", { source: "local" }]]);
+  });
+
+  it("a double tap with room to spare still adds the suggestion once, and records once", async () => {
+    await openToday({ momentumPlan: templatePlan() });
+    await openIdeas();
+    const [first] = builtIn(M1);
+    const add = screen.getByRole("button", { name: `Add ${first}` });
+    await act(async () => {
+      fireEvent.press(add);
+      fireEvent.press(add);
+    });
+    expect(todayTaskNames()).toEqual(["Read", first]);
+    expect(milestoneEvents()).toEqual([["milestone_idea_added", { source: "local" }]]);
+  });
+
+  it("a double tap on a general idea adds it once", async () => {
+    await openToday({ momentumPlan: templatePlan() });
+    await openIdeas();
+    const general = planIdeaTexts()[0];
+    const add = screen.getByRole("button", { name: `Add ${general}` });
+    await act(async () => {
+      fireEvent.press(add);
+      fireEvent.press(add);
+    });
+    expect(todayTaskNames()).toEqual(["Read", general]);
+    expect(milestoneEvents()).toEqual([]);
+  });
+
+  it("two different suggestions tapped in the same moment both land, in order", async () => {
+    await openToday({ momentumPlan: templatePlan() });
+    await openIdeas();
+    const [first, second] = builtIn(M1);
+    await act(async () => {
+      fireEvent.press(screen.getByRole("button", { name: `Add ${first}` }));
+      fireEvent.press(screen.getByRole("button", { name: `Add ${second}` }));
+    });
+    expect(todayTaskNames()).toEqual(["Read", first, second]);
+    expect(milestoneEvents()).toHaveLength(2);
+  });
+
+  it("a suggestion already on today is refused by the store; typing the same words by hand is not", async () => {
+    await openToday({ momentumPlan: templatePlan() });
+    let landed = -1;
+    await act(async () => {
+      landed = store.addSuggestions(["  read "]);
+    });
+    expect(landed).toBe(0);
+    expect(todayTaskNames()).toEqual(["Read"]);
+    // By hand: the user's call.
+    await act(async () => store.addTask("Read"));
+    expect(todayTaskNames()).toEqual(["Read", "Read"]);
+    // A list with a repeat in it lands each text once, up to the room there is.
+    await act(async () => {
+      landed = store.addSuggestions(["Walk", "walk", "Stretch"]);
+    });
+    expect(landed).toBe(1);
+    expect(todayTaskNames()).toEqual(["Read", "Read", "Walk"]);
+    await act(async () => {
+      landed = store.addSuggestions(["Stretch"]);
+    });
+    expect(landed).toBe(0);
+  });
+
+  it("a starter path: the lines open with the goal, under the step's own title", async () => {
+    const starter = buildMilestones("Run a 5K");
+    await openToday({ momentumPlan: templatePlan({ pathSource: "template", milestones: starter }) });
+    await openIdeas();
+    expect(groupTitle()).toBe("Start small");
+    expect(groupTexts()).toHaveLength(2);
+    for (const text of groupTexts()) expect(text.startsWith("Run a 5K: ")).toBe(true);
+    expect(mockPlanRequests).toEqual([]);
   });
 });
 
@@ -365,6 +434,25 @@ describe("milestone suggestions: Plus (the AI's, marked by the proxy)", () => {
     expect(milestoneEvents()).toEqual([]);
     // Today is full now: the milestone suggestion can't be added.
     expect(screen.getByRole("button", { name: "Add Jog to the corner" })).toBeDisabled();
+  });
+
+  it("a double tap on Add all adds each general idea once", async () => {
+    await openWithTodaysPlan(["Jog to the corner"], { tasks: [] });
+    // An empty morning: Ideas opens from the hero.
+    await fireEvent.press(screen.getByTestId("morning-hero-ideas"));
+    await waitFor(() => expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen());
+    expect(screen.getByText("More ideas")).toBeOnTheScreen();
+    const addAll = screen.getByRole("button", { name: "Add all ideas" });
+    await act(async () => {
+      fireEvent.press(addAll);
+      fireEvent.press(addAll);
+    });
+    expect(todayTaskNames()).toEqual(["Lay out shoes", "Stretch calves"]);
+    expect(milestoneEvents()).toEqual([]);
+    // One slot left, and the milestone suggestion can still take it.
+    await fireEvent.press(screen.getByRole("button", { name: "Add Jog to the corner" }));
+    expect(todayTaskNames()).toEqual(["Lay out shoes", "Stretch calves", "Jog to the corner"]);
+    expect(milestoneEvents()).toEqual([["milestone_idea_added", { source: "ai" }]]);
   });
 
   it("adding the AI's suggestion records source ai, with nothing else", async () => {
@@ -426,23 +514,41 @@ describe("milestone suggestions: Plus (the AI's, marked by the proxy)", () => {
     expect(generalTexts()).toEqual(IDEAS);
   });
 
-  it("a starter path upgraded to the AI's path: the mark was for the old first step, so built-in lines", async () => {
+  it("a starter path is not asked about (the AI replaces it); the new first step gets built-in lines", async () => {
     const starter = buildMilestones("Run a 5K");
+    // Even if this answer carried a mark, it was not asked for.
     mockPlanAnswers.push(proxyAnswer(["Jog to the corner"]));
     await openToday(
       { momentumPlan: templatePlan({ pathSource: "template", milestones: starter, generatedAt: YESTERDAY }) },
       { plus: true },
     );
     await waitFor(() => expect(store.state.momentumPlan?.provider).toBe("ai"));
-    expect(mockPlanRequests[0].nextMilestone).toMatchObject({ title: starter[0].title });
-    // The plan carries the mark for the starter step it was asked about...
-    expect(store.state.momentumPlan?.todaySuggestions[0].milestoneKey).toBe(milestoneKey(starter[0]));
-    // ...but the path is now the AI's.
+    expect(mockPlanRequests).toHaveLength(1);
+    expect(mockPlanRequests[0]).not.toHaveProperty("nextMilestone");
+    for (const item of store.state.momentumPlan?.todaySuggestions ?? []) expect(item).not.toHaveProperty("milestoneKey");
+    // The path is now the AI's.
     expect(store.state.momentumPlan?.milestones[0]).toMatchObject({ id: starter[0].id, title: "Walk 10 minutes" });
 
     await openIdeas();
     expect(groupTitle()).toBe("Walk 10 minutes");
     expect(groupTexts()).toEqual(builtIn(store.state.momentumPlan!.milestones[0]));
+    for (const text of groupTexts()) expect(text.startsWith("Walk 10 minutes: ")).toBe(true);
+    expect(generalTexts()).toEqual(IDEAS);
+  });
+
+  it("the path's step is reached while the request is out: the marks for it are not stored", async () => {
+    let answer: (value: unknown) => void = () => {};
+    mockPlanAnswers.push(new Promise((resolve) => (answer = resolve)));
+    await openToday({ momentumPlan: plan({ generatedAt: YESTERDAY }) }, { plus: true });
+    await waitFor(() => expect(mockPlanRequests).toHaveLength(1));
+    expect(mockPlanRequests[0].nextMilestone).toEqual({ title: "Run 1 km" });
+    await act(async () => store.completeMilestone(M1.id));
+    await act(async () => answer(proxyAnswer(["Jog to the corner"])));
+    await waitFor(() => expect(store.state.momentumPlan?.generatedAt).not.toBe(YESTERDAY));
+    for (const item of store.state.momentumPlan?.todaySuggestions ?? []) expect(item).not.toHaveProperty("milestoneKey");
+    await openIdeas();
+    expect(groupTitle()).toBe("Run 3 km");
+    expect(groupTexts()).toEqual(builtIn(M2));
     expect(generalTexts()).toEqual(IDEAS);
   });
 });
@@ -453,7 +559,7 @@ describe("IdeasSheet: the milestone group's rules", () => {
     title: "Run 3 km",
     ideas: [
       { id: "m_a", text: "Jog to the corner", estimatedMinutes: 10 },
-      { id: "m_b", text: "Spend 15 minutes on “Run 3 km”", estimatedMinutes: 15 },
+      { id: "m_b", text: "Run 3 km: 15 focused minutes", estimatedMinutes: 15 },
     ],
   };
   const props = () => ({
@@ -479,7 +585,7 @@ describe("IdeasSheet: the milestone group's rules", () => {
   it("with room: each row adds through the milestone handler, with its minutes shown", async () => {
     const p = props();
     await render(<IdeasSheet {...p} />);
-    expect(screen.getByRole("header", { name: "For your next milestone: Run 3 km" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Next on your path: Run 3 km" })).toBeOnTheScreen();
     expect(within(rows()[1]).getByText("15 min")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Add Jog to the corner" }));
     expect(p.onAddMilestoneIdea).toHaveBeenCalledWith("Jog to the corner");
@@ -508,7 +614,7 @@ describe("IdeasSheet: the milestone group's rules", () => {
     expect(added).toBeDisabled();
     await fireEvent.press(added);
     expect(p.onAddMilestoneIdea).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Add Spend 15 minutes on “Run 3 km”" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add Run 3 km: 15 focused minutes" })).toBeEnabled();
   });
 
   it("no group in the Saved for later view, or with nothing to suggest", async () => {
@@ -518,5 +624,78 @@ describe("IdeasSheet: the milestone group's rules", () => {
     expect(screen.queryByTestId("milestone-ideas")).toBeNull();
     await rerender(<IdeasSheet {...props()} milestoneGroup={null} />);
     expect(screen.queryByTestId("milestone-ideas")).toBeNull();
+  });
+
+  /** Where each part sits in the sheet, top to bottom. */
+  const order = (...testIDs: string[]) => {
+    const tree = JSON.stringify(screen.toJSON());
+    return testIDs.map((id) => tree.indexOf(`"testID":"${id}"`));
+  };
+  const ascending = (positions: number[]) => positions.every((at, i) => at >= 0 && (i === 0 || at > positions[i - 1]));
+
+  it("the group sits under the chip and hint; the general list below it is headed More ideas", async () => {
+    const p = props();
+    await render(<IdeasSheet {...p} />);
+    expect(ascending(order("ideas-hint", "milestone-ideas", "more-ideas-heading", "general-ideas"))).toBe(true);
+    const tree = JSON.stringify(screen.toJSON());
+    expect(tree.indexOf("Made for your goal")).toBeLessThan(tree.indexOf('"testID":"milestone-ideas"'));
+    expect(screen.getByRole("header", { name: "More ideas" })).toBeOnTheScreen();
+  });
+
+  it("without a group the general list has no heading", async () => {
+    await render(<IdeasSheet {...props()} milestoneGroup={null} />);
+    expect(screen.queryByText("More ideas")).toBeNull();
+    expect(screen.getByTestId("general-ideas")).toBeOnTheScreen();
+  });
+
+  it("every idea is in the group: no More ideas heading, no empty list, no Add all", async () => {
+    await render(<IdeasSheet {...props()} ideas={[]} />);
+    expect(rows()).toHaveLength(2);
+    expect(screen.queryByText("More ideas")).toBeNull();
+    expect(screen.queryByTestId("general-ideas")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Add (all|\d+) idea/ })).toBeNull();
+    expect(screen.queryByText("Add all")).toBeNull();
+    // The hint still says how many can be picked.
+    expect(screen.getByTestId("ideas-hint")).toBeOnTheScreen();
+  });
+
+  it("Add all is there for the general list (two or more left) and covers only it", async () => {
+    const p = props();
+    const general: IdeaItem[] = [
+      { id: "a", text: "Walk 20 minutes" },
+      { id: "b", text: "Lay out shoes" },
+    ];
+    const { rerender } = await render(<IdeasSheet {...p} ideas={general} />);
+    await fireEvent.press(screen.getByRole("button", { name: "Add all ideas" }));
+    expect(p.onAddAll).toHaveBeenCalledWith(["Walk 20 minutes", "Lay out shoes"]);
+    expect(p.onAddMilestoneIdea).not.toHaveBeenCalled();
+    // One general idea left: its own row is the way to add it.
+    await rerender(<IdeasSheet {...p} ideas={general} addedTexts={new Set(["lay out shoes"])} />);
+    expect(screen.queryByRole("button", { name: "Add all ideas" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add Walk 20 minutes" })).toBeEnabled();
+  });
+
+  it("VoiceOver: the milestone is said once, by the group's header; rows are plain Add buttons", async () => {
+    await render(<IdeasSheet {...props()} />);
+    expect(screen.getAllByRole("header", { name: /Next on your path/ })).toHaveLength(1);
+    expect(rows().map(labelOf)).toEqual(["Add Jog to the corner", "Add Run 3 km: 15 focused minutes"]);
+    for (const row of rows()) expect(row.props.accessibilityHint).toBeUndefined();
+  });
+});
+
+describe("Today's link to the group", () => {
+  it("says Get ideas for this, and opens Ideas rather than Progress", async () => {
+    const onPress = jest.fn();
+    const onIdeas = jest.fn();
+    await render(<NextPathLink title="Run 3 km" onPress={onPress} onIdeas={onIdeas} />);
+    expect(screen.getByText("Get ideas for this")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Get ideas for this" }));
+    expect(onIdeas).toHaveBeenCalledTimes(1);
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
+  it("no second link without room to add", async () => {
+    await render(<NextPathLink title="Run 3 km" onPress={jest.fn()} />);
+    expect(screen.queryByText("Get ideas for this")).toBeNull();
   });
 });
