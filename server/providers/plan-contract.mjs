@@ -251,7 +251,7 @@ function cleanTask(task) {
  * non-boolean, a third mark, no milestone asked for) is dropped, so older clients get exactly the response they always did.
  */
 export function sanitizePlan(plan, payload) {
-  // The first two marks count; a model that marks all three has marked nothing useful.
+  // Only the first two marks are kept: a third (a model that marks all three) is dropped.
   let marksLeft = hasNextMilestone(payload) ? MAX_MILESTONE_MARKS : 0;
   const cleanSuggestion = (task) => {
     const marked = marksLeft > 0 && task?.forMilestone === true;

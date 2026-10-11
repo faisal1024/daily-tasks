@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { formatTime } from "../lib/daily-tasks/date";
 
 import { isLatestRequest } from "../lib/daily-tasks/ai-status";
 import { MILESTONE_IDS, buildMilestones, buildMomentumPlan } from "../lib/daily-tasks/momentum";
@@ -31,6 +33,7 @@ import {
   dayChipText,
   todayProgress,
   todayStatus,
+  type ClockTimeFormat,
 } from "../lib/daily-tasks/today-view";
 import type { DayRecord, History, MomentumPlan } from "../lib/daily-tasks/types";
 import { DEFAULT_MOMENTUM_SETTINGS } from "../lib/daily-tasks/types";
@@ -413,11 +416,27 @@ describe("lockConfirmation", () => {
   });
 });
 
+// The device's 12 or 24-hour setting, stood in for: what a 12-hour and a
+// 24-hour device hand back, whatever the machine (and engine) running the tests.
+const two = (value: number) => String(value).padStart(2, "0");
+/** As en-US does on newer engines: a narrow no-break space before AM/PM. */
+const TWELVE_HOUR: ClockTimeFormat = (hour, minute) =>
+  `${((hour + 11) % 12) + 1}:${two(minute)}\u202f${hour < 12 ? "AM" : "PM"}`;
+const TWENTY_FOUR_HOUR: ClockTimeFormat = (hour, minute) => `${two(hour)}:${two(minute)}`;
+/** The real thing for a locale (its exact digits vary by engine, so only its shape is checked). */
+const inLocale =
+  (locale: string): ClockTimeFormat =>
+  (hour, minute) =>
+    new Date(2026, 8, 26, hour, minute).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+
 describe("clockTimeOf", () => {
-  it("formats an ISO timestamp as the local clock time", () => {
-    expect(clockTimeOf(new Date(2026, 8, 26, 12, 3).toISOString())).toBe("12:03 PM");
-    expect(clockTimeOf(new Date(2026, 8, 26, 0, 0).toISOString())).toBe("12:00 AM");
-    expect(clockTimeOf(new Date(2026, 8, 26, 21, 45).toISOString())).toBe("9:45 PM");
+  it("formats an ISO timestamp as the local clock time, 12 or 24-hour as the device says", () => {
+    expect(clockTimeOf(new Date(2026, 8, 26, 12, 3).toISOString(), TWELVE_HOUR)).toBe("12:03 PM");
+    expect(clockTimeOf(new Date(2026, 8, 26, 0, 0).toISOString(), TWELVE_HOUR)).toBe("12:00 AM");
+    expect(clockTimeOf(new Date(2026, 8, 26, 21, 45).toISOString(), TWELVE_HOUR)).toBe("9:45 PM");
+    expect(clockTimeOf(new Date(2026, 8, 26, 12, 3).toISOString(), TWENTY_FOUR_HOUR)).toBe("12:03");
+    expect(clockTimeOf(new Date(2026, 8, 26, 0, 0).toISOString(), TWENTY_FOUR_HOUR)).toBe("00:00");
+    expect(clockTimeOf(new Date(2026, 8, 26, 21, 45).toISOString(), TWENTY_FOUR_HOUR)).toBe("21:45");
   });
 
   it("returns null for missing or invalid timestamps", () => {
@@ -428,11 +447,58 @@ describe("clockTimeOf", () => {
 });
 
 describe("formatClockTime", () => {
-  it("formats 12-hour clock times", () => {
-    expect(formatClockTime(0, 0)).toBe("12:00 AM");
-    expect(formatClockTime(9, 5)).toBe("9:05 AM");
-    expect(formatClockTime(12, 0)).toBe("12:00 PM");
-    expect(formatClockTime(23, 30)).toBe("11:30 PM");
+  afterEach(() => vi.restoreAllMocks());
+
+  it("a 12-hour device: 12-hour clock times, with a plain space before AM/PM", () => {
+    expect(formatClockTime(0, 0, TWELVE_HOUR)).toBe("12:00 AM");
+    expect(formatClockTime(9, 5, TWELVE_HOUR)).toBe("9:05 AM");
+    expect(formatClockTime(12, 0, TWELVE_HOUR)).toBe("12:00 PM");
+    expect(formatClockTime(23, 30, TWELVE_HOUR)).toBe("11:30 PM");
+    // Whatever space the locale's data puts there (a narrow no-break one, on newer engines).
+    expect(formatClockTime(14, 7, () => "2:07\u202fPM")).toBe("2:07 PM");
+    expect(formatClockTime(14, 7, () => " 2:07\u00a0PM ")).toBe("2:07 PM");
+  });
+
+  it("a 24-hour device: 24-hour clock times", () => {
+    expect(formatClockTime(0, 0, TWENTY_FOUR_HOUR)).toBe("00:00");
+    expect(formatClockTime(9, 5, TWENTY_FOUR_HOUR)).toBe("09:05");
+    expect(formatClockTime(12, 0, TWENTY_FOUR_HOUR)).toBe("12:00");
+    expect(formatClockTime(23, 30, TWENTY_FOUR_HOUR)).toBe("23:30");
+  });
+
+  it("real locales: a 12-hour one says AM/PM, a 24-hour one doesn't", () => {
+    expect(formatClockTime(14, 7, inLocale("en-US"))).toBe("2:07 PM");
+    expect(formatClockTime(14, 7, inLocale("en-GB"))).toBe("14:07");
+    expect(formatClockTime(14, 7, inLocale("de-DE"))).toBe("14:07");
+    expect(formatClockTime(0, 0, inLocale("en-GB"))).toMatch(/^0?0:00$/);
+  });
+
+  it("by default asks the device, with no forced locale or hour cycle (the helper Settings' time pickers use)", () => {
+    const spy = vi.spyOn(Date.prototype, "toLocaleTimeString").mockReturnValue("14:07");
+    expect(formatClockTime(14, 7)).toBe("14:07");
+    expect(spy).toHaveBeenCalledWith(undefined, { hour: "numeric", minute: "2-digit" });
+    expect(formatClockTime(14, 7)).toBe(formatTime(14, 7));
+    expect(clockTimeOf(new Date(2026, 8, 26, 14, 7).toISOString())).toBe("14:07");
+  });
+
+  it("falls back to 12-hour words when the device's format can't be had", () => {
+    const broken: ClockTimeFormat = () => {
+      throw new Error("no Intl");
+    };
+    expect(formatClockTime(0, 0, broken)).toBe("12:00 AM");
+    expect(formatClockTime(23, 30, broken)).toBe("11:30 PM");
+    expect(formatClockTime(9, 5, () => "  ")).toBe("9:05 AM");
+  });
+
+  it("the status line and the unlock confirm say the same time, either way", () => {
+    for (const format of [TWELVE_HOUR, TWENTY_FOUR_HOUR]) {
+      const autoLockTime = formatClockTime(12, 0, format);
+      const status = todayStatus({ locked: true, lockSource: "auto", taskCount: 3, completedCount: 1, autoLockTime });
+      const confirm = unlockConfirmation({ lockSource: "auto", autoLockTime });
+      expect(status.text).toBe(`Set automatically at ${autoLockTime}. 2 to go.`);
+      expect(confirm.message).toBe(`The app set today automatically at ${autoLockTime}. Unlocking keeps it open for the rest of today.`);
+    }
+    expect(formatClockTime(12, 0, TWENTY_FOUR_HOUR)).toBe("12:00");
   });
 });
 
@@ -445,8 +511,8 @@ describe("brainDumpToast", () => {
   });
 
   it("on a day set meanwhile says why everything was saved (1.4)", () => {
-    expect(brainDumpToast(0, 3, { locked: true })).toBe("Today is locked. 3 saved for later in Ideas.");
-    expect(brainDumpToast(0, 1, { locked: true })).toBe("Today is locked. 1 saved for later in Ideas.");
+    expect(brainDumpToast(0, 3, { locked: true })).toBe("Today is set. 3 saved for later in Ideas.");
+    expect(brainDumpToast(0, 1, { locked: true })).toBe("Today is set. 1 saved for later in Ideas.");
     expect(brainDumpToast(0, 0, { locked: true })).toBeNull();
     // An open day reads as before.
     expect(brainDumpToast(0, 3, { locked: false })).toBe("3 saved for later in Ideas.");
@@ -486,8 +552,19 @@ describe("unlockConfirmation (1.4)", () => {
       expect(copy.message.length).toBeLessThan(110);
       expect(copy).toMatchObject({ title: "Unlock today?", ...BUTTONS });
     }
-    expect(LOCKED_CHANGE_NOTE).toBe("Today is locked. Unlock it in Settings to change your three.");
+    expect(LOCKED_CHANGE_NOTE).toBe("Today is set. Unlock it in Settings to change your three.");
     expect(UNLOCKED_NOTE).toBe("Today is unlocked.");
+  });
+
+  it("a set day is always 'set', never 'locked': one word for the state on every line", () => {
+    const said = [
+      LOCKED_CHANGE_NOTE,
+      brainDumpToast(0, 3, { locked: true }),
+      todayStatus({ locked: true, lockSource: "manual", taskCount: 3, completedCount: 1 }).text,
+      todayStatus({ locked: true, lockSource: "auto", taskCount: 3, completedCount: 1, autoLockTime: "12:00" }).text,
+    ];
+    for (const line of said) expect(line).not.toMatch(/\block(ed)?\b/i);
+    expect(said.slice(0, 3).every((line) => line?.startsWith("Today is set."))).toBe(true);
   });
 });
 

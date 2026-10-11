@@ -160,6 +160,20 @@ describe("Settings: Unlock today (1.4)", () => {
     expect(row()).toBeOnTheScreen();
   });
 
+  it("on a 24-hour device the confirm says the time the 24-hour way, as Today's status line does", async () => {
+    // What the system hands back with 24-hour time on (the app passes no locale or hour cycle of its own).
+    const clock = jest.spyOn(Date.prototype, "toLocaleTimeString").mockImplementation(function (this: Date) {
+      return `${String(this.getHours()).padStart(2, "0")}:${String(this.getMinutes()).padStart(2, "0")}`;
+    });
+    await renderSettings({ autoLock: { ...NOON, hour: 12, minute: 15 } });
+    await waitFor(() => expect(row()).toBeOnTheScreen());
+    const { message } = await openConfirm();
+    expect(message).toBe("The app set today automatically at 12:15. Unlocking keeps it open for the rest of today.");
+    expect(message).not.toMatch(/AM|PM/);
+    for (const call of clock.mock.calls) expect(call).toEqual([undefined, { hour: "numeric", minute: "2-digit" }]);
+    clock.mockRestore();
+  });
+
   it("a day set automatically asks with its own words (same title, same buttons, same rule)", async () => {
     // Launched at 12:30 with auto-set at noon: the store sets it, stamped with the auto-set time.
     await renderSettings({ autoLock: NOON });

@@ -1,6 +1,19 @@
 // Jest setup for React Native component tests (jest-expo preset).
 import "react-native-gesture-handler/jestSetup";
 
+// Clock times follow the device's locale and 12/24-hour setting (formatTime).
+// The tests' device is en-US, whatever machine runs them, so "2:07 PM" is
+// "2:07 PM" everywhere. A plain assignment, so jest.restoreAllMocks leaves it.
+const deviceToLocaleTimeString = Date.prototype.toLocaleTimeString;
+// eslint-disable-next-line no-extend-native -- pins the tests' locale; nothing is added to Date
+Date.prototype.toLocaleTimeString = function toLocaleTimeString(
+  this: Date,
+  locales?: Intl.LocalesArgument,
+  options?: Intl.DateTimeFormatOptions,
+) {
+  return deviceToLocaleTimeString.call(this, locales ?? "en-US", options);
+};
+
 // jest.mock factories are hoisted above imports, so they must use require().
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- hoisted jest.mock factory
 jest.mock("react-native-reanimated", () => ({

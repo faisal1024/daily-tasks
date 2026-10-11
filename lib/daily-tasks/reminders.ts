@@ -96,7 +96,21 @@ function emptyDayMorningCopy(input: {
 }): ReminderCopy {
   const { dayKey, slotIndex, draft, copy, locked, yesterdayOpen, certain } = input;
   if (!copy) return morningCopy(dayKey, draft);
-  if (copy.hideNames) return REMINDER_COPY.morning;
+  // Names hidden: no draft and no leftovers by name, but still a line that changes from one nudge to the next.
+  if (copy.hideNames) {
+    return (
+      buildReminderCopy({
+        kind: "morning",
+        dayKey,
+        slotIndex,
+        tasks: [],
+        locked,
+        yesterdayOpen: [],
+        hideNames: true,
+        certain,
+      }) ?? REMINDER_COPY.morning
+    );
+  }
   if (hasDraftFor(dayKey, draft)) return morningCopy(dayKey, draft);
   return (
     buildReminderCopy({
