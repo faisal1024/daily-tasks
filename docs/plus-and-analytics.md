@@ -165,6 +165,8 @@ out of Apple's purchase sheet; `plan`, `source`, `trial`), `restore_completed`,
 `rating_prompt_requested` (the system rating prompt was requested; `source` is the happy
 moment that earned it: `focus_done`, `milestone`, `good_week` or `perfect_day`),
 `rate_row_tapped` and `feedback_row_tapped` (Settings › Feedback),
+`day_unlocked` (1.4: a set day was unlocked; `source` is always `settings`, the only
+place it can happen),
 `trial_note_shown` (`count` = Plus uses during the trial), `trial_note_dismissed`
 (`action` = close or manage). Properties are limited to `source`, `plan`, `outcome`, `trial`,
 `count`, `skipped`, `feature`, `active`, `plus`, `step`, `timer`, `offer` with short enum/number/boolean values. Never

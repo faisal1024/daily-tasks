@@ -138,20 +138,19 @@ describe("TaskRow", () => {
     expect(screen.queryByLabelText("Edit task 1")).toBeNull();
   });
 
-  it("on a set day offers only Not today (and Break it down), never Edit or Delete", async () => {
+  it("on a set day offers only Break it down, never Edit, Not today or Delete (1.4)", async () => {
     const { onToggle } = await renderRow({ editable: false, onBreakDown: jest.fn() });
     await fireEvent.press(words());
-    expect(menuOptions()).toEqual(["Not today", "Break it down", "Cancel"]);
+    expect(menuOptions()).toEqual(["Break it down", "Cancel"]);
     expect(onToggle).not.toHaveBeenCalled();
     const box = screen.getByRole("checkbox", { name: "Task 1: Walk" });
     expect(box.props.accessibilityActions.map((a: { name: string }) => a.name)).toEqual([
-      "notToday",
       "breakDown",
     ]);
-    // Swipe keeps Not today only.
-    const actions = within(screen.getByTestId("row-actions-id-Walk"));
-    expect(actions.getByRole("button", { name: "Not today: Walk" })).toBeOnTheScreen();
-    expect(actions.queryByRole("button", { name: "Delete: Walk" })).toBeNull();
+    // Nothing to swipe to either.
+    expect(screen.queryByTestId("row-actions-id-Walk")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Not today: Walk" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete: Walk" })).toBeNull();
   });
 
   it("a finished task on a set day has no menu, no VoiceOver actions and no swipe", async () => {
@@ -244,7 +243,8 @@ describe("TaskRow", () => {
         task={task("Walk")}
         index={0}
         completed={false}
-        editable={false}
+        // An open day's hero (work has started): a set day has no Not today (1.4).
+        editable
         hero
         onToggle={jest.fn()}
         onEdit={jest.fn()}
@@ -337,12 +337,14 @@ describe("TaskRow", () => {
     const lastButtons = () => alert.mock.calls[alert.mock.calls.length - 1][2] as Button[];
 
     it("shows up to two actions directly", async () => {
-      const { onNotToday } = await renderRow({ editable: false, onBreakDown: jest.fn() });
+      const onBreakDown = jest.fn();
+      await renderRow({ editable: false, onBreakDown });
       await fireEvent.press(words());
       expect(sheet).not.toHaveBeenCalled();
-      expect(lastButtons().map((b) => b.text)).toEqual(["Not today", "Break it down", "Cancel"]);
+      // A set day (1.4): only Break it down is left.
+      expect(lastButtons().map((b) => b.text)).toEqual(["Break it down", "Cancel"]);
       await act(async () => lastButtons()[0].onPress?.());
-      expect(onNotToday).toHaveBeenCalledTimes(1);
+      expect(onBreakDown).toHaveBeenCalledTimes(1);
     });
 
     it("pages longer menus with More…, so every action stays reachable", async () => {

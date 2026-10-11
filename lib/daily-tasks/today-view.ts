@@ -199,16 +199,30 @@ export function lockConfirmation(taskCount: number): { title: string; message: s
     // All three chosen: nothing is lost by locking, so keep it light.
     return {
       title: "Set today?",
-      message: "You can still check tasks off. Editing pauses until tomorrow, or until you tap Change.",
+      message: "You can still check tasks off. Editing pauses until tomorrow, or until you unlock it in Settings.",
     };
   }
   const slots = open === 1 ? " Your empty slot stays empty." : " Your empty slots stay empty.";
   return {
     title: "Set today?",
     message:
-      "You can still check tasks off. Adding and editing pause until you tap Change." + slots,
+      "You can still check tasks off. Adding and editing pause until tomorrow, or until you unlock it in Settings." + slots,
   };
 }
+
+/** The quiet line beside a set day on Today, and its VoiceOver hint (1.4). */
+export const LOCKED_HINT = "Unlock in Settings";
+
+/**
+ * Copy for Settings' "Unlock today" (1.4). Unlocking is deliberately a step
+ * away from Today, and "Keep locked" is the prominent choice.
+ */
+export const UNLOCK_CONFIRMATION = {
+  title: "Unlock today's three?",
+  message: "You set these on purpose.",
+  keep: "Keep locked",
+  unlock: "Unlock",
+} as const;
 
 /** "12:00 PM" style time for status copy. */
 export function formatClockTime(hour: number, minute: number): string {
@@ -237,8 +251,9 @@ export type TaskRowAction = "edit" | "notToday" | "breakDown" | "delete";
 
 /**
  * What a row offers, in menu order. The circle alone finishes a task; these
- * are everything else. A set day still allows letting a task go (Not today)
- * and breaking it down, but not editing or deleting.
+ * are everything else. A set day keeps its three as they are (1.4): no
+ * editing, deleting or Not today until it's unlocked in Settings. Breaking a
+ * task down is a finishing aid, so it stays.
  */
 export function taskRowActions(params: {
   editable: boolean;
@@ -248,8 +263,7 @@ export function taskRowActions(params: {
   const { editable, completed, canBreakDown } = params;
   if (completed) return editable ? ["delete"] : [];
   const actions: TaskRowAction[] = [];
-  if (editable) actions.push("edit");
-  actions.push("notToday");
+  if (editable) actions.push("edit", "notToday");
   if (canBreakDown) actions.push("breakDown");
   if (editable) actions.push("delete");
   return actions;

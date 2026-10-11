@@ -1,4 +1,5 @@
 import {
+  AccessibilityInfo,
   Alert,
   KeyboardAvoidingView,
   Linking,
@@ -35,6 +36,7 @@ import {
 } from "@/lib/daily-tasks/links";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
+import { UNLOCK_CONFIRMATION } from "@/lib/daily-tasks/today-view";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type {
   NotificationKey,
@@ -71,6 +73,7 @@ export default function SettingsScreen() {
     notificationPermission,
     setAutoLockEnabled,
     setAutoLockTime,
+    unlockToday,
     setNotificationsEnabled,
     setNotificationEnabled,
     refreshNotificationPermission,
@@ -90,6 +93,24 @@ export default function SettingsScreen() {
   const [routinesOpen, setRoutinesOpen] = useState(false);
   const pausedRoutines = state.routines.filter((routine) => routine.paused).length;
   const [restoring, setRestoring] = useState(false);
+
+  // The only way to unlock a set day (1.4): one deliberate step away from
+  // Today, and "Keep locked" is the prominent answer.
+  const confirmUnlock = () => {
+    Alert.alert(UNLOCK_CONFIRMATION.title, UNLOCK_CONFIRMATION.message, [
+      { text: UNLOCK_CONFIRMATION.keep, style: "cancel", isPreferred: true },
+      {
+        text: UNLOCK_CONFIRMATION.unlock,
+        style: "default",
+        onPress: () => {
+          unlockToday();
+          track("day_unlocked", { source: "settings" });
+          // The row disappears: tell VoiceOver what happened.
+          AccessibilityInfo.announceForAccessibility("Today is unlocked. You can change your three.");
+        },
+      },
+    ]);
+  };
 
   const handleRestore = async () => {
     if (restoring) return;
@@ -563,6 +584,27 @@ export default function SettingsScreen() {
               onChange={setAutoLockTime}
             />
           </View>
+          {/* Only while today is set: the one place to unlock it (1.4). */}
+          {state.todayLocked && (
+            <Pressable
+              onPress={confirmUnlock}
+              accessibilityRole="button"
+              accessibilityLabel="Unlock today"
+              accessibilityHint="Asks first, then lets you change today's three"
+              className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3"
+              style={{ minHeight: 44 }}
+              testID="settings-unlock-today"
+            >
+              <Ionicons name="lock-open-outline" size={20} color={colors.muted} />
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-foreground">Unlock today</Text>
+                <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                  Today is set. Unlock it to change your three.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+            </Pressable>
+          )}
         </Section>
 
         <Section

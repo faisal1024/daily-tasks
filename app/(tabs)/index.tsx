@@ -168,7 +168,6 @@ export default function HomeScreen() {
     notToday,
     toggleTask,
     lockToday,
-    unlockToday,
     resolveRollover,
     markOnboardingSeen,
     requestNotificationPermission,
@@ -1111,10 +1110,12 @@ export default function HomeScreen() {
   // Its timer goes with it (the store clears a session whose task leaves
   // today), and the note says so.
   const handleNotToday = (id: string) => {
+    // A set day keeps its three (the store refuses too).
+    if (state.todayLocked) return;
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     const timed = focusSessionRef.current?.taskId === id;
     notToday(id);
-    track("task_not_today", { source: state.todayLocked ? "set" : "open" });
+    track("task_not_today", { source: "open" });
     const note = timed ? "Saved for later. Timer stopped." : "Saved for later.";
     showToast(note);
     AccessibilityInfo.announceForAccessibility(note);
@@ -1246,18 +1247,10 @@ export default function HomeScreen() {
               </View>
 
               {/* A full three-for-three day: the card and gradient say it all.
-                  With room left, keep the line (and its Change on a set day). */}
+                  With room left, keep the line. A set day has nothing to tap
+                  here: unlocking is in Settings only (1.4). */}
               {!(progress.isPerfect && total >= MAX_TASKS) && (
-              <StatusLine
-                status={status}
-                onLock={confirmLock}
-                onUnlock={() => {
-                  haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-                  unlockToday();
-                  // The Change button disappears: tell VoiceOver what happened.
-                  AccessibilityInfo.announceForAccessibility("You can change today's tasks again.");
-                }}
-              />
+              <StatusLine status={status} onLock={confirmLock} />
               )}
               {/* Routines due today (1.3): right under the day's card, so
                   they're seen without opening Ideas. */}
@@ -1270,7 +1263,8 @@ export default function HomeScreen() {
                 />
               )}
               {/* A full or set day hides the ideas entry, but saved items
-                  must stay reachable (to view, remove, or swap in later). */}
+                  must stay reachable (to view or remove; on a set day nothing
+                  swaps in until it's unlocked in Settings). */}
               {(state.todayLocked || remainingSlots === 0) && state.parkedTasks.length > 0 && (
                 <Pressable
                   onPress={() => {

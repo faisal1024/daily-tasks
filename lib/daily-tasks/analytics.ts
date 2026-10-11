@@ -53,7 +53,8 @@ export type AnalyticsEvent =
   | "routines_card_shown"
   | "rating_prompt_requested"
   | "rate_row_tapped"
-  | "feedback_row_tapped";
+  | "feedback_row_tapped"
+  | "day_unlocked";
 
 type PropValue = string | number | boolean;
 export type AnalyticsProps = Partial<Record<AllowedProp, PropValue>>;

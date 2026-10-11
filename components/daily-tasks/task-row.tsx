@@ -46,13 +46,13 @@ interface TaskRowBaseProps {
   completed: boolean;
   /** The next task to do on a set day: bigger, with its secondary actions shown. */
   hero?: boolean;
-  /** Adding, editing and deleting are paused once the day is set. */
+  /** Adding, editing, deleting and Not today are paused once the day is set. */
   editable: boolean;
   index: number;
   onToggle: () => void;
   onEdit: (text: string) => void;
   onDelete: () => void;
-  /** Save it for later instead of doing it today (allowed on a set day). */
+  /** Save it for later instead of doing it today (not on a set day). */
   onNotToday: () => void;
   onBreakDown?: () => void;
   breakingDown?: boolean;

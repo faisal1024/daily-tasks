@@ -377,7 +377,7 @@ describe("Today screen layout", () => {
     expect(message).not.toMatch(/empty slot/);
     // Lighter copy when all three are chosen: nothing is lost by locking.
     expect(message).toBe(
-      "You can still check tasks off. Editing pauses until tomorrow, or until you tap Change.",
+      "You can still check tasks off. Editing pauses until tomorrow, or until you unlock it in Settings.",
     );
     alert.mockRestore();
   });
@@ -1865,12 +1865,13 @@ describe("Today: unlock and saved ideas", () => {
     { id: "p2", text: "Call mum", parkedAt: "2026-09-26T08:00:00.000Z" },
   ];
 
-  it("offers Change on the status line once the day is set, and it unlocks", async () => {
+  it("shows a quiet locked state once the day is set, with no way to unlock on Today (1.4)", async () => {
     mockStore = makeStore({ tasks: tasks("Walk"), todayLocked: true, todayLockSource: "manual" });
     await render(<HomeScreen />);
-    expect(screen.getByText("Change")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "Change today's tasks" }));
-    expect(mockStore.unlockToday).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Change")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Change today's tasks" })).toBeNull();
+    expect(screen.getByText("Unlock in Settings")).toBeOnTheScreen();
+    expect(screen.getByTestId("status-line").props.accessibilityHint).toBe("Unlock in Settings");
   });
 
   it("has no Change while the day is open", async () => {
@@ -2187,12 +2188,13 @@ describe("Today card (Phase 10a)", () => {
 
   it("Not today (hero button) goes through the store's one notToday action and says so", async () => {
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
-    mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch") });
+    // An open day under way (a set day has no Not today, 1.4): Stretch is the hero.
+    mockStore = makeStore({ tasks: tasks("Walk", "Stretch"), todayCompletions: ["t0"] });
     await render(<HomeScreen />);
     await fireEvent.press(
-      within(screen.getByTestId("task-row-t0")).getByRole("button", { name: "Not today: Walk" }),
+      within(screen.getByTestId("task-row-t1")).getByRole("button", { name: "Not today: Stretch" }),
     );
-    expect(mockStore.notToday).toHaveBeenCalledWith("t0");
+    expect(mockStore.notToday).toHaveBeenCalledWith("t1");
     // Not the old two-step park-then-delete.
     expect(mockStore.parkTasks).not.toHaveBeenCalled();
     expect(mockStore.deleteTask).not.toHaveBeenCalled();
@@ -2222,17 +2224,17 @@ describe("Today card (Phase 10a)", () => {
     alert.mockRestore();
   });
 
-  it("on a set day VoiceOver offers Not today (which parks the task) but not Edit or Delete", async () => {
+  it("on a set day VoiceOver offers no Not today, Edit or Delete (1.4)", async () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch") });
     await render(<HomeScreen />);
     const box = screen.getByRole("checkbox", { name: "Task 2: Stretch" });
-    expect(box.props.accessibilityActions.map((a: { name: string }) => a.name)).toEqual(["notToday", "startTimer"]);
+    expect(box.props.accessibilityActions.map((a: { name: string }) => a.name)).toEqual(["startTimer"]);
     await fireEvent(box, "accessibilityAction", { nativeEvent: { actionName: "delete" } });
     expect(alert).not.toHaveBeenCalled();
     expect(mockStore.deleteTask).not.toHaveBeenCalled();
     await fireEvent(box, "accessibilityAction", { nativeEvent: { actionName: "notToday" } });
-    expect(mockStore.notToday).toHaveBeenCalledWith("t1");
+    expect(mockStore.notToday).not.toHaveBeenCalled();
     alert.mockRestore();
   });
 
@@ -2250,13 +2252,13 @@ describe("Today card (Phase 10a)", () => {
     expect(mockStore.toggleTask).toHaveBeenCalledWith("t0");
   });
 
-  it("the words don't check a task off on a set day either", async () => {
+  it("the words don't check a task off on a set day either, and offer no Not today (1.4)", async () => {
     mockStore = makeStore({ ...SET, tasks: tasks("Walk") });
     await render(<HomeScreen />);
-    await pickFromMenu("t0", "Not today");
+    await fireEvent.press(screen.getByTestId("task-words-t0", { includeHiddenElements: true }));
     expect(mockStore.toggleTask).not.toHaveBeenCalled();
-    expect(mockStore.notToday).toHaveBeenCalledWith("t0");
-    expect(sheet.mock.calls[0][0].options).toEqual(["Not today", "Cancel"]);
+    expect(mockStore.notToday).not.toHaveBeenCalled();
+    for (const call of sheet.mock.calls) expect(call[0].options).not.toContain("Not today");
   });
 
   it("shows 'Today' with the date, and a small greeting above it when there's a name", async () => {
@@ -2280,21 +2282,22 @@ describe("Today card (Phase 10a)", () => {
   });
 
   it("tracks Not today with where it came from", async () => {
-    mockStore = makeStore({ ...SET, tasks: tasks("Walk") });
+    // Only an open day has Not today (1.4), so the source is always "open".
+    mockStore = makeStore({ tasks: tasks("Walk") });
     await render(<HomeScreen />);
-    const box = screen.getByRole("checkbox", { name: "Up next. Task 1: Walk" });
+    const box = screen.getByRole("checkbox", { name: "Task 1: Walk" });
     await fireEvent(box, "accessibilityAction", { nativeEvent: { actionName: "notToday" } });
-    expect(mockTrack).toHaveBeenCalledWith("task_not_today", { source: "set" });
+    expect(mockTrack).toHaveBeenCalledWith("task_not_today", { source: "open" });
   });
 });
 
 describe("status line on a finished day (Phase 10b)", () => {
-  it("a set day with everything done but room left keeps the line, and Change is reachable", async () => {
+  it("a set day with everything done but room left keeps the line, with no Change (1.4)", async () => {
     mockStore = makeStore({ tasks: tasks("Walk"), todayCompletions: ["t0"], ...SET });
     await render(<HomeScreen />);
     expect(screen.getByText("Today is set. All done.")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "Change today's tasks" }));
-    expect(mockStore.unlockToday).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Change today's tasks" })).toBeNull();
+    expect(screen.getByText("Unlock in Settings")).toBeOnTheScreen();
   });
 
   it("an open day with everything done but room left says so (no Set today)", async () => {
@@ -3354,14 +3357,16 @@ describe("Timer on your tasks (1.3)", () => {
   });
 
   it("the hero row hides its Break it down · Not today line while it's timed (long press, check-in and focus have them)", async () => {
-    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayLocked: true, focusSession: running() });
+    // An open day under way: a set day's hero has no Not today at all (1.4).
+    const started = { tasks: tasks("Walk", "Read", "Done"), todayCompletions: ["t2"] };
+    mockStore = makeStore({ ...started, focusSession: running() });
     const view = await render(<HomeScreen />);
     expect(screen.getByRole("checkbox", { name: "Up next. Task 1: Walk" })).toBeOnTheScreen();
     // The row's own "Not today" (the swipe action has the same name, but no hint).
     const heroNotToday = () =>
       screen.queryAllByRole("button", { name: "Not today: Walk" }).filter((b) => b.props.accessibilityHint === "Saves it for later");
     expect(heroNotToday()).toHaveLength(0);
-    mockStore = makeStore({ tasks: tasks("Walk", "Read"), todayLocked: true });
+    mockStore = makeStore(started);
     await view.rerender(<HomeScreen />);
     expect(heroNotToday()).toHaveLength(1);
   });

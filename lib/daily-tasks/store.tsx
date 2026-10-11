@@ -766,8 +766,9 @@ function reduce(state: AppState, action: Action): AppState {
       );
     }
     case "notToday": {
-      // Save an open task for later. Allowed on a set day too: letting go of
-      // one task is part of keeping the day honest, not changing the plan.
+      // Save an open task for later. Not on a set day (1.4): it changes the
+      // three, so the day is unlocked in Settings first.
+      if (state.todayLocked) return state;
       const task = state.tasks.find((item) => item.id === action.id);
       if (!task || state.todayCompletions.includes(action.id)) return state;
       // Off the list first: parkTasks skips anything still on today's list.
@@ -826,7 +827,8 @@ function reduce(state: AppState, action: Action): AppState {
           todayLocked: false,
           todayLockSource: null,
           todayLockedAt: null,
-          // Don't let auto-lock immediately re-lock the rest of today.
+          // An explicit unlock holds for the rest of today: auto-set must not
+          // re-lock it (see autoLockToday). A manual "Set today" still can.
           manualUnlockDate: action.today,
         },
         action.today,

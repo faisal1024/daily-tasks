@@ -143,18 +143,17 @@ describe("StatusLine", () => {
     expect(screen.queryByRole("button", { name: "Set today's tasks" })).toBeNull();
   });
 
-  it("offers Change once the day is set, and calls onUnlock", async () => {
-    const onUnlock = jest.fn();
+  it("shows a quiet locked state once the day is set, with no Change (1.4)", async () => {
     await render(
       <StatusLine
         status={todayStatus({ locked: true, lockSource: "manual", taskCount: 2, completedCount: 0 })}
         onLock={jest.fn()}
-        onUnlock={onUnlock}
       />,
     );
-    expect(screen.getByText("Change")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "Change today's tasks" }));
-    expect(onUnlock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Change")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText("Unlock in Settings")).toBeOnTheScreen();
+    expect(screen.getByTestId("status-line").props.accessibilityHint).toBe("Unlock in Settings");
   });
 
   it("hides Set today once the day is set, and for an empty day", async () => {
