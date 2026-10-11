@@ -166,6 +166,11 @@ export interface GeneratedTask {
   difficulty: GeneratedTaskDifficulty;
   reason: string;
   source: GeneratedTaskSource;
+  /**
+   * Set when the AI made this suggestion for the next open milestone (1.4):
+   * that milestone's key (milestoneKey in milestone-ideas.ts).
+   */
+  milestoneKey?: string;
 }
 
 export interface MomentumMilestone {

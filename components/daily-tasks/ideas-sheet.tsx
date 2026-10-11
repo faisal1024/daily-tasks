@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Modal,
@@ -58,6 +58,15 @@ interface IdeasSheetProps {
   onManageRoutines?: () => void;
   /** The routine coming up next, said in the footer when none is due today ("on Monday", "tomorrow"). */
   nextRoutine?: { text: string; when: string } | null;
+  /**
+   * Suggestions for the next open milestone on the goal path (1.4), shown under
+   * Today's routines. Null (no path, or every milestone reached): no group.
+   */
+  milestoneGroup?: { title: string; ideas: IdeaItem[] } | null;
+  /** Adds a milestone suggestion; falls back to `onAdd`. */
+  onAddMilestoneIdea?: (text: string) => void;
+  /** Opened from Today's "Next on your path": bring the milestone group into view. */
+  focusMilestone?: boolean;
 }
 
 const keyOf = (text: string) => text.trim().toLowerCase();
@@ -88,6 +97,9 @@ export function IdeasSheet({
   hasRoutines = true,
   onManageRoutines,
   nextRoutine = null,
+  milestoneGroup = null,
+  onAddMilestoneIdea,
+  focusMilestone = false,
 }: IdeasSheetProps) {
   const colors = useColors();
   const sheetAnimation = useSheetAnimation();
@@ -100,6 +112,14 @@ export function IdeasSheet({
   const shownIdeas = routineKeys.size > 0 ? ideas.filter((idea) => !routineKeys.has(keyOf(idea.text))) : ideas;
   const available = shownIdeas.filter((idea) => !addedTexts.has(keyOf(idea.text)));
   const full = remainingSlots <= 0;
+  // The saved-only view is just the saved items: no milestone group either.
+  const shownMilestone = !savedOnly && milestoneGroup && milestoneGroup.ideas.length > 0 ? milestoneGroup : null;
+  // Opened for the milestone group: scroll to it once it has been laid out.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrolledToMilestone = useRef(false);
+  useEffect(() => {
+    if (!visible) scrolledToMilestone.current = false;
+  }, [visible]);
 
   // Live regions are Android-only; announce new failure notes on iOS too.
   useEffect(() => {
@@ -143,6 +163,7 @@ export function IdeasSheet({
         </View>
 
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 14 }}
         >
           {shownRoutines.length > 0 && (
@@ -152,6 +173,24 @@ export function IdeasSheet({
               onEdit={onManageRoutines}
               blockedReason={routineBlockedLine(routineBlock({ locked, remainingSlots }), { where: "ideas" })}
             />
+          )}
+
+          {shownMilestone && (
+            <View
+              onLayout={(event) => {
+                if (!focusMilestone || scrolledToMilestone.current) return;
+                scrolledToMilestone.current = true;
+                scrollRef.current?.scrollTo({ y: Math.max(0, event.nativeEvent.layout.y - 12), animated: false });
+              }}
+            >
+              <MilestoneIdeas
+                title={shownMilestone.title}
+                ideas={shownMilestone.ideas}
+                addedTexts={addedTexts}
+                blocked={full || locked}
+                onAdd={onAddMilestoneIdea ?? onAdd}
+              />
+            </View>
           )}
 
           <View className="flex-row items-center justify-between">
@@ -485,6 +524,91 @@ function TodaysRoutines({
           <Ionicons name="repeat" size={16} color={colors.muted} accessibilityElementsHidden importantForAccessibility="no" />
         </Pressable>
       ))}
+    </View>
+  );
+}
+
+/**
+ * Suggestions for the next open milestone on the goal path. Same one-tap add
+ * as any other idea, with the same rules: nothing is added once today is full
+ * or set, and one already on today's list shows as added.
+ */
+function MilestoneIdeas({
+  title,
+  ideas,
+  addedTexts,
+  blocked,
+  onAdd,
+}: {
+  title: string;
+  ideas: IdeaItem[];
+  addedTexts: Set<string>;
+  /** Today is full or set. */
+  blocked: boolean;
+  onAdd: (text: string) => void;
+}) {
+  const colors = useColors();
+  return (
+    <View className="gap-2" testID="milestone-ideas">
+      <View accessible accessibilityRole="header" accessibilityLabel={`For your next milestone: ${title}`}>
+        <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
+          For your next milestone
+        </Text>
+        <Text
+          className="text-base text-foreground"
+          style={{ fontWeight: "700" }}
+          numberOfLines={2}
+          testID="milestone-ideas-title"
+        >
+          {title}
+        </Text>
+      </View>
+      {ideas.map((idea) => {
+        const added = addedTexts.has(keyOf(idea.text));
+        const disabled = added || blocked;
+        return (
+          <Pressable
+            key={idea.id}
+            onPress={() => onAdd(idea.text)}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel={added ? `${idea.text}, added` : `Add ${idea.text}`}
+            accessibilityHint={disabled ? undefined : "Adds this step toward your next milestone to today"}
+            accessibilityState={{ disabled }}
+            className="rounded-2xl border p-4 flex-row items-center gap-3"
+            style={{
+              minHeight: 44,
+              backgroundColor: colors.surface,
+              borderColor: added ? colors.success : colors.border,
+              opacity: disabled && !added ? 0.5 : 1,
+            }}
+            testID={`milestone-idea-${idea.id}`}
+          >
+            <Ionicons
+              name={added ? "checkmark-circle" : "add-circle-outline"}
+              size={26}
+              color={added ? colors.success : colors.primary}
+            />
+            <View className="flex-1 gap-0.5">
+              <Text className="text-base text-foreground" style={{ fontWeight: "700" }}>
+                {idea.text}
+              </Text>
+              {typeof idea.estimatedMinutes === "number" && (
+                <Text className="text-sm" style={{ color: colors.muted }}>
+                  {idea.estimatedMinutes} min
+                </Text>
+              )}
+            </View>
+            <Ionicons
+              name="trail-sign-outline"
+              size={16}
+              color={colors.muted}
+              accessibilityElementsHidden
+              importantForAccessibility="no"
+            />
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

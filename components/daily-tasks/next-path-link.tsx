@@ -1,10 +1,50 @@
-import { Pressable, Text } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useColors } from "@/hooks/use-colors";
 
-/** Midday's "Next on your path: <next open milestone>". Tapping opens Progress. */
-export function NextPathLink({ title, onPress }: { title: string; onPress: () => void }) {
+/**
+ * Midday's "Next on your path: <next open milestone>". Tapping opens Progress.
+ * With `onIdeas` (there's room to add today), a quiet second link under it
+ * opens Ideas at the suggestions for that milestone.
+ */
+export function NextPathLink({
+  title,
+  onPress,
+  onIdeas,
+}: {
+  title: string;
+  onPress: () => void;
+  onIdeas?: () => void;
+}) {
+  const colors = useColors();
+  if (!onIdeas) return <PathRow title={title} onPress={onPress} />;
+  return (
+    <View>
+      <PathRow title={title} onPress={onPress} />
+      <Pressable
+        onPress={onIdeas}
+        accessibilityRole="button"
+        accessibilityLabel="Ideas for this step"
+        accessibilityHint="Opens ideas for your next milestone"
+        style={({ pressed }) => ({
+          alignSelf: "flex-start",
+          minHeight: 44,
+          justifyContent: "center",
+          paddingHorizontal: 16,
+          opacity: pressed ? 0.7 : 1,
+        })}
+        testID="next-path-ideas"
+      >
+        <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+          Ideas for this step
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function PathRow({ title, onPress }: { title: string; onPress: () => void }) {
   const colors = useColors();
   return (
     <Pressable

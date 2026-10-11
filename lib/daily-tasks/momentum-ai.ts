@@ -16,7 +16,9 @@ import {
   validateGeneratedTasks,
   type RecentTask,
 } from "./momentum";
+import { milestoneKey } from "./milestone-ideas";
 import type {
+  GeneratedTask,
   History,
   MomentumMilestone,
   MomentumPlan,
@@ -63,6 +65,34 @@ export interface AiPlanRequestPayload {
   currentPath?: { title: string; done: boolean }[];
   /** The user asked for a fresh path (the milestones returned replace theirs). */
   newPath?: boolean;
+  /**
+   * The next open milestone (1.4): the server asks that at least one of
+   * today's suggestions advances it and marks those with `forMilestone`.
+   */
+  nextMilestone?: { title: string; description?: string };
+}
+
+/** Lengths the proxy accepts for `nextMilestone` (plan-contract.mjs). */
+const NEXT_MILESTONE_TITLE_MAX = 120;
+const NEXT_MILESTONE_DESCRIPTION_MAX = 200;
+
+/**
+ * Tag the suggestions the server marked `forMilestone: true` with the key of
+ * the milestone that was sent. An older server sends no mark: nothing is
+ * tagged and the app shows its built-in milestone suggestions instead.
+ */
+function markMilestoneSuggestions(tasks: GeneratedTask[], raw: unknown, key: string | null): GeneratedTask[] {
+  if (!key || !Array.isArray(raw)) return tasks;
+  const marked = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const candidate = item as { text?: unknown; forMilestone?: unknown };
+    if (candidate.forMilestone === true && typeof candidate.text === "string") {
+      marked.add(candidate.text.trim().toLowerCase());
+    }
+  }
+  if (marked.size === 0) return tasks;
+  return tasks.map((task) => (marked.has(task.text.toLowerCase()) ? { ...task, milestoneKey: key } : task));
 }
 
 /**
@@ -171,6 +201,7 @@ export async function requestMomentumAiPlan({
   agenda = [],
   currentPath = [],
   newPath = false,
+  nextMilestone = null,
   proxyUrl = getMomentumAiProxyUrl(),
   proxySecret = getMomentumProxySecret(),
   now = new Date(),
@@ -184,6 +215,8 @@ export async function requestMomentumAiPlan({
   agenda?: string[];
   currentPath?: { title: string; done: boolean }[];
   newPath?: boolean;
+  /** The next open milestone on the kept path, if any. */
+  nextMilestone?: Pick<MomentumMilestone, "id" | "title" | "description"> | null;
   proxyUrl?: string | null;
   proxySecret?: string | null;
   now?: Date;
@@ -199,10 +232,22 @@ export async function requestMomentumAiPlan({
     throw new Error("Profile is incomplete.");
   }
   const path = currentPath.slice(0, 6).map((step) => ({ title: step.title.slice(0, 120), done: step.done }));
+  // Not with a fresh path: the milestone is about to be replaced.
+  const milestoneTitle = newPath ? "" : (nextMilestone?.title ?? "").trim().slice(0, NEXT_MILESTONE_TITLE_MAX);
+  const milestoneDescription = (nextMilestone?.description ?? "").trim().slice(0, NEXT_MILESTONE_DESCRIPTION_MAX);
+  const sentMilestoneKey = nextMilestone && milestoneTitle ? milestoneKey(nextMilestone) : null;
   const payload: AiPlanRequestPayload = {
     ...base,
     ...(path.length > 0 ? { currentPath: path } : {}),
     ...(newPath ? { newPath: true } : {}),
+    ...(milestoneTitle
+      ? {
+          nextMilestone: {
+            title: milestoneTitle,
+            ...(milestoneDescription ? { description: milestoneDescription } : {}),
+          },
+        }
+      : {}),
   };
 
   const data = (await postToProxy({
@@ -215,7 +260,11 @@ export async function requestMomentumAiPlan({
 
   // Accept 1–3 usable suggestions: a model occasionally returns fewer than asked,
   // and a short list is better than falling back to templates.
-  const todaySuggestions = validateGeneratedTasks(data.todaySuggestions, "ai_today");
+  const todaySuggestions = markMilestoneSuggestions(
+    validateGeneratedTasks(data.todaySuggestions, "ai_today"),
+    data.todaySuggestions,
+    sentMilestoneKey,
+  );
   if (todaySuggestions.length === 0) {
     throw new MomentumAiError("invalid_response", "AI returned an invalid daily plan.");
   }

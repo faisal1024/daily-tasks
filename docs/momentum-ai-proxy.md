@@ -256,6 +256,28 @@ The app sends recent task text (last few days) but not the full history, and no
 account/PII. This is the minimum needed for the AI to tailor suggestions to the
 user's own tasks.
 
+### Next milestone (1.4, plan route, optional)
+
+Both fields are optional in both directions, so any mix of old and new app
+and proxy keeps working.
+
+- **Request:** `nextMilestone: { title: string, description?: string }`, the
+  first milestone on the user's path not yet reached. `title` is at most 120
+  characters and `description` at most 200; anything longer, or the wrong
+  type, is a 400 (`Invalid nextMilestone`). The app doesn't send it with
+  `newPath: true` (the path is about to be replaced), and the proxy ignores it
+  then. With it, the prompt asks that at least one of today's suggestions
+  directly advances that milestone.
+- **Response:** each `todaySuggestions` item may carry `forMilestone: true`.
+  The model always returns the boolean (strict schemas need it); the proxy
+  passes on only a literal `true`, and only when the request named a
+  milestone. `false`, any other value, and requests without `nextMilestone`
+  get no field at all, so older apps receive the response they always did.
+  `taskPool` items never carry it.
+- **App:** suggestions marked `true` are shown under "For your next
+  milestone" in Ideas. No mark (an older proxy, or the model marked none): the
+  app shows its built-in milestone suggestions there instead.
+
 ## Production Notes
 
 - Deploy the proxy to a serverless host or small Node server before shipping AI.

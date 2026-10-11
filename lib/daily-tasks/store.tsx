@@ -113,6 +113,7 @@ import {
   completeMilestone as completeMilestoneState,
   keepPath,
   milestonesWithCompletion,
+  nextIncompleteMilestone,
   type MilestoneView,
 } from "./milestones";
 import {
@@ -1812,6 +1813,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
           (m) => ({ title: m.title, done: m.done }),
         ),
         newPath: options.newPath === true,
+        // The next open step: at least one idea should move it forward.
+        nextMilestone: nextIncompleteMilestone(state.momentumPlan?.milestones ?? [], state.completedMilestoneIds),
         now,
       });
       if (!isLatestRequest(requestId, latestAiRequest.current)) return;
