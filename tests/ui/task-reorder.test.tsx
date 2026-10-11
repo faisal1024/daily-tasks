@@ -293,6 +293,15 @@ describe("TaskRow: the drag handle", () => {
     await act(async () => jest.advanceTimersByTime(400));
     expect(focus).toHaveBeenCalledTimes(2);
   });
+
+  it("a row mounted with an old move's tick (after a drop, or as the dragged copy) takes no focus", async () => {
+    jest.useFakeTimers();
+    const focus = AccessibilityInfo.sendAccessibilityEvent as jest.Mock;
+    focus.mockClear();
+    await renderRow({ reorder: ALL, focusTick: 3 });
+    await act(async () => jest.advanceTimersByTime(1000));
+    expect(focus).not.toHaveBeenCalled();
+  });
 });
 
 describe("TaskRow: the dragged row's copy (ghost)", () => {

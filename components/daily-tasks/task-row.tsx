@@ -237,13 +237,18 @@ export function TaskRow({
   }, [swipeKey, editing, dragActive]);
   // After a move the rows change places and VoiceOver loses the row it was
   // on: bring its focus back, once the rows have settled.
+  // (Only when it changes: a row mounted with an old tick, as after a drop or
+  // as the dragged copy, has nothing to bring back.)
+  const lastFocusTick = useRef(focusTick);
   useEffect(() => {
-    if (!focusTick) return;
+    if (focusTick === lastFocusTick.current) return;
+    lastFocusTick.current = focusTick;
+    if (!focusTick || ghost) return;
     const timer = setTimeout(() => {
       if (boxRef.current) AccessibilityInfo.sendAccessibilityEvent(boxRef.current, "focus");
     }, 300);
     return () => clearTimeout(timer);
-  }, [focusTick]);
+  }, [focusTick, ghost]);
 
   // A small bounce when it's checked off (not on first render, not with Reduce Motion).
   const checkScale = useSharedValue(1);
