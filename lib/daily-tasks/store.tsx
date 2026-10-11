@@ -115,6 +115,7 @@ import {
   milestonesWithCompletion,
   type MilestoneView,
 } from "./milestones";
+import { milestoneToAskAbout, settleMilestoneMarks } from "./milestone-ideas";
 import {
   resetAnalyticsIdentity,
   setAnalyticsEnabled as applyAnalyticsEnabled,
@@ -428,12 +429,18 @@ function keepGoalPath(state: AppState, action: Action, next: AppState): AppState
     // The fresh path the user asked for: it replaces theirs, and old ticks go.
     return {
       ...out,
-      momentumPlan: { ...out.momentumPlan, pathSource: "ai" },
+      momentumPlan: settleMilestoneMarks({ ...out.momentumPlan, pathSource: "ai" }, []),
       completedMilestoneIds: [],
       pendingMilestoneCelebration: null,
     };
   }
-  const plan = keepPath(state.momentumPlan, out.momentumPlan);
+  const kept = keepPath(state.momentumPlan, out.momentumPlan);
+  // A new AI plan's milestone marks count only for the first open step of the
+  // path as stored (it may not be the one the request named).
+  const plan =
+    kept && action.type === "requestMomentumPlanSucceeded"
+      ? settleMilestoneMarks(kept, out.completedMilestoneIds)
+      : kept;
   return plan === out.momentumPlan ? out : { ...out, momentumPlan: plan };
 }
 
@@ -1083,6 +1090,12 @@ interface StoreContextValue {
   isCompleted: (id: TaskId) => boolean;
   addTask: (text: string) => void;
   addTasks: (texts: string[]) => void;
+  /**
+   * Add suggestions (ideas, milestone ideas) to today's list. Returns how many
+   * landed. One whose words are already on today is refused, so a double tap
+   * adds once; typing the same words by hand (addTask) is still allowed.
+   */
+  addSuggestions: (texts: string[]) => number;
   editTask: (id: TaskId, text: string) => void;
   deleteTask: (id: TaskId) => void;
   /** Take an open task off today and save it for later (not on a set day: unlock it in Settings first). */
@@ -1827,6 +1840,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
           (m) => ({ title: m.title, done: m.done }),
         ),
         newPath: options.newPath === true,
+        // The next open step: one or two ideas should move it forward. Not
+        // for a starter path, which this plan is about to replace.
+        nextMilestone: milestoneToAskAbout(state.momentumPlan, state.completedMilestoneIds, options.newPath === true),
         now,
       });
       if (!isLatestRequest(requestId, latestAiRequest.current)) return;
@@ -2067,24 +2083,54 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // The state right after this hook's own last add, until React renders it:
   // a double-tapped Add must see the first one (and be refused, so it's
   // neither tracked nor announced twice). Like addRoutine's routinesRef.
-  const routineAddRef = useRef<{ from: AppState; to: AppState } | null>(null);
+  // Shared with addSuggestions, so a routine add and an idea add in the same
+  // moment see each other too.
+  const pendingAddRef = useRef<{ from: AppState; to: AppState } | null>(null);
   const addRoutineToToday = useCallback(
     (id: string, source: RoutineAddSource): boolean => {
       const before = todayRef.current;
       const day = ensureDay();
       const current = stateRef.current;
       // Not rendered yet since the last add: build on what it made.
-      const known = routineAddRef.current?.from === current ? routineAddRef.current.to : current;
+      const known = pendingAddRef.current?.from === current ? pendingAddRef.current.to : current;
       // Only count an add that will land (room, not set, due and not on
       // today), judged on the day it lands on: after a rollover ensureDay
       // just dispatched, which stateRef hasn't seen yet.
       const base = day === before ? known : reducer(known, { type: "rollover", today: day });
       const next = reducer(base, { type: "addRoutineToToday", id, today: day });
       const lands = next !== base;
-      if (lands) routineAddRef.current = { from: current, to: next };
+      if (lands) pendingAddRef.current = { from: current, to: next };
       dispatch({ type: "addRoutineToToday", id, today: day });
       if (lands) track("routine_added_today", { source });
       return lands;
+    },
+    [ensureDay],
+  );
+  const addSuggestions = useCallback(
+    (texts: string[]): number => {
+      const before = todayRef.current;
+      const day = ensureDay();
+      const current = stateRef.current;
+      // Same as addRoutineToToday: a second tap before React renders must see
+      // the first one's add.
+      const known = pendingAddRef.current?.from === current ? pendingAddRef.current.to : current;
+      const base = day === before ? known : reducer(known, { type: "rollover", today: day });
+      const taken = new Set(base.tasks.map((task) => task.text.trim().toLowerCase()));
+      const fresh: string[] = [];
+      for (const raw of texts) {
+        const text = raw.trim();
+        const key = text.toLowerCase();
+        if (!text || taken.has(key)) continue;
+        taken.add(key);
+        fresh.push(text);
+      }
+      if (fresh.length === 0) return 0;
+      const next = reducer(base, { type: "addTasks", texts: fresh, today: day });
+      const landed = next.tasks.length - base.tasks.length;
+      if (landed <= 0) return 0;
+      pendingAddRef.current = { from: current, to: next };
+      dispatch({ type: "addTasks", texts: fresh, today: day });
+      return landed;
     },
     [ensureDay],
   );
@@ -2329,6 +2375,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       isCompleted,
       addTask,
       addTasks,
+      addSuggestions,
       editTask,
       deleteTask,
       notToday,
@@ -2410,6 +2457,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       isCompleted,
       addTask,
       addTasks,
+      addSuggestions,
       editTask,
       deleteTask,
       notToday,

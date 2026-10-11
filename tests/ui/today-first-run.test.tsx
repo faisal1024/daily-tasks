@@ -52,6 +52,7 @@ function makeStore(overrides: Partial<AppState> = {}, extra: Record<string, unkn
     isCompleted: () => false,
     addTask: jest.fn(),
     addTasks: jest.fn(),
+    addSuggestions: jest.fn((texts: string[]) => texts.length),
     editTask: jest.fn(),
     deleteTask: jest.fn(),
     toggleTask: jest.fn(),

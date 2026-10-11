@@ -315,6 +315,9 @@ function normalizeGeneratedTask(value: unknown): GeneratedTask | null {
         : "easy",
     reason: typeof value.reason === "string" ? value.reason : "Suggested for today.",
     source: value.source === "ai" || value.source === "template" ? value.source : "template",
+    ...(typeof value.milestoneKey === "string" && value.milestoneKey && value.milestoneKey.length <= 240
+      ? { milestoneKey: value.milestoneKey }
+      : {}),
   };
 }
 

@@ -25,6 +25,21 @@ export function generatedTaskSchema() {
   };
 }
 
+/**
+ * A suggestion for today: a task plus whether it directly advances the next
+ * milestone the app sent (1.4). Always present in the model's output (strict
+ * schemas need every property required); the proxy only passes `true` on, and
+ * only when the request named a milestone (see sanitizePlan).
+ */
+export function todaySuggestionSchema() {
+  const task = generatedTaskSchema();
+  return {
+    ...task,
+    required: [...task.required, "forMilestone"],
+    properties: { ...task.properties, forMilestone: { type: "boolean" } },
+  };
+}
+
 export const RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -49,7 +64,7 @@ export const RESPONSE_SCHEMA = {
       type: "array",
       minItems: 3,
       maxItems: 3,
-      items: generatedTaskSchema(),
+      items: todaySuggestionSchema(),
     },
     taskPool: {
       type: "array",
@@ -104,6 +119,7 @@ export function buildPrompt(payload) {
     }`,
     ...agendaPromptLines(payload.agenda),
     ...pathPromptLines(payload.currentPath, payload.newPath === true),
+    ...milestonePromptLines(payload.nextMilestone, payload.newPath === true),
     "Return three milestones and exactly three todaySuggestions.",
     "Tasks must be short verb phrases, 64 characters or fewer, specific enough to do today, and sized to the user's time.",
     "If recent completion is weak, make tasks easier. If recent completion is strong, make tasks a gentle step up.",
@@ -122,6 +138,57 @@ function pathPromptLines(currentPath, newPath) {
         `Their path toward the goal (they keep it; you can't change it):\n${list}`,
         "Aim today's suggestions at the first milestone not yet reached. Still return three milestones (the app keeps theirs).",
       ];
+}
+
+/** Lengths accepted for the next milestone the app sends (1.4). */
+export const NEXT_MILESTONE_TITLE_MAX = 120;
+export const NEXT_MILESTONE_DESCRIPTION_MAX = 200;
+
+/** At most this many of today's suggestions carry the milestone mark. */
+export const MAX_MILESTONE_MARKS = 2;
+
+/** One line of user text: no line breaks, so it can't start a new prompt line. */
+const oneLine = (value) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "");
+
+/**
+ * True when the request names a next milestone the suggestions can be marked
+ * for. A malformed or over-long one counts as none (the plan is still made;
+ * the app shows its built-in milestone suggestions), never as a bad request.
+ */
+export function hasNextMilestone(payload) {
+  return (
+    payload?.newPath !== true &&
+    isValidNextMilestone(payload?.nextMilestone) &&
+    oneLine(payload.nextMilestone.title).length > 0
+  );
+}
+
+/** The next open milestone (1.4): one or two of today's suggestions should advance it. */
+function milestonePromptLines(nextMilestone, newPath) {
+  if (!hasNextMilestone({ nextMilestone, newPath })) {
+    return ["Set forMilestone to false on every todaySuggestion."];
+  }
+  // Already within the limits (hasNextMilestone checked them).
+  const title = oneLine(nextMilestone.title);
+  const description = oneLine(nextMilestone.description);
+  return [
+    `Their next milestone: ${title}${description ? ` (${description})` : ""}`,
+    "At least one of today's suggestions must directly advance that milestone with a small, concrete step. " +
+      "Mark exactly the one or two suggestions that most directly move that milestone forward: " +
+      "set forMilestone to true on those, and false on the others.",
+  ];
+}
+
+function isValidNextMilestone(value) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      typeof value.title === "string" &&
+      value.title.length <= NEXT_MILESTONE_TITLE_MAX &&
+      (value.description === undefined ||
+        (typeof value.description === "string" && value.description.length <= NEXT_MILESTONE_DESCRIPTION_MAX)),
+  );
 }
 
 function formatRecentTasks(recentTasks) {
@@ -147,6 +214,8 @@ export function validatePayload(payload) {
   if (!isValidAgenda(payload.agenda)) return "Invalid agenda";
   if (payload.currentPath !== undefined && !isValidPath(payload.currentPath)) return "Invalid currentPath";
   if (payload.newPath !== undefined && typeof payload.newPath !== "boolean") return "Invalid newPath";
+  // nextMilestone is not checked here: an invalid one is treated as absent
+  // (hasNextMilestone), so a plan request is never refused over it.
   return null;
 }
 
@@ -175,13 +244,25 @@ function cleanTask(task) {
   };
 }
 
-/** Rebuild the plan from the fields the app reads (never raw model output). */
-export function sanitizePlan(plan) {
+/**
+ * Rebuild the plan from the fields the app reads (never raw model output).
+ * `forMilestone: true` is kept on a suggestion only when the request named a
+ * next milestone, and on at most two (the first two); anything else (false, a
+ * non-boolean, a third mark, no milestone asked for) is dropped, so older clients get exactly the response they always did.
+ */
+export function sanitizePlan(plan, payload) {
+  // The first two marks count; a model that marks all three has marked nothing useful.
+  let marksLeft = hasNextMilestone(payload) ? MAX_MILESTONE_MARKS : 0;
+  const cleanSuggestion = (task) => {
+    const marked = marksLeft > 0 && task?.forMilestone === true;
+    if (marked) marksLeft -= 1;
+    return { ...cleanTask(task), ...(marked ? { forMilestone: true } : {}) };
+  };
   return {
     milestones: (Array.isArray(plan?.milestones) ? plan.milestones : [])
       .slice(0, 3)
       .map((m) => ({ title: str(m?.title, 120), description: str(m?.description, 300) })),
-    todaySuggestions: (Array.isArray(plan?.todaySuggestions) ? plan.todaySuggestions : []).slice(0, 3).map(cleanTask),
+    todaySuggestions: (Array.isArray(plan?.todaySuggestions) ? plan.todaySuggestions : []).slice(0, 3).map(cleanSuggestion),
     taskPool: (Array.isArray(plan?.taskPool) ? plan.taskPool : []).slice(0, 6).map(cleanTask),
   };
 }

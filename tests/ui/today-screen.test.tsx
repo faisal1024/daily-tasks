@@ -164,6 +164,7 @@ function makeStore(overrides: Partial<AppState> = {}) {
     isCompleted: (id: string) => state.todayCompletions.includes(id),
     addTask: jest.fn(),
     addTasks: jest.fn(),
+    addSuggestions: jest.fn((texts: string[]) => texts.length),
     editTask: jest.fn(),
     deleteTask: jest.fn(),
     notToday: jest.fn(),
@@ -416,7 +417,9 @@ describe("Need ideas sheet", () => {
     expect(screen.getByText("Starter ideas")).toBeOnTheScreen();
     const firstIdea = screen.getAllByRole("button", { name: /^Add (?!all|\d|a task)/ })[0];
     await fireEvent.press(firstIdea);
-    expect(mockStore.addTask).toHaveBeenCalledTimes(1);
+    // A tapped idea goes through addSuggestions (a repeat is refused); typing uses addTask.
+    expect(mockStore.addSuggestions).toHaveBeenCalledTimes(1);
+    expect(mockStore.addTask).not.toHaveBeenCalled();
   });
 
   it("labels AI ideas as personalized and shows the failure note in the sheet", async () => {
