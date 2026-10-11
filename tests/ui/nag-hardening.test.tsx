@@ -445,10 +445,10 @@ describe("privacy: analytics and logs", () => {
     try {
       await openApp(NAG_ON);
       await comeBackAt(new Date(2026, 9, 12, 8, 30));
+      // No record for today: the calm reminders, for now.
+      await eventually(() => expect(ofKind("progress").length).toBeGreaterThan(0));
       expect(networkFetch).not.toHaveBeenCalled();
       expect(ofKind("nag")).toEqual([]);
-      // No record for today: the calm reminders, for now.
-      expect(ofKind("progress").length).toBeGreaterThan(0);
       expect(logged()).not.toMatch(TASK_WORDS);
       expect(logged()).not.toMatch(LINE_WORDS);
     } finally {
