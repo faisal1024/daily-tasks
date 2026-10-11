@@ -52,9 +52,11 @@ export type AnalyticsEvent =
   | "routine_added_today"
   | "routine_limit_hit"
   | "routines_card_shown"
+  | "milestone_idea_added"
   | "rating_prompt_requested"
   | "rate_row_tapped"
-  | "feedback_row_tapped";
+  | "feedback_row_tapped"
+  | "day_unlocked";
 
 type PropValue = string | number | boolean;
 export type AnalyticsProps = Partial<Record<AllowedProp, PropValue>>;

@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
@@ -35,6 +35,8 @@ import {
 } from "@/lib/daily-tasks/links";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
+import { announcePolitely } from "@/lib/daily-tasks/announce";
+import { clockTimeOf, formatClockTime, unlockConfirmation, UNLOCKED_NOTE } from "@/lib/daily-tasks/today-view";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import type {
   NotificationKey,
@@ -71,6 +73,7 @@ export default function SettingsScreen() {
     notificationPermission,
     setAutoLockEnabled,
     setAutoLockTime,
+    unlockToday,
     setNotificationsEnabled,
     setNotificationEnabled,
     refreshNotificationPermission,
@@ -90,6 +93,47 @@ export default function SettingsScreen() {
   const [routinesOpen, setRoutinesOpen] = useState(false);
   const pausedRoutines = state.routines.filter((routine) => routine.paused).length;
   const [restoring, setRestoring] = useState(false);
+
+  // A short visible "Today is unlocked." where the row was (the row itself
+  // just disappears), the same quiet note Today uses after an action.
+  const [unlockedNote, setUnlockedNote] = useState(false);
+  const unlockedNoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (unlockedNoteTimer.current) clearTimeout(unlockedNoteTimer.current);
+    },
+    [],
+  );
+
+  // The only way to unlock a set day (1.4): one deliberate step away from
+  // Today, and "Keep locked" is the prominent answer. One rule for a day set
+  // by hand and one set automatically; only the words differ.
+  const confirmUnlock = () => {
+    const copy = unlockConfirmation({
+      lockSource: state.todayLockSource,
+      // The actual set time when known; the configured time for older saves.
+      autoLockTime:
+        clockTimeOf(state.todayLockedAt) ?? formatClockTime(state.autoLock.hour, state.autoLock.minute),
+    });
+    Alert.alert(copy.title, copy.message, [
+      { text: copy.keep, style: "cancel", isPreferred: true },
+      {
+        text: copy.unlock,
+        style: "default",
+        onPress: () => {
+          // False when nothing was unlocked (the alert sat open past midnight
+          // and the new day isn't set): nothing to track or say.
+          if (!unlockToday()) return;
+          track("day_unlocked", { source: "settings" });
+          setUnlockedNote(true);
+          if (unlockedNoteTimer.current) clearTimeout(unlockedNoteTimer.current);
+          unlockedNoteTimer.current = setTimeout(() => setUnlockedNote(false), 4000);
+          // The row disappears: tell VoiceOver what happened.
+          announcePolitely(UNLOCKED_NOTE);
+        },
+      },
+    ]);
+  };
 
   const handleRestore = async () => {
     if (restoring) return;
@@ -273,6 +317,39 @@ export default function SettingsScreen() {
             Tune your day
           </Text>
         </View>
+
+        {/* Only while today is set: the one place to unlock it (1.4). First on
+            the screen, so it's found without scrolling. */}
+        {state.todayLocked ? (
+          <Pressable
+            onPress={confirmUnlock}
+            accessibilityRole="button"
+            accessibilityLabel="Unlock today"
+            accessibilityHint="Asks first, then lets you change today's three"
+            className="bg-surface rounded-2xl p-4 border border-border flex-row items-center gap-3"
+            style={{ minHeight: 44 }}
+            testID="settings-unlock-today"
+          >
+            <Ionicons name="lock-open-outline" size={20} color={colors.muted} />
+            <View className="flex-1">
+              <Text className="text-base font-semibold text-foreground">Unlock today</Text>
+              <Text className="text-xs mt-1" style={{ color: colors.muted }}>
+                Today is set. Unlock it to change your three.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+          </Pressable>
+        ) : unlockedNote ? (
+          <View
+            className="flex-row items-center gap-2 rounded-2xl p-3"
+            style={{ backgroundColor: `${colors.success}18` }}
+            accessibilityLiveRegion="polite"
+            testID="settings-unlocked-note"
+          >
+            <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+            <Text className="flex-1 text-sm text-foreground">{UNLOCKED_NOTE}</Text>
+          </View>
+        ) : null}
 
         {plus.paywallEnabled && (
           <Section icon="sparkles-outline" title="Plus">

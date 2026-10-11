@@ -182,10 +182,10 @@ describe("TaskRow: reorder choices", () => {
     expect((await openMenu()).options).not.toContain("Move up");
   });
 
-  it("works on a set day (not editable): Do this next sits beside Not today", async () => {
+  it("works on a set day (not editable), where it is the menu's one choice", async () => {
     const { onDoNext } = await renderRow({ editable: false, reorder: ALL });
     const menu = await openMenu();
-    expect(menu.options).toEqual(["Do this next", "Not today", "Cancel"]);
+    expect(menu.options).toEqual(["Do this next", "Cancel"]);
     await menu.pick("Do this next");
     expect(onDoNext).toHaveBeenCalledTimes(1);
   });
@@ -196,7 +196,7 @@ describe("TaskRow: no room for the handle (narrow window, large text)", () => {
     const { onMove, onDoNext } = await renderRow({ editable: false, reorder: ALL, moveInMenu: true });
     expect(handle()).toBeNull();
     let menu = await openMenu();
-    expect(menu.options).toEqual(["Do this next", "Move up", "Move down", "Not today", "Cancel"]);
+    expect(menu.options).toEqual(["Do this next", "Move up", "Move down", "Cancel"]);
     await menu.pick("Move up");
     expect(onMove).toHaveBeenLastCalledWith("up");
     menu = await openMenu();
