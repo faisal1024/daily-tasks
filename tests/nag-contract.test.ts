@@ -528,7 +528,8 @@ describe("the nag-lines route", () => {
       isValidResult: isValidNagLines,
       sanitizeResult: sanitizeNagLines,
     });
-    expect(NAG_MAX_TOKENS).toBeLessThan(1500);
+    expect(NAG_MAX_TOKENS).toBe(1800);
+    expect(NAG_MAX_TOKENS).toBeLessThan(2200);
     const toolNames = Object.values(ROUTES).map((route) => (route as { toolName: string }).toolName);
     expect(new Set(toolNames).size).toBe(toolNames.length);
   });

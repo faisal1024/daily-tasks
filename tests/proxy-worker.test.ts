@@ -160,7 +160,7 @@ describe("worker fetch", () => {
       ],
     });
     const calls = provider.generatePlan.mock.calls as unknown as [{ toolName: string; maxTokens: number }][];
-    expect(calls[0][0]).toMatchObject({ toolName: "emit_nag_lines", maxTokens: 1200 });
+    expect(calls[0][0]).toMatchObject({ toolName: "emit_nag_lines", maxTokens: 1800 });
 
     // A free user is refused once the Plus check is enforced.
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ subscriber: { entitlements: {} } })));

@@ -179,6 +179,44 @@ describe("providers name the structured output per route", () => {
     expect(body().text.format.name).toBe("momentum_plan");
   });
 
+  it("anthropic: Haiku 5.5 is the default and gets no temperature; an older model still gets 0.4", async () => {
+    const { acceptsTemperature } = await import("../server/providers/anthropic.mjs");
+    const reply = { ok: true, json: async () => ({ content: [{ type: "tool_use", name: PLAN_TOOL_NAME, input: {} }] }) };
+    const before = process.env.ANTHROPIC_MODEL;
+    try {
+      delete process.env.ANTHROPIC_MODEL;
+      let body = captureFetch(reply);
+      await getProvider("anthropic").generatePlan(callArgs);
+      expect(body().model).toBe("claude-haiku-5-5");
+      expect(body()).not.toHaveProperty("temperature");
+      expect(body()).not.toHaveProperty("top_p");
+      expect(body()).not.toHaveProperty("top_k");
+      vi.unstubAllGlobals();
+
+      process.env.ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+      body = captureFetch(reply);
+      await getProvider("anthropic").generatePlan(callArgs);
+      expect(body().temperature).toBe(0.4);
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_MODEL;
+      else process.env.ANTHROPIC_MODEL = before;
+    }
+    for (const id of ["claude-haiku-4-5", "claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6", "claude-3-5-haiku-20241022"]) {
+      expect(acceptsTemperature(id)).toBe(true);
+    }
+    for (const id of ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-4-7", "claude-opus-4-8", "", undefined]) {
+      expect(acceptsTemperature(id)).toBe(false);
+    }
+  });
+
+  it("anthropic: a refusal or an answer cut off at the cap is an error that says which", async () => {
+    captureFetch({ ok: true, json: async () => ({ stop_reason: "refusal", content: [] }) });
+    await expect(getProvider("anthropic").generatePlan(callArgs)).rejects.toThrow(/refusal/);
+    vi.unstubAllGlobals();
+    captureFetch({ ok: true, json: async () => ({ stop_reason: "max_tokens", content: [{ type: "tool_use", name: PLAN_TOOL_NAME, input: {} }] }) });
+    await expect(getProvider("anthropic").generatePlan(callArgs)).rejects.toThrow(/max_tokens \(2200\)/);
+  });
+
   it("a route's output cap reaches both providers; without one the defaults are unchanged", async () => {
     const anthropicReply = { ok: true, json: async () => ({ content: [{ type: "tool_use", name: "emit_nag_lines", input: {} }] }) };
     let body = captureFetch(anthropicReply);
@@ -186,7 +224,7 @@ describe("providers name the structured output per route", () => {
     expect(body().max_tokens).toBe(1200);
     body = captureFetch(anthropicReply);
     await getProvider("anthropic").generatePlan({ ...callArgs, toolName: "emit_nag_lines", toolDescription: "d" });
-    expect(body().max_tokens).toBe(1500);
+    expect(body().max_tokens).toBe(2200);
 
     const openaiReply = { ok: true, json: async () => ({ output_text: "{}" }) };
     body = captureFetch(openaiReply);
