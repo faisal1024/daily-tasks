@@ -194,11 +194,16 @@ interface Words {
 
 type Line = (w: Words) => { title: string; body: string };
 
+// The pools that have a whole-list line keep it at the same place (index 2)
+// and are the same length, so two reminders in a row never both read out the
+// list (see WHOLE_LIST).
+
 // None done yet, more than one task.
 const FIRST_UP: Line[] = [
   (w) => ({ title: w.name, body: "First up today. Five minutes is a start." }),
   (w) => ({ title: w.slotTitle, body: `First up: ${sentence(w.name)} A small start counts.` }),
   (w) => ({ title: w.slotTitle, body: `${w.listLead}: ${sentence(w.list)} Begin anywhere.` }),
+  (w) => ({ title: w.slotTitle, body: `First up: ${sentence(w.name)} Just the first step.` }),
 ];
 
 // None done yet, and it is the day's only task: never "first".
@@ -341,8 +346,15 @@ export function buildReminderCopy(input: ReminderCopyInput): ReminderCopy | null
       (line) => left.length > 1 || !ALL_OF_YESTERDAY.has(line),
     );
     const short = shortNames(yesterdayOpen.map((text) => ({ text })));
-    // Each slot (and each day) names the next of them in turn.
-    const turn = reminderVariantIndex(dayKey, slot, left.length);
+    // Each slot that names one of them takes the next in turn (the slots
+    // that say them all don't use up a turn), starting from a different one
+    // on different days.
+    const first = reminderVariantIndex(dayKey, 0, pool.length);
+    let turn = hash(dayKey) >>> 8;
+    for (let earlier = 0; earlier < slot; earlier++) {
+      if (!ALL_OF_YESTERDAY.has(pool[(first + earlier) % pool.length])) turn++;
+    }
+    turn %= left.length;
     return pick(pool)({
       slotTitle,
       name: left[turn].name,
