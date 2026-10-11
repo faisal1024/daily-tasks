@@ -12,6 +12,7 @@ import { getByGestureTestId } from "react-native-gesture-handler/jest-utils";
 import {
   DRAG_ACTIVATE_PT,
   DRAG_FAIL_X_PT,
+  DRAG_SETTLE_MS,
   DROP_SWAP_DELAY_MS,
   HANDLE_HIT_SLOP,
   ReorderRow,
@@ -438,7 +439,7 @@ async function renderReorder(initialProps: HookProps, scrollRef?: { current: unk
 }
 
 /** The hook with a list of its own that a drop reorders, as the store does. */
-async function renderReorderWithStore(initial: { id: string }[], completedIds: string[] = []) {
+async function renderReorderWithStore(initial: { id: string }[], completedIds: string[] = [], reduceMotion = false) {
   const onDrop = jest.fn();
   const hook = await renderHook(() => {
     const [tasks, setTasks] = useState(initial);
@@ -447,7 +448,7 @@ async function renderReorderWithStore(initial: { id: string }[], completedIds: s
     const reorder = useTaskReorder({
       tasks,
       completedIds,
-      reduceMotion: false,
+      reduceMotion,
       heroId,
       onPickUp: () => {},
       onDrop: (id, to, from) => {
@@ -1007,5 +1008,670 @@ describe("useTaskReorder: a reorder that isn't a drag (Do this next, Move up/dow
       expect(change).toHaveBeenCalledTimes(1);
     });
     expect(result.current.rowTransition).toBeUndefined();
+  });
+});
+
+// --- Principal tester (PR #90): the drag's edges ------------------------------
+
+/** The layout pass after a reorder: its 180 ms and the air the hook gives it. */
+const TRANSITION_MS = DRAG_SETTLE_MS + 150;
+
+/**
+ * Is the handle live? Touch it and move: true if the row lifted (it is then
+ * put straight back where it was), false if the touch did nothing.
+ */
+async function canPickUp(reorder: () => ReturnType<typeof useTaskReorder>, id: string) {
+  const gesture = reorder().gestures[id];
+  await pickUp(gesture);
+  const held = reorder().draggingId === id;
+  await letGo(gesture, false);
+  expect(reorder().draggingId).toBeNull();
+  return held;
+}
+const tick = (ms: number) => act(async () => jest.advanceTimersByTime(ms));
+
+/**
+ * The hook's own timers still waiting, by delay: the "Up next" swap's 50 ms
+ * and a layout pass's 330 ms. (jest's own count has React's and the test
+ * library's timers in it.) Call `watchTimers()` after `jest.useFakeTimers()`,
+ * and `unwatchTimers()` before the real ones come back.
+ */
+const hookTimers = new Map<unknown, { delay: number; at: number }>();
+let timerSpies: jest.SpyInstance[] = [];
+function watchTimers() {
+  hookTimers.clear();
+  const set = global.setTimeout;
+  const clear = global.clearTimeout;
+  timerSpies = [
+    jest.spyOn(global, "setTimeout").mockImplementation(((fn: () => void, delay?: number, ...rest: unknown[]) => {
+      const id = set(fn, delay, ...rest);
+      if (delay === DROP_SWAP_DELAY_MS || delay === TRANSITION_MS) hookTimers.set(id, { delay, at: Date.now() });
+      return id;
+    }) as never),
+    jest.spyOn(global, "clearTimeout").mockImplementation(((id: never) => {
+      hookTimers.delete(id);
+      clear(id);
+    }) as never),
+  ];
+}
+function unwatchTimers() {
+  for (const spy of timerSpies) spy.mockRestore();
+  timerSpies = [];
+}
+const pendingTimers = () =>
+  [...hookTimers.values()].filter((timer) => Date.now() - timer.at < timer.delay).map((timer) => timer.delay);
+
+describe("useTaskReorder: two rows, and rows not laid out yet", () => {
+  it("two open rows trade places, each by the other's height", async () => {
+    const two = [item("a"), item("b")];
+    const { result, onDrop, onSlotChange } = await renderReorder({ tasks: two, completedIds: [] });
+    await layOut(() => result.current, two, [40, 90]);
+    const gesture = result.current.gestures.a;
+    await pickUp(gesture);
+    // a's centre (20) passes halfway to its other place (centre 111) at 65.5.
+    await dragBy(gesture, 45);
+    expect(offsets(result)).toEqual({});
+    await dragBy(gesture, 46);
+    expect(offsets(result)).toEqual({ a: 91, b: -41 });
+    // The finger can't take the row out of the card: its travel stops at the last place.
+    await dragBy(gesture, 500);
+    expect(result.current.dragY.value).toBe(91);
+    await dragBy(gesture, -500);
+    expect(result.current.dragY.value).toBe(0);
+    expect(offsets(result)).toEqual({ a: 0, b: 0 });
+    await dragBy(gesture, 91);
+    await letGo(gesture);
+    expect(onDrop.mock.calls).toEqual([["a", 1, 0]]);
+    expect(onSlotChange).toHaveBeenCalledTimes(3);
+  });
+
+  it("the one open row beside a done one has nowhere to go: its drop is always back where it was", async () => {
+    const two = [item("a"), item("b")];
+    const { result, onDrop, onSlotChange } = await renderReorder({ tasks: two, completedIds: ["a"] });
+    await layOut(() => result.current, two, [40, 40]);
+    const gesture = result.current.gestures.b;
+    await pickUp(gesture);
+    await dragBy(gesture, -41);
+    expect(offsets(result)).toEqual({});
+    await letGo(gesture);
+    expect(onDrop.mock.calls).toEqual([["b", 0, 0]]);
+    expect(onSlotChange).not.toHaveBeenCalled();
+    expect(result.current.epoch).toBe(0);
+  });
+
+  it("before the rows have been laid out a touch picks nothing up (there is nothing to measure against)", async () => {
+    const { result, onPickUp, onDrop } = await renderReorder({ tasks: LIST, completedIds: [] });
+    const gesture = result.current.gestures.a;
+    await pickUp(gesture);
+    await dragBy(gesture, 80);
+    await letGo(gesture);
+    expect(result.current.draggingId).toBeNull();
+    expect(onPickUp).not.toHaveBeenCalled();
+    expect(onDrop).not.toHaveBeenCalled();
+    // Once they are, the same handle works.
+    await layOut(() => result.current, LIST, [40, 40, 40]);
+    expect(await canPickUp(() => result.current, "a")).toBe(true);
+  });
+
+  it("a row whose own layout hasn't arrived can't be picked up; the others can, measured without it", async () => {
+    const { result, onDrop } = await renderReorder({ tasks: LIST, completedIds: [] });
+    // Only a and b have reported their frames.
+    await layOut(() => result.current, [LIST[0], LIST[1]], [40, 40]);
+    expect(await canPickUp(() => result.current, "c")).toBe(false);
+    const gesture = result.current.gestures.a;
+    await pickUp(gesture);
+    await dragBy(gesture, 41);
+    await letGo(gesture);
+    expect(onDrop).toHaveBeenLastCalledWith("a", 1, 0);
+  });
+});
+
+describe("useTaskReorder: the list changes under a drag (more)", () => {
+  const HEIGHTS = [40, 40, 40];
+
+  it("a task taken off today mid-drag puts the row back; the rows left can be dragged, measured afresh", async () => {
+    const { result, rerender, onDrop, onSlotChange } = await renderReorder({ tasks: LIST, completedIds: [] });
+    await layOut(() => result.current, LIST, HEIGHTS);
+    const held = result.current.gestures.a;
+    await pickUp(held);
+    await dragBy(held, 82);
+    expect(onSlotChange).toHaveBeenCalledTimes(1);
+
+    // "b" leaves the list (Not today from another device's widget, a delete).
+    const left = [LIST[0], LIST[2]];
+    await rerender({ tasks: left, completedIds: [] });
+    expect(result.current.draggingId).toBeNull();
+    expect(result.current.shifts.value).toEqual(AT_REST);
+    expect(Object.keys(result.current.gestures)).toEqual(["a", "c"]);
+    // The finger that was holding it moves on and lifts: nothing follows, nothing is saved.
+    await dragBy(held, 0);
+    await dragBy(held, 82);
+    await letGo(held);
+    expect(onDrop).not.toHaveBeenCalled();
+    expect(onSlotChange).toHaveBeenCalledTimes(1);
+    expect(result.current.epoch).toBe(0);
+
+    // The two rows left, laid out again: a and c trade places.
+    await layOut(() => result.current, left, [40, 40]);
+    const again = result.current.gestures.a;
+    await pickUp(again);
+    expect(result.current.ghostTop).toBe(0);
+    await dragBy(again, 41);
+    expect(offsets(result)).toEqual({ a: 41, c: -41 });
+    await letGo(again);
+    expect(onDrop.mock.calls).toEqual([["a", 1, 0]]);
+  });
+
+  it("the held task itself being ticked (the widget) or removed puts it down without a drop", async () => {
+    const { result, rerender, onDrop } = await renderReorder({ tasks: LIST, completedIds: [] });
+    await layOut(() => result.current, LIST, HEIGHTS);
+    const held = result.current.gestures.b;
+    await pickUp(held);
+    await dragBy(held, -41);
+    await rerender({ tasks: LIST, completedIds: ["b"] });
+    expect(result.current.draggingId).toBeNull();
+    expect(result.current.shifts.value).toEqual(AT_REST);
+    await letGo(held);
+    expect(onDrop).not.toHaveBeenCalled();
+    // Done now: its handle (if a touch still reaches it) picks nothing up.
+    expect(await canPickUp(() => result.current, "b")).toBe(false);
+    expect(await canPickUp(() => result.current, "a")).toBe(true);
+    onDrop.mockClear();
+
+    const gone = result.current.gestures.a;
+    await pickUp(gone);
+    await rerender({ tasks: [LIST[1], LIST[2]], completedIds: ["b"] });
+    expect(result.current.draggingId).toBeNull();
+    await letGo(gone);
+    expect(onDrop).not.toHaveBeenCalled();
+  });
+
+  it("midnight: yesterday's tasks give way to the new day's mid-drag, and the new rows start clean", async () => {
+    const { result, rerender, onDrop } = await renderReorder({ tasks: LIST, completedIds: ["c"] });
+    await layOut(() => result.current, LIST, HEIGHTS);
+    const held = result.current.gestures.a;
+    await pickUp(held);
+    await dragBy(held, 41);
+    expect(offsets(result)).toEqual({ a: 41, b: -41, c: 0 });
+
+    // The rollover: an empty day first, then two carried-over tasks.
+    await rerender({ tasks: [], completedIds: [] });
+    expect(result.current.draggingId).toBeNull();
+    expect(result.current.gestures).toEqual({});
+    await letGo(held);
+    const today = [item("x"), item("y")];
+    await rerender({ tasks: today, completedIds: [] });
+    expect(result.current.shifts.value).toEqual(AT_REST);
+    expect(onDrop).not.toHaveBeenCalled();
+    // Not measured yet: nothing of yesterday's frames is used for today's rows.
+    expect(await canPickUp(() => result.current, "x")).toBe(false);
+    await layOut(() => result.current, today, [50, 50]);
+    const next = result.current.gestures.y;
+    await pickUp(next);
+    expect(result.current.ghostTop).toBe(51);
+    await dragBy(next, -51);
+    await letGo(next);
+    expect(onDrop.mock.calls).toEqual([["y", 0, 1]]);
+  });
+
+  it("a change that arrives while the drop is settling cancels the drop: nothing saved, same keys, handle live at once", async () => {
+    jest.useFakeTimers();
+    watchTimers();
+    const { result, rerender, onDrop } = await renderReorder({ tasks: LIST, completedIds: [] });
+    await layOut(() => result.current, LIST, HEIGHTS);
+    const held = result.current.gestures.a;
+    await pickUp(held);
+    await dragBy(held, 82);
+    mockTiming.hold = true;
+    await letGo(held);
+    expect(result.current.draggingId).toBe("a");
+
+    await rerender({ tasks: LIST, completedIds: ["c"] });
+    expect(result.current.draggingId).toBeNull();
+    expect(result.current.shifts.value).toEqual(AT_REST);
+    // The settle lands on a list that has moved on.
+    mockTiming.hold = false;
+    await act(async () => mockTiming.held.splice(0).forEach((land) => land()));
+    expect(onDrop).not.toHaveBeenCalled();
+    expect(result.current.epoch).toBe(0);
+    expect(result.current.rowTransition).toBeUndefined();
+    // No waiting: nothing was left easing.
+    expect(pendingTimers()).toEqual([]);
+    expect(await canPickUp(() => result.current, "a")).toBe(true);
+    unwatchTimers();
+  });
+
+  it("new task objects with the same ids and done marks (an edit's save, a step ticked) don't cancel anything", async () => {
+    const { result, rerender, onDrop } = await renderReorder({ tasks: LIST, completedIds: [] });
+    await layOut(() => result.current, LIST, HEIGHTS);
+    const held = result.current.gestures.c;
+    await pickUp(held);
+    await dragBy(held, -82);
+    // The store hands over new objects for the same three tasks.
+    await rerender({ tasks: LIST.map((task) => ({ ...task })), completedIds: [] });
+    expect(result.current.draggingId).toBe("c");
+    await letGo(held);
+    expect(onDrop.mock.calls).toEqual([["c", 0, 2]]);
+  });
+});
+
+describe("useTaskReorder: the screen goes away", () => {
+  const HEIGHTS = [40, 40, 40];
+  let errors: jest.SpyInstance;
+  beforeEach(() => {
+    errors = jest.spyOn(console, "error").mockImplementation(() => {});
+    jest.useFakeTimers();
+    watchTimers();
+  });
+  afterEach(() => {
+    errors.mockRestore();
+    unwatchTimers();
+  });
+
+  it("with a row in the air: the finger's later moves and its lift call nothing", async () => {
+    const { result, unmount, onPickUp, onSlotChange, onDrop } = await renderReorder({ tasks: LIST, completedIds: [] });
+    await layOut(() => result.current, LIST, HEIGHTS);
+    const held = result.current.gestures.a;
+    await pickUp(held);
+    await dragBy(held, 41);
+    expect(onSlotChange).toHaveBeenCalledTimes(1);
+    await unmount();
+
+    await dragBy(held, 82);
+    await dragBy(held, 0);
+    await letGo(held);
+    await tick(5000);
+    expect(onPickUp).toHaveBeenCalledTimes(1);
+    expect(onSlotChange).toHaveBeenCalledTimes(1);
+    expect(onDrop).not.toHaveBeenCalled();
+    expect(pendingTimers()).toEqual([]);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["just after a drop (the old 'Up next' still held)", 0],
+    ["while 'Up next' eases to its new row", DROP_SWAP_DELAY_MS + 1],
+  ])("%s: its timers are cleared and nothing runs later", async (_name, wait) => {
+    const { result, unmount, onDrop } = await renderReorderWithStore(LIST);
+    await layOut(() => result.current.reorder, LIST, HEIGHTS);
+    const held = result.current.reorder.gestures.c;
+    await pickUp(held);
+    await dragBy(held, -82);
+    await letGo(held);
+    expect(onDrop).toHaveBeenCalledTimes(1);
+    await tick(wait);
+    // One timer of the hook's is waiting: the swap, or the end of its layout pass.
+    expect(pendingTimers()).toEqual([wait === 0 ? DROP_SWAP_DELAY_MS : TRANSITION_MS]);
+
+    await unmount();
+    expect(pendingTimers()).toEqual([]);
+    await tick(5000);
+    expect(onDrop).toHaveBeenCalledTimes(1);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("with a 'Do this next' waiting for its transition: the timer is cleared, and a late ask just happens", async () => {
+    const { result, unmount } = await renderReorder({ tasks: LIST, completedIds: [] });
+    const change = jest.fn();
+    await act(async () => result.current.animateNext(change));
+    expect(change).toHaveBeenCalledTimes(1);
+    expect(pendingTimers()).toEqual([TRANSITION_MS]);
+    const { animateNext } = result.current;
+    await unmount();
+    expect(pendingTimers()).toEqual([]);
+    // Asked after the screen has gone (a menu's callback): done at once, nothing scheduled.
+    const late = jest.fn();
+    await act(async () => animateNext(late));
+    expect(late).toHaveBeenCalledTimes(1);
+    expect(pendingTimers()).toEqual([]);
+    await tick(5000);
+    expect(errors).not.toHaveBeenCalled();
+  });
+});
+
+describe("useTaskReorder: the handle is never left dead", () => {
+  const HEIGHTS = [40, 40, 40];
+  beforeEach(() => {
+    jest.useFakeTimers();
+    watchTimers();
+  });
+  afterEach(unwatchTimers);
+
+  it("a drop back where it started, or an interrupted drag: live again at once, nothing left running", async () => {
+    const { result, onDrop } = await renderReorderWithStore(LIST);
+    await layOut(() => result.current.reorder, LIST, HEIGHTS);
+    const reorder = () => result.current.reorder;
+    const gesture = reorder().gestures.b;
+
+    await pickUp(gesture);
+    await dragBy(gesture, 41);
+    await dragBy(gesture, 0);
+    await letGo(gesture);
+    expect(onDrop).toHaveBeenLastCalledWith("b", 1, 1);
+    expect(pendingTimers()).toEqual([]);
+    expect(reorder().heroId).toBe("a");
+    expect(reorder().rowTransition).toBeUndefined();
+    expect(await canPickUp(reorder, "c")).toBe(true);
+
+    await pickUp(gesture);
+    await dragBy(gesture, 41);
+    await letGo(gesture, false);
+    expect(onDrop).toHaveBeenLastCalledWith("b", 1, 1);
+    expect(result.current.tasks).toBe(LIST);
+    expect(pendingTimers()).toEqual([]);
+    expect(await canPickUp(reorder, "a")).toBe(true);
+    // A second "finalize" for a touch that is already over changes nothing.
+    await letGo(gesture);
+    await letGo(gesture, false);
+    expect(onDrop).toHaveBeenCalledTimes(2 + 2);
+    expect(reorder().epoch).toBe(0);
+  });
+
+  it("a drop that changed the order: dead for the swap and its layout pass, live to the millisecond after", async () => {
+    const { result } = await renderReorderWithStore(LIST);
+    await layOut(() => result.current.reorder, LIST, HEIGHTS);
+    const reorder = () => result.current.reorder;
+    const gesture = reorder().gestures.a;
+    await pickUp(gesture);
+    await dragBy(gesture, 82);
+    await letGo(gesture);
+    expect(result.current.tasks.map((task) => task.id)).toEqual(["b", "c", "a"]);
+
+    expect(await canPickUp(reorder, "b")).toBe(false);
+    await tick(DROP_SWAP_DELAY_MS - 1);
+    expect(reorder().heroId).toBe("a");
+    expect(await canPickUp(reorder, "b")).toBe(false);
+    await tick(1);
+    // The swap: "Up next" moves to the new first row, eased.
+    expect(reorder().heroId).toBe("b");
+    expect(reorder().rowTransition).toBeDefined();
+    expect(await canPickUp(reorder, "b")).toBe(false);
+    await tick(TRANSITION_MS - 1);
+    expect(await canPickUp(reorder, "b")).toBe(false);
+    await tick(1);
+    expect(reorder().rowTransition).toBeUndefined();
+    expect(pendingTimers()).toEqual([]);
+    for (const id of ["a", "b", "c"]) expect(await canPickUp(reorder, id)).toBe(true);
+  });
+
+  it("with Reduce Motion a drop that changed the order holds nothing: 'Up next' follows and the handle is live at once", async () => {
+    const { result } = await renderReorderWithStore(LIST, [], true);
+    await layOut(() => result.current.reorder, LIST, HEIGHTS);
+    const reorder = () => result.current.reorder;
+    const gesture = reorder().gestures.c;
+    await pickUp(gesture);
+    await dragBy(gesture, -82);
+    await letGo(gesture);
+    expect(result.current.tasks.map((task) => task.id)).toEqual(["c", "a", "b"]);
+    expect(reorder().heroId).toBe("c");
+    expect(reorder().epoch).toBe(1);
+    expect(reorder().rowTransition).toBeUndefined();
+    expect(pendingTimers()).toEqual([]);
+    expect(await canPickUp(reorder, "a")).toBe(true);
+  });
+
+  it("Do this next / Move: dead for its layout pass only; a second one extends it and both changes happen once", async () => {
+    const { result } = await renderReorder({ tasks: LIST, completedIds: [] });
+    await layOut(() => result.current, LIST, HEIGHTS);
+    const reorder = () => result.current;
+    const first = jest.fn();
+    const second = jest.fn();
+    await act(async () => reorder().animateNext(first));
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(await canPickUp(reorder, "a")).toBe(false);
+    await tick(200);
+    await act(async () => reorder().animateNext(second));
+    expect(second).toHaveBeenCalledTimes(1);
+    // The first one's time is up, but the second's pass is still going.
+    await tick(TRANSITION_MS - 200);
+    expect(reorder().rowTransition).toBeDefined();
+    expect(await canPickUp(reorder, "a")).toBe(false);
+    await tick(199);
+    expect(await canPickUp(reorder, "a")).toBe(false);
+    await tick(1);
+    expect(reorder().rowTransition).toBeUndefined();
+    expect(await canPickUp(reorder, "a")).toBe(true);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(pendingTimers()).toEqual([]);
+  });
+
+  it("two asked for in one go both happen, in order, in one pass", async () => {
+    const { result } = await renderReorder({ tasks: LIST, completedIds: [] });
+    const done: string[] = [];
+    await act(async () => {
+      result.current.animateNext(() => done.push("one"));
+      result.current.animateNext(() => done.push("two"));
+      expect(done).toEqual([]);
+    });
+    expect(done).toEqual(["one", "two"]);
+    await tick(TRANSITION_MS);
+    expect(result.current.rowTransition).toBeUndefined();
+    expect(done).toEqual(["one", "two"]);
+  });
+
+  it("the list changing in the moments after a drop (a tick, a rollover) doesn't keep it dead", async () => {
+    const { result, rerender } = await renderReorder({ tasks: LIST, completedIds: [], heroId: "a" });
+    await layOut(() => result.current, LIST, HEIGHTS);
+    const reorder = () => result.current;
+    const gesture = reorder().gestures.a;
+    await pickUp(gesture);
+    await dragBy(gesture, 41);
+    await letGo(gesture);
+    expect(await canPickUp(reorder, "c")).toBe(false);
+    // The store saves the order, then a widget tick lands, all inside the hold.
+    const moved = [LIST[1], LIST[0], LIST[2]];
+    await rerender({ tasks: moved, completedIds: [], heroId: "b" });
+    await tick(20);
+    await rerender({ tasks: moved, completedIds: ["b"], heroId: "a" });
+    expect(reorder().heroId).toBe("a");
+    await tick(DROP_SWAP_DELAY_MS);
+    await tick(TRANSITION_MS);
+    expect(reorder().rowTransition).toBeUndefined();
+    expect(pendingTimers()).toEqual([]);
+    await layOut(() => result.current, moved, HEIGHTS);
+    expect(await canPickUp(reorder, "c")).toBe(true);
+    expect(await canPickUp(reorder, "b")).toBe(false); // done now
+  });
+
+  it("Reduce Motion switched on during the hold: the swap just happens when its moment comes", async () => {
+    const { result, rerender } = await renderReorder({ tasks: LIST, completedIds: [], heroId: "a" });
+    await layOut(() => result.current, LIST, HEIGHTS);
+    const reorder = () => result.current;
+    const gesture = reorder().gestures.a;
+    await pickUp(gesture);
+    await dragBy(gesture, 41);
+    await letGo(gesture);
+    const moved = [LIST[1], LIST[0], LIST[2]];
+    await rerender({ tasks: moved, completedIds: [], heroId: "b", reduceMotion: true });
+    expect(reorder().heroId).toBe("a");
+    await tick(DROP_SWAP_DELAY_MS);
+    expect(reorder().heroId).toBe("b");
+    expect(reorder().rowTransition).toBeUndefined();
+    expect(pendingTimers()).toEqual([]);
+    expect(await canPickUp(reorder, "c")).toBe(true);
+  });
+
+  it("drop after drop after drop: each one is saved once and the next always picks up", async () => {
+    const { result, onDrop } = await renderReorderWithStore(LIST);
+    const reorder = () => result.current.reorder;
+    for (let round = 1; round <= 5; round += 1) {
+      await layOut(reorder, result.current.tasks, HEIGHTS);
+      const first = result.current.tasks[0].id;
+      const gesture = reorder().gestures[first];
+      await pickUp(gesture);
+      expect(reorder().draggingId).toBe(first);
+      expect(reorder().ghostTop).toBe(0);
+      await dragBy(gesture, 82);
+      await letGo(gesture);
+      expect(onDrop).toHaveBeenCalledTimes(round);
+      expect(onDrop).toHaveBeenLastCalledWith(first, 2, 0);
+      expect(reorder().epoch).toBe(round);
+      expect(result.current.tasks[2].id).toBe(first);
+      await settle();
+      expect(reorder().heroId).toBe(result.current.tasks[0].id);
+    expect(pendingTimers()).toEqual([]);
+    }
+    // Five turns of three: a b c -> ... -> c a b.
+    expect(result.current.tasks.map((task) => task.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("a second drop while 'Up next' is still held from the first can't happen: the first always finishes first", async () => {
+    const { result, onDrop } = await renderReorderWithStore(LIST);
+    await layOut(() => result.current.reorder, LIST, HEIGHTS);
+    const reorder = () => result.current.reorder;
+    const gesture = reorder().gestures.a;
+    await pickUp(gesture);
+    await dragBy(gesture, 41);
+    await letGo(gesture);
+    // Every handle, every few milliseconds, until the window is over.
+    for (let elapsed = 0; elapsed < DROP_SWAP_DELAY_MS + TRANSITION_MS; elapsed += 10) {
+      for (const id of ["a", "b", "c"]) expect(await canPickUp(reorder, id)).toBe(false);
+      await tick(10);
+    }
+    expect(await canPickUp(reorder, "a")).toBe(true);
+    expect(onDrop).toHaveBeenCalledTimes(2); // the drop, and canPickUp's own put-back
+    expect(reorder().epoch).toBe(1);
+  });
+});
+
+describe("useTaskReorder: the rows' keys and places after a drop (more)", () => {
+  const HEIGHTS = [40, 80, 60];
+
+  it("the epoch goes up once per drop that changed the order, with Reduce Motion too, and for nothing else", async () => {
+    jest.useFakeTimers();
+    const { result, rerender, onDrop } = await renderReorder({ tasks: LIST, completedIds: [], reduceMotion: true });
+    await layOut(() => result.current, LIST, [40, 40, 40]);
+    const gesture = result.current.gestures.a;
+    // Same place.
+    await pickUp(gesture);
+    await letGo(gesture);
+    expect(result.current.epoch).toBe(0);
+    // Interrupted.
+    await pickUp(gesture);
+    await dragBy(gesture, 82);
+    await letGo(gesture, false);
+    expect(result.current.epoch).toBe(0);
+    // Cancelled by the list.
+    await pickUp(gesture);
+    await dragBy(gesture, 82);
+    await rerender({ tasks: LIST, completedIds: ["c"], reduceMotion: true });
+    await letGo(gesture);
+    expect(result.current.epoch).toBe(0);
+    await rerender({ tasks: LIST, completedIds: [], reduceMotion: true });
+    // A re-render, a layout, a plain reorder.
+    await layOut(() => result.current, LIST, [40, 40, 40]);
+    await act(async () => result.current.animateNext(() => {}));
+    expect(result.current.epoch).toBe(0);
+    // A real drop.
+    await pickUp(gesture);
+    await dragBy(gesture, 41);
+    await letGo(gesture);
+    expect(onDrop).toHaveBeenLastCalledWith("a", 1, 0);
+    expect(result.current.epoch).toBe(1);
+    expect(reorderRowKey("a", result.current.epoch)).toBe("a:1");
+    // Every row gets the new key, not only the one that moved.
+    expect(new Set(LIST.map((task) => reorderRowKey(task.id, 1))).size).toBe(3);
+    for (const task of LIST) expect(reorderRowKey(task.id, 1)).not.toBe(reorderRowKey(task.id, 0));
+  });
+
+  it("the new keys arrive in the same render as the new order and the ghost's going (never one before the other)", async () => {
+    jest.useFakeTimers();
+    const seen: string[] = [];
+    const { result } = await renderHook(() => {
+      const [tasks, setTasks] = useState(LIST);
+      const reorder = useTaskReorder({
+        tasks,
+        completedIds: [],
+        reduceMotion: false,
+        onPickUp: () => {},
+        onDrop: (id, to) => setTasks((current) => moveOpenTask(current, [], id, to)),
+      });
+      seen.push(`${tasks.map((task) => task.id).join("")} epoch ${reorder.epoch} ${reorder.draggingId ?? "-"}`);
+      return reorder;
+    });
+    await layOut(() => result.current, LIST, [40, 40, 40]);
+    const gesture = result.current.gestures.a;
+    await pickUp(gesture);
+    await dragBy(gesture, 82);
+    seen.length = 0;
+    await letGo(gesture);
+    // No render with the new order under the old keys, the old order under new keys, or the ghost over either.
+    for (const render of seen) expect(["abc epoch 0 a", "bca epoch 1 -"]).toContain(render);
+    expect(seen[seen.length - 1]).toBe("bca epoch 1 -");
+  });
+
+  it("a drop the store didn't take (the day had changed) leaves the rows measured where they are", async () => {
+    jest.useFakeTimers();
+    // onDrop is a mock here: the list never changes.
+    const { result, onDrop } = await renderReorder({ tasks: LIST, completedIds: ["b"] });
+    await layOut(() => result.current, LIST, HEIGHTS);
+    const gesture = result.current.gestures.a;
+    await pickUp(gesture);
+    await dragBy(gesture, 142);
+    await letGo(gesture);
+    expect(onDrop).toHaveBeenCalledWith("a", 1, 0);
+    expect(result.current.shifts.value).toEqual(AT_REST);
+    await settle();
+    // a is still first: its next drag starts from the top, not from where the drop would have put it.
+    await pickUp(gesture);
+    expect(result.current.draggingId).toBe("a");
+    expect(result.current.ghostTop).toBe(0);
+    expect(result.current.ghostHeight).toBe(40);
+    await dragBy(gesture, 72);
+    expect(offsets(result)).toEqual({ a: 142, b: 20, c: -122 });
+  });
+
+  it("after a drop with a done row in the middle, every row's place is the restacked one (heights differ)", async () => {
+    jest.useFakeTimers();
+    const { result } = await renderReorderWithStore(LIST, ["b"]);
+    await layOut(() => result.current.reorder, LIST, HEIGHTS);
+    const reorder = () => result.current.reorder;
+    const gesture = reorder().gestures.c;
+    await pickUp(gesture);
+    expect(reorder().ghostTop).toBe(122);
+    await dragBy(gesture, -122);
+    await letGo(gesture);
+    expect(result.current.tasks.map((task) => task.id)).toEqual(["c", "b", "a"]);
+    // The ghost came to rest exactly on c's new place.
+    expect(reorder().dragY.value).toBe(-122);
+    await settle();
+    // No layout events since: c (60) on top, b sits 20 lower at 61, a under them at 142.
+    const a = reorder().gestures.a;
+    await pickUp(a);
+    expect(reorder().ghostTop).toBe(142);
+    expect(reorder().ghostHeight).toBe(40);
+    await dragBy(a, -142);
+    expect(reorder().shifts.value.offsets).toEqual({ a: -142, b: -20, c: 122 });
+    await letGo(a);
+    expect(result.current.tasks.map((task) => task.id)).toEqual(["a", "b", "c"]);
+    expect(reorder().epoch).toBe(2);
+  });
+});
+
+describe("useTaskReorder: 'Up next' through it all", () => {
+  it("follows what it is given whenever no drop is settling (a tick, a plain reorder, null)", async () => {
+    const { result, rerender } = await renderReorder({ tasks: LIST, completedIds: [], heroId: null });
+    expect(result.current.heroId).toBeNull();
+    await rerender({ tasks: LIST, completedIds: [], heroId: "a" });
+    expect(result.current.heroId).toBe("a");
+    await rerender({ tasks: LIST, completedIds: ["a"], heroId: "b" });
+    expect(result.current.heroId).toBe("b");
+    await rerender({ tasks: LIST, completedIds: ["a", "b", "c"], heroId: null });
+    expect(result.current.heroId).toBeNull();
+  });
+
+  it("does not change while a row is in the air, whatever is dragged over the first place", async () => {
+    jest.useFakeTimers();
+    const { result } = await renderReorderWithStore(LIST);
+    await layOut(() => result.current.reorder, LIST, [40, 40, 40]);
+    const gesture = result.current.reorder.gestures.c;
+    await pickUp(gesture);
+    await dragBy(gesture, -82);
+    expect(result.current.reorder.heroId).toBe("a");
+    expect(result.current.tasks).toBe(LIST);
+    await dragBy(gesture, 0);
+    await letGo(gesture);
+    expect(result.current.reorder.heroId).toBe("a");
   });
 });
