@@ -74,6 +74,7 @@ function perfectDay(date: string): DayRecord {
 const actions = {
   addTask: jest.fn(),
   addTasks: jest.fn(),
+  addSuggestions: jest.fn((texts: string[]) => texts.length),
   editTask: jest.fn(),
   deleteTask: jest.fn(),
   toggleTask: jest.fn(),

@@ -92,7 +92,8 @@ import { recordPlusUse } from "@/lib/daily-tasks/trial-note";
 import { sessionEndedAnnouncement, STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
 import { durationWords, timerMenuLengths } from "@/lib/daily-tasks/focus-timer";
 import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-storage";
-import { nextIncompleteMilestone } from "@/lib/daily-tasks/milestones";
+import { nextIncompleteMilestone, pathSourceOf } from "@/lib/daily-tasks/milestones";
+import { buildMilestoneIdeaGroup } from "@/lib/daily-tasks/milestone-ideas";
 import { generateMomentumSuggestions } from "@/lib/daily-tasks/momentum";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import {
@@ -163,6 +164,7 @@ export default function HomeScreen() {
     isCompleted,
     addTask,
     addTasks,
+    addSuggestions,
     editTask,
     deleteTask,
     notToday,
@@ -249,8 +251,13 @@ export default function HomeScreen() {
   const [ideasSavedOnly, setIdeasSavedOnly] = useState(false);
   // However the sheet closes (its button, a lock, rollover, the paywall), the
   // next open starts in the normal view.
+  // Opened from "Next on your path": the sheet brings the milestone group into view.
+  const [ideasFocusMilestone, setIdeasFocusMilestone] = useState(false);
   useEffect(() => {
-    if (!ideasOpen) setIdeasSavedOnly(false);
+    if (!ideasOpen) {
+      setIdeasSavedOnly(false);
+      setIdeasFocusMilestone(false);
+    }
   }, [ideasOpen]);
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
   // Routines (1.3), reached from the Ideas sheet's footer when there are none
@@ -641,7 +648,7 @@ export default function HomeScreen() {
     () => generateMomentumSuggestions(state.momentumProfile),
     [state.momentumProfile],
   );
-  const ideas: IdeaItem[] = useMemo(
+  const allIdeas: IdeaItem[] = useMemo(
     () =>
       planIdeas && planIdeas.length > 0
         ? planIdeas.map((task) => ({
@@ -652,6 +659,34 @@ export default function HomeScreen() {
         : genericIdeas.map((text, index) => ({ id: `starter_${index}`, text })),
     [planIdeas, genericIdeas],
   );
+  // Suggestions for the next open milestone (1.4): the AI ones the plan marked
+  // for it (Plus), otherwise built-in ones. None without a path or once every
+  // milestone is reached.
+  const planMilestones = state.momentumPlan?.milestones;
+  const starterGoalTitle =
+    state.momentumPlan && pathSourceOf(state.momentumPlan) === "template" ? state.momentumPlan.goalTitle : null;
+  const milestoneGroup = useMemo(
+    () =>
+      planMilestones
+        ? buildMilestoneIdeaGroup({
+            milestones: planMilestones,
+            completedMilestoneIds: state.completedMilestoneIds,
+            today,
+            suggestions: planIdeas,
+            // Listed elsewhere in the sheet: routines due today and, without plan ideas, the starters.
+            otherTexts: [...dueRoutines.map((routine) => routine.text), ...(hasPlanIdeas ? [] : genericIdeas)],
+            // A starter path's steps ("Start small") don't name the goal: the built-in lines do.
+            starterGoalTitle,
+          })
+        : null,
+    [planMilestones, state.completedMilestoneIds, today, planIdeas, dueRoutines, hasPlanIdeas, genericIdeas, starterGoalTitle],
+  );
+  // An idea shown in the milestone group isn't listed again below it.
+  const ideas: IdeaItem[] = useMemo(() => {
+    if (!milestoneGroup || milestoneGroup.source !== "ai") return allIdeas;
+    const grouped = new Set(milestoneGroup.ideas.map((idea) => idea.id));
+    return allIdeas.filter((idea) => !grouped.has(idea.id));
+  }, [allIdeas, milestoneGroup]);
   const source = ideasSource(state.momentumPlan, state.momentumProfile.goalTitle);
   const failureMessage =
     state.momentumPlanStatus === "error"
@@ -1124,6 +1159,13 @@ export default function HomeScreen() {
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     addTask(text);
   };
+  // A tapped suggestion: the store refuses one already on today (a double
+  // tap), and says whether it landed. Typing by hand (handleAdd) has no such rule.
+  const handleAddIdea = (text: string): boolean => {
+    if (addSuggestions([text]) === 0) return false;
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    return true;
+  };
 
   return (
     <ScreenContainer edges={["left", "right"]}>
@@ -1446,7 +1488,20 @@ export default function HomeScreen() {
                 {/* Midday: after the note's momentum, where it leads, and what tonight brings. */}
                 {phase === "midday" && (
                   <>
-                    {nextMilestone && <NextPathLink title={nextMilestone.title} onPress={openProgress} />}
+                    {nextMilestone && (
+                      <NextPathLink
+                        title={nextMilestone.title}
+                        onPress={openProgress}
+                        onIdeas={
+                          ideasVisible && milestoneGroup
+                            ? () => {
+                                setIdeasFocusMilestone(true);
+                                setIdeasOpen(true);
+                              }
+                            : undefined
+                        }
+                      />
+                    )}
                     {state.momentumSettings.eveningReflection && (
                       <View className="flex-row items-center gap-2 px-1" testID="tonight-teaser">
                         <Ionicons
@@ -1517,10 +1572,10 @@ export default function HomeScreen() {
         canRegenerate={getMomentumAiProxyUrl() != null && hasPlanIdeas}
         regenerating={state.momentumPlanStatus === "loading"}
         failureMessage={failureMessage}
-        onAdd={handleAdd}
+        onAdd={handleAddIdea}
         onAddAll={(texts) => {
+          if (addSuggestions(texts) === 0) return;
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
-          addTasks(texts);
         }}
         onRegenerate={() => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
@@ -1548,6 +1603,15 @@ export default function HomeScreen() {
         hasRoutines={state.routines.length > 0}
         onManageRoutines={openRoutinesFromIdeas}
         nextRoutine={nextRoutine}
+        milestoneGroup={milestoneGroup}
+        onAddMilestoneIdea={(text) => {
+          // Counted only when the store took it (a double tap lands once).
+          // Only the kind of suggestion is recorded, never its text.
+          if (handleAddIdea(text) && milestoneGroup) {
+            track("milestone_idea_added", { source: milestoneGroup.source });
+          }
+        }}
+        focusMilestone={ideasFocusMilestone}
       />
 
       <RoutinesManager visible={routinesOpen} onVisibleChange={setRoutinesOpen} />
