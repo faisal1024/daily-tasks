@@ -203,6 +203,7 @@ type Action =
   | { type: "setAutoLockEnabled"; enabled: boolean }
   | { type: "setAutoLockTime"; hour: number; minute: number }
   | { type: "markOnboardingSeen" }
+  | { type: "markReorderHintSeen" }
   | { type: "completeMomentumOnboarding"; profile: MomentumProfile }
   | { type: "updateMomentumProfile"; profile: MomentumProfile }
   | { type: "regenerateMomentumPlan"; now: Date }
@@ -913,6 +914,8 @@ function reduce(state: AppState, action: Action): AppState {
     case "markOnboardingSeen":
       if (state.hasSeenOnboarding) return state;
       return { ...state, hasSeenOnboarding: true };
+    case "markReorderHintSeen":
+      return state.reorderHintSeen ? state : { ...state, reorderHintSeen: true };
     case "completeMomentumOnboarding":
       {
         const momentumProfile = {
@@ -1118,6 +1121,8 @@ interface StoreContextValue {
   setAutoLockEnabled: (enabled: boolean) => void;
   setAutoLockTime: (hour: number, minute: number) => void;
   markOnboardingSeen: () => void;
+  /** The one-time reorder hint under Today's card was shown (1.4). */
+  markReorderHintSeen: () => void;
   completeMomentumOnboarding: (profile: MomentumProfile) => void;
   updateMomentumProfile: (profile: MomentumProfile) => void;
   regenerateMomentumPlan: () => void;
@@ -1806,6 +1811,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const markOnboardingSeen = useCallback(() => {
     dispatch({ type: "markOnboardingSeen" });
   }, []);
+  const markReorderHintSeen = useCallback(() => {
+    dispatch({ type: "markReorderHintSeen" });
+  }, []);
   const completeMomentumOnboarding = useCallback((profile: MomentumProfile) => {
     dispatch({ type: "completeMomentumOnboarding", profile });
   }, []);
@@ -2358,6 +2366,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,
+      markReorderHintSeen,
       completeMomentumOnboarding,
       updateMomentumProfile,
       regenerateMomentumPlan,
@@ -2441,6 +2450,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAutoLockEnabled,
       setAutoLockTime,
       markOnboardingSeen,
+      markReorderHintSeen,
       completeMomentumOnboarding,
       updateMomentumProfile,
       regenerateMomentumPlan,

@@ -8,7 +8,6 @@ import {
   LayoutAnimation,
   Platform,
   Pressable,
-  ScrollView,
   Text,
   useWindowDimensions,
   View,
@@ -16,7 +15,10 @@ import {
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import Animated, { useReducedMotion } from "react-native-reanimated";
+// gesture-handler's scroll view, so a row's drag handle can be told to win
+// over scrolling (see useTaskReorder's scrollRef).
+import { ScrollView } from "react-native-gesture-handler";
+import { useReducedMotion } from "react-native-reanimated";
 
 import { useColors } from "@/hooks/use-colors";
 import { useRoutinesCardShownEvent, useTodaysRoutines } from "@/hooks/use-todays-routines";
@@ -40,7 +42,7 @@ import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
-import { ReorderGhost, useTaskReorder } from "@/components/daily-tasks/task-reorder";
+import { ReorderGhost, ReorderRow, useTaskReorder } from "@/components/daily-tasks/task-reorder";
 import { TaskRow } from "@/components/daily-tasks/task-row";
 import { TodayHeader } from "@/components/daily-tasks/today-header";
 import { TodaysRoutinesCard } from "@/components/daily-tasks/todays-routines-card";
@@ -118,7 +120,13 @@ import {
   todayStatus,
 } from "@/lib/daily-tasks/today-view";
 import { announcePolitely } from "@/lib/daily-tasks/announce";
-import { openTaskIndex, reorderAnnouncement, reorderOptions } from "@/lib/daily-tasks/reorder";
+import {
+  openTaskCount,
+  openTaskIndex,
+  reorderAnnouncement,
+  reorderHandleFits,
+  reorderOptions,
+} from "@/lib/daily-tasks/reorder";
 import { buildWeekSummary, todayPhase } from "@/lib/daily-tasks/today-phase";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
 import {
@@ -176,6 +184,7 @@ export default function HomeScreen() {
     unlockToday,
     resolveRollover,
     markOnboardingSeen,
+    markReorderHintSeen,
     requestNotificationPermission,
     setTodayReflection,
     setTodayReflectionResult,
@@ -242,8 +251,10 @@ export default function HomeScreen() {
   const { update, dismiss: dismissUpdate } = useAppUpdate();
   // iPad (and large landscape phones): tasks on the left, ideas and the
   // evening check-in on the right, centred with a comfortable max width.
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
   const wide = width >= 768;
+  // Room for a row's drag handle; without it the row's menu moves it instead.
+  const handleFits = reorderHandleFits(width, fontScale);
 
   const [showCelebration, setShowCelebration] = useState(false);
   const [ideasOpen, setIdeasOpen] = useState(false);
@@ -399,42 +410,76 @@ export default function HomeScreen() {
     return next ? { text: next.routine.text, when: nextDayPhrase(next) } : null;
   }, [state.routines, today]);
   const reduceMotion = useReducedMotion();
+  // Once the day is set or under way, the next thing to do is the card's hero.
+  const heroTaskId =
+    (state.todayLocked || completedCount > 0) && !progress.isPerfect
+      ? (state.tasks.find((task) => !isCompleted(task.id))?.id ?? null)
+      : null;
   // Reordering (1.4): pick which open task is next, by dragging a row's
   // handle or with "Do this next". Fine on a set day: the plan is the same.
-  // A move one place up or down (VoiceOver's actions, and a drop).
-  const reorderTo = (id: string, toIndex: number, fromIndex: number) => {
+  const scrollRef = useRef<ScrollView>(null);
+  // The row VoiceOver's focus goes back to after a move (the rows change places).
+  const [movedFocus, setMovedFocus] = useState<{ id: string; tick: number } | null>(null);
+  // The one-time hint goes once a reorder has happened.
+  const [reordered, setReordered] = useState(false);
+  // A move to another place among the open tasks: a drop ("drag"), or one
+  // place up or down from VoiceOver or the menu ("move").
+  const reorderTo = (id: string, toIndex: number, fromIndex: number, source: "drag" | "move") => {
     if (toIndex === fromIndex) return;
     const text = state.tasks.find((task) => task.id === id)?.text;
     moveTask(id, toIndex);
-    track("task_reordered", { source: "drag" });
+    setReordered(true);
+    track("task_reordered", { source });
     if (text) announcePolitely(reorderAnnouncement(text, toIndex, toIndex < fromIndex ? "up" : "down"));
   };
   const reorder = useTaskReorder({
     tasks: state.tasks,
     completedIds: state.todayCompletions,
     reduceMotion,
+    heroId: heroTaskId,
+    scrollRef,
     onPickUp: () => haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
+    // A tick as the held row passes each place.
+    onSlotChange: () => haptic(() => Haptics.selectionAsync()),
     onDrop: (id, toIndex, fromIndex) => {
+      // Back where it started: nothing happened, so nothing is felt.
+      if (toIndex === fromIndex) return;
       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-      reorderTo(id, toIndex, fromIndex);
+      reorderTo(id, toIndex, fromIndex, "drag");
     },
   });
   const handleMove = (id: string, direction: "up" | "down") => {
     const from = openTaskIndex(state.tasks, state.todayCompletions, id);
     if (from < 0) return;
     const options = reorderOptions(state.tasks, state.todayCompletions, id);
-    if (direction === "up" ? !options.canMoveUp : !options.canMoveDown) return;
+    // "Up" from the second place is "Do this next": still a move if it's asked for.
+    if (direction === "up" ? from < 1 : !options.canMoveDown) return;
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-    reorderTo(id, from + (direction === "up" ? -1 : 1), from);
+    // The rows ease into their new places (not with Reduce Motion).
+    reorder.animateNext(() => reorderTo(id, from + (direction === "up" ? -1 : 1), from, "move"));
+    setMovedFocus((current) => ({ id, tick: (current?.tick ?? 0) + 1 }));
   };
   const handleDoNext = (id: string, text: string) => {
     if (!reorderOptions(state.tasks, state.todayCompletions, id).canDoNext) return;
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-    makeTaskNext(id);
+    reorder.animateNext(() => makeTaskNext(id));
+    setReordered(true);
+    setMovedFocus((current) => ({ id, tick: (current?.tick ?? 0) + 1 }));
     track("task_reordered", { source: "next" });
     // After the menu has closed, and without cutting its own words off.
     announcePolitely(`${text} is next`);
   };
+  // The first time two or more tasks are open: one quiet line under the card
+  // saying they can be reordered. Shown for this visit, then never again.
+  const openCount = openTaskCount(state.tasks, state.todayCompletions);
+  const reorderHintDue =
+    ready && state.hasSeenOnboarding && !firstRunActive && !state.reorderHintSeen && openCount >= 2;
+  const [reorderHintLatched, setReorderHintLatched] = useState(false);
+  if (reorderHintDue && !reorderHintLatched) setReorderHintLatched(true);
+  useEffect(() => {
+    if (reorderHintDue) markReorderHintSeen();
+  }, [reorderHintDue, markReorderHintSeen]);
+  const showReorderHint = (reorderHintDue || reorderHintLatched) && openCount >= 2 && !reordered;
   const handleAddRoutine = (id: string, source: RoutineAddSource) => {
     const text = dueRoutines.find((routine) => routine.id === id)?.text;
     // The last row leaving takes the card with it: ease it out rather than jump.
@@ -661,11 +706,6 @@ export default function HomeScreen() {
     day: "numeric",
     month: "long",
   });
-  // Once the day is set or under way, the next thing to do is the card's hero.
-  const heroTaskId =
-    (state.todayLocked || completedCount > 0) && !progress.isPerfect
-      ? (state.tasks.find((task) => !isCompleted(task.id))?.id ?? null)
-      : null;
   const firstName = state.momentumProfile.name?.trim().split(/\s+/)[0] ?? "";
   const greetingLine = firstName ? `${greetingText(greetingFor())}, ${firstName}` : null;
 
@@ -1176,7 +1216,9 @@ export default function HomeScreen() {
       <TaskRow
         task={task}
         index={index}
-        hero={task.id === heroTaskId}
+        // After a drop the old "Up next" row keeps its look for a moment, so
+        // the drop's own render moves nothing; then the swap is eased in.
+        hero={task.id === reorder.heroId}
         completed={isCompleted(task.id)}
         editable={!state.todayLocked}
         onToggle={() => handleToggle(task.id)}
@@ -1200,9 +1242,13 @@ export default function HomeScreen() {
         reorder={options}
         onDoNext={() => handleDoNext(task.id, task.text)}
         onMove={(direction) => handleMove(task.id, direction)}
-        // The ghost shows the handle but must not hold the gesture too.
-        dragGesture={options.canDrag && !ghost ? reorder.gestures[task.id] : undefined}
-        dragHandleOnly={ghost}
+        // The handle, where there's room; without it the menu has Move up / Move down.
+        dragGesture={options.canDrag && handleFits && !ghost ? reorder.gestures[task.id] : undefined}
+        moveInMenu={!handleFits}
+        dragActive={reorder.draggingId !== null}
+        focusTick={movedFocus?.id === task.id ? movedFocus.tick : 0}
+        // The dragged copy: the same look, nothing live (and no testIDs).
+        ghost={ghost}
       />
     );
   };
@@ -1214,6 +1260,7 @@ export default function HomeScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={{ paddingBottom: 48 }}
           // A picked-up row moves, not the page.
           scrollEnabled={reorder.draggingId === null}
@@ -1278,44 +1325,63 @@ export default function HomeScreen() {
                 style={{ borderColor: colors.border, backgroundColor: colors.surface }}
                 testID="today-tasks"
               >
-                {Array.from({ length: MAX_TASKS }).map((_, index) => {
-                  // The saved order, or a drag's preview of where the row would land.
-                  const task = reorder.displayTasks[index];
-                  const divider =
-                    index > 0 ? <View style={{ height: 1, backgroundColor: colors.border, marginLeft: 58 }} /> : null;
-                  if (task) {
+                {/* The rows' own box (no border), so a row's measured place
+                    and the dragged copy's `top` are counted from the same edge. */}
+                <View>
+                  {Array.from({ length: MAX_TASKS }).map((_, index) => {
+                    // Always the saved order: a drag slides the rows (see
+                    // ReorderRow) and only the drop changes it.
+                    const task = state.tasks[index];
+                    const divider =
+                      index > 0 ? <View style={{ height: 1, backgroundColor: colors.border, marginLeft: 58 }} /> : null;
+                    if (task) {
+                      return (
+                        <ReorderRow key={task.id} id={task.id} index={index} reorder={reorder}>
+                          {divider}
+                          {renderTaskRow(task, index)}
+                        </ReorderRow>
+                      );
+                    }
+                    if (remainingSlots <= 0) return null;
                     return (
-                      <Animated.View
-                        key={task.id}
-                        layout={reorder.rowTransition}
-                        onLayout={(event) => reorder.onRowLayout(task.id, index, event)}
-                        // Under the finger it's the ghost that shows (below).
-                        style={reorder.draggingId === task.id ? { opacity: 0 } : undefined}
-                      >
+                      <View key={`empty-${index}`}>
                         {divider}
-                        {renderTaskRow(task, index)}
-                      </Animated.View>
+                        <AddTaskRow
+                          remainingSlots={remainingSlots}
+                          slotNumber={index + 1}
+                          disabled={state.todayLocked}
+                          onAdd={handleAdd}
+                        />
+                      </View>
                     );
-                  }
-                  if (remainingSlots <= 0) return null;
-                  return (
-                    <View key={`empty-${index}`}>
-                      {divider}
-                      <AddTaskRow
-                        remainingSlots={remainingSlots}
-                        slotNumber={index + 1}
-                        disabled={state.todayLocked}
-                        onAdd={handleAdd}
-                      />
-                    </View>
-                  );
-                })}
-                {draggedTask ? (
-                  <ReorderGhost top={reorder.ghostTop} dragY={reorder.dragY}>
-                    {renderTaskRow(draggedTask, state.tasks.indexOf(draggedTask), true)}
-                  </ReorderGhost>
-                ) : null}
+                  })}
+                  {draggedTask ? (
+                    <ReorderGhost
+                      top={reorder.ghostTop}
+                      height={reorder.ghostHeight}
+                      dragY={reorder.dragY}
+                      lift={reorder.lift}
+                    >
+                      {renderTaskRow(draggedTask, state.tasks.indexOf(draggedTask), true)}
+                    </ReorderGhost>
+                  ) : null}
+                </View>
               </View>
+
+              {/* Reordering, said once (1.4): the first time two or more
+                  tasks are open. VoiceOver hears its own way to do it. */}
+              {showReorderHint ? (
+                <Text
+                  className="text-xs"
+                  style={{ color: colors.muted, paddingHorizontal: 6, marginTop: -6 }}
+                  accessibilityLabel="To reorder, use a task's actions: Do this next, Move up or Move down."
+                  testID="reorder-hint"
+                >
+                  {handleFits
+                    ? "Drag ≡ to reorder, or tap a task and choose Do this next"
+                    : "To reorder, tap a task and choose Do this next"}
+                </Text>
+              ) : null}
 
               {/* A full three-for-three day: the card and gradient say it all.
                   With room left, keep the line (and its Change on a set day). */}

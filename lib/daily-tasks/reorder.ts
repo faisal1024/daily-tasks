@@ -76,6 +76,10 @@ export interface ReorderOptions {
   openIndex: number;
   /** "Do this next": open, and not already the first open task. */
   canDoNext: boolean;
+  /**
+   * One place up, when that isn't what "Do this next" already does: so from
+   * the third open task on (for the second, up one place IS next).
+   */
   canMoveUp: boolean;
   canMoveDown: boolean;
   /** There's somewhere to drag it: at least two open tasks. */
@@ -90,7 +94,7 @@ export function reorderOptions(tasks: { id: string }[], completedIds: string[], 
   return {
     openIndex,
     canDoNext: openIndex > 0,
-    canMoveUp: openIndex > 0,
+    canMoveUp: openIndex > 1,
     canMoveDown: openIndex < count - 1,
     canDrag: count > 1,
   };
@@ -99,6 +103,26 @@ export function reorderOptions(tasks: { id: string }[], completedIds: string[], 
 /** What VoiceOver hears after a move: "<task> is next", or where it went. */
 export function reorderAnnouncement(text: string, openIndex: number, direction: "up" | "down"): string {
   return openIndex === 0 ? `${text} is next` : `Moved ${direction}: ${text}`;
+}
+
+/** Below this window width the drag handle would squeeze the task's words. */
+export const REORDER_HANDLE_MIN_WIDTH = 360;
+/** From this text size up the words need the handle's room too. */
+export const REORDER_HANDLE_MAX_FONT_SCALE = 1.5;
+/**
+ * The handle's glyph is the muted colour at this opacity: quieter than the
+ * timer beside it, and still at least 3:1 on the card in both themes
+ * (tests/reorder.test.ts checks it against the theme).
+ */
+export const REORDER_HANDLE_OPACITY = 0.8;
+
+/**
+ * Whether a row has room for the drag handle. On a narrow window or at a
+ * large text size it doesn't: the row's menu offers Move up / Move down
+ * beside "Do this next" instead.
+ */
+export function reorderHandleFits(width: number, fontScale: number): boolean {
+  return width >= REORDER_HANDLE_MIN_WIDTH && fontScale < REORDER_HANDLE_MAX_FONT_SCALE;
 }
 
 /** A row's place in the card: its top and height, without the hairline above it. */
@@ -128,6 +152,21 @@ export function restackRows(frames: RowFrame[], from: number, to: number, gap: n
     y += order[i].height;
   }
   return out;
+}
+
+/**
+ * How far each row is from where it started once the open row `from` is moved
+ * to `to`: its `translateY` while a drag previews the drop (the rows' order in
+ * the tree doesn't change until the drop). By row id; 0 for a row that stays.
+ */
+export function rowShifts(frames: RowFrame[], from: number, to: number, gap: number): Record<string, number> {
+  "worklet";
+  const stacked = restackRows(frames, from, to, gap);
+  const start: Record<string, number> = {};
+  for (let i = 0; i < frames.length; i += 1) start[frames[i].id] = frames[i].y;
+  const shifts: Record<string, number> = {};
+  for (let i = 0; i < stacked.length; i += 1) shifts[stacked[i].id] = stacked[i].y - start[stacked[i].id];
+  return shifts;
 }
 
 /**
