@@ -300,23 +300,27 @@ persona's voice, and schedules them itself. Contract:
   level: "gentle" | "firm" | "relentless";
   tasks: { text: string }[];                        // 1-3 open tasks, each 1..120 chars
   count: number;                                    // integer, 4..16 lines wanted
-  firstName?: string | null;                        // optional, at most 40 chars
+  firstName?: string | null;                        // optional, at most 40 chars; reserved, the app sends none
 }
 ```
 
 - An unknown persona or level, a wrong task count, an empty or over-long
   task, a count outside 4..16 or a name over 40 characters is a **400**.
   Unknown fields are ignored and never reach the prompt.
-- Lengths are measured after cleaning: in every string, control characters
-  (newlines and the Unicode line separators included) become spaces and runs
-  of whitespace become one space. Task text and the name therefore can't
-  start a new prompt line.
+- Lengths are measured after cleaning: in every string, invisible format
+  characters are removed (zero-width spaces and joiners, direction marks,
+  bidi embeddings, overrides and isolates, U+2060 to U+2069, the byte order
+  mark, the soft hyphen; a zero-width joiner inside an emoji stays), control
+  characters (newlines and the Unicode line separators included) become
+  spaces and runs of whitespace become one space. Task text and the name
+  therefore can't start a new prompt line.
 - In the prompt each task (and the name) is JSON-quoted, labelled as data,
   and the system prompt tells the model never to follow instructions found
   inside a task or a name.
 
 **What leaves the phone:** the text of today's open tasks (up to three), the
-optional first name, the persona and the level. Nothing else: no history, no
+persona and the level. The route accepts a first name, but that field is
+reserved: the app sends none. Nothing else: no history, no
 goal, no notification times. Like every route, the proxy stores none of it.
 
 ### Response
@@ -335,12 +339,21 @@ The model's answer is rebuilt by `sanitizeNagLines`, never passed through:
 
 - A line is **dropped whole** (never cut) when its shape is wrong; its
   `taskIndex` isn't `null` or the index of a task sent; its text is empty,
-  holds a control character, is over 140 characters (the model is asked for
-  110), holds a link, an email, a phone-like run of seven or more digits or a
-  hashtag; or it hits the blocklist.
-- Kept lines are tidied: extra emoji are removed (none for coach and drill
-  sergeant, at most one for mom and spouse), em and en dashes become commas,
-  and quotes around the whole line come off.
+  holds a control character or a bidi mark, override or isolate (U+200E,
+  U+200F, U+202A to U+202E, U+2066 to U+2069), is over 140 characters (the
+  model is asked for 110), holds a link, an email, a phone-like run of seven
+  or more digits or a hashtag; or it hits the blocklist.
+- The checks read a folded copy of the line (`foldForMatch`): NFKC, with
+  accents and other combining marks, zero-width characters and soft hyphens
+  taken out. So a full-width letter, an accent or a zero-width space inside
+  a word hides nothing, and full-width digits count as a phone number. The
+  line that is kept is the one written, not the folded copy.
+- Kept lines are tidied: zero-width characters and soft hyphens are taken
+  out; emoji are removed except one from a short list for mom and spouse
+  (`NAG_EMOJI_ALLOWED`: 🙂 😊 😉 ❤️ 💛 🌼 ☕ 🍪 ✅ 👀 🙏; none for coach and
+  drill sergeant; any other emoji, with a skin tone or joined to another, is
+  taken out); em and en dashes become commas; and quotes around the whole
+  line come off.
 - The same text twice (ignoring case) is kept once.
 - Lines are ordered by the model's `step` and renumbered 1..n; at most
   `count` are returned.
@@ -368,6 +381,10 @@ prompt lists the rules and says they outrank the persona and the level:
 - No invented people, deadlines or details; a sensitive-looking task gets a
   plain, kind reminder.
 
+A format rule also tells the model not to mention the time of day (morning,
+afternoon, evening, tonight, late): the app picks when each line is shown,
+and a line's step is its place in the day's nags, not an hour.
+
 Voices: **Mom** is loving guilt-lite ("I'm not mad, I'm just asking").
 **Spouse** is fond and exasperated, never controlling or jealous. **Coach**
 is upbeat and direct. **Drill sergeant** is loud and barky about the task,
@@ -381,9 +398,18 @@ compact, case-insensitive list of profanity, slurs and the banned themes
 you", divorce, "or else", "your account", urgent, and so on). It matches
 whole words and phrases only, so "skill", "diet", "father", "deadline" and
 "fired up" pass. It is strict on purpose: a dropped line costs nothing.
+It also has: posing as a real person's message ("call me", "phone me",
+"text me"), more fake urgency ("asap", "declined", "locked", "expire",
+"expired", "evict", "package", "apple id"), shame ("you always", "you
+never", "nobody", "give up", "embarrass") and self-harm slang ("kys",
+"unalive", "yourself").
 The user's own words are excused: a task's text said back whole, and any
 single listed word that appears in a task or the name ("Kill the weeds", a
-person called Dick). It is English only, and it is a backstop, not a
+person called Dick). Two checks come first and can't be excused that way,
+so a task called "kill" doesn't unlock "I'll kill you": harm said to the
+person (`kill`, `hurt`, `end`, `hate` or `hit`, then `you`, `yourself` or
+`u`), and "you're" or "you are" (with "a", "an" or "so") followed by
+anything on the list. It is English only, and it is a backstop, not a
 guarantee: the prompt and the model do most of the work.
 
 ### Limits, cost and logs
@@ -400,10 +426,13 @@ top-level keys only, like the other routes.
 `lib/daily-tasks/nag.ts` cleans and caps what it sends, uses the shared
 transport (`postToProxy`: secret, RevenueCat id, timeout, typed
 `MomentumAiError`), and checks the answer again (`parseNagResponse`: shape,
-control characters, 140-character cap, links, index range, duplicates,
-renumbering, `count`). Any failure throws; the caller then uses
+control characters, bidi marks (the line is dropped), zero-width characters
+(taken out), 140-character cap, links, index range, duplicates,
+renumbering, `count`). `firstName` is reserved: no caller passes it. Any failure throws; the caller then uses
 `builtInNagLines({ persona, level, tasks, count, seed })`, which needs no
-network. See `docs/2026-10-v1.4.md` ("Nag mode (server)").
+network. The built-in lines follow the same rules, name no time of day and
+pass this sanitiser (a test runs every one through it). See
+`docs/2026-10-v1.4.md` ("Nag mode").
 
 ## Production Notes
 
