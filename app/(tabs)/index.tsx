@@ -10,6 +10,7 @@ import {
   Platform,
   Pressable,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -35,6 +36,7 @@ import {
 } from "@/components/daily-tasks/ritual-cards";
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
+import { NagIntro } from "@/components/daily-tasks/nag-intro";
 import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
 import { NextPathLink } from "@/components/daily-tasks/next-path-link";
 import { FirstRun } from "@/components/daily-tasks/first-run";
@@ -53,6 +55,9 @@ import { WeekRow } from "@/components/daily-tasks/week-row";
 import { useAppUpdate } from "@/hooks/use-app-update";
 import { SHEET_SWAP_DELAY_MS, usePaywallGate } from "@/hooks/use-paywall-gate";
 import { useHour } from "@/hooks/use-hour";
+import { useKeyboardVisible } from "@/hooks/use-keyboard-visible";
+import { useScreenFocused } from "@/hooks/use-screen-focused";
+import { useWhatsNew } from "@/hooks/use-whats-new";
 import { useAppActive } from "@/hooks/use-app-active";
 import { useFocusSessionCues } from "@/hooks/use-focus-session-cues";
 import {
@@ -132,6 +137,7 @@ import {
 } from "@/lib/daily-tasks/reorder";
 import { buildWeekSummary, todayPhase } from "@/lib/daily-tasks/today-phase";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
+import { NAG_ANNOUNCEMENT_ID, NAG_ON_TOAST } from "@/lib/daily-tasks/whats-new";
 import {
   buildEveningInput,
   closeDay,
@@ -906,8 +912,7 @@ export default function HomeScreen() {
   reviewDueSourceRef.current = state.reviewDueSource;
   // Something else is on screen (rollover, onboarding, a sheet, the paywall,
   // a celebration): the rating ask waits for a quiet moment.
-  const busyRef = useRef(false);
-  busyRef.current =
+  const somethingUp =
     !state.hasSeenOnboarding ||
     firstRunActive ||
     paywallSource !== null ||
@@ -918,6 +923,48 @@ export default function HomeScreen() {
     // No rating ask over a focus session: running, paused or at its check-in.
     focusSession !== null ||
     showCelebration;
+
+  // What's new (1.4): once, for someone who updated, the first time Today is
+  // in front with nothing on top of it (the list above, yesterday's leftovers,
+  // a drag, a break-down on its way) and nobody typing. Otherwise it waits for
+  // the next such moment, in this session or a later one.
+  const keyboardUp = useKeyboardVisible();
+  const todayFocused = useScreenFocused();
+  // Set further down (the rating ask and the aha paywall are declared there).
+  const whatsNewCanShow = useRef<() => boolean>(() => false);
+  const whatsNew = useWhatsNew({
+    idle:
+      ready &&
+      appActive &&
+      todayFocused &&
+      !somethingUp &&
+      state.pendingRollover === null &&
+      !keyboardUp &&
+      reorder.draggingId === null &&
+      breakingTaskId === null,
+    canShowNow: () => whatsNewCanShow.current(),
+  });
+  // VoiceOver goes back to Today's title once the sheet has gone.
+  const todayTitleRef = useRef<Text>(null);
+  const whatsNewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (whatsNewTimer.current) clearTimeout(whatsNewTimer.current);
+    },
+    [],
+  );
+  const closeWhatsNew = () => {
+    whatsNew.close();
+    if (whatsNewTimer.current) clearTimeout(whatsNewTimer.current);
+    whatsNewTimer.current = setTimeout(() => {
+      whatsNewTimer.current = null;
+      if (todayTitleRef.current) AccessibilityInfo.sendAccessibilityEvent(todayTitleRef.current, "focus");
+    }, SHEET_SWAP_DELAY_MS);
+  };
+
+  const busyRef = useRef(false);
+  // The sheet counts as something on screen too: no rating ask or paywall over it.
+  busyRef.current = somethingUp || whatsNew.openId !== null;
 
   // The gentle aha paywall: once per install, after day 1, at a real win
   // (last night's draft used, Set, or a brain dump that filled the day's
@@ -967,6 +1014,14 @@ export default function HomeScreen() {
   // Only judged when the delay ends: the moment may come from a sheet that's
   // still closing. `fillsFrom`: the task count before an add, so the offer only
   // stands if the add really filled the day (checked against the count after it).
+  // As the what's-new delay ends: not on a rating ask, not as the aha paywall
+  // is about to open, not with a field in use (a hardware keyboard shows none).
+  whatsNewCanShow.current = () =>
+    RNAppState.currentState === "active" &&
+    !busyRef.current &&
+    !ratingRecent() &&
+    ahaTimer.current === null &&
+    TextInput.State.currentlyFocusedInput() == null;
   const offerAhaPaywall = (options: { fillsFrom?: number } = {}) => {
     if (ahaTimer.current) clearTimeout(ahaTimer.current);
     ahaTimer.current = setTimeout(() => {
@@ -1361,6 +1416,7 @@ export default function HomeScreen() {
           keyboardDismissMode="interactive"
         >
           <TodayHeader
+            titleRef={todayTitleRef}
             dateLabel={dateLabel}
             greeting={greetingLine}
             progress={progress}
@@ -1910,6 +1966,16 @@ export default function HomeScreen() {
           onClose={() => setFocusTaskId(null)}
         />
       )}
+
+      <NagIntro
+        visible={whatsNew.openId === NAG_ANNOUNCEMENT_ID}
+        source="today"
+        onClose={closeWhatsNew}
+        onTurnedOn={() => {
+          showToast(NAG_ON_TOAST);
+          announceLater(NAG_ON_TOAST);
+        }}
+      />
 
       <CelebrationOverlay visible={showCelebration} onDismiss={dismissCelebration} />
 

@@ -60,7 +60,9 @@ export type AnalyticsEvent =
   | "nag_mode_enabled"
   | "nag_mode_disabled"
   | "nag_paused_today"
-  | "nag_lines_loaded";
+  | "nag_lines_loaded"
+  | "whats_new_shown"
+  | "whats_new_action";
 
 type PropValue = string | number | boolean;
 export type AnalyticsProps = Partial<Record<AllowedProp, PropValue>>;
@@ -85,6 +87,8 @@ const ALLOWED_PROPS = [
   // Nag mode: which voice and how hard (ids like "mom", "firm"), never a line.
   "persona",
   "level",
+  // What's new: which announcement (an id like "1.4-nag"), never its words.
+  "id",
 ] as const;
 type AllowedProp = (typeof ALLOWED_PROPS)[number];
 

@@ -35,6 +35,7 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     autoLock: DEFAULT_AUTO_LOCK,
     hasSeenOnboarding: true,
     reorderHintSeen: true,
+    whatsNewSeen: [],
     todayReflection: null,
     todayReflectionResult: null,
     momentumProfile: DEFAULT_MOMENTUM_PROFILE,
