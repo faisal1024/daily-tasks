@@ -24,10 +24,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type ReactNode,
   type RefObject,
 } from "react";
-import type { ComponentType } from "react";
 import type { LayoutChangeEvent } from "react-native";
 import { Gesture, type GestureType } from "react-native-gesture-handler";
 import Animated, {
@@ -369,6 +369,7 @@ export function useTaskReorder<T extends { id: string }>({
   const gestureFor = useCallback(
     (taskId: string): GestureType => {
       const gesture = Gesture.Pan()
+        .withTestId(`task-drag-pan-${taskId}`)
         // Picked up by moving up or down, straight away (no hold); a sideways
         // move is the row's swipe. A touch that doesn't move is a tap: the
         // handle opens the row's menu (task-row.tsx).
@@ -549,6 +550,7 @@ export function ReorderRow({
     <Animated.View
       layout={reorder.rowTransition}
       onLayout={(event) => onRowLayout(id, index, event)}
+      testID={`task-slot-${id}`}
       // Under the finger it's the ghost that shows.
       style={[slide, reorder.draggingId === id ? { opacity: 0 } : null]}
     >

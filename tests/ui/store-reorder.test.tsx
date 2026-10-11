@@ -324,3 +324,28 @@ describe("store: what says 'next' follows the new order", () => {
     expect(planFocusStart(result.current.state)).toEqual({ type: "show" });
   });
 });
+
+describe("store: the one-time reorder hint", () => {
+  it("is not shown yet for data saved before 1.4, and once marked it stays marked (saved, and the same state after)", async () => {
+    // Saved by 1.3: the field isn't there at all.
+    const { result } = await renderStore({ reorderHintSeen: undefined });
+    expect(result.current.state.reorderHintSeen).toBe(false);
+
+    await act(async () => result.current.markReorderHintSeen());
+    await flush();
+    expect(result.current.state.reorderHintSeen).toBe(true);
+    expect((await savedState()).reorderHintSeen).toBe(true);
+    // Nothing else changed, and marking it again is a no-op.
+    expect(order(result)).toBe("a b c");
+    const marked = result.current.state;
+    await act(async () => result.current.markReorderHintSeen());
+    expect(result.current.state).toBe(marked);
+  });
+
+  it("a new install starts with it not shown; a reorder doesn't mark it", async () => {
+    expect(buildInitialState(START).reorderHintSeen).toBe(false);
+    const { result } = await renderStore();
+    await act(async () => result.current.makeTaskNext("c"));
+    expect(result.current.state.reorderHintSeen).toBe(false);
+  });
+});

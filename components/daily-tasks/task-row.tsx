@@ -387,6 +387,7 @@ export function TaskRow({
         ? Gesture.Race(
             dragGesture,
             Gesture.Tap()
+              .withTestId(`task-handle-tap-${task.id}`)
               .runOnJS(true)
               .hitSlop(HANDLE_HIT_SLOP)
               .maxDistance(10)
@@ -395,7 +396,7 @@ export function TaskRow({
               }),
           )
         : null,
-    [dragGesture],
+    [dragGesture, task.id],
   );
 
   const renderActions = () => (

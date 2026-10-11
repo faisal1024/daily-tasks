@@ -10,6 +10,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
+import { getByGestureTestId } from "react-native-gesture-handler/jest-utils";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { requestBreakDown, sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
@@ -152,6 +153,8 @@ function makeStore(overrides: Partial<AppState> = {}) {
   const state: AppState = {
     ...buildInitialState(new Date(2026, 8, 26)),
     hasSeenOnboarding: true,
+    // The one-time reorder hint (1.4) has been shown, unless a test says otherwise.
+    reorderHintSeen: true,
     ...overrides,
   };
   const completed = state.todayCompletions.filter((id) => state.tasks.some((t) => t.id === id));
@@ -169,6 +172,7 @@ function makeStore(overrides: Partial<AppState> = {}) {
     notToday: jest.fn(),
     moveTask: jest.fn(),
     makeTaskNext: jest.fn(),
+    markReorderHintSeen: jest.fn(),
     toggleTask: jest.fn(),
     lockToday: jest.fn(),
     resolveRollover: jest.fn(),
@@ -2232,9 +2236,9 @@ describe("Today card (Phase 10a)", () => {
     expect(box.props.accessibilityActions.map((a: { name: string }) => a.name)).toEqual([
       "notToday",
       "startTimer",
-      // Reordering (1.4) is allowed on a set day: the second open task can go first.
+      // Reordering (1.4) is allowed on a set day: the second open task can go
+      // first. No "Move up" here: from second place it would do the same.
       "doNext",
-      "moveUp",
     ]);
     await fireEvent(box, "accessibilityAction", { nativeEvent: { actionName: "delete" } });
     expect(alert).not.toHaveBeenCalled();
@@ -3945,5 +3949,212 @@ describe("Day-5 trial note placement", () => {
     expect(rolloverAt).toBeGreaterThanOrEqual(0);
     expect(rolloverAt).toBeLessThan(cardAt);
     expect(noteAt).toBeGreaterThan(cardAt);
+  });
+});
+
+describe("Reordering on Today (1.4, PR #90)", () => {
+  let sheet: jest.SpyInstance;
+  beforeEach(() => {
+    sheet = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+    mockTrack.mockClear();
+    (Haptics.impactAsync as jest.Mock).mockClear();
+    (Haptics.selectionAsync as jest.Mock).mockClear();
+  });
+  afterEach(() => sheet.mockRestore());
+
+  const THREE = () => tasks("Walk", "Stretch", "Hydrate");
+  const box = (name: string | RegExp) => screen.getByRole("checkbox", { name });
+  const a11y = (name: string | RegExp, actionName: string) =>
+    fireEvent(box(name), "accessibilityAction", { nativeEvent: { actionName } });
+  const handleOf = (id: string) => screen.queryByTestId(`task-drag-${id}`, { includeHiddenElements: true });
+  /** A row's menu, opened from its words: its labels and a way to pick one. */
+  async function menuOf(taskId: string) {
+    sheet.mockClear();
+    await fireEvent.press(screen.getByTestId(`task-words-${taskId}`, { includeHiddenElements: true }));
+    const [{ options }, callback] = sheet.mock.calls[0] as [{ options: string[] }, (index: number) => void];
+    return { options, pick: (label: string) => act(async () => callback(options.indexOf(label))) };
+  }
+  const reorderEvents = () => mockTrack.mock.calls.filter(([event]) => event === "task_reordered");
+
+  /** Lay the three rows out (40pt each, a hairline between) and drag one by `dy`, all before React renders again. */
+  async function drag(id: string, dy: number, success = true) {
+    await act(async () => {
+      ["t0", "t1", "t2"].forEach((taskId, index) => {
+        const slot = screen.getByTestId(`task-slot-${taskId}`, { includeHiddenElements: true });
+        const gap = index > 0 ? 1 : 0;
+        slot.props.onLayout({ nativeEvent: { layout: { x: 0, y: index * 41 - gap, width: 390, height: 40 + gap } } });
+      });
+      const pan = getByGestureTestId(`task-drag-pan-${id}`);
+      pan.handlers.onBegin?.({} as never);
+      pan.handlers.onStart?.({ translationY: 0 } as never);
+      pan.handlers.onUpdate?.({ translationY: dy } as never);
+      pan.handlers.onFinalize?.({} as never, success);
+    });
+  }
+
+  it("VoiceOver's Move up / Move down move one place, logged as a move (never as a drag)", async () => {
+    mockStore = makeStore({ tasks: THREE() });
+    await render(<HomeScreen />);
+    await a11y("Task 1: Walk", "moveDown");
+    expect(mockStore.moveTask).toHaveBeenLastCalledWith("t0", 1);
+    await a11y("Task 3: Hydrate", "moveUp");
+    expect(mockStore.moveTask).toHaveBeenLastCalledWith("t2", 1);
+    expect(mockStore.moveTask).toHaveBeenCalledTimes(2);
+    expect(reorderEvents()).toEqual([
+      ["task_reordered", { source: "move" }],
+      ["task_reordered", { source: "move" }],
+    ]);
+    expect(mockStore.makeTaskNext).not.toHaveBeenCalled();
+  });
+
+  it("Do this next (menu or VoiceOver) is logged as next, with the source only (no task text)", async () => {
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
+    mockStore = makeStore({ ...SET, tasks: THREE() });
+    await render(<HomeScreen />);
+    await (await menuOf("t2")).pick("Do this next");
+    expect(mockStore.makeTaskNext).toHaveBeenLastCalledWith("t2");
+    await a11y("Task 2: Stretch", "doNext");
+    expect(mockStore.makeTaskNext).toHaveBeenLastCalledWith("t1");
+    expect(reorderEvents()).toEqual([
+      ["task_reordered", { source: "next" }],
+      ["task_reordered", { source: "next" }],
+    ]);
+    expect(JSON.stringify(mockTrack.mock.calls)).not.toMatch(/Walk|Stretch|Hydrate/);
+    expect(announce).toHaveBeenCalledWith("Hydrate is next", { queue: true });
+    expect(mockStore.moveTask).not.toHaveBeenCalled();
+    announce.mockRestore();
+  });
+
+  it("after a move VoiceOver's focus is sent back to the moved row", async () => {
+    const focus = AccessibilityInfo.sendAccessibilityEvent as jest.Mock;
+    focus.mockClear();
+    mockStore = makeStore({ tasks: THREE() });
+    await render(<HomeScreen />);
+    await a11y("Task 1: Walk", "moveDown");
+    await waitFor(() => expect(focus).toHaveBeenCalledTimes(1));
+    expect(focus.mock.calls[0][1]).toBe("focus");
+  });
+
+  it("a drop in another place saves it and is logged as a drag; each place passed ticks, the drop taps", async () => {
+    mockStore = makeStore({ tasks: THREE() });
+    await render(<HomeScreen />);
+    await drag("t0", 82);
+    expect(mockStore.moveTask).toHaveBeenCalledTimes(1);
+    expect(mockStore.moveTask).toHaveBeenCalledWith("t0", 2);
+    expect(reorderEvents()).toEqual([["task_reordered", { source: "drag" }]]);
+    // The pick-up and the drop: a light tap each. The place passed on the way: a tick.
+    expect(Haptics.impactAsync).toHaveBeenCalledTimes(2);
+    expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("a drop back where it started, or an interrupted drag, saves and logs nothing, and isn't felt as a drop", async () => {
+    mockStore = makeStore({ tasks: THREE() });
+    await render(<HomeScreen />);
+    await drag("t1", 5);
+    expect(mockStore.moveTask).not.toHaveBeenCalled();
+    expect(reorderEvents()).toEqual([]);
+    // Only the pick-up was felt.
+    expect(Haptics.impactAsync).toHaveBeenCalledTimes(1);
+    expect(Haptics.selectionAsync).not.toHaveBeenCalled();
+    await screen.unmount();
+
+    mockStore = makeStore({ tasks: THREE() });
+    await render(<HomeScreen />);
+    await drag("t0", 82, false);
+    expect(mockStore.moveTask).not.toHaveBeenCalled();
+    expect(reorderEvents()).toEqual([]);
+  });
+
+  it("the handle shows on open rows when two or more are open, on a set day too; never on a done row", async () => {
+    mockStore = makeStore({ ...SET, tasks: THREE(), todayCompletions: ["t1"] });
+    await render(<HomeScreen />);
+    expect(handleOf("t0")).not.toBeNull();
+    expect(handleOf("t1")).toBeNull();
+    expect(handleOf("t2")).not.toBeNull();
+    await screen.unmount();
+
+    // One open task: nowhere to drag it.
+    mockStore = makeStore({ tasks: THREE(), todayCompletions: ["t0", "t1"] });
+    await render(<HomeScreen />);
+    expect(handleOf("t2")).toBeNull();
+  });
+
+  it.each([
+    ["a narrow window", { width: 320, height: 568, scale: 2, fontScale: 1 }],
+    ["large text", { width: 390, height: 844, scale: 3, fontScale: 1.5 }],
+  ])("%s: no handle; the menu has Move up / Move down beside Do this next", async (_name, window) => {
+    mockWindow = window;
+    mockStore = makeStore({ ...SET, tasks: THREE() });
+    await render(<HomeScreen />);
+    for (const id of ["t0", "t1", "t2"]) expect(handleOf(id)).toBeNull();
+
+    // Third of three: next, and one place up.
+    const last = await menuOf("t2");
+    expect(last.options).toEqual(["Do this next", "Move up", "Not today", "Cancel"]);
+    await last.pick("Move up");
+    expect(mockStore.moveTask).toHaveBeenLastCalledWith("t2", 1);
+    // Second: up would be "Do this next", so only down is added. First: only down.
+    expect((await menuOf("t1")).options).toEqual(["Do this next", "Move down", "Not today", "Cancel"]);
+    const first = await menuOf("t0");
+    expect(first.options).not.toContain("Do this next");
+    expect(first.options).not.toContain("Move up");
+    await first.pick("Move down");
+    expect(mockStore.moveTask).toHaveBeenLastCalledWith("t0", 1);
+    expect(reorderEvents()).toEqual([
+      ["task_reordered", { source: "move" }],
+      ["task_reordered", { source: "move" }],
+    ]);
+  });
+
+  it("with room for the handle the menu has Do this next only", async () => {
+    mockStore = makeStore({ ...SET, tasks: THREE() });
+    await render(<HomeScreen />);
+    expect((await menuOf("t2")).options).toEqual(["Do this next", "Not today", "Cancel"]);
+  });
+
+  describe("the one-time hint under the card", () => {
+    const HINT = "Drag ≡ to reorder, or tap a task and choose Do this next";
+
+    it("shows the first time two or more tasks are open, and is marked as shown", async () => {
+      mockStore = makeStore({ tasks: THREE(), reorderHintSeen: false });
+      await render(<HomeScreen />);
+      expect(screen.getByTestId("reorder-hint")).toHaveTextContent(HINT);
+      expect(mockStore.markReorderHintSeen).toHaveBeenCalledTimes(1);
+      // It sits under the card.
+      const json = JSON.stringify(screen.toJSON());
+      expect(json.indexOf('"testID":"reorder-hint"')).toBeGreaterThan(json.indexOf('"testID":"today-tasks"'));
+    });
+
+    it("stays for this visit once the store has it down as shown, and goes after a reorder", async () => {
+      mockStore = makeStore({ tasks: THREE(), reorderHintSeen: false });
+      const view = await render(<HomeScreen />);
+      mockStore = { ...mockStore, state: { ...mockStore.state, reorderHintSeen: true } };
+      await view.rerender(<HomeScreen />);
+      expect(screen.getByTestId("reorder-hint")).toBeOnTheScreen();
+      expect(mockStore.markReorderHintSeen).toHaveBeenCalledTimes(1);
+
+      await a11y("Task 3: Hydrate", "doNext");
+      expect(screen.queryByTestId("reorder-hint")).toBeNull();
+    });
+
+    it("never again once it has been shown, and not with fewer than two open tasks", async () => {
+      mockStore = makeStore({ tasks: THREE() });
+      await render(<HomeScreen />);
+      expect(screen.queryByTestId("reorder-hint")).toBeNull();
+      expect(mockStore.markReorderHintSeen).not.toHaveBeenCalled();
+      await screen.unmount();
+
+      mockStore = makeStore({ tasks: THREE(), todayCompletions: ["t0", "t1"], reorderHintSeen: false });
+      await render(<HomeScreen />);
+      expect(screen.queryByTestId("reorder-hint")).toBeNull();
+      expect(mockStore.markReorderHintSeen).not.toHaveBeenCalled();
+    });
+
+    it("without the handle (narrow window) it points at the menu only", async () => {
+      mockWindow = { width: 320, height: 568, scale: 2, fontScale: 1 };
+      mockStore = makeStore({ tasks: THREE(), reorderHintSeen: false });
+      await render(<HomeScreen />);
+      expect(screen.getByTestId("reorder-hint")).toHaveTextContent("To reorder, tap a task and choose Do this next");
+    });
   });
 });
