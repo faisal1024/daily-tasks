@@ -471,9 +471,11 @@ export default function HomeScreen() {
   const listNow = useRef({ tasks: state.tasks, completions: state.todayCompletions, today });
   listNow.current = { tasks: state.tasks, completions: state.todayCompletions, today };
   const handleMove = (id: string, direction: "up" | "down") => {
-    const from = openTaskIndex(state.tasks, state.todayCompletions, id);
+    // The list as it is now, not as it was when the menu opened.
+    const now = listNow.current;
+    const from = openTaskIndex(now.tasks, now.completions, id);
     if (from < 0) return;
-    const options = reorderOptions(state.tasks, state.todayCompletions, id);
+    const options = reorderOptions(now.tasks, now.completions, id);
     // "Up" from the second place is "Do this next": still a move if it's asked for.
     if (direction === "up" ? from < 1 : !options.canMoveDown) return;
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));

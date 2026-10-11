@@ -182,6 +182,24 @@ describe("which reminders may state counts", () => {
       expect(shown(slot)).not.toMatch(/Still open\?|From yesterday's list|Yesterday's list/);
     }
   });
+
+  it("names hidden on an empty day: the planner's morning nudges change from one to the next and name nothing", () => {
+    const slots = planReminders({
+      now: monday(6, 0),
+      taskCount: 0,
+      completedCount: 0,
+      settings: DEFAULT_NOTIFICATIONS,
+      permissionState: "granted",
+      draft: { forDate: "2026-10-12", tasks: ["Secret thing"] } as TomorrowDraft,
+      copy: { dayKey: "2026-10-12", tasks: [], locked: false, yesterdayOpen: ["Renew passport"], hideNames: true },
+    });
+    expect(slots.length).toBeGreaterThan(1);
+    for (let i = 0; i < slots.length; i++) {
+      expect(slots[i].body).toMatch(/^(Nothing picked yet\.|A fresh page\.)/);
+      expect(shown(slots[i])).not.toMatch(/passport|Secret/i);
+      if (i > 0) expect(slots[i].body).not.toBe(slots[i - 1].body);
+    }
+  });
 });
 
 describe("what a reminder says", () => {
