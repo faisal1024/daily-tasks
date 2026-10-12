@@ -141,7 +141,7 @@ export const NAG_SAFETY_RULES = [
   "No emergencies or fake urgency: nothing about accounts, payments, passwords, deadlines you invented, deliveries, police, or anything being suspended or overdue.",
   "Nothing that could be mistaken for a real message from a real person about something serious: no accidents, illness, bad news, breakups, or 'call me now'.",
   "Never claim something happened, and never invent people, places, deadlines or details that are not in the task.",
-  "If a task looks sensitive (health, grief, money, relationships, work trouble), keep that line plain and kind: a simple reminder, no jokes about the subject.",
+  "If a task looks sensitive (health, grief, money, relationships, work trouble), keep that line plain and kind: a simple reminder, no jokes about the subject. This applies to the Drill sergeant too: no insult on that line.",
 ];
 
 export const NAG_SYSTEM_PROMPT = [
@@ -173,7 +173,7 @@ export const NAG_PERSONA_VOICES = {
   coach:
     "Coach. Upbeat and direct. Short sentences, sports-sideline energy, believes in them completely. Talks about the next rep, the next play, the clock.",
   drill:
-    "Drill sergeant. Loud, barky and sometimes a jerk about it. Calls the user 'recruit', shouts a word or two in capitals, takes a small chore far too seriously, and at the Firm and Relentless levels sometimes insults the recruit's effort, speed and excuses in classic boot-camp style: maggot, worm, slacker, 'my grandmother moves faster', 'is that the best you've got'. At most one line in four at Firm and one in two at Relentless; never at Gentle. Never swears, never attacks intelligence, worth, body, looks, gender, family, health or anything in the safety rules, and never threatens.",
+    "Drill sergeant. Loud, barky and sometimes rude about the recruit's effort. Calls the user 'recruit', shouts a word or two in capitals, takes a small chore far too seriously, and at the Firm and Relentless levels sometimes insults the recruit's effort, speed and excuses in classic boot-camp style: maggot, worm, slacker, 'a glacier moves faster', 'is that the best you've got'. The insult is always aimed at the effort, the speed or the excuse, never at who the recruit is: 'pathetic effort', never 'you are pathetic'. At most one line in four at Firm and one in two at Relentless; never at Gentle. Never swears, never attacks intelligence, worth, body, looks, gender, family, health or anything in the safety rules, and never threatens.",
 };
 
 /** @type {Record<string, string>} */
@@ -259,6 +259,10 @@ const NAG_BLOCKLIST = [
   "disappointed in you",
   "embarrassment", "ashamed", "shame on you", "good for nothing", "deadbeat", "incompetent", "lazy", "laziness", "slobs?",
   "slackers?", "bum", "bums", "pigs?", "garbage human", "maggots?", "worms?", "weaklings?", "sorry excuse",
+  // Contempt for who the person is, for every voice (the Drill sergeant too).
+  "waste of (?:space|oxygen|air|skin|time|a uniform)", "excuse for an? (?:human|person|man|woman|adult|being)",
+  "nobody would", "no one would", "amount to", "wrong with you", "make me sick", "thick", "lard", "in the head",
+  "regret (?:this|that)", "make you", "you(?:'re| are) (?:nothing|a joke|weak|soft|slow)",
   // Gender as an insult.
   "princess(?:es)?", "ladies", "man up", "like a girl", "girly", "siss(?:y|ies)",
   // Body, weight, health, mental health.
@@ -312,26 +316,50 @@ export const NAG_BLOCKLIST_PATTERN = wholeWords(NAG_BLOCKLIST);
 /**
  * The entries of the blocklist that a Drill sergeant line may use, and no
  * other voice's: comic boot-camp contempt for the recruit's effort, speed
- * and excuses. Everything else on the list holds for the Drill sergeant too
+ * and excuses ("lazy marching", "pathetic effort", "sorry excuse for a
+ * march"). Everything else on the list holds for the Drill sergeant too
  * (profanity, slurs, intelligence, worth, body, health, gender, threats,
- * violence, affection). "You are pathetic" and "you are a disgrace" stay
- * out even for it: those are about the person's worth, not the effort.
+ * violence, affection).
+ *
+ * The allowance is for the effort, never for who the person is. So "you are"
+ * followed by anything on the whole list is dropped for the Drill sergeant
+ * as for everyone, with only the three boot-camp names left out
+ * (NAG_DRILL_NAMES): "you are lazy", "you're pathetic", "you are a
+ * disgrace", "you're a weakling" and "you are a sorry excuse" all go, and
+ * "you're a slacker, recruit" stays. And one of those names with a word
+ * about worth in front ("pathetic little worm", "sorry maggot") is dropped
+ * too (DRILL_NAME_CALLING); "you lazy worm" is about the effort and stays.
  */
 export const NAG_DRILL_ALLOWED = ["pathetic", "lazy", "laziness", "slackers?", "disgrace\\w*", "maggots?", "worms?", "weaklings?", "sorry excuse"];
+export const NAG_DRILL_NAMES = ["maggots?", "worms?", "slackers?"];
 const DRILL_BLOCKLIST = NAG_BLOCKLIST.filter((entry) => !NAG_DRILL_ALLOWED.includes(entry));
 export const NAG_DRILL_BLOCKLIST_PATTERN = wholeWords(DRILL_BLOCKLIST);
-const YOU_ARE_BLOCKLISTED_DRILL = youAre([...DRILL_BLOCKLIST, "pathetic", "disgrace\\w*"]);
+const YOU_ARE_BLOCKLISTED_DRILL = youAre(NAG_BLOCKLIST.filter((entry) => !NAG_DRILL_NAMES.includes(entry)));
+const DRILL_NAME_CALLING = wholeWords([
+  "(?:pathetic|pitiful|miserable|sorry|sad|weak|feeble|disgraceful|filthy) (?:little )?(?:worm|maggot|slacker)s?",
+]);
 
 // Said to the person, these are never the user's own task being repeated:
 // they are checked before the user's own words are excused, so a task called
 // "Kill the weeds" can't unlock "I'll kill you".
 const SECOND_PERSON_HARM = /(?<![\p{L}\p{N}])(?:kill|hurt|end|hate|hit) (?:you|yourself|u)(?![\p{L}\p{N}])/iu;
 const YOU_ARE_BLOCKLISTED = youAre(NAG_BLOCKLIST);
-// The voice announcing itself as a real person ("It's your mother", "This is
-// your wife"). Checked on the whole line too: a task called "Call mom"
-// excuses "your mom" in a line about it, never this.
+// The voice announcing itself as a real person ("It's your mother", "It's
+// me, your mother", "This is your wife"). Checked on the whole line too: a
+// task called "Call mom" excuses "your mom" in a line about it, never this.
+// Not a bare "it's me" or "this is me": "This is me asking nicely" is no one
+// posing as anyone.
 const POSES_AS_FAMILY =
-  /(?<![\p{L}\p{N}])(?:it's|its|it is|this is) (?:me|your (?:mother|mom|mum|mommy|mama|dad|daddy|father|wife|wifey|husband|hubby|partner|spouse))(?![\p{L}\p{N}])/iu;
+  /(?<![\p{L}\p{N}])(?:it's|its|it is|this is) (?:me,? )?(?:your (?:mother|mom|mum|mommy|mama|dad|daddy|father|wife|wifey|husband|hubby|partner|spouse))(?![\p{L}\p{N}])/iu;
+// A declaration of love: checked on the whole line, so a task with "love" in
+// it ("Buy a gift for my love") can't excuse "I love you".
+const DECLARES_LOVE = /(?<![\p{L}\p{N}])(?:(?:i|we) (?:love|adore) (?:you|u|ya)|love (?:you|ya|u))(?![\p{L}\p{N}])/iu;
+// Figures of speech that only look like affection: "I'd love to see one
+// tick", "Oh dear", "Baby steps". Blanked before the list is matched, so the
+// bare "love", "dear" and "baby" on it don't drop them. "With love to..." and
+// the like are not among them. The same list as the app's (lib/daily-tasks/nag.ts).
+const AFFECTION_IDIOMS =
+  /(?<![\p{L}\p{N}])(?:(?:i'd|i would|you'll|you'd|would) love|(?<!(?:with|sending|my|much|of) )love (?:to|it if|how|the|that)|oh dear|dear me|baby steps?)(?![\p{L}\p{N}])/giu;
 
 /**
  * Words that say what time it is. The app picks when a line is shown, so a
@@ -355,15 +383,19 @@ const straighten = (value) => foldForMatch(value).replace(/[\u2018\u2019]/g, "'"
  * word from a task or the name that is on the list by itself. Ordinary words
  * ("you", "your") are never taken out, so they can't open up a phrase.
  *
- * Three things are checked first, on the whole line, own words or not: harm
+ * Four things are checked first, on the whole line, own words or not: harm
  * said to the person ("kill you", "hate yourself"), "you are" followed by
- * anything on the list, and the voice saying it is the user's mother, wife
- * or husband ("It's your mother"). And everything is matched on the folded text
+ * anything on the list, the voice saying it is the user's mother, wife or
+ * husband ("It's your mother"), and a declaration of love ("I love you",
+ * "love ya"). Then a few figures of speech are blanked (AFFECTION_IDIOMS:
+ * "I'd love to", "oh dear", "baby steps"). And everything is matched on the folded text
  * (foldForMatch), so an accent, a full-width letter or a zero-width space
  * inside a word doesn't hide it.
  *
- * For the Drill sergeant the list is shorter by NAG_DRILL_ALLOWED; every
- * other voice, and a call with no persona, gets the whole list.
+ * For the Drill sergeant the list is shorter by NAG_DRILL_ALLOWED (its
+ * "you are" check is not: see there), and name-calling with a worth word is
+ * dropped (DRILL_NAME_CALLING); every other voice, and a call with no
+ * persona, gets the whole list.
  *
  * @param {string} text
  * @param {string[]} [ownTexts] the task texts and the first name
@@ -373,9 +405,10 @@ export function hitsNagBlocklist(text, ownTexts = [], persona) {
   const drill = persona === "drill";
   const pattern = drill ? NAG_DRILL_BLOCKLIST_PATTERN : NAG_BLOCKLIST_PATTERN;
   const rest = straighten(text);
-  if (POSES_AS_FAMILY.test(rest)) return true;
+  if (POSES_AS_FAMILY.test(rest) || DECLARES_LOVE.test(rest)) return true;
   if (SECOND_PERSON_HARM.test(rest) || (drill ? YOU_ARE_BLOCKLISTED_DRILL : YOU_ARE_BLOCKLISTED).test(rest)) return true;
-  return pattern.test(withoutOwnWords(rest, ownTexts, pattern));
+  if (drill && DRILL_NAME_CALLING.test(rest)) return true;
+  return pattern.test(withoutOwnWords(rest, ownTexts, pattern).replace(AFFECTION_IDIOMS, "|"));
 }
 
 /**

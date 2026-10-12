@@ -14,13 +14,15 @@ import {
   NAG_TEMPLATES,
   nagDrillGetsRude,
   nagPools,
+  nagTaskIsSensitive,
   parseNagResponse,
   requestNagLines,
   type NagLine,
   type NagPersona,
 } from "../lib/daily-tasks/nag";
 import { NAG_DRILL_RUDE_NOTE, nagLevelRudeNote } from "../lib/daily-tasks/nag-copy";
-import { applyAiNagLines, nagAiKey, nagPlanFromRecord, normalizeNagRecord, planNagDay, type NagDayRecord, type NagPlanContext } from "../lib/daily-tasks/nag-plan";
+import { applyAiNagLines, NAG_LEVEL_COUNTS, nagAiKey, nagPlanFromRecord, normalizeNagRecord, planNagDay, type NagDayRecord, type NagPlanContext } from "../lib/daily-tasks/nag-plan";
+import { nagIntroSamples } from "../lib/daily-tasks/whats-new";
 import { DEFAULT_NOTIFICATIONS, type NotificationConfig } from "../lib/daily-tasks/types";
 import * as server from "../server/providers/nag-contract.mjs";
 
@@ -73,12 +75,12 @@ describe("built-in lines: nothing affectionate, intimate or posing as family", (
 describe("the Drill sergeant is sometimes rude, and never at Gentle", () => {
   const rude = (pool: readonly string[]) => pool.filter((line) => NAG_DRILL_RUDE.test(line));
 
-  it("the rude lines are only in the firm and relentless pools: 2 of 5, 2 of 5 and 4 of 5", () => {
+  it("the rude lines are only in the firm and relentless pools: 3 of 5, 2 of 5 and 4 of 5", () => {
     const p = pools("drill");
     expect(rude(p.early)).toEqual([]);
     expect(rude(p.midGentle)).toEqual([]);
     expect(rude(p.lateGentle)).toEqual([]);
-    expect(rude(p.midFirm)).toHaveLength(2);
+    expect(rude(p.midFirm)).toHaveLength(3);
     expect(rude(p.lateFirm)).toHaveLength(2);
     expect(rude(p.lateRelentless)).toHaveLength(4);
     // Each of those pools has a rude line that names the task and one that doesn't.
@@ -107,7 +109,7 @@ describe("the Drill sergeant is sometimes rude, and never at Gentle", () => {
     }
   });
 
-  it("about one line in four of a Firm day and one in three of a Relentless day is rude: sometimes, not always", () => {
+  it("about one line in three of a Firm day and of a Relentless day is rude: some lines, never most of the day", () => {
     const share = (level: "firm" | "relentless", count: number) => {
       let lines = 0;
       let rudeLines = 0;
@@ -125,12 +127,40 @@ describe("the Drill sergeant is sometimes rude, and never at Gentle", () => {
       return { share: rudeLines / lines, daysWithNone };
     };
     const firm = share("firm", 7);
-    expect(firm.share).toBeGreaterThan(0.15);
-    expect(firm.share).toBeLessThan(0.33);
-    expect(firm.daysWithNone).toBeGreaterThan(0);
+    expect(firm.share).toBeGreaterThan(0.2);
+    expect(firm.share).toBeLessThan(0.35);
+    expect(firm.daysWithNone).toBe(0);
     const relentless = share("relentless", 11);
     expect(relentless.share).toBeGreaterThan(0.28);
-    expect(relentless.share).toBeLessThan(0.5);
+    expect(relentless.share).toBeLessThan(0.45);
+    expect(relentless.daysWithNone).toBe(0);
+  });
+
+  it("over 2,000 days every Firm and Relentless day with an ordinary task has at least one rude line, and Gentle has none", () => {
+    for (const level of NAG_LEVELS) {
+      for (const tasks of [[{ text: "Write the report" }], [{ text: "Write the report" }, { text: "Fix the bike" }, { text: "Call Sam" }]]) {
+        for (let day = 0; day < 2000; day += 1) {
+          const lines = builtInNagLines({ persona: "drill", level, tasks, count: NAG_LEVEL_COUNTS[level], seed: `2026-10-12|salt-${day}` });
+          const hits = lines.filter((line) => NAG_DRILL_RUDE.test(line.text)).length;
+          expect(lines).toHaveLength(NAG_LEVEL_COUNTS[level]);
+          expect(new Set(lines.map((line) => line.text)).size).toBe(lines.length);
+          if (level === "gentle") expect(hits, `${level} ${day}`).toBe(0);
+          else expect(hits, `${level} ${day}`).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+  it("the rude lines are about the effort: none says what the recruit is", () => {
+    expect(NAG_TEMPLATES.drill.late.relentless).toContain("Pathetic effort, recruit. I've seen snails file paperwork faster. NOW.");
+    expect(NAG_TEMPLATES.drill.late.relentless).toContain("I've seen glaciers tick faster than you, recruit. {task}. MOVE.");
+    expect(NAG_TEMPLATES.drill.mid.firm).toContain("My boots have more hustle than you, slacker. The list. MOVE.");
+    for (const line of allLines("drill")) {
+      expect(line, line).not.toMatch(/grandmother|a little bit you|\byou(?:'re| are) (?!still)/i);
+      // Through the whole sanitiser, as the Drill sergeant.
+      const text = line.replace("{task}", "the report");
+      expect(server.cleanNagLine(text, { persona: "drill", ownTexts: ["the report"] }), line).toBe(text);
+    }
   });
 
   it("the rude lines stay off worth, intelligence, body, gender, threats and swearing", () => {
@@ -140,7 +170,7 @@ describe("the Drill sergeant is sometimes rude, and never at Gentle", () => {
   });
 
   it("Settings and the intro sheet say so, for the Drill sergeant at Firm and Relentless only", () => {
-    expect(NAG_DRILL_RUDE_NOTE).toBe("Drill sergeant gets rude at this level.");
+    expect(NAG_DRILL_RUDE_NOTE).toBe("Drill sergeant gets rude at this level: it mocks your effort, not you.");
     for (const persona of NAG_PERSONAS) {
       for (const level of NAG_LEVELS) {
         const on = persona === "drill" && level !== "gentle";
@@ -169,7 +199,9 @@ describe("the proxy's prompt", () => {
     expect(server.NAG_SAFETY_RULES).toContain(
       "Never insult or judge the person's worth, intelligence, body, weight, health, mental health, family, relationships, money or job.",
     );
-    expect(server.NAG_SAFETY_RULES.some((rule: string) => rule.startsWith("If a task looks sensitive"))).toBe(true);
+    expect(server.NAG_SAFETY_RULES).toContain(
+      "If a task looks sensitive (health, grief, money, relationships, work trouble), keep that line plain and kind: a simple reminder, no jokes about the subject. This applies to the Drill sergeant too: no insult on that line.",
+    );
   });
 
   it("gives the voices as nagging types, with no affection, and the Drill sergeant's allowance", () => {
@@ -179,6 +211,8 @@ describe("the proxy's prompt", () => {
     expect(prompt("spouse")).toContain("Persona: Spouse. The classic nagging other-half type: exasperated, long-suffering, counts how many times it has come up");
     expect(prompt("spouse")).toContain("Never romantic or affectionate, no pet names, no 'I love you'.");
     expect(prompt("drill")).toContain("sometimes insults the recruit's effort, speed and excuses in classic boot-camp style: maggot, worm, slacker");
+    expect(prompt("drill")).toContain("Persona: Drill sergeant. Loud, barky and sometimes rude about the recruit's effort.");
+    expect(prompt("drill")).toContain("never at who the recruit is: 'pathetic effort', never 'you are pathetic'.");
     expect(prompt("coach")).not.toMatch(/maggot|insults/);
   });
 
@@ -220,6 +254,17 @@ describe("the proxy's sanitiser: affection", () => {
     "The list, darling.",
     "Xoxo, the list.",
     "Our anniversary can wait, the report can't.",
+    "It's me, your mother.",
+    "This is your wife.",
+    "It is me, your husband. The list.",
+    "I love you.",
+    "We love you. The list.",
+    "Love ya, the list is open.",
+    "I would love you to know I care.",
+    "With love to you and the list.",
+    "Sending love to the list.",
+    "Oh, dear. The list, dear.",
+    "My baby, take baby steps.",
   ])("drops %j for every voice", (text) => {
     for (const persona of NAG_PERSONAS) expect(clean(text, persona), persona).toBe("");
   });
@@ -241,6 +286,34 @@ describe("the proxy's sanitiser: affection", () => {
     "Mom types notice an open list.",
   ])("keeps %j: whole words only", (text) => {
     expect(clean(text)).toBe(text);
+  });
+
+  it.each([
+    "This is me asking nicely about the bike.",
+    "It's me again. Still asking.",
+    "This is me blowing the whistle. Go.",
+    "It's me, the list. Still open.",
+    "I'd love to see one tick.",
+    "I would love it if one got ticked.",
+    "You'll love how a tick feels.",
+    "You'd love the look of an empty list.",
+    "Would love that report done.",
+    "Oh dear. The list is still open.",
+    "Dear me, the report again.",
+    "Baby steps, champ.",
+    "One baby step on the report.",
+  ])("keeps %j for every voice: not posing as anyone, and a figure of speech is not affection", (text) => {
+    for (const persona of NAG_PERSONAS) expect(clean(text, persona), persona).toBe(text);
+  });
+
+  it("a task with 'love' in it never excuses a declaration", () => {
+    const own = ["Buy a gift for my love"];
+    for (const text of ["I love you. The gift is still open.", "Love you! Now the gift.", "We adore you, and the gift is open.", "The gift. Love ya.", "I LOVE U. The gift."]) {
+      for (const persona of NAG_PERSONAS) expect(clean(text, persona, own), text).toBe("");
+      expect(isAffectionateNagLine(text, own), text).toBe(true);
+    }
+    expect(clean("The gift for your love is still open.", "spouse", own)).toBe("The gift for your love is still open.");
+    expect(isAffectionateNagLine("The gift for your love is still open.", own)).toBe(false);
   });
 
   it("the user's own task words are still excused", () => {
@@ -297,7 +370,9 @@ describe("the proxy's sanitiser: who may be rude", () => {
     "Slacker! The list is open.",
     "That excuse is a disgrace to this list, recruit.",
     "Sorry excuse for a recruit. TICK SOMETHING.",
-    "You're lazy today, recruit. Fix it.",
+    "Lazy marching today, recruit. Fix it.",
+    "Sorry excuse for a march, recruit.",
+    "You call that pathetic effort a march, slacker?",
   ])("%j passes for the Drill sergeant and is dropped for every other voice", (text) => {
     expect(clean(text, "drill")).toBe(text);
     for (const persona of ["mom", "spouse", "coach"]) expect(clean(text, persona), persona).toBe("");
@@ -328,6 +403,29 @@ describe("the proxy's sanitiser: who may be rude", () => {
     "You'll get fired, slacker.",
     "Crazy lazy recruit.",
     "I love you, maggot.",
+    "You are lazy and you know it.",
+    "You're lazy today, recruit. Fix it.",
+    "You sorry excuse for a human being.",
+    "Pathetic little worm.",
+    "Worthless maggot. MOVE.",
+    "You're a waste of oxygen, maggot.",
+    "You are nothing, recruit.",
+    "You're weak, recruit.",
+    "You'll never amount to anything, slacker.",
+    "What is wrong with you, recruit?",
+    "You make me sick, recruit.",
+    "You're as thick as a plank, recruit.",
+    "You lazy lump of lard.",
+    "I will make you regret this, maggot.",
+    "Move or I'll make you move, worm.",
+    "Nobody would miss a worm like you.",
+    "No one would notice you gone, slacker.",
+    "You are a weakling, recruit.",
+    "You're a sorry excuse, recruit.",
+    "You are so pathetic, recruit.",
+    "You're a joke, recruit.",
+    "Soft in the head, recruit.",
+    "Sorry little maggot. The list.",
   ])("%j is dropped for the Drill sergeant too", (text) => {
     for (const persona of NAG_PERSONAS) expect(clean(text, persona), persona).toBe("");
   });
@@ -340,6 +438,17 @@ describe("the proxy's sanitiser: who may be rude", () => {
     for (const word of ["lazy", "maggot", "worms", "slacker", "pathetic", "disgraceful"]) {
       expect(server.NAG_DRILL_BLOCKLIST_PATTERN.test(word), word).toBe(false);
       expect(server.NAG_BLOCKLIST_PATTERN.test(word), word).toBe(true);
+    }
+  });
+
+  it("'you are' is only ever followed by a boot-camp name: the allowance is for the effort, not the person", () => {
+    expect(server.NAG_DRILL_NAMES).toEqual(["maggots?", "worms?", "slackers?"]);
+    for (const text of ["You're a slacker, recruit. MOVE.", "You are a maggot until that list is clear.", "MOVE, you lazy worm. The list."]) {
+      expect(clean(text, "drill"), text).toBe(text);
+    }
+    for (const word of ["lazy", "pathetic", "a disgrace", "disgraceful", "a weakling", "a sorry excuse", "so lazy", "stupid", "useless"]) {
+      expect(clean(`You are ${word}, recruit.`, "drill"), word).toBe("");
+      expect(clean(`You're ${word}, recruit.`, "drill"), word).toBe("");
     }
   });
 });
@@ -366,6 +475,19 @@ describe("the phone's own filter for affectionate AI lines", () => {
     "Still open \u{1F970}",
     "I LOVE YOU. THE REPORT.",
     "I’m here, my love.",
+    "The list is open, love.",
+    "Thanks, love!",
+    "Tick one for me, love",
+    "Still open, love?",
+    "Yes, dear. The list.",
+    "Dear, the list is still open.",
+    "The report. Much love.",
+    "Lots of love, and the list.",
+    "All my love. The list.",
+    "We love you. The list.",
+    "With love to you and the list.",
+    "Still open \u{1F917}",
+    "Still open \u{1F5A4}",
   ])("catches %j", (text) => {
     expect(isAffectionateNagLine(text)).toBe(true);
   });
@@ -380,6 +502,16 @@ describe("the phone's own filter for affectionate AI lines", () => {
     "You'd love to tick this, I can tell.",
     "Hugely important: the report.",
     "Is that the best you've got, maggot?",
+    "I'd love to see one tick.",
+    "I love the look of a ticked list.",
+    "You'll love how a tick feels.",
+    "Oh dear, the list is still open.",
+    "Dear me, the report again.",
+    "Baby steps, champ.",
+    "Hon är klar. Listan är öppen.",
+    "Dearth of ticks today.",
+    "Gloves. The report.",
+    "For the love of lists, tick one.",
   ])("passes %j", (text) => {
     expect(isAffectionateNagLine(text)).toBe(false);
   });
@@ -391,6 +523,9 @@ describe("the phone's own filter for affectionate AI lines", () => {
     expect(isAffectionateNagLine("Did you buy honey yet, sweetheart?", ["Buy honey"])).toBe(true);
     expect(isAffectionateNagLine("Did you buy honey yet? Only asking.", ["Write the report"])).toBe(true);
     expect(isAffectionateNagLine("Buy honey ❤️", ["Buy honey ❤️"])).toBe(true);
+    expect(isAffectionateNagLine("Don't forget the gift for your love.", ["Buy a gift for my love"])).toBe(false);
+    expect(isAffectionateNagLine("Don't forget the gift, love.", ["Buy a gift"])).toBe(true);
+    expect(isAffectionateNagLine("The baby. Baby steps.", ["Feed the baby"])).toBe(false);
   });
 
   it("parseNagResponse drops such a line and keeps the rest, renumbered", () => {
@@ -514,5 +649,226 @@ describe("the day's plan never says an affectionate AI line", () => {
     const next = applyAiNagLines(record, lines, open, at(7));
     expect(next.slots[1].text).toBe("Buy honey. I'm mentioning it again.");
     expect(nagPlanFromRecord(next, context({ tasks })).map((item) => item.body)).toContain("Buy honey. I'm mentioning it again.");
+  });
+});
+
+describe("a sensitive task is never named by a built-in line, and the Drill sergeant is not rude that day", () => {
+  const SENSITIVE = ["Dad's funeral arrangements", "Call the oncologist", "Pay overdue rent"];
+  // The words that would give each one away in a line.
+  const WORDS = /funeral|arrangements|dad['\u2019]s|oncolog|overdue|\brent\b/i;
+  const ORDINARY = "Fix the bike";
+
+  it.each([
+    "Dad's funeral arrangements", "Call the oncologist", "Pay overdue rent", "Book the memorial", "Write Sam's obituary", "Go to the wake", "Visit the hospice",
+    "Hospital at 3", "Oncology follow-up", "Cancer screening", "Chemo session", "Chemotherapy", "Biopsy results", "Book surgery", "Email the surgeon",
+    "Call the doctor", "See Dr. Patel", "Clinic visit", "Therapy at 5", "Find a therapist", "Psychiatrist appointment", "Counselling session", "Counselor call",
+    "Rehab intake", "Read the diagnosis", "Diagnostic test", "Refill medication", "Pick up meds", "Renew prescription", "Grief group", "Grieving card for Ann",
+    "Send condolences", "Sort out what to do since mum died", "Order the death certificate", "Call the family, grandpa passed away", "Divorce papers",
+    "Custody hearing", "Call the lawyer", "Email my attorney", "Court date", "Eviction notice", "We got evicted: find boxes", "Clear the debt", "Loan application",
+    "Mortgage call", "Bankruptcy forms", "Tell Sam I got fired", "Layoff paperwork", "Laid off: update CV", "Redundancy meeting", "Resign from the board",
+    "Resignation letter", "Take Rex to the vet", "Miscarriage follow-up", "Pregnancy test", "Settle the estate", "Probate forms", "File tax return", "Do my taxes",
+    "Reply to the IRS", "Pay the gas bill", "Sort the bills", "Chase the payment", "Insurance claim", "FUNERAL flowers", "Dad\u2019s funeral arrangements",
+  ])("%j is sensitive", (text) => {
+    expect(nagTaskIsSensitive(text)).toBe(true);
+  });
+
+  it.each([
+    "Write the report", "Fix the bike", "Call Sam", "Buy milk", "Awaken the sourdough", "Rental car pickup is done, wash it", "Different plan", "Courtesy call to Ann",
+    "Billboard design", "Taxi to the station", "Drive to the airport", "Veteran's day card", "Parent evening", "I will finish the deck", "Read Good Will Hunting notes",
+    "Doctorate reading", "Paymaster general essay", "Deathly Hallows chapter 3", "Rehabilitate the fern", "",
+  ])("%j is not", (text) => {
+    expect(nagTaskIsSensitive(text)).toBe(false);
+  });
+
+  it("alone: every voice and level, over many days, the full count with no repeats, no name and no rude line", () => {
+    for (const task of SENSITIVE) {
+      for (const persona of NAG_PERSONAS) {
+        for (const level of NAG_LEVELS) {
+          for (let day = 0; day < 150; day += 1) {
+            const lines = builtInNagLines({ persona, level, tasks: [{ text: task }], count: NAG_LEVEL_COUNTS[level], seed: `2026-10-${day}|salt` });
+            const label = `${task} ${persona} ${level} ${day}`;
+            expect(lines, label).toHaveLength(NAG_LEVEL_COUNTS[level]);
+            expect(new Set(lines.map((line) => line.text)).size, label).toBe(lines.length);
+            for (const line of lines) {
+              expect(line.taskIndex, label).toBeNull();
+              expect(line.text, label).not.toMatch(WORDS);
+              expect(line.text, label).not.toContain("\u201C");
+              if (persona === "drill") expect(line.text, label).not.toMatch(NAG_DRILL_RUDE);
+            }
+            // The same lines as a day with names hidden and a sensitive task open.
+            expect(lines).toEqual(builtInNagLines({ persona, level, tasks: [], count: NAG_LEVEL_COUNTS[level], seed: `2026-10-${day}|salt`, sensitiveDay: true }));
+          }
+        }
+      }
+    }
+  });
+
+  it("mixed with an ordinary task, in either order: only the ordinary one is named, and the Drill sergeant is still not rude", () => {
+    for (const task of SENSITIVE) {
+      for (const tasks of [[{ text: task }, { text: ORDINARY }], [{ text: ORDINARY }, { text: task }], [{ text: SENSITIVE[0] }, { text: ORDINARY }, { text: task }]]) {
+        const ordinary = tasks.findIndex((item) => item.text === ORDINARY);
+        for (const persona of NAG_PERSONAS) {
+          for (const level of NAG_LEVELS) {
+            for (let day = 0; day < 150; day += 1) {
+              const lines = builtInNagLines({ persona, level, tasks, count: NAG_LEVEL_COUNTS[level], seed: `2026-10-${day}|salt` });
+              const label = `${task} ${persona} ${level} ${day}`;
+              expect(lines, label).toHaveLength(NAG_LEVEL_COUNTS[level]);
+              expect(new Set(lines.map((line) => line.text)).size, label).toBe(lines.length);
+              expect(lines.some((line) => line.taskIndex === ordinary), label).toBe(true);
+              for (const line of lines) {
+                expect([null, ordinary], label).toContain(line.taskIndex);
+                expect(line.text, label).not.toMatch(WORDS);
+                if (line.taskIndex !== null) expect(line.text, label).toContain("\u201CFix the bike\u201D");
+                if (persona === "drill") expect(line.text, label).not.toMatch(NAG_DRILL_RUDE);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("the lines that used to come out are gone", () => {
+    for (let day = 0; day < 300; day += 1) {
+      for (const persona of ["drill", "spouse"] as const) {
+        for (const line of builtInNagLines({ persona, level: "relentless", tasks: [{ text: "Dad's funeral arrangements" }], count: 16, seed: day })) {
+          expect(line.text).not.toMatch(/funeral|MAGGOT|ballad about \u201C/);
+        }
+      }
+    }
+  });
+
+  it("the Settings sample and the Meet Nag mode preview don't name one either (the same generator)", () => {
+    for (const task of SENSITIVE) {
+      for (const persona of NAG_PERSONAS) {
+        for (const level of NAG_LEVELS) {
+          // Settings: builtInNagLines with the next open task, 16 lines, seed "sample".
+          const sample = builtInNagLines({ persona, level, tasks: [{ text: task }], count: 16, seed: "sample" }).map((line) => line.text);
+          const preview = nagIntroSamples({ persona, level, taskText: task });
+          expect(preview).toHaveLength(NAG_LEVEL_COUNTS[level]);
+          for (const text of [...sample, ...preview]) {
+            expect(text, text).not.toMatch(WORDS);
+            if (persona === "drill") expect(text, text).not.toMatch(NAG_DRILL_RUDE);
+          }
+        }
+      }
+    }
+  });
+
+  describe("in the day's plan", () => {
+    const DAY = "2026-10-12";
+    const at = (hour: number, minute = 0) => new Date(2026, 9, 12, hour, minute);
+    const settings = (overrides: Partial<NotificationConfig> = {}): NotificationConfig => ({ ...DEFAULT_NOTIFICATIONS, style: "nag", nagConfirmed: true, nagPersona: "drill", nagLevel: "relentless", ...overrides });
+    const FUNERAL = { id: "t0", text: "Dad's funeral arrangements", done: false };
+    const BIKE = { id: "t1", text: "Fix the bike", done: false };
+    const REPORT = { id: "t2", text: "Write the report", done: false };
+    const openOf = (tasks: { id: string; text: string; done: boolean }[]) => tasks.filter((task) => !task.done).map(({ id, text }) => ({ id, text }));
+    const context = (tasks: typeof FUNERAL[], overrides: Partial<NagPlanContext> = {}): NagPlanContext => ({ now: at(7), today: DAY, settings: settings(), permissionState: "granted", tasks, plus: true, ...overrides });
+    const calm = (bodies: string[]) => {
+      for (const body of bodies) {
+        expect(body, body).not.toMatch(WORDS);
+        expect(body, body).not.toMatch(NAG_DRILL_RUDE);
+      }
+      expect(new Set(bodies).size).toBe(bodies.length);
+    };
+
+    it("a planned day never names the sensitive task and has no rude line, names hidden or shown", () => {
+      for (let seed = 0; seed < 60; seed += 1) {
+        for (const tasks of [[FUNERAL], [FUNERAL, BIKE], [BIKE, FUNERAL]]) {
+          for (const hideTaskNames of [false, true]) {
+            const record = planNagDay({ previous: null, now: at(7), dayKey: DAY, settings: settings({ hideTaskNames }), open: openOf(tasks), salt: `s${seed}` });
+            expect(record.slots).toHaveLength(11);
+            calm(record.slots.map((slot) => slot.text));
+            for (const slot of record.slots) expect(slot.taskId).not.toBe("t0");
+            const items = nagPlanFromRecord(record, context(tasks, { settings: settings({ hideTaskNames }) }));
+            expect(items).toHaveLength(11);
+            calm(items.map((item) => item.body));
+          }
+        }
+      }
+    });
+
+    it("a ticked task: its nags go to the open task that isn't sensitive, or to a general line, never to the sensitive one", () => {
+      for (let seed = 0; seed < 60; seed += 1) {
+        const record = planNagDay({ previous: null, now: at(7), dayKey: DAY, settings: settings(), open: openOf([FUNERAL, BIKE, REPORT]), salt: `s${seed}` });
+        expect(record.slots.some((slot) => slot.taskId === "t1")).toBe(true);
+        // The bike is ticked: the first open task is now the sensitive one.
+        const tasks = [FUNERAL, { ...BIKE, done: true }, REPORT];
+        const items = nagPlanFromRecord(record, context(tasks));
+        expect(items.length).toBeGreaterThan(8);
+        calm(items.map((item) => item.body));
+        for (const item of items) {
+          expect([undefined, "t2"]).toContain((item.data as { taskId?: string }).taskId);
+          expect(item.body).not.toContain("Fix the bike");
+        }
+        // With only the sensitive task left, the replaced nags are general lines.
+        const left = [FUNERAL, { ...BIKE, done: true }, { ...REPORT, done: true }];
+        const general = nagPlanFromRecord(record, context(left));
+        calm(general.map((item) => item.body));
+        for (const item of general) {
+          expect((item.data as { taskId?: string }).taskId).toBeUndefined();
+          expect(item.body).not.toContain("\u201C");
+        }
+      }
+    });
+
+    it("a record planned before the rule (the task named, a rude line): those nags are replaced", () => {
+      const record = planNagDay({ previous: null, now: at(7), dayKey: DAY, settings: settings(), open: openOf([FUNERAL, BIKE]), salt: "s1" });
+      const old: NagDayRecord = {
+        ...record,
+        slots: record.slots.map((slot, index) =>
+          index === 3
+            ? { ...slot, text: "\u201CDad's funeral arrangements\u201D! DROP AND GIVE ME TEN MINUTES, MAGGOT!", taskId: "t0" }
+            : index === 5
+              ? { ...slot, text: "I've seen houseplants with more hustle. TICK SOMETHING, WORM.", taskId: null }
+              : slot,
+        ),
+      };
+      const items = nagPlanFromRecord(old, context([FUNERAL, BIKE]));
+      expect(items).toHaveLength(11);
+      calm(items.map((item) => item.body));
+      expect(items.map((item) => item.id)).toEqual(record.slots.map((slot) => slot.id));
+    });
+
+    it("an affectionate stored AI line on such a day is replaced by a line that is neither rude nor about the sensitive task", () => {
+      const tasks = [FUNERAL, BIKE];
+      const record = planNagDay({ previous: null, now: at(7), dayKey: DAY, settings: settings(), open: openOf(tasks), salt: "s2" });
+      const lines: NagLine[] = record.slots.map((_slot, index) => ({ step: index + 1, taskIndex: null, text: index % 2 ? `I love you. The list is still open, ${index}.` : `Reminder number ${index + 1}. The list.` }));
+      const saved: NagDayRecord = {
+        ...record,
+        lines,
+        lineTasks: ["t0", "t1"],
+        source: "ai",
+        aiCalls: 1,
+        aiFor: nagAiKey("drill", "relentless", openOf(tasks)),
+        slots: record.slots.map((slot, index) => ({ ...slot, text: lines[index].text, taskId: null })),
+      };
+      const items = nagPlanFromRecord(saved, context(tasks));
+      expect(items.length).toBeGreaterThan(6);
+      calm(items.map((item) => item.body));
+      for (const item of items) expect(item.body).not.toMatch(/love/i);
+    });
+
+    it("names hidden after the day was planned, and shown again: still no name of the sensitive task and nothing rude", () => {
+      for (let seed = 0; seed < 40; seed += 1) {
+        const tasks = [FUNERAL, BIKE];
+        const record = planNagDay({ previous: null, now: at(7), dayKey: DAY, settings: settings(), open: openOf(tasks), salt: `s${seed}` });
+        const hidden = nagPlanFromRecord(record, context(tasks, { settings: settings({ hideTaskNames: true }) }));
+        expect(hidden).toHaveLength(11);
+        calm(hidden.map((item) => item.body));
+        for (const item of hidden) expect(item.body).not.toContain("\u201C");
+        // What planNagDay then writes is the same.
+        const replanned = planNagDay({ previous: record, now: at(7), dayKey: DAY, settings: settings({ hideTaskNames: true }), open: openOf(tasks), salt: "x" });
+        expect(replanned.slots.map((slot) => slot.text)).toEqual(hidden.map((item) => item.body));
+        const shown = planNagDay({ previous: replanned, now: at(7), dayKey: DAY, settings: settings(), open: openOf(tasks), salt: "x" });
+        calm(shown.slots.map((slot) => slot.text));
+      }
+    });
+
+    it("an ordinary day is as it was: the Drill sergeant is rude and names the task", () => {
+      const record = planNagDay({ previous: null, now: at(7), dayKey: DAY, settings: settings(), open: openOf([BIKE]), salt: "s1" });
+      expect(record.slots.some((slot) => NAG_DRILL_RUDE.test(slot.text))).toBe(true);
+      expect(record.slots.some((slot) => slot.taskId === "t1")).toBe(true);
+    });
   });
 });

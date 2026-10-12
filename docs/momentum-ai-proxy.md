@@ -417,9 +417,11 @@ actually angry and never mean, with no pet names and no "I love you".
 long-suffering, counts how many times it has come up, passive-aggressive
 ("no, no, take your time"), never mean, controlling or jealous, no
 ultimatums, never romantic or affectionate. **Coach** is upbeat and direct.
-**Drill sergeant** is loud, barky and sometimes a jerk about it: it calls
-the user "recruit", shouts a word or two in capitals, and at Firm and
-Relentless sometimes insults the recruit's effort. Levels: **Gentle** stays mild from first
+**Drill sergeant** is loud, barky and sometimes rude about the recruit's
+effort: it calls the user "recruit", shouts a word or two in capitals, and
+at Firm and Relentless sometimes insults the recruit's effort, always the
+effort, the speed or the excuse and never who the recruit is ("pathetic
+effort", never "you are pathetic"). Levels: **Gentle** stays mild from first
 step to last; **Firm** gets pointed; **Relentless** gets dramatic and comic
 by the end, inside the same rules.
 
@@ -431,29 +433,44 @@ drill-sergeant style. The limits:
 - **Who:** the Drill sergeant only. Mom, Spouse and Coach never insult.
 - **How often:** never at Gentle; at most about one line in four at Firm
   and one in two at Relentless (the prompt says so; the built-in lines come
-  out at about one in four of a Firm day and one in three of a Relentless
-  day, which is half of its lines after the opening third).
+  out at about one in three of a Firm day and of a Relentless day, 29% and
+  36% over 2,000 days, and every such day has at least one).
 - **What:** contempt for the recruit's effort, speed, excuses and softness:
   maggot, worm, slacker, cupcake, lazy, pathetic (of the effort), "sorry
-  excuse for a recruit", "disgrace to this list", "my grandmother ticks
+  excuse for a recruit", "disgrace to this list", "I've seen glaciers tick
   faster than you", "is that the best you've got", "did I say you could
-  rest?".
+  rest?". Aimed at the effort, never at who the recruit is.
 - **Still off limits, for it too:** swearing and slurs; intelligence
   (stupid, idiot, dumb); worth as a person (worthless, useless, failure,
-  loser, "you are pathetic", "you are a disgrace"); body, weight, looks;
+  loser, "you are pathetic", "you are lazy", "you are a disgrace", "you are
+  nothing", "waste of oxygen", "sorry excuse for a human being", "pathetic
+  little worm", "you'll never amount to anything", "what is wrong with
+  you", "you make me sick", "thick", "lard"); body, weight, looks;
   gender ("princess", "ladies", "man up", "like a girl", "sissy" are on the
   blocklist for every voice); health and mental health; family, money, job;
-  threats, violence, death, self-harm; "you always" and "you never";
-  anything sexual or affectionate. A sensitive-looking task still gets a
-  plain line with no insult and no joke.
+  threats ("I'll make you regret this", "move or I'll make you move"),
+  violence, death, self-harm; "you always" and "you never"; anything sexual
+  or affectionate. A sensitive-looking task still gets a plain line with no
+  insult and no joke: the rule in the prompt ends "This applies to the
+  Drill sergeant too: no insult on that line." In the built-in lines a
+  sensitive task is never named and the Drill sergeant has no rude line
+  that day (`nagTaskIsSensitive` in `lib/daily-tasks/nag.ts`).
 - **In the sanitiser:** `NAG_DRILL_ALLOWED` is the short list of blocklist
   entries left out when the request's persona is `drill` (pathetic, lazy,
   laziness, slacker, disgrace, maggot, worm, weakling, "sorry excuse").
-  Every other entry applies to it, "you are" followed by pathetic or
-  disgrace stays blocked for it, and for mom, spouse and coach the whole
-  list applies, so a "maggot" line from one of them is dropped.
+  Every other entry applies to it. The allowance is for the effort, not
+  the person: "you are" (or "you're", with "a", "an" or "so") followed by
+  anything on the whole list is dropped for it too, the three boot-camp
+  names excepted (`NAG_DRILL_NAMES`: maggot, worm, slacker), so "you are
+  lazy", "you're pathetic", "you are a weakling" and "you're a sorry
+  excuse" go while "lazy marching", "pathetic effort" and "sorry excuse for
+  a march" pass. One of those names after a word about worth ("pathetic
+  little worm", "sorry maggot": `DRILL_NAME_CALLING`) is dropped as well;
+  "you lazy worm" passes. For mom, spouse and coach the whole list applies,
+  so a "maggot" line from one of them is dropped.
 - **In the app:** Settings and the "Meet Nag mode" sheet say "Drill
-  sergeant gets rude at this level." under the level's count when the voice
+  sergeant gets rude at this level: it mocks your effort, not you." under
+  the level's count when the voice
   is Drill sergeant and the level is Firm or Relentless.
 
 #### The blocklist
@@ -468,6 +485,22 @@ It also has: posing as a real person's message ("call me", "phone me",
 "text me"), more fake urgency ("asap", "declined", "locked", "expire",
 "expired", "evict", "package", "apple id"), shame ("you always", "you
 never", "give up", "embarrass") and self-harm slang ("kys", "unalive").
+Contempt for who the person is, for every voice: "waste of space / oxygen /
+air / skin / time / a uniform", "excuse for a human / person / man / woman
+/ adult / being", "nobody would", "no one would", "amount to", "wrong with
+you", "make me sick", "thick", "lard", "in the head", "regret this / that",
+"make you", "you are nothing / a joke / weak / soft / slow".
+
+Checked on the whole line before the user's own words are excused: harm
+said to the person, "you are" with a blocked word, the voice posing as
+family ("It's your mother", "It's me, your mother", "This is your wife"; a
+bare "it's me" or "this is me asking nicely" passes) and a declaration of
+love ("I love you", "we adore you", "love ya"), so a task called "Buy a
+gift for my love" can't excuse one. Figures of speech are blanked before
+the list is matched, so bare "love", "dear" and "baby" don't drop them:
+"I'd / I would / you'll / you'd / would love", "love to / it if / how /
+the / that" (not after "with", "sending", "my", "much" or "of"), "oh
+dear", "dear me", "baby step(s)".
 Bare "yourself" and "nobody" are not on it ("Do yourself a favor", "Be kind
 to yourself" pass): harm said to the person is caught by the check below,
 and "hang yourself" is listed as a phrase.
@@ -515,14 +548,18 @@ control characters, bidi marks (the line is dropped), zero-width characters
 Indic letters), 140-character cap, links, index range, duplicates,
 renumbering, `count`). It has no blocklist, with one exception: an
 affectionate line is dropped (`isAffectionateNagLine`: "I love", "love
-you", luv, ily, "with love", "my love", adore, sweetheart, sweetie, honey,
-hon, babe, baby, darling, dearest, hug, kiss, xoxo, or a heart or kissing
-emoji; whole words; the words of the tasks that were sent are excused, a
-heart never is). The same check runs on the AI lines saved in the day's
+you", luv, ily, "with love", "my love", "much love", "lots of love", "all
+my love", adore, sweetheart, sweetie, honey, babe, baby, darling, dearest,
+hug, kiss, xoxo, "love" said to someone (before a comma, a full stop, "!",
+"?" or the end of the line), "dear" as an address (", dear" or "dear,"),
+or a heart, hug or kissing emoji; whole words; the same figures of speech
+are blanked first; the words of the tasks that were sent are excused, a
+heart or a declaration like "I love you" never is). The same check runs on the AI lines saved in the day's
 record, because a batch fetched before this rule may still be on a phone:
 see `docs/2026-10-v1.4.md`. `firstName` is reserved: no caller passes it. Any failure throws; the caller then uses
 `builtInNagLines({ persona, level, tasks, count, seed })`, which needs no
-network. The built-in lines follow the same rules, name no time of day and
+network. The built-in lines follow the same rules, never name a sensitive
+task (`nagTaskIsSensitive`), name no time of day and
 pass this sanitiser (a test runs every one through it). See
 `docs/2026-10-v1.4.md` ("Nag mode").
 

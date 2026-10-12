@@ -112,30 +112,63 @@ function cut(value: string, max: number): string {
 // much longer); this short copy is here because a batch fetched before that
 // rule may still be in today's saved record on a phone, and an older proxy
 // may still answer. Whole words, any case; "lovely" and "honeydew" pass.
-// \b and plain ranges only, so it runs on every engine.
+// \b, lookahead and plain ranges only (no lookbehind, no \p), so it runs on
+// Hermes. No bare "hon": it is a word in other languages.
 const AFFECTION_WORDS =
-  /\b(?:i love|love (?:you|ya|u)|luv|ily|with love|my love|ador(?:e|es|ed|ing)|sweetheart|sweetie|honey|hon|babe|baby|darling|dearest|hugs?|kiss(?:es)?|xoxo)\b/gi;
-// Hearts, kisses and heart-eyed faces (the red heart with or without its variation selector).
+  /\b(?:i love|love (?:you|ya|u)|luv|ily|with love|my love|(?:much|lots of|all my) love|ador(?:e|es|ed|ing)|sweetheart|sweetie|honey|babe|baby|darling|dearest|hugs?|kiss(?:es)?|xoxo)\b|\blove(?=[,.!?]|$)|, dear\b|\bdear,/gi;
+// A declaration: never excused, not even when a task has the word "love" in it.
+const AFFECTION_DECLARED = /\b(?:i|we) (?:love|adore) (?:you|u|ya)\b|\blove (?:you|ya|u)\b/i;
+// Figures of speech that only look like affection ("I'd love to see one
+// tick", "Oh dear", "Baby steps"). They are blanked before the words are
+// looked for. "With love to..." is not one of them.
+const AFFECTION_IDIOMS =
+  /\b(?:(?:i'd|i would|you'll|you'd|would) love|(with |sending |my |much |of )?love (?:to|it if|how|the|that)|oh dear|dear me|baby steps?)\b/gi;
+// Hearts, kisses, hugs and heart-eyed faces (the red heart with or without its variation selector).
 const AFFECTION_EMOJI =
-  /[\u2763\u2764\u2665]|\uD83D[\uDC8B\uDC8C\uDC8F\uDC91\uDC93-\uDC9F\uDE0D\uDE17-\uDE1A\uDE3B\uDE3D]|\uD83E[\uDD0D\uDD0E\uDD70\uDDE1\uDE75-\uDE77]/;
+  /[\u2763\u2764\u2665]|\uD83D[\uDC8B\uDC8C\uDC8F\uDC91\uDC93-\uDC9F\uDDA4\uDE0D\uDE17-\uDE1A\uDE3B\uDE3D]|\uD83E[\uDD0D\uDD0E\uDD17\uDD70\uDDE1\uDE75-\uDE77]/;
 
 const affectionFold = (value: string) => withoutJoiners(oneLine(value)).replace(/[\u2018\u2019]/g, "'").toLowerCase();
+const withoutAffectionIdioms = (value: string) => value.replace(AFFECTION_IDIOMS, (idiom, sent?: string) => (sent ? idiom : "|"));
+const lettersOf = (value: string) => value.match(/[a-z]+/g) ?? [];
 
 /**
  * True when a line says something affectionate or intimate (see
- * AFFECTION_WORDS). The user's own words don't count, as on the proxy: a
- * line may repeat a task called "Buy honey" or "Buy a gift for my love". So
- * each of `ownTexts` (the open tasks' text) is taken out of the line whole,
- * and a word found after that is excused when it is a word of one of them.
- * A heart is never excused.
+ * AFFECTION_WORDS): a declaration, a pet name, a hug or a kiss, "love" or
+ * "dear" said to someone ("Thanks, love.", "Yes, dear", "Dear, the list"),
+ * a sign-off ("much love"). The user's own words don't count, as on the
+ * proxy: a line may repeat a task called "Buy honey" or "Buy a gift for my
+ * love". So each of `ownTexts` (the open tasks' text) is taken out of the
+ * line whole, and what is found after that is excused when its words are
+ * affection words of one of them. A declaration ("I love you", "love ya") is
+ * never excused, and neither is a heart.
  */
 export function isAffectionateNagLine(text: string, ownTexts: readonly string[] = []): boolean {
   if (AFFECTION_EMOJI.test(text)) return true;
+  const folded = affectionFold(text);
+  if (AFFECTION_DECLARED.test(folded)) return true;
   const own = ownTexts.map(affectionFold).filter(Boolean).sort((a, b) => b.length - a.length);
-  let rest = affectionFold(text);
+  let rest = folded;
   for (const value of own) rest = rest.split(value).join("|");
-  const ownWords = new Set(own.flatMap((value) => value.match(AFFECTION_WORDS) ?? []));
-  return (rest.match(AFFECTION_WORDS) ?? []).some((word) => !ownWords.has(word));
+  const ownWords = new Set(own.flatMap((value) => value.match(AFFECTION_WORDS) ?? []).flatMap(lettersOf));
+  return (withoutAffectionIdioms(rest).match(AFFECTION_WORDS) ?? []).some((found) => !lettersOf(found).every((word) => ownWords.has(word)));
+}
+
+// Tasks a joke doesn't belong next to: health, grief, money trouble, the law,
+// losing a job. Whole words and phrases, any case; an entry ending in [a-z]*
+// is a word's start ("oncolog" for oncologist and oncology). Deliberately
+// wide ("wake", "court", "bill", "vet"): a task it catches by mistake only
+// loses its name in the built-in lines. No bare "will". \b and plain ranges
+// only, so it runs on Hermes.
+const SENSITIVE_TASK =
+  /\b(?:funeral|memorial|obituary|wake|hospice|hospital|oncolog[a-z]*|cancer|chemo[a-z]*|biopsy|surgery|surgeon|doctor|dr|clinic|therap[a-z]*|psychiatr[a-z]*|counsel[a-z]*|rehab|diagnos[a-z]*|medication|meds|prescription|grief|grieving|condolence[a-z]*|died|death|passed away|divorce|custody|lawyer|attorney|court|eviction|evicted|overdue|debt|rent|loan|mortgage|bankrupt[a-z]*|fired|layoff|laid off|redundan[a-z]*|resign[a-z]*|vet|miscarriage|pregnan[a-z]*|estate|probate|tax|taxes|irs|bill|bills|payment|insurance claim)\b/i;
+
+/**
+ * True when a task's words look sensitive (SENSITIVE_TASK). No built-in line
+ * names such a task, whatever the voice, and on a day with one among the
+ * open tasks the Drill sergeant has no rude line (builtInNagLines).
+ */
+export function nagTaskIsSensitive(text: string): boolean {
+  return typeof text === "string" && SENSITIVE_TASK.test(withoutJoiners(oneLine(text)).replace(/[\u2018\u2019]/g, "'"));
 }
 
 function clampCount(count: number): number {
@@ -282,9 +315,11 @@ export async function requestNagLines({
  * mentions a hug, a kiss, a shared bed or a marriage (isAffectionateNagLine,
  * and the proxy's blocklist; tests check every line against both). One
  * exception to "never about the person": the Drill sergeant is sometimes
- * rude about the recruit's effort at Firm and Relentless (NAG_DRILL_RUDE). {task} is
- * the quoted task name (at most 40 characters), so a line with it is 74
- * characters or fewer and every line fits in NAG_BUILT_IN_MAX_CHARS.
+ * rude about the recruit's effort at Firm and Relentless (NAG_DRILL_RUDE),
+ * always about the effort, the speed or the excuse and never about who the
+ * person is. {task} is the quoted task name (at most 40 characters between
+ * its quotation marks), and every line, name included, fits in
+ * NAG_BUILT_IN_MAX_CHARS (a test checks every line).
  *
  * Each pool has enough general lines (no {task}) for a full day at every
  * level with task names hidden: early 6, mid 3 gentle and 3 firm, late 2
@@ -500,12 +535,12 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
         "Carry on, recruit. The list is still on the board.",
         "Good marching, recruit. Next item when ready.",
       ],
-      // Two of the five are rude (see NAG_DRILL_RUDE).
+      // Three of the five are rude (see NAG_DRILL_RUDE).
       firm: [
         "Recruit! {task} is still standing. Fix that.",
         "Is that the best you've got, maggot? {task} is STILL open.",
         "That list is not going to clear itself. MOVE, recruit.",
-        "Recruit! That list is still open. I have NOTICED.",
+        "My boots have more hustle than you, slacker. The list. MOVE.",
         "You call that effort, cupcake? The list has not moved.",
       ],
     },
@@ -527,10 +562,10 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
       // Four of the five are rude.
       relentless: [
         "{task}! DROP AND GIVE ME TEN MINUTES, MAGGOT!",
-        "My grandmother ticks faster than you, recruit. {task}. MOVE.",
+        "I've seen glaciers tick faster than you, recruit. {task}. MOVE.",
         "I am YELLING at a to-do list. That's what {task} has done to me.",
         "I've seen houseplants with more hustle. TICK SOMETHING, WORM.",
-        "Pathetic. Not you. Fine, a little bit you. The list. NOW.",
+        "Pathetic effort, recruit. I've seen snails file paperwork faster. NOW.",
       ],
     },
   },
@@ -540,12 +575,14 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
  * What marks a Drill sergeant line as rude: the boot-camp contempt for the
  * recruit's effort, speed and excuses that this voice alone may use, and only
  * in its `firm` and `relentless` pools (never `early` or `gentle`, so a
- * Gentle day has none; a test checks every pool). About one line in four of
- * a Firm day and one in three of a Relentless day (half of its lines after
- * the opening ones) come out rude. Nothing about the person's worth,
- * intelligence, body or anything else in the safety rules, and no swearing.
+ * Gentle day has none; a test checks every pool). About one line in three of
+ * a Firm day and of a Relentless day come out rude, and every such day has
+ * at least one (builtInNagLines sees to it). The insult is aimed at the
+ * effort, never at who the person is: nothing about worth, intelligence,
+ * body or anything else in the safety rules, and no swearing. None on a day
+ * with a sensitive task among the open ones (nagTaskIsSensitive).
  */
-export const NAG_DRILL_RUDE = /\b(?:maggot|worm|slacker|cupcake|slugs|grandmother|houseplants|pathetic|did i say you could rest)\b/i;
+export const NAG_DRILL_RUDE = /\b(?:maggot|worm|slacker|cupcake|slugs|glaciers|houseplants|pathetic|did i say you could rest)\b/i;
 
 /** The Drill sergeant insults the recruit's effort at this level (Firm and Relentless; Settings says so). */
 export function nagDrillGetsRude(persona: NagPersona, level: NagLevel): boolean {
@@ -620,6 +657,15 @@ export function nagTaskName(text: string): string {
  * (up to MAX_NAG_COUNT). With no usable task (names hidden) only the general
  * lines are used: enough for each level's own day (Gentle 4, Firm 7,
  * Relentless 11), fewer than a larger `count`.
+ *
+ * A sensitive task (nagTaskIsSensitive) is never named, by any voice: it is
+ * left out of the tasks the lines take in turn, and with nothing else open
+ * the day has general lines only, as with names hidden. On a day with a
+ * sensitive task among the open ones (one of `tasks`, or `sensitiveDay` when
+ * the caller passes only some of the day's tasks) the Drill sergeant's rude
+ * lines are left out of the pools. On any other Firm or Relentless day the
+ * Drill sergeant has at least one rude line: when the draw gave none, a line
+ * of the last third is exchanged for a rude one of the same kind.
  */
 export function builtInNagLines({
   persona,
@@ -627,27 +673,36 @@ export function builtInNagLines({
   tasks,
   count,
   seed,
+  sensitiveDay = false,
 }: {
   persona: NagPersona;
   level: NagLevel;
   tasks: NagTask[];
   count: number;
   seed: string | number;
+  /** One of the day's open tasks is sensitive, also when it isn't among `tasks`. */
+  sensitiveDay?: boolean;
 }): NagLine[] {
   const wanted = clampCount(count);
   const random = seededRandom(`${seed}|${persona}|${level}`);
   const open: { name: string; from: number }[] = [];
+  let sensitive = sensitiveDay;
   tasks.forEach((task, from) => {
     const text = oneLine(typeof task?.text === "string" ? task.text : "");
-    if (text && open.length < MAX_NAG_TASKS) open.push({ name: nagTaskName(text), from });
+    if (!text) return;
+    if (nagTaskIsSensitive(text)) sensitive = true;
+    else if (open.length < MAX_NAG_TASKS) open.push({ name: nagTaskName(text), from });
   });
-  const usable = (template: string) => open.length > 0 || !template.includes("{task}");
+  const rudeDay = nagDrillGetsRude(persona, level) && !sensitive;
+  const isRude = (template: string) => persona === "drill" && NAG_DRILL_RUDE.test(template);
+  const usable = (template: string) => (open.length > 0 || !template.includes("{task}")) && (rudeDay || !isRude(template));
 
   // How many steps fall in each third of the day.
   const perStage = [0, 0, 0];
   for (let step = 0; step < wanted; step += 1) perStage[Math.min(2, Math.floor((3 * step) / wanted))] += 1;
 
   const picked: string[] = [];
+  let rudePicked = false;
   STAGES.forEach((stage, stageIndex) => {
     const pools = nagPools(persona, level, stage).map((pool) => shuffled(pool.filter(usable), random));
     const need = perStage[stageIndex];
@@ -674,6 +729,19 @@ export function builtInNagLines({
     const general = take(need - named, (template) => !template.includes("{task}"));
     // A pool short of one kind is topped up with the other.
     take(need - named - general, () => true);
+    const taken = () => pools.flatMap((pool, poolIndex) => pool.filter((template) => chosen[poolIndex].has(template)));
+    // A rude day with no rude line so far gets one in its last third: a line
+    // of the hottest pool gives its place to a rude one of the same kind.
+    if (rudeDay && stage === "late" && !rudePicked && !taken().some(isRude)) {
+      for (const out of pools[0].filter((template) => chosen[0].has(template))) {
+        const rude = pools[0].find((template) => isRude(template) && template.includes("{task}") === out.includes("{task}"));
+        if (!rude) continue;
+        chosen[0].delete(out);
+        chosen[0].add(rude);
+        break;
+      }
+    }
+    if (taken().some(isRude)) rudePicked = true;
     // Then the mildest goes first in the stage, each pool in its drawn order.
     pools
       .map((pool, poolIndex) => pool.filter((template) => chosen[poolIndex].has(template)))

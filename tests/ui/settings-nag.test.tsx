@@ -497,7 +497,7 @@ describe("Settings: with Nag on", () => {
 });
 
 describe("Settings: the Drill sergeant's rude levels are announced", () => {
-  const NOTE = "Drill sergeant gets rude at this level.";
+  const NOTE = "Drill sergeant gets rude at this level: it mocks your effort, not you.";
   const rude = () => screen.queryByTestId("settings-nag-level-rude");
 
   it("under the count, for the Drill sergeant at Firm and Relentless only", async () => {

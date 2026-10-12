@@ -808,9 +808,9 @@ describe("the sheet", () => {
     // Mom, Firm.
     expect(rude()).toBeNull();
     await fireEvent.press(radio("Voice: Drill sergeant"));
-    expect(rude()?.props.children).toBe("Drill sergeant gets rude at this level.");
+    expect(rude()?.props.children).toBe("Drill sergeant gets rude at this level: it mocks your effort, not you.");
     await fireEvent.press(radio("Level: Relentless"));
-    expect(rude()?.props.children).toBe("Drill sergeant gets rude at this level.");
+    expect(rude()?.props.children).toBe("Drill sergeant gets rude at this level: it mocks your effort, not you.");
     await fireEvent.press(radio("Level: Gentle"));
     expect(rude()).toBeNull();
     await fireEvent.press(radio("Level: Firm"));

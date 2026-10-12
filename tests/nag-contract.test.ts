@@ -184,7 +184,10 @@ describe("the prompt", () => {
       "Spouse. The classic nagging other-half type: exasperated, long-suffering, counts how many times it has come up, passive-aggressive 'no, no, take your time'. Comically persistent, never mean, never controlling or jealous, no ultimatums. Never romantic or affectionate, no pet names, no 'I love you'.",
     );
     expect(NAG_PERSONA_VOICES.coach).toMatch(/Upbeat and direct/);
-    expect(NAG_PERSONA_VOICES.drill).toMatch(/^Drill sergeant\. Loud, barky and sometimes a jerk about it\./);
+    expect(NAG_PERSONA_VOICES.drill).toMatch(/^Drill sergeant\. Loud, barky and sometimes rude about the recruit's effort\./);
+    expect(NAG_PERSONA_VOICES.drill).toContain("'a glacier moves faster'");
+    expect(NAG_PERSONA_VOICES.drill).toContain("The insult is always aimed at the effort, the speed or the excuse, never at who the recruit is: 'pathetic effort', never 'you are pathetic'.");
+    expect(NAG_PERSONA_VOICES.drill).not.toMatch(/grandmother|jerk/);
     expect(NAG_PERSONA_VOICES.drill).toMatch(/at the Firm and Relentless levels sometimes insults the recruit's effort, speed and excuses/);
     expect(NAG_PERSONA_VOICES.drill).toMatch(/At most one line in four at Firm and one in two at Relentless; never at Gentle\./);
     expect(NAG_PERSONA_VOICES.drill).toMatch(/Never swears, never attacks intelligence, worth, body, looks, gender, family, health or anything in the safety rules, and never threatens\./);

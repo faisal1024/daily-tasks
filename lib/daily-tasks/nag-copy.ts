@@ -27,7 +27,7 @@ export const NAG_LEVEL_COUNT_NOTE: Record<NagLevel, string> = {
  * is Drill sergeant and the level is Firm or Relentless, where some of its
  * lines insult the recruit's effort. Null otherwise (nothing is shown).
  */
-export const NAG_DRILL_RUDE_NOTE = "Drill sergeant gets rude at this level.";
+export const NAG_DRILL_RUDE_NOTE = "Drill sergeant gets rude at this level: it mocks your effort, not you.";
 export function nagLevelRudeNote(persona: NagPersona, level: NagLevel): string | null {
   return nagDrillGetsRude(persona, level) ? NAG_DRILL_RUDE_NOTE : null;
 }
