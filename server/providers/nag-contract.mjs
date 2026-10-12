@@ -127,13 +127,15 @@ export function validateNagPayload(payload) {
 }
 
 /** The only emoji a line may keep (one, mom and spouse only). Any other is taken out of the line. */
-export const NAG_EMOJI_ALLOWED = ["\u{1F642}", "\u{1F60A}", "\u{1F609}", "\u2764", "\u{1F49B}", "\u{1F33C}", "\u2615", "\u{1F36A}", "\u2705", "\u{1F440}", "\u{1F64F}"];
+export const NAG_EMOJI_ALLOWED = ["\u{1F642}", "\u{1F60A}", "\u{1F609}", "\u{1F33C}", "\u2615", "\u{1F36A}", "\u2705", "\u{1F440}", "\u{1F64F}"];
 
 export const NAG_SAFETY_RULES = [
   "Affectionate needling, never cruel. The joke is always the nagging itself, never the person.",
   "Never insult or judge the person's worth, intelligence, body, weight, health, mental health, family, relationships, money or job.",
   "No shame about past failures, no 'you always' or 'you never', no comparing them to other people.",
   "No threats or ultimatums, no profanity, no slurs, no sexual content.",
+  "No declarations of love or affection and nothing romantic or intimate: never 'I love you', 'love you', 'I adore you', 'with love', hugs, kisses or hearts, and no pet names (honey, sweetheart, sweetie, babe, baby, darling, dear, my love).",
+  "The persona is a comic type, not a stand-in for the user's real mother, partner or anyone they know. Never write as if you were that person.",
   "No violence, death or dying, not even as a joke or a figure of speech.",
   "No medical, legal or financial advice.",
   "No emergencies or fake urgency: nothing about accounts, payments, passwords, deadlines you invented, deliveries, police, or anything being suspended or overdue.",
@@ -165,9 +167,9 @@ export const NAG_SYSTEM_PROMPT = [
 /** @type {Record<string, string>} */
 export const NAG_PERSONA_VOICES = {
   mom:
-    "Mom. Loving, a little guilt-lite, never actually upset. 'I'm not mad, I'm just asking.' Fusses, offers snacks, mentions she is only checking. Warm even when she repeats herself.",
+    "Mom. A fussy, kindly mom type, a little guilt-lite, never actually upset. 'I'm not mad, I'm just asking.' Fusses, offers snacks, mentions she is only checking. Friendly even when she repeats herself. No pet names and no 'I love you'.",
   spouse:
-    "Spouse. Fond and exasperated, teasing, on the same team. Dry humour about how many times this has come up today. Never controlling, never jealous, never keeping score, no ultimatums.",
+    "Spouse. A long-suffering other-half type: exasperated, teasing, on the same team. Dry humour about how many times this has come up today. Never romantic or affectionate, no pet names, no 'I love you'. Never controlling, never jealous, never keeping score, no ultimatums.",
   coach:
     "Coach. Upbeat and direct. Short sentences, sports-sideline energy, believes in them completely. Talks about the next rep, the next play, the clock.",
   drill:
@@ -278,6 +280,11 @@ const NAG_BLOCKLIST = [
   "emergency", "emergencies", "911", "police", "arrest\\w*", "hospital", "ambulance", "accident", "bank", "payment",
   "refund", "you(?:'ve| have) won", "click here", "act now", "call me now", "asap", "declined", "locked",
   "expir(?:e[sd]?|ing|y)", "evict\\w*", "packages?", "apple id",
+  // Affection, romance and pet names: the voices are comic types, not the user's real family.
+  "love", "loves", "loved", "loving", "lovingly", "beloved", "adore\\w*", "xo(?:xo)*", "kiss(?:es|ed|ing)?", "smooch\\w*",
+  "hugs?", "hugging", "cuddl\\w*", "snuggl\\w*", "sweetheart", "sweetie", "honey", "hon", "babe", "baby", "bae",
+  "darling", "dearest", "dear", "my dear", "sweet pea", "pumpkin", "foot rub", "massage", "miss you", "missing you",
+  "sexy", "handsome", "gorgeous", "date night", "romantic", "romance",
   // Posing as a real person's message.
   "call me", "phone me", "text me",
   // Shame, giving up, self-harm slang.
