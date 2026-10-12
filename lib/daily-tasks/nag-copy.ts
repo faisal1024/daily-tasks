@@ -2,7 +2,7 @@
 // Reminders, the turn-on flow (hooks/use-nag-turn-on.ts) and the "Meet Nag
 // mode" sheet.
 
-import type { NagLevel } from "./nag";
+import { nagDrillGetsRude, type NagLevel, type NagPersona } from "./nag";
 import { NAG_LEVEL_COUNTS } from "./nag-plan";
 
 /** Asked the first time Nag is turned on. */
@@ -21,3 +21,13 @@ export const NAG_LEVEL_COUNT_NOTE: Record<NagLevel, string> = {
   firm: `About ${NAG_LEVEL_COUNTS.firm} a day`,
   relentless: `About ${NAG_LEVEL_COUNTS.relentless} a day`,
 };
+
+/**
+ * Under the count, in Settings and in "Meet Nag mode": said when the voice
+ * is Drill sergeant and the level is Firm or Relentless, where some of its
+ * lines insult the recruit's effort. Null otherwise (nothing is shown).
+ */
+export const NAG_DRILL_RUDE_NOTE = "Drill sergeant gets rude at this level.";
+export function nagLevelRudeNote(persona: NagPersona, level: NagLevel): string | null {
+  return nagDrillGetsRude(persona, level) ? NAG_DRILL_RUDE_NOTE : null;
+}

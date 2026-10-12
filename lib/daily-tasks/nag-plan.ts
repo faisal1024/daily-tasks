@@ -15,6 +15,7 @@
 import { fromDateKey, toDateKey } from "./date";
 import {
   builtInNagLines,
+  isAffectionateNagLine,
   NAG_LEVELS,
   NAG_PERSONAS,
   nagTitle,
@@ -440,17 +441,20 @@ function aiLinesFit(record: NagDayRecord, persona: NagPersona, level: NagLevel, 
  * The future slots of `slots` with the lines of a batch written in; a slot
  * the batch has no line for keeps its words. So does a slot whose line was
  * already said today (a nag that went off, or an earlier slot here): no two
- * nags of a day say the same thing.
+ * nags of a day say the same thing. And so does a slot whose line is
+ * affectionate (isAffectionateNagLine; `ownTexts` are the open tasks' words,
+ * which are excused): the batch may be one saved before Nag mode stopped
+ * saying such things, and the slot's built-in line is used instead.
  */
 function withLines(
   slots: NagSlot[],
-  { lines, lineTasks, total, nowMs }: { lines: NagLine[]; lineTasks: string[]; total: number; nowMs: number },
+  { lines, lineTasks, total, nowMs, ownTexts }: { lines: NagLine[]; lineTasks: string[]; total: number; nowMs: number; ownTexts: string[] },
 ): NagSlot[] {
   const said = new Set(slots.filter((slot) => slot.fireAtMs <= nowMs && slot.text).map((slot) => slot.text));
   return slots.map((slot) => {
     if (slot.fireAtMs <= nowMs) return slot;
     const line = lineForStep(lines, slot.step, total);
-    if (!line || said.has(line.text)) {
+    if (!line || said.has(line.text) || isAffectionateNagLine(line.text, ownTexts)) {
       if (slot.text) said.add(slot.text);
       return slot;
     }
@@ -552,7 +556,7 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
 
   const keepAi = sameDay && !hideNames && aiLinesFit(previous, persona, level, open);
   if (keepAi) {
-    slots = withLines([...past, ...slots], { lines: previous.lines, lineTasks: previous.lineTasks, total, nowMs }).slice(past.length);
+    slots = withLines([...past, ...slots], { lines: previous.lines, lineTasks: previous.lineTasks, total, nowMs, ownTexts: open.map((task) => task.text) }).slice(past.length);
   }
 
   return {
@@ -616,7 +620,7 @@ export function applyAiNagLines(record: NagDayRecord, lines: NagLine[], open: Na
     lines,
     lineTasks,
     source: "ai",
-    slots: withLines(record.slots, { lines, lineTasks, total: record.total, nowMs: now.getTime() }),
+    slots: withLines(record.slots, { lines, lineTasks, total: record.total, nowMs: now.getTime(), ownTexts: open.map((task) => task.text) }),
     version: record.version + 1,
   };
 }
@@ -645,7 +649,9 @@ export function nagRecordApplies(record: NagDayRecord | null, context: NagPlanCo
  * The nags to have pending, from the day's record: its future slots with the
  * same id, time and words, so the scheduler leaves them alone. A slot whose
  * task is done or gone is pointed at the next open task with a built-in line
- * for the same step. Nothing when nag mode doesn't apply, it is paused today,
+ * for the same step. So is a slot holding an affectionate AI line saved
+ * before Nag mode stopped saying such things (isAffectionateNagLine; the
+ * open tasks' own words are excused). Nothing when nag mode doesn't apply, it is paused today,
  * the record is another day's, or nothing is open. Never time-sensitive: a
  * nag does not break through a Focus.
  *
@@ -670,6 +676,9 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
     builtInNagLines({ persona: record.persona, level: record.level, tasks, count: record.total, seed: `${record.dayKey}|${record.salt}` });
   const general = rewrite ? builtIn([]) : [];
   const forNext = rewrite ? [] : builtIn([open[0]]);
+  const ownTexts = open.map((task) => task.text);
+  // Only an AI batch can hold such a line: no built-in line is affectionate.
+  const affectionate = (slot: NagSlot) => record.source === "ai" && isAffectionateNagLine(slot.text, ownTexts);
   const used = new Set<string>();
   for (const slot of record.slots) if (slot.text && (!rewrite || slot.fireAtMs <= nowMs)) used.add(slot.text);
   const plan: ReminderPlan = [];
@@ -680,7 +689,7 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
       if (past) continue;
       const line = unsaidLine(general, slot.step, record.total, used);
       words = line ? { text: line.text, taskId: null } : null;
-    } else if (slot.taskId !== null && !openIds.has(slot.taskId)) {
+    } else if ((slot.taskId !== null && !openIds.has(slot.taskId)) || affectionate(slot)) {
       const line = unsaidLine(forNext, slot.step, record.total, used);
       words = line ? { text: line.text, taskId: line.taskIndex === null ? null : open[0].id } : null;
     }

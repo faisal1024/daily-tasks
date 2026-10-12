@@ -46,7 +46,7 @@ import {
   NAG_PERSONA_LABELS,
   NAG_PERSONAS,
 } from "@/lib/daily-tasks/nag";
-import { NAG_LEVEL_COUNT_NOTE } from "@/lib/daily-tasks/nag-copy";
+import { NAG_LEVEL_COUNT_NOTE, nagLevelRudeNote } from "@/lib/daily-tasks/nag-copy";
 import { NAG_INTRO_SETTINGS_ROW } from "@/lib/daily-tasks/whats-new";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -957,6 +957,11 @@ export default function SettingsScreen() {
                 <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-level-count">
                   {NAG_LEVEL_COUNT_NOTE[nagLevel]}
                 </Text>
+                {nagLevelRudeNote(nagPersona, nagLevel) ? (
+                  <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-level-rude">
+                    {nagLevelRudeNote(nagPersona, nagLevel)}
+                  </Text>
+                ) : null}
               </View>
               <View className="gap-1">
                 <Text className="text-sm font-semibold text-foreground">Sample</Text>

@@ -33,7 +33,7 @@ import {
   type NagLevel,
   type NagPersona,
 } from "@/lib/daily-tasks/nag";
-import { NAG_LEVEL_COUNT_NOTE } from "@/lib/daily-tasks/nag-copy";
+import { NAG_LEVEL_COUNT_NOTE, nagLevelRudeNote } from "@/lib/daily-tasks/nag-copy";
 import { NAG_INTRO_COPY, nagIntroSamples } from "@/lib/daily-tasks/whats-new";
 
 /** From this text size up the two buttons scroll with the rest, so they never cover it. */
@@ -253,6 +253,11 @@ export function NagIntroSheet({
             <Text className="text-xs" style={{ color: colors.muted }} testID="nag-intro-level-count">
               {NAG_LEVEL_COUNT_NOTE[level]}
             </Text>
+            {nagLevelRudeNote(persona, level) ? (
+              <Text className="text-xs" style={{ color: colors.muted }} testID="nag-intro-level-rude">
+                {nagLevelRudeNote(persona, level)}
+              </Text>
+            ) : null}
           </View>
 
           {/* How one would look when it arrives. */}

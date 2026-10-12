@@ -512,7 +512,7 @@ describe("where task text goes", () => {
     }
     const analytics = JSON.stringify(analyticsFetch.mock.calls);
     expect(analytics).not.toMatch(TASK_WORDS);
-    expect(analytics).not.toMatch(/AI \d+:|please\.|champ|sweetheart|recruit/i);
+    expect(analytics).not.toMatch(/AI \d+:|please\.|champ|friend|recruit/i);
     for (const item of sent) {
       for (const [key, value] of Object.entries(item.properties)) {
         if (typeof value === "string" && !key.startsWith("$")) expect(value).toMatch(/^[A-Za-z0-9_.-]{1,80}$/);

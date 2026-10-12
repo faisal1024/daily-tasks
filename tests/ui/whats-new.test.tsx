@@ -802,6 +802,22 @@ describe("the sheet", () => {
     expect((await savedState()).notifications).toEqual(DEFAULT_NOTIFICATIONS);
   });
 
+  it("says the Drill sergeant gets rude, under the count, at Firm and Relentless only", async () => {
+    await openSheet();
+    const rude = () => inSheet().queryByTestId("nag-intro-level-rude");
+    // Mom, Firm.
+    expect(rude()).toBeNull();
+    await fireEvent.press(radio("Voice: Drill sergeant"));
+    expect(rude()?.props.children).toBe("Drill sergeant gets rude at this level.");
+    await fireEvent.press(radio("Level: Relentless"));
+    expect(rude()?.props.children).toBe("Drill sergeant gets rude at this level.");
+    await fireEvent.press(radio("Level: Gentle"));
+    expect(rude()).toBeNull();
+    await fireEvent.press(radio("Level: Firm"));
+    await fireEvent.press(radio("Voice: Spouse"));
+    expect(rude()).toBeNull();
+  });
+
   it("names the next open task, not a done one", async () => {
     await openSheet({ tasks: [WALK, STRETCH], todayCompletions: [WALK.id] });
     expect(sample()).toContain("“Stretch”");

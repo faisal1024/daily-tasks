@@ -493,7 +493,7 @@ describe("the day's lines", () => {
       ["nag_lines_loaded", "ai", 7],
       ["nag_lines_loaded", "local", 7],
     ]);
-    expect(JSON.stringify(analyticsFetch.mock.calls)).not.toMatch(/dentist|report|Walk|AI line|recruit|sweetheart/i);
+    expect(JSON.stringify(analyticsFetch.mock.calls)).not.toMatch(/dentist|report|Walk|AI line|recruit|friend/i);
     expect(networkFetch).not.toHaveBeenCalled();
   });
 });

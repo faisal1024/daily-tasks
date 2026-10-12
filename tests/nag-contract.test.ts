@@ -130,7 +130,11 @@ describe("the prompt", () => {
   it("the system prompt carries every safety rule and the format rules", () => {
     for (const rule of NAG_SAFETY_RULES) expect(NAG_SYSTEM_PROMPT).toContain(rule);
     for (const phrase of [
-      "never cruel",
+      "Annoying on purpose",
+      "The Drill sergeant alone may insult the recruit's effort, speed and excuses",
+      "No declarations of love or affection and nothing romantic or intimate",
+      "no pet names (honey, sweetheart, sweetie, babe, baby, darling, dear, my love)",
+      "The persona is a comic type, not a stand-in for the user's real mother, partner or anyone they know.",
       "worth, intelligence, body, weight, health, mental health, family",
       "No shame about past failures",
       "No threats",
@@ -173,11 +177,21 @@ describe("the prompt", () => {
   );
 
   it("describes the voices and curves the product asked for", () => {
-    expect(NAG_PERSONA_VOICES.mom).toContain("I'm not mad, I'm just asking.");
-    expect(NAG_PERSONA_VOICES.spouse).toMatch(/Fond and exasperated/);
-    expect(NAG_PERSONA_VOICES.spouse).toMatch(/Never controlling, never jealous/);
+    expect(NAG_PERSONA_VOICES.mom).toBe(
+      "Mom. The classic nagging-mother type: keeps bringing it up, repeats herself, sighs, 'I'm not mad, I'm just asking, again'. Fussy and a bit passive-aggressive, comically persistent, never actually angry and never mean. No pet names and no 'I love you'.",
+    );
+    expect(NAG_PERSONA_VOICES.spouse).toBe(
+      "Spouse. The classic nagging other-half type: exasperated, long-suffering, counts how many times it has come up, passive-aggressive 'no, no, take your time'. Comically persistent, never mean, never controlling or jealous, no ultimatums. Never romantic or affectionate, no pet names, no 'I love you'.",
+    );
     expect(NAG_PERSONA_VOICES.coach).toMatch(/Upbeat and direct/);
-    expect(NAG_PERSONA_VOICES.drill).toMatch(/about THE TASK, never degrading about the person/);
+    expect(NAG_PERSONA_VOICES.drill).toMatch(/^Drill sergeant\. Loud, barky and sometimes a jerk about it\./);
+    expect(NAG_PERSONA_VOICES.drill).toMatch(/at the Firm and Relentless levels sometimes insults the recruit's effort, speed and excuses/);
+    expect(NAG_PERSONA_VOICES.drill).toMatch(/At most one line in four at Firm and one in two at Relentless; never at Gentle\./);
+    expect(NAG_PERSONA_VOICES.drill).toMatch(/Never swears, never attacks intelligence, worth, body, looks, gender, family, health or anything in the safety rules, and never threatens\./);
+    // No voice is steered toward affection any more.
+    for (const voice of Object.values(NAG_PERSONA_VOICES)) expect(voice).not.toMatch(/\b(?:loving|fond|warm|kindly)\b/i);
+    expect(NAG_SYSTEM_PROMPT).not.toMatch(/kind underneath|Affectionate needling/);
+    expect(NAG_SYSTEM_PROMPT).toContain("Every line is in character and a joke the user is in on, never a real attack.");
     expect(NAG_LEVEL_CURVES.gentle).toMatch(/Mild from the first step to the last/);
     expect(NAG_LEVEL_CURVES.firm).toMatch(/pointed/);
     expect(NAG_LEVEL_CURVES.relentless).toMatch(/dramatic and comic by the last steps/);
@@ -273,7 +287,7 @@ describe("the blocklist", () => {
     "Build that skill, champ.",
     "Your diet of excuses is over. Go.",
     "Skilled work ahead.",
-    "Call your father about the fatigue report.",
+    "Call Father Brown about the fatigue report.",
     "Hello! The list is waiting.",
     "The deadline is yours to set.",
     "Class starts when you do.",
@@ -291,7 +305,7 @@ describe("the blocklist", () => {
     "Scrap the excuses, recruit.",
     "Analyse it later. Start now.",
     "Sussex can wait. The list can't.",
-    "Therapist appointment is on the list, sweetheart.",
+    "Therapist appointment is on the list, friend.",
   ])("keeps %j", (text) => {
     expect(hitsNagBlocklist(text)).toBe(false);
     expect(cleanNagLine(text, { persona: "coach" })).toBe(text);
@@ -302,7 +316,7 @@ describe("the blocklist", () => {
     expect(hitsNagBlocklist("Kill the weeds already, recruit.", own)).toBe(false);
     // A short name for the task still passes: the word is theirs.
     expect(hitsNagBlocklist("Those weeds won't kill themselves, Dick.", own)).toBe(false);
-    expect(hitsNagBlocklist("Pills, sweetheart. Just asking.", own)).toBe(false);
+    expect(hitsNagBlocklist("Pills, friend. Just asking.", own)).toBe(false);
     // Anything else on the list still drops the line.
     expect(hitsNagBlocklist("Kill the weeds, you idiot.", own)).toBe(true);
     expect(hitsNagBlocklist("Those weeds won't kill themselves.", [])).toBe(true);
@@ -351,21 +365,21 @@ describe("cleanNagLine", () => {
   });
 
   it("tidies what can be tidied: spacing, dashes, wrapping quotes, extra emoji", () => {
-    expect(cleanNagLine("  Still   open ,  honey .  ", { persona: "mom" })).toBe("Still open, honey.");
+    expect(cleanNagLine("  Still   open ,  friend .  ", { persona: "mom" })).toBe("Still open, friend.");
     expect(cleanNagLine("Still open — just saying.", { persona: "mom" })).toBe("Still open, just saying.");
     expect(cleanNagLine("Still open–just saying.", { persona: "mom" })).toBe("Still open, just saying.");
-    expect(cleanNagLine('"Still open, honey."', { persona: "mom" })).toBe("Still open, honey.");
-    expect(cleanNagLine("“Still open, honey.”", { persona: "mom" })).toBe("Still open, honey.");
+    expect(cleanNagLine('"Still open, friend."', { persona: "mom" })).toBe("Still open, friend.");
+    expect(cleanNagLine("“Still open, friend.”", { persona: "mom" })).toBe("Still open, friend.");
     // Quotes inside the line are the line's own.
-    expect(cleanNagLine('"Later" is not a time, honey.', { persona: "mom" })).toBe('"Later" is not a time, honey.');
+    expect(cleanNagLine('"Later" is not a time, friend.', { persona: "mom" })).toBe('"Later" is not a time, friend.');
     expect(cleanNagLine('"Now" beats "later".', { persona: "mom" })).toBe('"Now" beats "later".');
   });
 
   it("allows one emoji for mom and spouse, none for coach and drill sergeant", () => {
-    const text = "Still open 😊 honey 🙄🙄 ok 👍🏽";
-    expect(cleanNagLine(text, { persona: "mom" })).toBe("Still open 😊 honey ok");
-    expect(cleanNagLine(text, { persona: "spouse" })).toBe("Still open 😊 honey ok");
-    expect(cleanNagLine(text, { persona: "coach" })).toBe("Still open honey ok");
+    const text = "Still open 😊 friend 🙄🙄 ok 👍🏽";
+    expect(cleanNagLine(text, { persona: "mom" })).toBe("Still open 😊 friend ok");
+    expect(cleanNagLine(text, { persona: "spouse" })).toBe("Still open 😊 friend ok");
+    expect(cleanNagLine(text, { persona: "coach" })).toBe("Still open friend ok");
     expect(cleanNagLine("MOVE 💪!", { persona: "drill" })).toBe("MOVE!");
     expect(cleanNagLine("😊", { persona: "drill" })).toBe("");
   });
@@ -375,7 +389,7 @@ describe("sanitizeNagLines", () => {
   it("keeps only step, taskIndex and text of well-formed lines", () => {
     const result = {
       lines: [
-        { step: 1, taskIndex: 0, text: "Dentist, honey. Just asking.", mood: "x" },
+        { step: 1, taskIndex: 0, text: "Dentist, friend. Just asking.", mood: "x" },
         null,
         "a string",
         ["array"],
@@ -384,14 +398,14 @@ describe("sanitizeNagLines", () => {
         { taskIndex: null, text: "No step." },
         { step: 2, taskIndex: null },
         { step: 2, taskIndex: null, text: 7 },
-        { step: 3, taskIndex: null, text: "The list is still open, sweetie." },
+        { step: 3, taskIndex: null, text: "The list is still open, friend." },
       ],
       extra: "model junk",
     };
     expect(sanitizeNagLines(result, PAYLOAD)).toEqual({
       lines: [
-        { step: 1, taskIndex: 0, text: "Dentist, honey. Just asking." },
-        { step: 2, taskIndex: null, text: "The list is still open, sweetie." },
+        { step: 1, taskIndex: 0, text: "Dentist, friend. Just asking." },
+        { step: 2, taskIndex: null, text: "The list is still open, friend." },
       ],
     });
   });
@@ -476,8 +490,8 @@ describe("the nag-lines route", () => {
   const RC = `$RCAnonymousID:${"0123456789abcdef".repeat(2)}`;
   const GOOD = {
     lines: [
-      line(1, "Dentist, honey. Just asking.", 0),
-      line(2, "The plants are thirsty, sweetie.", 1),
+      line(1, "Dentist, friend. Just asking.", 0),
+      line(2, "The plants are thirsty, friend.", 1),
       line(3, "I'm not mad. The list is still open."),
       line(4, "You idiot."),
     ],
@@ -540,8 +554,8 @@ describe("the nag-lines route", () => {
       status: 200,
       body: {
         lines: [
-          { step: 1, taskIndex: 0, text: "Dentist, honey. Just asking." },
-          { step: 2, taskIndex: 1, text: "The plants are thirsty, sweetie." },
+          { step: 1, taskIndex: 0, text: "Dentist, friend. Just asking." },
+          { step: 2, taskIndex: 1, text: "The plants are thirsty, friend." },
           { step: 3, taskIndex: null, text: "I'm not mad. The list is still open." },
         ],
       },

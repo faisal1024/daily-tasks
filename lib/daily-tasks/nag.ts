@@ -106,6 +106,38 @@ function cut(value: string, max: number): string {
   return Array.from(value).slice(0, max).join("").trim();
 }
 
+// Affection, for this one purpose: Nag mode's voices are comic nagging types
+// and never say "I love you", use a pet name or send a hug, a kiss or a
+// heart. The proxy refuses such lines (its blocklist is the real check, and
+// much longer); this short copy is here because a batch fetched before that
+// rule may still be in today's saved record on a phone, and an older proxy
+// may still answer. Whole words, any case; "lovely" and "honeydew" pass.
+// \b and plain ranges only, so it runs on every engine.
+const AFFECTION_WORDS =
+  /\b(?:i love|love (?:you|ya|u)|luv|ily|with love|my love|ador(?:e|es|ed|ing)|sweetheart|sweetie|honey|hon|babe|baby|darling|dearest|hugs?|kiss(?:es)?|xoxo)\b/gi;
+// Hearts, kisses and heart-eyed faces (the red heart with or without its variation selector).
+const AFFECTION_EMOJI =
+  /[\u2763\u2764\u2665]|\uD83D[\uDC8B\uDC8C\uDC8F\uDC91\uDC93-\uDC9F\uDE0D\uDE17-\uDE1A\uDE3B\uDE3D]|\uD83E[\uDD0D\uDD0E\uDD70\uDDE1\uDE75-\uDE77]/;
+
+const affectionFold = (value: string) => withoutJoiners(oneLine(value)).replace(/[\u2018\u2019]/g, "'").toLowerCase();
+
+/**
+ * True when a line says something affectionate or intimate (see
+ * AFFECTION_WORDS). The user's own words don't count, as on the proxy: a
+ * line may repeat a task called "Buy honey" or "Buy a gift for my love". So
+ * each of `ownTexts` (the open tasks' text) is taken out of the line whole,
+ * and a word found after that is excused when it is a word of one of them.
+ * A heart is never excused.
+ */
+export function isAffectionateNagLine(text: string, ownTexts: readonly string[] = []): boolean {
+  if (AFFECTION_EMOJI.test(text)) return true;
+  const own = ownTexts.map(affectionFold).filter(Boolean).sort((a, b) => b.length - a.length);
+  let rest = affectionFold(text);
+  for (const value of own) rest = rest.split(value).join("|");
+  const ownWords = new Set(own.flatMap((value) => value.match(AFFECTION_WORDS) ?? []));
+  return (rest.match(AFFECTION_WORDS) ?? []).some((word) => !ownWords.has(word));
+}
+
 function clampCount(count: number): number {
   const whole = Number.isFinite(count) ? Math.floor(count) : MIN_NAG_COUNT;
   return Math.min(Math.max(whole, MIN_NAG_COUNT), MAX_NAG_COUNT);
@@ -116,9 +148,15 @@ function clampCount(count: number): number {
  * control characters become spaces; a line is dropped when its shape is
  * wrong, its text is empty, over MAX_NAG_LINE or holds a link, its taskIndex
  * isn't null or an index below `taskCount`, or the same text was already
- * kept. What's left is ordered by step, renumbered 1..n and capped at `count`.
+ * kept. An affectionate line is dropped too (isAffectionateNagLine; `ownTexts`
+ * are the tasks that were sent, whose words are excused): the nag it was for
+ * keeps its built-in line. No other blocklist runs here; that is the proxy's
+ * job. What's left is ordered by step, renumbered 1..n and capped at `count`.
  */
-export function parseNagResponse(data: unknown, { taskCount, count }: { taskCount: number; count: number }): NagLine[] {
+export function parseNagResponse(
+  data: unknown,
+  { taskCount, count, ownTexts = [] }: { taskCount: number; count: number; ownTexts?: readonly string[] },
+): NagLine[] {
   const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
   const list = Array.isArray(record.lines) ? record.lines : [];
   const candidates: { step: number; position: number; taskIndex: number | null; text: string }[] = [];
@@ -133,6 +171,7 @@ export function parseNagResponse(data: unknown, { taskCount, count }: { taskCoun
     if (BIDI.test(rawText)) return;
     const text = oneLine(rawText);
     if (!text || Array.from(text).length > MAX_NAG_LINE || LINK_PATTERN.test(withoutJoiners(text))) return;
+    if (isAffectionateNagLine(text, ownTexts)) return;
     candidates.push({ step, position, taskIndex: taskIndex as number | null, text });
   });
   candidates.sort((a, b) => a.step - b.step || a.position - b.position);
@@ -209,7 +248,7 @@ export async function requestNagLines({
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     ...(fetchImpl ? { fetchImpl } : {}),
   });
-  const lines = parseNagResponse(data, { taskCount: sent.length, count: wanted }).map((line) => ({
+  const lines = parseNagResponse(data, { taskCount: sent.length, count: wanted, ownTexts: sent.map(({ text }) => text) }).map((line) => ({
     ...line,
     taskIndex: line.taskIndex === null ? null : sent[line.taskIndex].from,
   }));
@@ -233,10 +272,17 @@ export async function requestNagLines({
  * at four in the afternoon starts with "early" lines. So no line names a
  * time of day (NAG_CLOCK_WORDS; a test checks every line).
  *
- * Same rules as the AI lines: needling with affection, about the task and the
+ * Same rules as the AI lines: annoying on purpose, about the task and the
  * nagging, never about the person. No insults, shame, threats, profanity,
  * fake urgency, advice, emoji or em dashes, and nothing that reads like a
- * real message from a real person ("it's your mother", "call me"). {task} is
+ * real message from a real person ("it's your mother", "call me"). Nothing
+ * affectionate or intimate either: Mom and Spouse are the classic nagging
+ * types (they repeat themselves, sigh, won't let it drop), never a loving
+ * relative, so no line declares love or fondness, uses a pet name, or
+ * mentions a hug, a kiss, a shared bed or a marriage (isAffectionateNagLine,
+ * and the proxy's blocklist; tests check every line against both). One
+ * exception to "never about the person": the Drill sergeant is sometimes
+ * rude about the recruit's effort at Firm and Relentless (NAG_DRILL_RUDE). {task} is
  * the quoted task name (at most 40 characters), so a line with it is 74
  * characters or fewer and every line fits in NAG_BUILT_IN_MAX_CHARS.
  *
@@ -279,105 +325,105 @@ export const NAG_CLOCK_WORDS = [
 export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
   mom: {
     early: [
-      "Hello there. Just checking on {task}. No rush.",
-      "Hi. Did {task} happen yet? Only asking.",
-      "I'm not mad, I'm just asking. How's the list going?",
-      "Have you eaten? Also, {task}. In that order is fine.",
-      "Hello, you! Your list and I are both thinking of you.",
-      "So, {task} is on today's list. I'm sure you knew.",
-      "Just a little hello from your list. And from me.",
+      "I'm not mad, I'm just asking. Did {task} happen yet?",
+      "Have you eaten? Good. Now, about {task}.",
+      "I'm only mentioning {task} once. For now.",
+      "So, {task} is on today's list. I'm sure you knew. I'm checking.",
+      "I'm not nagging. I'm just asking. How's the list going?",
       "Have you had some water? Good. Now, about that list.",
-      "I'm only peeking at your list. It looks very doable.",
-      "No rush at all. The list is there when you're ready.",
+      "I'm only peeking at your list. I'll be peeking again.",
+      "Just a little hello from your list. And a little look from me.",
+      "No rush. I'll only ask about the list a few more times.",
+      "I looked at your list. I'm not saying anything. Yet.",
     ],
     mid: {
       gentle: [
         "Just checking again. {task} is still on your list, that's all.",
-        "No pressure. I just happened to think of {task}.",
-        "I'm sure you're busy. A little time for the list, maybe?",
-        "Still thinking about your list. Kindly, of course.",
-        "One little tick would be lovely. Only if you have a minute.",
+        "I don't like to repeat things. Anyway: {task}.",
+        "I'm sure you're busy. I'm sure the list can tell.",
+        "Still thinking about your list. Out loud, apparently.",
+        "One little tick would be nice. I'm only saying. Again.",
       ],
       firm: [
         "I don't want to nag, but {task} isn't going to do itself.",
-        "I'm only looking. And I notice {task} is still open.",
+        "Don't mind me. I'll just keep bringing up {task}.",
         "I'm not saying anything. I'm just looking at your list. Hm.",
         "I don't want to nag. I'm going to, but I don't want to.",
-        "The list is still open. I'm sure that's on purpose.",
+        "The list is still open. I'm sure that's on purpose. Sigh.",
       ],
     },
     late: {
       gentle: [
-        "No hurry. There's still a little time for {task}.",
-        "One small thing, then I'll hush: {task}.",
-        "Whatever you get done today is fine by me. Truly.",
-        "One more tick would make me smile. No pressure.",
+        "One small thing, then I'll hush: {task}. I won't hush.",
+        "I'm not mad about {task}. I'm just asking. Again.",
+        "Whatever you get done today is fine. I'll still ask, mind you.",
+        "One more tick and I'll stop asking. Probably.",
       ],
       firm: [
         "I've asked nicely, more than once. {task}, please.",
-        "I looked again and {task} is still sitting there.",
-        "You know what would make my day? One more tick.",
+        "Did you do {task} yet? No? I'll wait. I won't, actually.",
         "I keep looking at your list. It keeps looking the same.",
-        "I've asked so nicely. The list is still open. Hm.",
+        "I asked nicely. Then I asked again. Now I'm just asking.",
+        "You know what would make my day? One tick. Just the one.",
       ],
       relentless: [
-        "I taught you to tie your shoes. You can manage ten minutes on {task}.",
-        "I've put {task} on the fridge. With a magnet. That's where we are now.",
-        "I'll just sit here with my tea, thinking about {task}.",
-        "I've lost count of my reminders. Your list is still open.",
-        "I've told the houseplants about your list. They're rooting for you.",
+        "Do I have to come over there about {task}?",
+        "I've put {task} on the fridge. With a magnet. That's where we are.",
+        "Sigh. {task}. Still. I'll be here with my tea, sighing.",
+        "I've lost count of my reminders. I'm starting the count over.",
+        "I've told the houseplants about your list. Even the fern is sighing.",
       ],
     },
   },
   spouse: {
     early: [
-      "Hey you. Reminder from your other half: {task}.",
-      "Hi, you. {task} is on today's list. Just saying.",
+      "Remember {task}? The thing I mentioned? I'm mentioning it.",
+      "I'm not nagging. I'm reminding. {task}. See? A reminder.",
+      "{task} is on today's list. Just saying. I'll say it again.",
+      "Coffee first, then {task}. I'll be checking. Often.",
       "Not nagging. Reminding. Big difference. How's the list?",
-      "Today's the day for {task}. I believe in you.",
-      "Coffee first, then {task}. I know how you work.",
-      "Today's list looks doable. Says me, your biggest fan.",
-      "Just a friendly little poke about the list. That's all.",
-      "Your list says hi. I say hi too, with more charm.",
-      "I believe in you and your list. Mostly you.",
-      "Pick any one to start. I'll cheer for whichever.",
+      "Your list is open. I noticed. I notice things.",
+      "Just a small poke about the list. The first of several.",
+      "I'm sure you've seen the list. I'm mentioning it anyway.",
+      "Pick any one to start. I'll be watching. Supportively.",
+      "Fresh list. I'd rather not bring it up again. I will, though.",
     ],
     mid: {
       gentle: [
-        "Thinking of you. Also thinking of {task}.",
-        "Back again, as promised. {task} is still waiting for you.",
-        "Small reminder, big smile. The list is still open.",
-        "Still on your team. Still looking at your list.",
-        "A gentle poke about the list, from your biggest fan.",
+        "Back again, as promised. {task} is still waiting.",
+        "Not to go on about it, but {task}. I'm going on about it.",
+        "Small reminder, patient smile. The list is still open.",
+        "Still on your team. Still looking at your list. Pointedly.",
+        "Look at me, not saying anything about the list. Ahem.",
       ],
       firm: [
         "So. {task}. We talked about this. Well, I talked.",
-        "You're great. {task} is still not done. Both things are true.",
+        "No, no, take your time with {task}. I'll wait. Loudly.",
         "This is reminder number several. The list hasn't moved.",
         "Ahem. The list. I say this with a raised eyebrow.",
-        "I'm a fan of yours. The list is still open. Both feelings fit.",
+        "I'm not nagging. I'm reminding. Loudly.",
       ],
     },
     late: {
       gentle: [
-        "Hey, you. Still time for {task} if you're up for it.",
-        "One quick thing while I have you: {task}.",
-        "However today went, I'm on your team. One more tick?",
-        "Whatever gets ticked today, I'm still on your side.",
+        "One quick thing, and I know I've said it: {task}.",
+        "Are you doing {task}, or are you 'about to' do it?",
+        "However today went, I'm on your team. One more tick, though?",
+        "I'll stop mentioning the list soon. Not yet. Soon.",
       ],
       firm: [
         "I'm running out of polite ways to say {task}.",
-        "Partner. Teammate. Fellow adult. {task}. Please.",
-        "The list is still open. I checked. Twice.",
-        "I'm running out of polite ways to mention your list.",
-        "Attention, please. The list. That is the whole reminder.",
+        "I put {task} on the list so I wouldn't have to say it. Here I am.",
+        "The list is still open. I checked. Twice. Then once more.",
+        "I'm not going to say it again. I'm saying it again: the list.",
+        "Sigh. The list. That is the whole reminder.",
       ],
       relentless: [
-        "I've started telling the cat about {task}. The cat is concerned.",
+        "I've mentioned {task} once. Twice. I've stopped counting. I haven't.",
         "I'm writing a ballad about {task}. It has nine verses so far.",
-        "Picture me in the doorway, arms folded, saying {task}.",
-        "At this point your list is basically our third housemate.",
+        "Fine. Leave {task}. See if I bring it up again. I will.",
         "I've started humming a sad little song about your list.",
+        "I could recite your list from memory by now. Please tick one.",
       ],
     },
   },
@@ -454,12 +500,13 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
         "Carry on, recruit. The list is still on the board.",
         "Good marching, recruit. Next item when ready.",
       ],
+      // Two of the five are rude (see NAG_DRILL_RUDE).
       firm: [
         "Recruit! {task} is still standing. Fix that.",
+        "Is that the best you've got, maggot? {task} is STILL open.",
         "That list is not going to clear itself. MOVE, recruit.",
-        "I want {task} done, and I want it done today.",
         "Recruit! That list is still open. I have NOTICED.",
-        "The list has not moved, recruit. Neither have I.",
+        "You call that effort, cupcake? The list has not moved.",
       ],
     },
     late: {
@@ -469,23 +516,41 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
         "Good effort today, recruit. Anything left can be quick.",
         "Final formation, recruit. One more tick, then at ease.",
       ],
+      // Two of the five are rude.
       firm: [
-        "RECRUIT. {task}. Double time.",
         "{task} is STILL on my board, recruit. I checked.",
+        "I've seen slugs with more urgency, recruit. {task}. NOW.",
         "I did not polish these boots to watch a list sit there. MOVE.",
         "RECRUIT. The list. Double time.",
-        "I have inspected that list again. It is STILL open.",
+        "Did I say you could rest, slacker? The list is STILL open.",
       ],
+      // Four of the five are rude.
       relentless: [
-        "{task}! DROP AND GIVE ME TEN MINUTES, RECRUIT!",
+        "{task}! DROP AND GIVE ME TEN MINUTES, MAGGOT!",
+        "My grandmother ticks faster than you, recruit. {task}. MOVE.",
         "I am YELLING at a to-do list. That's what {task} has done to me.",
-        "That list is LAUGHING at us, recruit. Are we going to stand for that?",
-        "I have saluted {task} for the last time. FINISH IT.",
-        "I am doing push-ups next to your list, recruit. TICK SOMETHING.",
+        "I've seen houseplants with more hustle. TICK SOMETHING, WORM.",
+        "Pathetic. Not you. Fine, a little bit you. The list. NOW.",
       ],
     },
   },
 };
+
+/**
+ * What marks a Drill sergeant line as rude: the boot-camp contempt for the
+ * recruit's effort, speed and excuses that this voice alone may use, and only
+ * in its `firm` and `relentless` pools (never `early` or `gentle`, so a
+ * Gentle day has none; a test checks every pool). About one line in four of
+ * a Firm day and one in three of a Relentless day (half of its lines after
+ * the opening ones) come out rude. Nothing about the person's worth,
+ * intelligence, body or anything else in the safety rules, and no swearing.
+ */
+export const NAG_DRILL_RUDE = /\b(?:maggot|worm|slacker|cupcake|slugs|grandmother|houseplants|pathetic|did i say you could rest)\b/i;
+
+/** The Drill sergeant insults the recruit's effort at this level (Firm and Relentless; Settings says so). */
+export function nagDrillGetsRude(persona: NagPersona, level: NagLevel): boolean {
+  return persona === "drill" && level !== "gentle";
+}
 
 type NagStage = "early" | "mid" | "late";
 const STAGES: readonly NagStage[] = ["early", "mid", "late"];
