@@ -108,7 +108,7 @@ const taskAt = (id: string, text: string): Task => ({ id, text, createdAt: new D
 const TASKS = [taskAt("t0", "Zorvex the plimth"), taskAt("t1", "Quandle a brispo"), taskAt("t2", "Fennock wuxley")];
 const TASK_WORDS = /zorvex|plimth|quandle|brispo|fennock|wuxley|drambo|kleptu/i;
 // Words only a nag's line has: the AI's (below) and a few from each built-in voice.
-const LINE_WORDS = /AI \d+:|please\.|sweetheart|honey|your mother|recruit|champ|better half|babe/i;
+const LINE_WORDS = /AI \d+:|please\.|friend|friend|your mother|recruit|champ|better half|babe/i;
 const NAG_ON: NotificationConfig = { ...DEFAULT_NOTIFICATIONS, style: "nag", nagConfirmed: true };
 
 const savedState = (notifications: Partial<NotificationConfig>, extra: Partial<AppState> = {}): AppState => {

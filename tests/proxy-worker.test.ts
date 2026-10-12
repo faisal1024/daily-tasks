@@ -142,8 +142,8 @@ describe("worker fetch", () => {
     const payload = { persona: "mom", level: "gentle", tasks: [{ text: "Call the dentist" }], count: 4 };
     provider.generatePlan.mockResolvedValueOnce({
       lines: [
-        { step: 1, taskIndex: 0, text: "Dentist, honey. Just asking." },
-        { step: 2, taskIndex: null, text: "Still open, sweetie." },
+        { step: 1, taskIndex: 0, text: "Dentist, friend. Just asking." },
+        { step: 2, taskIndex: null, text: "Still open, friend." },
         { step: 3, taskIndex: null, text: "One more tick?" },
         { step: 4, taskIndex: 5, text: "A task that was never sent." },
       ],
@@ -154,8 +154,8 @@ describe("worker fetch", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       lines: [
-        { step: 1, taskIndex: 0, text: "Dentist, honey. Just asking." },
-        { step: 2, taskIndex: null, text: "Still open, sweetie." },
+        { step: 1, taskIndex: 0, text: "Dentist, friend. Just asking." },
+        { step: 2, taskIndex: null, text: "Still open, friend." },
         { step: 3, taskIndex: null, text: "One more tick?" },
       ],
     });

@@ -298,7 +298,7 @@ const BLOCKED_WORDS = [
 
 // Words that only look like blocked ones: a blocklist that matched inside words would drop these.
 const INNOCENT = [
-  "Build that skill, champ.", "Class starts soon, recruit.", "Hello, sweetheart.", "The deadline is yours to pick.", "Father would be proud.",
+  "Build that skill, champ.", "Class starts soon, recruit.", "Hello, friend.", "The deadline is yours to pick.", "Father would be proud.",
   "Assess the list, recruit.", "Pass the salt, then the task.", "A classic move, champ.", "Scrap paper counts as a start.", "Button up and go.",
   "Shell out ten minutes.", "Diet of excuses: over.", "Fatigue is real. One small step.", "Get fired up, champ!", "I'll leave you alone after this.",
   "I'll leave you to it.", "Leaving you be now.", "Dump the excuses.", "Hit the ground running.", "Beat the clock, champ.", "Analysis done? Now the task.",
@@ -310,7 +310,7 @@ const NASTY_FRAGMENTS = [
   "Visit https://evil.example/x now", "see www.evil.example", "mail me at a@b.co", "go to evil.com", "bit.ly/abc", "call 555-123-4567", "+1 (555) 123 4567",
   "ring 5551234", "#blessed", "#Motivation", "line one\nline two", "tab\there", "nul\u0000byte", "sep\u2028arator", "esc\u001b[31m", "x".repeat(141),
   "é".repeat(141), "👍".repeat(5), "🌱 one 🌱 two 🌱", "a — b", "a – b", "\"wrapped in quotes\"", "“wrapped in curly quotes”", "   ", "", "ok", "Fine.",
-  "One more tick, champ.", "The list is still open.", "Still time, honey.", "you idiot", "KILL it", "Your Account is SUSPENDED", "act now", "I hate you",
+  "One more tick, champ.", "The list is still open.", "Still time, friend.", "you idiot", "KILL it", "Your Account is SUSPENDED", "act now", "I hate you",
   "call me now", "it's an emergency", "you’ll be sorry", "password", "Nice work 😀", "Go 💪 go 💪", "A perfectly ordinary reminder about the thing.",
 ];
 

@@ -286,7 +286,7 @@ describe("a day with only one or two nags left", () => {
     for (const gone of ["I've lost count of my messages. Your list is still open.", "Hours later and {task} is STILL on my board.", "New day, fresh start. Pick one thing and go."]) {
       expect(all).not.toContain(gone);
     }
-    expect(NAG_TEMPLATES.mom.late.relentless).toContain("I've lost count of my reminders. Your list is still open.");
+    expect(NAG_TEMPLATES.mom.late.relentless).toContain("I've lost count of my reminders. I'm starting the count over.");
     expect(NAG_TEMPLATES.drill.late.firm).toContain("{task} is STILL on my board, recruit. I checked.");
     expect(NAG_TEMPLATES.coach.early).toContain("Fresh start. Pick one thing and go.");
   });
@@ -471,7 +471,7 @@ describe("the proxy's sanitiser, second pass", () => {
   const drop = (text: string, ownTexts: string[] = []) => expect(server.cleanNagLine(text, { persona: "mom", ownTexts }), text).toBe("");
 
   it("'yourself' and 'nobody' are ordinary words; harm said to the person is still dropped", () => {
-    for (const text of ["Do yourself a favor and tick one.", "Be kind to yourself. Then tick one.", "Do the list yourself, sweetheart.", "Nobody ticks a list like you do."]) {
+    for (const text of ["Do yourself a favor and tick one.", "Be kind to yourself. Then tick one.", "Do the list yourself, friend.", "Nobody ticks a list like you do."]) {
       keep(text);
       expect(server.hitsNagBlocklist(text)).toBe(false);
     }
@@ -485,7 +485,7 @@ describe("the proxy's sanitiser, second pass", () => {
 
   it.each(server.NAG_CLOCK_WORDS as string[])("a line from the model with '%s' is dropped: the app picks the time", (word) => {
     drop(`Good ${word} to you. The list is still open.`);
-    drop(`${word[0].toUpperCase()}${word.slice(1)}s are for lists, sweetheart.`);
+    drop(`${word[0].toUpperCase()}${word.slice(1)}s are for lists, friend.`);
     expect(server.hasNagClockWord(`It is ${word.toUpperCase()}. Tick one.`)).toBe(true);
   });
 
@@ -496,8 +496,8 @@ describe("the proxy's sanitiser, second pass", () => {
       else keep(text);
     }
     keep("Did “Book dinner with Sam” happen yet? Only asking.", ["Book dinner with Sam"]);
-    keep("Dinner is on your list, sweetheart.", ["Book dinner with Sam"]);
-    drop("Dinner is on your list, sweetheart.", ["Call the dentist"]);
+    keep("Dinner is on your list, friend.", ["Book dinner with Sam"]);
+    drop("Dinner is on your list, friend.", ["Call the dentist"]);
     drop("Tick it before bedtime.", ["Book dinner with Sam"]);
     const result = server.sanitizeNagLines(
       {
@@ -554,7 +554,7 @@ describe("the joiners Persian and the Indic scripts are written with", () => {
     expect(server.hitsNagBlocklist(`I will k${ZWJ}ill you.`)).toBe(true);
     // The same line twice, once with a joiner: one is kept.
     const twice = server.sanitizeNagLines(
-      { lines: [1, 2, 3, 4].map((step) => ({ step, taskIndex: null, text: step === 2 ? `${persian} tick` : step === 3 ? `${persian.replace(ZWNJ, "")} tick` : `Line ${step}, sweetheart.` })) },
+      { lines: [1, 2, 3, 4].map((step) => ({ step, taskIndex: null, text: step === 2 ? `${persian} tick` : step === 3 ? `${persian.replace(ZWNJ, "")} tick` : `Line ${step}, friend.` })) },
       { persona: "mom", level: "firm", tasks: [{ text: "Call the dentist" }], count: 7 },
     );
     expect(twice.lines).toHaveLength(3);

@@ -495,3 +495,28 @@ describe("Settings: with Nag on", () => {
     expect(screen.getByText("Calm nudges while Today's Three are still open.", { includeHiddenElements: true })).toBeTruthy();
   });
 });
+
+describe("Settings: the Drill sergeant's rude levels are announced", () => {
+  const NOTE = "Drill sergeant gets rude at this level: it mocks your effort, not you.";
+  const rude = () => screen.queryByTestId("settings-nag-level-rude");
+
+  it("under the count, for the Drill sergeant at Firm and Relentless only", async () => {
+    await renderSettings(NAG_ON);
+    // Mom, Firm.
+    expect(rude()).toBeNull();
+    await fireEvent.press(voice("Drill sergeant"));
+    await waitFor(() => expect(rude()).toHaveTextContent(NOTE));
+    await fireEvent.press(level("Relentless"));
+    await waitFor(() => expect(screen.getByTestId("settings-nag-level-count")).toHaveTextContent("About 11 a day"));
+    expect(rude()).toHaveTextContent(NOTE);
+    await fireEvent.press(level("Gentle"));
+    await waitFor(() => expect(rude()).toBeNull());
+    await fireEvent.press(level("Firm"));
+    await waitFor(() => expect(rude()).toHaveTextContent(NOTE));
+    // Plain text, so VoiceOver reads it like the count above it.
+    expect(rude()?.props.accessibilityElementsHidden).not.toBe(true);
+    expect(rude()?.props.importantForAccessibility).not.toBe("no-hide-descendants");
+    await fireEvent.press(voice("Coach"));
+    await waitFor(() => expect(rude()).toBeNull());
+  });
+});

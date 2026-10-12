@@ -15,8 +15,11 @@
 import { fromDateKey, toDateKey } from "./date";
 import {
   builtInNagLines,
+  isAffectionateNagLine,
+  NAG_DRILL_RUDE,
   NAG_LEVELS,
   NAG_PERSONAS,
+  nagTaskIsSensitive,
   nagTitle,
   seededRandom,
   type NagLevel,
@@ -440,17 +443,20 @@ function aiLinesFit(record: NagDayRecord, persona: NagPersona, level: NagLevel, 
  * The future slots of `slots` with the lines of a batch written in; a slot
  * the batch has no line for keeps its words. So does a slot whose line was
  * already said today (a nag that went off, or an earlier slot here): no two
- * nags of a day say the same thing.
+ * nags of a day say the same thing. And so does a slot whose line is
+ * affectionate (isAffectionateNagLine; `ownTexts` are the open tasks' words,
+ * which are excused): the batch may be one saved before Nag mode stopped
+ * saying such things, and the slot's built-in line is used instead.
  */
 function withLines(
   slots: NagSlot[],
-  { lines, lineTasks, total, nowMs }: { lines: NagLine[]; lineTasks: string[]; total: number; nowMs: number },
+  { lines, lineTasks, total, nowMs, ownTexts }: { lines: NagLine[]; lineTasks: string[]; total: number; nowMs: number; ownTexts: string[] },
 ): NagSlot[] {
   const said = new Set(slots.filter((slot) => slot.fireAtMs <= nowMs && slot.text).map((slot) => slot.text));
   return slots.map((slot) => {
     if (slot.fireAtMs <= nowMs) return slot;
     const line = lineForStep(lines, slot.step, total);
-    if (!line || said.has(line.text)) {
+    if (!line || said.has(line.text) || isAffectionateNagLine(line.text, ownTexts)) {
       if (slot.text) said.add(slot.text);
       return slot;
     }
@@ -495,7 +501,9 @@ export interface NagDayPlanInput {
  * Built-in lines fill the slots; the AI's lines from earlier today are put
  * back when they still fit. A slot there is no line for stays in the record
  * with no words (it isn't scheduled), so it is back when there is one again.
- * No two slots of the day share their words.
+ * No two slots of the day share their words. No built-in line names a
+ * sensitive task, and with one among the open tasks (names hidden or not)
+ * the Drill sergeant has no rude line (builtInNagLines).
  */
 export function planNagDay({ previous, now, dayKey, settings, open, salt: freshSalt }: NagDayPlanInput): NagDayRecord {
   const { nagPersona: persona, nagLevel: level, nagWindow: window } = settings;
@@ -541,7 +549,8 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
   }
 
   const tasks = hideNames ? [] : open;
-  const lines = builtInNagLines({ persona, level, tasks, count: total, seed: `${dayKey}|${salt}` });
+  const sensitiveDay = open.some((task) => nagTaskIsSensitive(task.text));
+  const lines = builtInNagLines({ persona, level, tasks, count: total, seed: `${dayKey}|${salt}`, sensitiveDay });
   const said = new Set(past.filter((slot) => slot.text).map((slot) => slot.text));
   let slots = future.map((slot) => {
     const line = unsaidLine(lines, slot.step, total, said);
@@ -552,7 +561,7 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
 
   const keepAi = sameDay && !hideNames && aiLinesFit(previous, persona, level, open);
   if (keepAi) {
-    slots = withLines([...past, ...slots], { lines: previous.lines, lineTasks: previous.lineTasks, total, nowMs }).slice(past.length);
+    slots = withLines([...past, ...slots], { lines: previous.lines, lineTasks: previous.lineTasks, total, nowMs, ownTexts: open.map((task) => task.text) }).slice(past.length);
   }
 
   return {
@@ -616,7 +625,7 @@ export function applyAiNagLines(record: NagDayRecord, lines: NagLine[], open: Na
     lines,
     lineTasks,
     source: "ai",
-    slots: withLines(record.slots, { lines, lineTasks, total: record.total, nowMs: now.getTime() }),
+    slots: withLines(record.slots, { lines, lineTasks, total: record.total, nowMs: now.getTime(), ownTexts: open.map((task) => task.text) }),
     version: record.version + 1,
   };
 }
@@ -645,7 +654,14 @@ export function nagRecordApplies(record: NagDayRecord | null, context: NagPlanCo
  * The nags to have pending, from the day's record: its future slots with the
  * same id, time and words, so the scheduler leaves them alone. A slot whose
  * task is done or gone is pointed at the next open task with a built-in line
- * for the same step. Nothing when nag mode doesn't apply, it is paused today,
+ * for the same step. So is a slot holding an affectionate AI line saved
+ * before Nag mode stopped saying such things (isAffectionateNagLine; the
+ * open tasks' own words are excused), a slot of built-in lines that names a
+ * sensitive task, and, on a day with a sensitive task among the open ones, a
+ * Drill sergeant slot with a rude line (a record planned before those rules).
+ * The line put in never names a sensitive task (nagTaskIsSensitive): it is
+ * about the first open task that isn't one, or a general line when all are,
+ * and it is never rude on such a day. Nothing when nag mode doesn't apply, it is paused today,
  * the record is another day's, or nothing is open. Never time-sensitive: a
  * nag does not break through a Focus.
  *
@@ -666,10 +682,22 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
   // Written before names were hidden: nothing of what is still to come is
   // used, and the general lines go in as planNagDay will write them.
   const rewrite = hide && !record.hideNames;
+  const sensitiveIds = new Set(open.filter((task) => nagTaskIsSensitive(task.text)).map((task) => task.id));
+  const sensitiveDay = sensitiveIds.size > 0;
   const builtIn = (tasks: NagOpenTask[]) =>
-    builtInNagLines({ persona: record.persona, level: record.level, tasks, count: record.total, seed: `${record.dayKey}|${record.salt}` });
+    builtInNagLines({ persona: record.persona, level: record.level, tasks, count: record.total, seed: `${record.dayKey}|${record.salt}`, sensitiveDay });
+  // The task a line put in here is about: never a sensitive one.
+  const next = open.find((task) => !sensitiveIds.has(task.id)) ?? null;
   const general = rewrite ? builtIn([]) : [];
-  const forNext = rewrite ? [] : builtIn([open[0]]);
+  const forNext = rewrite ? [] : builtIn(next ? [next] : []);
+  const ownTexts = open.map((task) => task.text);
+  // Only an AI batch can hold such a line: no built-in line is affectionate.
+  const affectionate = (slot: NagSlot) => record.source === "ai" && isAffectionateNagLine(slot.text, ownTexts);
+  // Left from a record planned before sensitive tasks were kept out of the
+  // built-in lines. An AI line about such a task is the proxy's to keep plain.
+  const insensitive = (slot: NagSlot) =>
+    (record.source === "local" && slot.taskId !== null && sensitiveIds.has(slot.taskId)) ||
+    (sensitiveDay && record.persona === "drill" && NAG_DRILL_RUDE.test(slot.text));
   const used = new Set<string>();
   for (const slot of record.slots) if (slot.text && (!rewrite || slot.fireAtMs <= nowMs)) used.add(slot.text);
   const plan: ReminderPlan = [];
@@ -680,9 +708,9 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
       if (past) continue;
       const line = unsaidLine(general, slot.step, record.total, used);
       words = line ? { text: line.text, taskId: null } : null;
-    } else if (slot.taskId !== null && !openIds.has(slot.taskId)) {
+    } else if ((slot.taskId !== null && !openIds.has(slot.taskId)) || affectionate(slot) || insensitive(slot)) {
       const line = unsaidLine(forNext, slot.step, record.total, used);
-      words = line ? { text: line.text, taskId: line.taskIndex === null ? null : open[0].id } : null;
+      words = line ? { text: line.text, taskId: line.taskIndex === null || !next ? null : next.id } : null;
     }
     // No line for this slot (or none without a name): it isn't scheduled.
     if (!words || !words.text) continue;

@@ -65,6 +65,14 @@ describe("built-in lines", () => {
     const all = EVERY_LINE.map(({ template }) => template);
     for (const gone of [
       "Morning, sweetheart. Just checking on {task}. No rush.",
+      "Hi sweetheart. Just checking on {task}. No rush.",
+      "No hurry, honey. There's still a little time for {task}.",
+      "I taught you to tie your shoes. You can manage ten minutes on {task}.",
+      "Hi, love. {task} is on today's list. Just saying.",
+      "Hey, love. Still time for {task} if you're up for it.",
+      "I love you. {task} is still not done. Both things are true.",
+      "Love of my life. Light of my days. {task}. Please.",
+      "At this point your list is basically our third housemate.",
       "It's your mother. I notice {task} is still open.",
       "I carried you for nine months. Carry {task} for ten minutes.",
       "I'm lighting a candle for {task}. That's where we are now.",
@@ -74,18 +82,18 @@ describe("built-in lines", () => {
       expect(all).not.toContain(gone);
     }
     for (const there of [
-      "Hi sweetheart. Just checking on {task}. No rush.",
-      "Hello, you! Your list and I are both thinking of you.",
-      "No hurry, honey. There's still a little time for {task}.",
-      "Whatever you get done today is fine by me. Truly.",
-      "I looked again and {task} is still sitting there.",
-      "You know what would make my day? One more tick.",
-      "I'm only looking. And I notice {task} is still open.",
-      "I've put {task} on the fridge. With a magnet. That's where we are now.",
-      "I taught you to tie your shoes. You can manage ten minutes on {task}.",
-      "I've lost count of my reminders. Your list is still open.",
-      "Hi, love. {task} is on today's list. Just saying.",
-      "Hey, love. Still time for {task} if you're up for it.",
+      "I'm not mad, I'm just asking. Did {task} happen yet?",
+      "I'm only peeking at your list. I'll be peeking again.",
+      "I'm not mad about {task}. I'm just asking. Again.",
+      "Whatever you get done today is fine. I'll still ask, mind you.",
+      "Did you do {task} yet? No? I'll wait. I won't, actually.",
+      "You know what would make my day? One tick. Just the one.",
+      "Don't mind me. I'll just keep bringing up {task}.",
+      "I've put {task} on the fridge. With a magnet. That's where we are.",
+      "Do I have to come over there about {task}?",
+      "I've lost count of my reminders. I'm starting the count over.",
+      "{task} is on today's list. Just saying. I'll say it again.",
+      "Are you doing {task}, or are you 'about to' do it?",
       "Hey, champ. First play of the day: {task}.",
       "Eyes front, recruit. Today's mission: {task}.",
       "Inspection time. The list is waiting, recruit.",
@@ -209,7 +217,7 @@ describe("the proxy's sanitiser, hardened", () => {
     ["call me (end of line)", "When you see this, call me"],
     ["phone me", "Phone me about the list."],
     ["text me", "Text me once it is ticked."],
-    ["asap", "Tick it off ASAP, sweetheart."],
+    ["asap", "Tick it off ASAP, friend."],
     ["declined", "Your card was declined, also your list."],
     ["locked", "You will be locked out of the list."],
     ["expire", "This reminder will expire soon."],
@@ -273,8 +281,8 @@ describe("the proxy's sanitiser, hardened", () => {
   });
 
   it("mom and spouse may keep one emoji from the short list; any other emoji is taken out; coach and drill get none", () => {
-    expect(server.NAG_EMOJI_ALLOWED).toHaveLength(11);
-    for (const emoji of ["\u{1F642}", "\u{1F60A}", "\u{1F609}", "❤️", "❤", "\u{1F49B}", "\u{1F33C}", "☕", "\u{1F36A}", "✅", "\u{1F440}", "\u{1F64F}"]) {
+    expect(server.NAG_EMOJI_ALLOWED).toHaveLength(9);
+    for (const emoji of ["\u{1F642}", "\u{1F60A}", "\u{1F609}", "\u{1F33C}", "☕", "\u{1F36A}", "✅", "\u{1F440}", "\u{1F64F}"]) {
       for (const persona of ["mom", "spouse"]) {
         expect(server.cleanNagLine(`The list is still open ${emoji}`, { persona }), emoji).toBe(`The list is still open ${emoji}`);
       }
@@ -282,7 +290,8 @@ describe("the proxy's sanitiser, hardened", () => {
         expect(server.cleanNagLine(`The list is still open ${emoji}`, { persona }), emoji).toBe("The list is still open");
       }
     }
-    for (const emoji of ["\u{1F52A}", "\u{1F480}", "\u{1F621}", "\u{1F4A9}", "\u{1F595}", "\u{1F6A8}", "\u{1F4B8}", "\u{1F389}", "\u{1F64F}\u{1F3FD}", "\u{1F468}‍\u{1F469}‍\u{1F467}"]) {
+    // A heart is no longer on the list: it comes out and the line stays.
+    for (const emoji of ["❤️", "❤", "\u{1F49B}", "\u{1F495}", "\u{1F618}", "\u{1F60D}", "\u{1F52A}", "\u{1F480}", "\u{1F621}", "\u{1F4A9}", "\u{1F595}", "\u{1F6A8}", "\u{1F4B8}", "\u{1F389}", "\u{1F64F}\u{1F3FD}", "\u{1F468}‍\u{1F469}‍\u{1F467}"]) {
       expect(server.cleanNagLine(`The list is still open ${emoji}`, { persona: "mom" }), emoji).toBe("The list is still open");
     }
     // One at most, and one that isn't allowed doesn't use up the turn.
@@ -290,7 +299,7 @@ describe("the proxy's sanitiser, hardened", () => {
   });
 
   it("the user's own words still don't count against a line that repeats the task", () => {
-    keep("Time to kill the weeds, sweetheart.", { persona: "mom", ownTexts: ["Kill the weeds"] });
+    keep("Time to kill the weeds, friend.", { persona: "mom", ownTexts: ["Kill the weeds"] });
     keep("The pills are still on your list.", { persona: "mom", ownTexts: ["Take the pills"] });
     keep("Still open: hit the gym.", { persona: "coach", ownTexts: ["Hit the gym"] });
     keep("End the day with a walk, it is still open.", { persona: "mom", ownTexts: ["End the day with a walk"] });
@@ -334,7 +343,7 @@ describe("the proxy's sanitiser, hardened", () => {
     expect(server.NAG_SYSTEM_PROMPT).toContain(
       "- Do not mention the time of day or a meal (morning, afternoon, evening, tonight, noon, midnight, breakfast, lunch, dinner, bedtime, late): the app picks when each line is shown. A task's own words are fine.",
     );
-    expect(server.NAG_SYSTEM_PROMPT).toContain("only one of these: \u{1F642} \u{1F60A} \u{1F609} ❤️ \u{1F49B} \u{1F33C} ☕ \u{1F36A} ✅ \u{1F440} \u{1F64F}.");
+    expect(server.NAG_SYSTEM_PROMPT).toContain("only one of these: \u{1F642} \u{1F60A} \u{1F609} \u{1F33C} ☕ \u{1F36A} ✅ \u{1F440} \u{1F64F}. No hearts.");
     expect(server.NAG_SYSTEM_PROMPT).not.toMatch(/[–—]/);
   });
 
@@ -350,12 +359,12 @@ describe("the proxy's sanitiser, hardened", () => {
       {
         lines: [
           { step: 1, taskIndex: null, text: "Read this ‮backwards." },
-          { step: 2, taskIndex: null, text: "Still​ open, sweet­heart." },
+          { step: 2, taskIndex: null, text: "Still​ open, fri­end." },
         ],
       },
       { taskCount: 1, count: 4 },
     );
-    expect(lines).toEqual([{ step: 1, taskIndex: null, text: "Still open, sweetheart." }]);
+    expect(lines).toEqual([{ step: 1, taskIndex: null, text: "Still open, friend." }]);
   });
 });
 

@@ -75,15 +75,15 @@ describe("parseNagResponse (the app never trusts the wire)", () => {
   const parse = (lines: unknown, taskCount = 2, count = 16) => parseNagResponse({ lines }, { taskCount, count });
 
   it("keeps well-formed lines and only their three fields", () => {
-    expect(parse([{ step: 1, taskIndex: 0, text: "Dentist, honey.", extra: "x" }, line(2, "Still open.")])).toEqual([
-      { step: 1, taskIndex: 0, text: "Dentist, honey." },
+    expect(parse([{ step: 1, taskIndex: 0, text: "Dentist, friend.", extra: "x" }, line(2, "Still open.")])).toEqual([
+      { step: 1, taskIndex: 0, text: "Dentist, friend." },
       { step: 2, taskIndex: null, text: "Still open." },
     ]);
   });
 
   it("turns control characters into spaces and drops what's empty, too long or a link", () => {
     const result = parse([
-      line(1, `Still${NUL}open,\n honey.${LINE_SEP}Ok.`),
+      line(1, `Still${NUL}open,\n friend.${LINE_SEP}Ok.`),
       line(2, `${NUL}\n\t`),
       line(3, "x".repeat(MAX_NAG_LINE + 1)),
       line(4, "x".repeat(MAX_NAG_LINE)),
@@ -91,7 +91,7 @@ describe("parseNagResponse (the app never trusts the wire)", () => {
       line(6, "Go to www.example.org"),
       line(7, "Write to mom@home.com"),
     ]);
-    expect(result.map((l) => l.text)).toEqual(["Still open, honey. Ok.", "x".repeat(MAX_NAG_LINE)]);
+    expect(result.map((l) => l.text)).toEqual(["Still open, friend. Ok.", "x".repeat(MAX_NAG_LINE)]);
   });
 
   it("drops bad shapes and any taskIndex that isn't null or below the tasks sent", () => {
@@ -134,7 +134,7 @@ describe("parseNagResponse (the app never trusts the wire)", () => {
 
 describe("requestNagLines", () => {
   const input = { persona: "mom" as const, level: "firm" as const, tasks: TASKS, count: 6 };
-  const GOOD = { lines: [line(1, "Dentist, honey.", 0), line(2, "The plants, sweetie.", 1), line(3, "Still open.")] };
+  const GOOD = { lines: [line(1, "Dentist, friend.", 0), line(2, "The plants, friend.", 1), line(3, "Still open.")] };
 
   it("throws unavailable without a proxy URL or without a task, and never fetches", async () => {
     const fetchImpl = vi.fn();
@@ -161,8 +161,8 @@ describe("requestNagLines", () => {
     });
     expect(result).toEqual({
       lines: [
-        { step: 1, taskIndex: 0, text: "Dentist, honey." },
-        { step: 2, taskIndex: 1, text: "The plants, sweetie." },
+        { step: 1, taskIndex: 0, text: "Dentist, friend." },
+        { step: 2, taskIndex: 1, text: "The plants, friend." },
         { step: 3, taskIndex: null, text: "Still open." },
       ],
     });
@@ -325,7 +325,7 @@ describe("built-in templates", () => {
       expect(text, text).not.toMatch(/#|https?:|www\./);
       // The same check the AI lines get, unchanged by it.
       expect(server.cleanNagLine(text, { persona, ownTexts: [LONG_TASK] }), text).toBe(text);
-      expect(server.hitsNagBlocklist(template.replace("{task}", "it")), template).toBe(false);
+      expect(server.hitsNagBlocklist(template.replace("{task}", "it"), [], persona), template).toBe(false);
       const kept = server.sanitizeNagLines({ lines: [{ step: 1, taskIndex: template.includes("{task}") ? 0 : null, text }] }, SERVER_PAYLOAD(persona, level));
       expect(kept.lines, text).toEqual([{ step: 1, taskIndex: template.includes("{task}") ? 0 : null, text }]);
     }
