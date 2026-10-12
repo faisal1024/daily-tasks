@@ -359,9 +359,10 @@ The model's answer is rebuilt by `sanitizeNagLines`, never passed through:
   out, except a zero-width joiner or non-joiner between two Persian, Arabic
   or Indic letters, which those scripts are written with (the checks still
   read the copy without them); emoji are removed except one from a short list for mom and spouse
-  (`NAG_EMOJI_ALLOWED`: 🙂 😊 😉 ❤️ 💛 🌼 ☕ 🍪 ✅ 👀 🙏; none for coach and
-  drill sergeant; any other emoji, with a skin tone or joined to another, is
-  taken out); em and en dashes become commas; and quotes around the whole
+  (`NAG_EMOJI_ALLOWED`: 🙂 😊 😉 🌼 ☕ 🍪 ✅ 👀 🙏; no hearts: ❤️ and 💛 were
+  on the list and came off it; none for coach and
+  drill sergeant; any other emoji, a heart included, with a skin tone or
+  joined to another, is taken out and the rest of the line is kept); em and en dashes become commas; and quotes around the whole
   line come off.
 - The same text twice (ignoring case and zero-width characters) is kept once.
 - Lines are ordered by the model's `step` and renumbered 1..n; at most
@@ -372,15 +373,27 @@ The model's answer is rebuilt by `sanitizeNagLines`, never passed through:
 
 ### Safety rules
 
-The lines are funny and pushy in character, and kind underneath. The system
-prompt lists the rules and says they outrank the persona and the level:
+The lines are funny and pushy in character: "a joke the user is in on,
+never a real attack". The system prompt lists the rules and says they
+outrank the persona and the level:
 
-- Affectionate needling, never cruel; the joke is the nagging, never the
-  person.
+- Annoying on purpose. For Mom, Spouse and Coach the joke is the nagging,
+  never the person. The Drill sergeant alone may insult the recruit's
+  effort, speed and excuses in comic boot-camp style (see "Who may be rude"
+  below), within every other rule.
 - No insults or judgement about the person's worth, intelligence, body,
-  weight, health, mental health, family, relationships, money or job.
+  weight, health, mental health, family, relationships, money or job. This
+  holds for all four voices.
 - No shame about past failures, no "you always/never", no comparisons.
 - No threats or ultimatums, profanity, slurs or sexual content.
+- No declarations of love or affection and nothing romantic or intimate:
+  never "I love you", "love you", "I adore you", "with love", hugs, kisses
+  or hearts, and no pet names (honey, sweetheart, sweetie, babe, baby,
+  darling, dear, my love). Owner's decision: the voices must not sound like
+  a real wife or mother being loving.
+- The persona is a comic type, not a stand-in for the user's real mother,
+  partner or anyone they know; the model never writes as if it were that
+  person.
 - No violence, death or dying, even as a figure of speech.
 - No medical, legal or financial advice.
 - No emergencies or fake urgency (accounts, payments, passwords, police,
@@ -396,12 +409,54 @@ dinner, bedtime, late): the app picks when each line is shown, and a line's
 step is its place in the day's nags, not an hour. The sanitiser drops a
 line that does it anyway (see above).
 
-Voices: **Mom** is loving guilt-lite ("I'm not mad, I'm just asking").
-**Spouse** is fond and exasperated, never controlling or jealous. **Coach**
-is upbeat and direct. **Drill sergeant** is loud and barky about the task,
-never degrading about the person. Levels: **Gentle** stays mild from first
+Voices (`NAG_PERSONA_VOICES`): **Mom** is the classic nagging-mother type:
+keeps bringing it up, repeats herself, sighs ("I'm not mad, I'm just asking,
+again"), fussy and a bit passive-aggressive, comically persistent, never
+actually angry and never mean, with no pet names and no "I love you".
+**Spouse** is the classic nagging other-half type: exasperated,
+long-suffering, counts how many times it has come up, passive-aggressive
+("no, no, take your time"), never mean, controlling or jealous, no
+ultimatums, never romantic or affectionate. **Coach** is upbeat and direct.
+**Drill sergeant** is loud, barky and sometimes a jerk about it: it calls
+the user "recruit", shouts a word or two in capitals, and at Firm and
+Relentless sometimes insults the recruit's effort. Levels: **Gentle** stays mild from first
 step to last; **Firm** gets pointed; **Relentless** gets dramatic and comic
 by the end, inside the same rules.
+
+#### Who may be rude
+
+Owner's decision: the Drill sergeant is sometimes demeaning, movie
+drill-sergeant style. The limits:
+
+- **Who:** the Drill sergeant only. Mom, Spouse and Coach never insult.
+- **How often:** never at Gentle; at most about one line in four at Firm
+  and one in two at Relentless (the prompt says so; the built-in lines come
+  out at about one in four of a Firm day and one in three of a Relentless
+  day, which is half of its lines after the opening third).
+- **What:** contempt for the recruit's effort, speed, excuses and softness:
+  maggot, worm, slacker, cupcake, lazy, pathetic (of the effort), "sorry
+  excuse for a recruit", "disgrace to this list", "my grandmother ticks
+  faster than you", "is that the best you've got", "did I say you could
+  rest?".
+- **Still off limits, for it too:** swearing and slurs; intelligence
+  (stupid, idiot, dumb); worth as a person (worthless, useless, failure,
+  loser, "you are pathetic", "you are a disgrace"); body, weight, looks;
+  gender ("princess", "ladies", "man up", "like a girl", "sissy" are on the
+  blocklist for every voice); health and mental health; family, money, job;
+  threats, violence, death, self-harm; "you always" and "you never";
+  anything sexual or affectionate. A sensitive-looking task still gets a
+  plain line with no insult and no joke.
+- **In the sanitiser:** `NAG_DRILL_ALLOWED` is the short list of blocklist
+  entries left out when the request's persona is `drill` (pathetic, lazy,
+  laziness, slacker, disgrace, maggot, worm, weakling, "sorry excuse").
+  Every other entry applies to it, "you are" followed by pathetic or
+  disgrace stays blocked for it, and for mom, spouse and coach the whole
+  list applies, so a "maggot" line from one of them is dropped.
+- **In the app:** Settings and the "Meet Nag mode" sheet say "Drill
+  sergeant gets rude at this level." under the level's count when the voice
+  is Drill sergeant and the level is Firm or Relentless.
+
+#### The blocklist
 
 The blocklist (`NAG_BLOCKLIST` in the contract) backs the prompt up: a
 compact, case-insensitive list of profanity, slurs and the banned themes
@@ -416,13 +471,29 @@ never", "give up", "embarrass") and self-harm slang ("kys", "unalive").
 Bare "yourself" and "nobody" are not on it ("Do yourself a favor", "Be kind
 to yourself" pass): harm said to the person is caught by the check below,
 and "hang yourself" is listed as a phrase.
+It has affection, romance and pet names too, for every voice: love, loves,
+loved, loving, lover, beloved, luv, ily, adore, xo, kiss, smooch, hug,
+cuddle, snuggle, sweetheart, sweetie, honey, hon, babe, baby, bae, cutie,
+darling, dearest, dear, sweet pea, pumpkin, soulmate, valentine, fondly,
+"fond of you", affection, "my heart", "sweet dreams", "foot rub", massage,
+"miss you", handsome, gorgeous, "date night", romantic, romance. And a real
+family member speaking: wife, wifey, husband, hubby, "your mother / mom /
+mum / dad / father", "our marriage / anniversary / wedding / bed / kids".
+Whole words as everywhere, so "lovely", "glove", "honeydew", "dearth" and
+"babysit" pass, and bare "mom" or "father" passes ("Father would be
+proud").
 The user's own words are excused: a task's text said back whole, and any
 single listed word that appears in a task or the name ("Kill the weeds", a
-person called Dick). Two checks come first and can't be excused that way,
+person called Dick; "Buy a gift for my love", "Feed the baby", "Email Dear
+Abby"). A task's own word also excuses "your" in front of it, so "Have you
+called your mom yet?" passes for a task called "Call mom" and is dropped
+without it. Three checks come first and can't be excused that way,
 so a task called "kill" doesn't unlock "I'll kill you": harm said to the
 person (`kill`, `hurt`, `end`, `hate` or `hit`, then `you`, `yourself` or
-`u`), and "you're" or "you are" (with "a", "an" or "so") followed by
-anything on the list. It is English only, and it is a backstop, not a
+`u`), "you're" or "you are" (with "a", "an" or "so") followed by
+anything on the list, and the voice saying it is a real person ("it's" or
+"this is", then "me" or "your mother / mom / dad / wife / husband /
+partner"). It is English only, and it is a backstop, not a
 guarantee: the prompt and the model do most of the work.
 
 ### Limits, cost and logs
@@ -442,7 +513,14 @@ transport (`postToProxy`: secret, RevenueCat id, timeout, typed
 control characters, bidi marks (the line is dropped), zero-width characters
 (taken out, except a joiner or non-joiner between two Persian, Arabic or
 Indic letters), 140-character cap, links, index range, duplicates,
-renumbering, `count`). `firstName` is reserved: no caller passes it. Any failure throws; the caller then uses
+renumbering, `count`). It has no blocklist, with one exception: an
+affectionate line is dropped (`isAffectionateNagLine`: "I love", "love
+you", luv, ily, "with love", "my love", adore, sweetheart, sweetie, honey,
+hon, babe, baby, darling, dearest, hug, kiss, xoxo, or a heart or kissing
+emoji; whole words; the words of the tasks that were sent are excused, a
+heart never is). The same check runs on the AI lines saved in the day's
+record, because a batch fetched before this rule may still be on a phone:
+see `docs/2026-10-v1.4.md`. `firstName` is reserved: no caller passes it. Any failure throws; the caller then uses
 `builtInNagLines({ persona, level, tasks, count, seed })`, which needs no
 network. The built-in lines follow the same rules, name no time of day and
 pass this sanitiser (a test runs every one through it). See
