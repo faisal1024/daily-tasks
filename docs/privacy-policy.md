@@ -1,6 +1,6 @@
 # Privacy Policy — Three Today
 
-**Effective date: 30 September 2026 (last updated for free AI brain dumps and the anonymous purchase ID)**
+**Effective date: 11 October 2026 (last updated for Nag mode)**
 
 <!-- Keep in sync with the published copy (gist a43d6373453761af70d495d640e38ffa,
      privacy-policy.html), which App Store Connect links to. The app links here. -->
