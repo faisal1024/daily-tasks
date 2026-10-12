@@ -745,8 +745,9 @@ describe("Try Nag mode: the other endings", () => {
 });
 
 describe("nothing about a task leaves the phone", () => {
-  const SECRET: Task = { id: "t0", text: "Call Dr Okonkwo about the biopsy", createdAt: "", carriedOver: false };
-  const LEAK = /Okonkwo|biopsy/i;
+  // Private, and not a task the built-in lines leave unnamed (nagTaskIsSensitive): the preview shows it.
+  const SECRET: Task = { id: "t0", text: "Ask Okonkwo about the surprise party", createdAt: "", carriedOver: false };
+  const LEAK = /Okonkwo|surprise/i;
   const said = (spy: jest.SpyInstance) => JSON.stringify(spy.mock.calls.map((call) => call.map(String)));
 
   it("the preview names the task, yet no analytics event, console line or request carries it", async () => {
@@ -784,6 +785,21 @@ describe("nothing about a task leaves the phone", () => {
       expect(JSON.stringify(fetched.mock.calls)).not.toMatch(LEAK);
     } finally {
       globalThis.fetch = realFetch;
+    }
+  });
+
+  it("a sensitive task is not named in the preview at all, for any voice or level, and the Drill sergeant is not rude about it", async () => {
+    await openSheet({ tasks: [{ id: "t0", text: "Call Dr Okonkwo about the biopsy", createdAt: "", carriedOver: false }] });
+    const another = inSheet().getByRole("button", { name: "Show another" });
+    for (const voice of ["Mom", "Spouse", "Coach", "Drill sergeant"]) {
+      await fireEvent.press(radio(`Voice: ${voice}`));
+      for (const level of ["Gentle", "Firm", "Relentless"]) {
+        await fireEvent.press(radio(`Level: ${level}`));
+        for (let turn = 0; turn < 12; turn += 1) {
+          expect(sample()).not.toMatch(/Okonkwo|biopsy|maggot|worm|slacker|cupcake|pathetic/i);
+          await fireEvent.press(another);
+        }
+      }
     }
   });
 
