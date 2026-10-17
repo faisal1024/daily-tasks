@@ -566,7 +566,12 @@ describe("Plus ending and coming back", () => {
 
     // 11:30: some nags have gone off; then the subscription ends.
     await comeBackAt(new Date(2026, 9, 12, 11, 30));
-    const leftAtLapse = snapshot(ofKind("nag"));
+    const atLapse = ofKind("nag");
+    const leftAtLapse = snapshot(atLapse);
+    const backAt = new Date(2026, 9, 12, 11, 45);
+    // The nag times are spread at random, so one may fall between 11:30 and
+    // Plus coming back at 11:45: by then it has gone, and only the later ones return.
+    const leftWhenBack = snapshot(atLapse.filter((item) => item.at.getTime() > backAt.getTime()));
     mockPlus = { ...FREE };
     await hook.rerender({});
     await eventually(() => {
@@ -578,7 +583,7 @@ describe("Plus ending and coming back", () => {
     await waitFor(async () => expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? "{}").notifications).toMatchObject(choice));
     // While it is off, changes to the day ask nothing and bring no nag.
     await act(async () => hook.result.current.toggleTask("t2"));
-    await comeBackAt(new Date(2026, 9, 12, 11, 45));
+    await comeBackAt(backAt);
     await act(async () => hook.result.current.toggleTask("t2"));
     await settle();
     expect(ofKind("nag")).toEqual([]);
@@ -588,12 +593,12 @@ describe("Plus ending and coming back", () => {
     mockPlus = { ...PLUS };
     await hook.rerender({});
     await eventually(() => {
-      expect(snapshot(ofKind("nag"))).toBe(leftAtLapse);
+      expect(snapshot(ofKind("nag"))).toBe(leftWhenBack);
       expect(ofKind("progress")).toEqual([]);
       expect(ofKind("evening")).toEqual([]);
     });
     await settle();
-    expect(snapshot(ofKind("nag"))).toBe(leftAtLapse);
+    expect(snapshot(ofKind("nag"))).toBe(leftWhenBack);
     expect(leftAtLapse).not.toBe(nags);
     expect(ofKind("nag").length).toBeGreaterThan(0);
     expect(nagRequests()).toHaveLength(1);
