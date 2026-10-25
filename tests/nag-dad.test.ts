@@ -73,3 +73,66 @@ describe("Partner", () => {
     expect(server.NAG_PERSONAS).not.toContain("partner");
   });
 });
+
+describe("the Worker's 1.4.1 checks for parent-speak, pet names and signed lines", () => {
+  const dropped = (text: string, persona?: string, own: string[] = []) => server.hitsNagBlocklist(text, own, persona);
+
+  it.each([
+    "You disappointed me again with that list.",
+    "This disappoints us.",
+    "I'm disappointed with you.",
+    "I'm so disappointed by you.",
+    "Don't let me down on this one.",
+    "You let us down.",
+    "The old man is still waiting on the list.",
+    "Pops says tick something.",
+  ])("drops %j for every voice", (text) => {
+    for (const persona of [...server.NAG_PERSONAS, undefined]) expect(dropped(text, persona), String(persona)).toBe(true);
+  });
+
+  it.each(["The list is still open, son.", "Come on, kid, one tick.", "Nice work, sport!", "One more, buddy.", "Still open, bud.", "Tick one, pal.", "Buddy, the list.", "Son, one tick."])(
+    "drops the pet name in %j",
+    (text) => {
+      for (const persona of server.NAG_PERSONAS) expect(dropped(text, persona), persona).toBe(true);
+    },
+  );
+
+  it.each(["Dad here. The list is open.", "Mom here: one tick?", "It's Coach here, eyes up.", "The list is open, Dad.", "Still open, Mom!", "One more tick, Partner.", "Tick it, Drill sergeant."])(
+    "drops %j: a voice signing or announcing itself",
+    (text) => {
+      for (const persona of server.NAG_PERSONAS) expect(dropped(text, persona), persona).toBe(true);
+    },
+  );
+
+  it("lets the ordinary uses through", () => {
+    for (const text of ["I'm not mad, I'm just disappointed in the list.", "My son's recital is on the list.", "A kid's party is on the list.", "Take up a sport? First, the list."]) {
+      expect(dropped(text, "dad"), text).toBe(false);
+    }
+    // Coach's "champ" is its own word, not a pet name.
+    expect(dropped("Hey, champ. First play: the list.", "coach")).toBe(false);
+    // A task's own words are excused, as everywhere.
+    expect(dropped("“Call Dad” is still open.", "mom", ["Call Dad"])).toBe(false);
+    expect(dropped("Still open: “Buy a gift for my son, Sam”", "dad", ["Buy a gift for my son, Sam"])).toBe(false);
+  });
+
+  it("the app's own affection check mirrors kiddo and a vocative sport, not the bare word", () => {
+    expect(isAffectionateNagLine("Kiddo, the list.")).toBe(true);
+    expect(isAffectionateNagLine("One tick, sport.")).toBe(true);
+    expect(isAffectionateNagLine("Sport, one tick.")).toBe(true);
+    expect(isAffectionateNagLine("Take up a sport after the list.")).toBe(false);
+  });
+
+  it("describes Dad's pet-name and disappointment limits to the model", () => {
+    expect(server.NAG_PERSONA_VOICES.dad).toContain("No pet names (no kiddo, sport, buddy, pal, bud or son)");
+    expect(server.NAG_PERSONA_VOICES.dad).toContain("in at most one line in four");
+  });
+
+  it("every built-in line of every voice still passes the stricter list", () => {
+    for (const persona of server.NAG_PERSONAS) {
+      const t = NAG_TEMPLATES[persona as keyof typeof NAG_TEMPLATES];
+      for (const template of [...t.early, ...t.mid.gentle, ...t.mid.firm, ...t.late.gentle, ...t.late.firm, ...t.late.relentless]) {
+        expect(server.hitsNagBlocklist(template.replace("{task}", "it"), [], persona), template).toBe(false);
+      }
+    }
+  });
+});

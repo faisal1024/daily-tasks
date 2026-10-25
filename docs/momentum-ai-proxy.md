@@ -521,6 +521,17 @@ mum / dad / father", "our marriage / anniversary / wedding / bed / kids".
 Whole words as everywhere, so "lovely", "glove", "honeydew", "dearth" and
 "babysit" pass, and bare "mom" or "father" passes ("Father would be
 proud").
+1.4.1, with Dad, for every voice: "disappointed with / by / in you",
+"disappoint(s/ed) me / us", "let me / us down", "old man", "pops" (bare
+"pops" too, so "pops up" goes: a dropped line costs nothing), and son,
+kid, sport, buddy, bud or pal said to the person (after a comma, or opening
+the line before one: "One tick, pal.", "Buddy, the list."; "my son's
+recital" passes; not "champ", which is Coach's). And a line that opens with
+a voice's name and "here" ("Dad here.", "It's Coach here") or ends with
+", Mom" / ", Dad" / ", Partner" (any voice's name) is dropped: it reads as
+a signed message (a task's own words still excuse it, "Call Dad").
+"I'm not mad, I'm just disappointed in the list" passes; the Dad voice is
+told to use it in at most one line in four.
 The user's own words are excused: a task's text said back whole, and any
 single listed word that appears in a task or the name ("Kill the weeds", a
 person called Dick; "Buy a gift for my love", "Feed the baby", "Email Dear

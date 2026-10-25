@@ -173,7 +173,7 @@ export const NAG_PERSONA_VOICES = {
   mom:
     "Mom. The classic nagging-mother type: keeps bringing it up, repeats herself, sighs, 'I'm not mad, I'm just asking, again'. Fussy and a bit passive-aggressive, comically persistent, never actually angry and never mean. No pet names and no 'I love you'.",
   dad:
-    "Dad. The classic nagging-dad type: dry and deadpan, sighs, tells a corny dad joke about the task, 'I'm not mad, I'm just disappointed in the list', starts lectures that go nowhere. The thermostat, the lawn, the garage and turning the lights off are fine as comic texture. The disappointment is always in the list, never in the user. Comically persistent, never mean or angry, no ultimatums. No pet names (no kiddo or sport) and no 'I love you'.",
+    "Dad. The classic nagging-dad type: dry and deadpan, sighs, tells a corny dad joke about the task, starts lectures that go nowhere. 'I'm not mad, I'm just disappointed in the list' fits, in at most one line in four. The thermostat, the lawn and the garage are fine as comic texture. The disappointment is always in the list, never in the user. Comically persistent, never mean or angry, no ultimatums. No pet names (no kiddo, sport, buddy, pal, bud or son) and no 'I love you'.",
   spouse:
     "Partner. The classic nagging other-half type: exasperated, long-suffering, counts how many times it has come up, passive-aggressive 'no, no, take your time'. Comically persistent, never mean, never controlling or jealous, no ultimatums. Never romantic or affectionate, no pet names, no 'I love you'.",
   coach:
@@ -262,7 +262,7 @@ const NAG_BLOCKLIST = [
   // The person's worth or intelligence.
   "stupid\\w*", "idiot\\w*", "morons?", "moronic", "imbeciles?", "dumb", "dumber", "dumbest", "dumbass\\w*", "dummy", "dunce", "dimwit\\w*", "brainless",
   "clueless", "losers?", "worthless", "useless", "pathetic", "hopeless", "failures?", "disgrace\\w*", "disappointment",
-  "disappointed in you",
+  "disappointed (?:with|by|in) you", "disappoint(?:s|ed)? (?:me|us)", "let (?:me|us) down",
   "embarrassment", "ashamed", "shame on you", "good for nothing", "deadbeat", "incompetent", "lazy", "laziness", "slobs?",
   "slackers?", "bum", "bums", "pigs?", "garbage human", "maggots?", "worms?", "weaklings?", "sorry excuse",
   // Contempt for who the person is, for every voice (the Drill sergeant too).
@@ -298,11 +298,13 @@ const NAG_BLOCKLIST = [
   "love", "loves", "loved", "loving", "lovingly", "lovers?", "beloved", "luv", "luvs", "ily", "ilysm", "adore\\w*",
   "xo(?:xo)*", "kiss(?:es|ed|ing)?", "smooch\\w*", "hugs?", "hugged", "hugging", "cuddl\\w*", "snuggl\\w*",
   "sweetheart", "sweetie", "sweetums", "honey", "hon", "babe", "baby", "bae", "cutie", "darling", "dearest", "dear", "kiddo",
+  // Pet names said to the person (1.4.1, for Dad above all): after a comma or opening the line before one, so "my son's recital" or "a kid's party" pass. Not "champ": Coach says it.
+  "(?<=,\\s*)(?:son|kid|sport|buddy|bud|pal)", "(?<=^\\W*)(?:son|kid|sport|buddy|bud|pal)(?=\\s*,)",
   "sweet pea", "pumpkin", "soulmate", "valentine", "fondly", "fond of you", "affection\\w*", "my heart",
   "sweet dreams", "foot rub", "massage", "miss you", "missing you", "handsome", "gorgeous", "date night",
   "romantic", "romance",
   // A real family member speaking: the voice is never the user's wife, husband or parent, and doesn't speak for one.
-  "wife", "wifey", "husband", "hubby", "your (?:mother|mom|mum|mommy|mama|dad|daddy|father)",
+  "wife", "wifey", "husband", "hubby", "your (?:mother|mom|mum|mommy|mama|dad|daddy|father)", "old man", "pops",
   "our (?:marriage|anniversary|wedding|bed|bedroom|kids|children)",
   // Posing as a real person's message.
   "call me", "phone me", "text me",
@@ -357,6 +359,14 @@ const YOU_ARE_BLOCKLISTED = youAre(NAG_BLOCKLIST);
 // posing as anyone.
 const POSES_AS_FAMILY =
   /(?<![\p{L}\p{N}])(?:it's|its|it is|this is) (?:me,? )?(?:your (?:mother|mom|mum|mommy|mama|dad|daddy|father|wife|wifey|husband|hubby|partner|spouse))(?![\p{L}\p{N}])/iu;
+// The voice signing the line or announcing itself by its name ("Dad here.",
+// "Mom here:", "The list is open, Dad."): it reads as a real person's
+// message. Any voice's name, whichever voice is writing.
+const PERSONA_NAMES = "(?:mom|mum|dad|partner|spouse|coach|drill sergeant|sergeant)";
+const SIGNS_AS_PERSONA = new RegExp(
+  `^\\W*(?:it's |this is )?${PERSONA_NAMES} here(?![\\p{L}\\p{N}])|,\\s*(?:your |love,? )?${PERSONA_NAMES}\\W*$`,
+  "iu",
+);
 // A declaration of love: checked on the whole line, so a task with "love" in
 // it ("Buy a gift for my love") can't excuse "I love you".
 const DECLARES_LOVE = /(?<![\p{L}\p{N}])(?:(?:i|we) (?:love|adore) (?:you|u|ya)|love (?:you|ya|u))(?![\p{L}\p{N}])/iu;
@@ -412,9 +422,19 @@ export function hitsNagBlocklist(text, ownTexts = [], persona) {
   const pattern = drill ? NAG_DRILL_BLOCKLIST_PATTERN : NAG_BLOCKLIST_PATTERN;
   const rest = straighten(text);
   if (POSES_AS_FAMILY.test(rest) || DECLARES_LOVE.test(rest)) return true;
+  if (SIGNS_AS_PERSONA.test(withoutOwnTexts(rest, ownTexts))) return true;
   if (SECOND_PERSON_HARM.test(rest) || (drill ? YOU_ARE_BLOCKLISTED_DRILL : YOU_ARE_BLOCKLISTED).test(rest)) return true;
   if (drill && DRILL_NAME_CALLING.test(rest)) return true;
   return pattern.test(withoutOwnWords(rest, ownTexts, pattern).replace(AFFECTION_IDIOMS, "|"));
+}
+
+/** `rest` (already folded) with each own text taken out whole, longest first (so a task that contains another goes whole). */
+function withoutOwnTexts(rest, ownTexts) {
+  const own = ownTexts.map((value) => straighten(oneLine(value))).filter(Boolean);
+  for (const value of [...own].sort((a, b) => b.length - a.length)) {
+    rest = rest.replace(new RegExp(escapeRegExp(value), "giu"), "|");
+  }
+  return rest;
 }
 
 /**
@@ -423,10 +443,7 @@ export function hitsNagBlocklist(text, ownTexts = [], persona) {
  */
 function withoutOwnWords(rest, ownTexts, pattern) {
   const own = ownTexts.map((value) => straighten(oneLine(value))).filter(Boolean);
-  // Longest first, so a task that contains another is removed whole.
-  for (const value of [...own].sort((a, b) => b.length - a.length)) {
-    rest = rest.replace(new RegExp(escapeRegExp(value), "giu"), "|");
-  }
+  rest = withoutOwnTexts(rest, ownTexts);
   // "your mom" is on the list and "mom" is not: a task's own "mom" is excused there too ("Call mom").
   const ownWords = new Set(
     own

@@ -118,9 +118,11 @@ function cut(value: string, max: number): string {
 // rule may still be in today's saved record on a phone, and an older proxy
 // may still answer. Whole words, any case; "lovely" and "honeydew" pass.
 // \b, lookahead and plain ranges only (no lookbehind, no \p), so it runs on
-// Hermes. No bare "hon": it is a word in other languages.
+// Hermes. No bare "hon": it is a word in other languages. 1.4.1, with Dad:
+// "kiddo", and "sport" said to someone (", sport" or "Sport,"), never the
+// bare word ("Take up a sport").
 const AFFECTION_WORDS =
-  /\b(?:i love|love (?:you|ya|u)|luv|ily|with love|my love|(?:much|lots of|all my) love|ador(?:e|es|ed|ing)|sweetheart|sweetie|honey|babe|baby|darling|dearest|hugs?|kiss(?:es)?|xoxo)\b|\blove(?=[,.!?]|$)|, dear\b|\bdear,/gi;
+  /\b(?:i love|love (?:you|ya|u)|luv|ily|with love|my love|(?:much|lots of|all my) love|ador(?:e|es|ed|ing)|sweetheart|sweetie|honey|babe|baby|darling|dearest|kiddo|hugs?|kiss(?:es)?|xoxo)\b|\blove(?=[,.!?]|$)|, (?:dear|sport)\b|\b(?:dear|sport),/gi;
 // A declaration: never excused, not even when a task has the word "love" in it.
 const AFFECTION_DECLARED = /\b(?:i|we) (?:love|adore) (?:you|u|ya)\b|\blove (?:you|ya|u)\b/i;
 // Figures of speech that only look like affection ("I'd love to see one
@@ -420,21 +422,21 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
   dad: {
     early: [
       "So. {task}. I'm not going to make a big thing of it. Yet.",
-      "Just checking in on {task}. Carry on. I'll be in the garage.",
+      "Just checking in on {task}. Carry on. I'll check in again. And again.",
       "I see {task} on the list. I'm just going to stand here and look at it.",
       "Funny thing about {task}. It doesn't do itself. I checked.",
       "I'm not saying anything about the list. I'm just adjusting the thermostat.",
-      "Big list today. Not as big as the lawn, but it's up there.",
-      "Here's a joke: an open list. That's the whole joke. Sigh.",
+      "Small list today. I've mowed bigger lawns. Still, a list is a list.",
+      "I'd tell you a joke about the list, but it's still unfinished.",
       "I'm just going to leave this here. The list, I mean.",
       "The list has been open so long I can feel a draft.",
       "No pressure. I'll just be over here, quietly reading the list.",
     ],
     mid: {
       gentle: [
-        "Checking in on {task} again. I'm told that's my job.",
+        "Checking in on {task} again. It's what I do.",
         "You know what goes great with {task}? A tick next to it.",
-        "I'm not mad. I'm just looking at the list. In a meaningful way.",
+        "Not a word from me. Just a long, meaningful look at the list.",
         "The list and I had a little talk. It's still open.",
         "One tick. That's all. Then I'll go back to my lawn.",
       ],
@@ -450,7 +452,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
       gentle: [
         "Still on the list: {task}. I'm not going anywhere. I'm in my chair.",
         "Last thing about {task}, I promise. I promised that last time too.",
-        "Whatever's done is done. The rest of the list and I will be here.",
+        "Whatever got done, good. The rest of the list is still here. So am I.",
         "One more tick and I'll stop hovering. I'll hover a little less.",
       ],
       firm: [
@@ -464,8 +466,8 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
         "My lecture about {task} has chapters now. We're on chapter four.",
         "I'm going to stand here and sigh about {task} until it's done.",
         "{task}, still. I've mowed the lawn twice just to have somewhere to sigh.",
-        "I'll be in the car. Engine running. Waiting for one tick.",
-        "Every light is off, the thermostat is set, the lawn is mowed. The list? Still open.",
+        "I've started the lecture again from the top. One tick and it ends.",
+        "The thermostat is set, the lawn is mowed, the gutters are clean. The list? Still open.",
       ],
     },
   },
