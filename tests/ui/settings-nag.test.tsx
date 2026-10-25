@@ -320,7 +320,7 @@ describe("Settings: with Nag on", () => {
   it("the voice and the level are radio groups that save the choice", async () => {
     await renderSettings(NAG_ON);
     for (const [group, names] of [
-      ["Voice", ["Mom", "Spouse", "Coach", "Drill sergeant"]],
+      ["Voice", ["Mom", "Dad", "Partner", "Coach", "Drill sergeant"]],
       ["Level", ["Gentle", "Firm", "Relentless"]],
     ] as const) {
       const node = screen.getAllByLabelText(group).find((item) => item.props.accessibilityRole === "radiogroup");
@@ -333,7 +333,7 @@ describe("Settings: with Nag on", () => {
       }
     }
     const isOn = (name: string) => checked(name);
-    expect(["Voice: Mom", "Voice: Spouse", "Voice: Coach", "Voice: Drill sergeant"].map(isOn)).toEqual([true, false, false, false]);
+    expect(["Voice: Mom", "Voice: Dad", "Voice: Partner", "Voice: Coach", "Voice: Drill sergeant"].map(isOn)).toEqual([true, false, false, false, false]);
     expect(["Level: Gentle", "Level: Firm", "Level: Relentless"].map(isOn)).toEqual([false, true, false]);
 
     await fireEvent.press(voice("Drill sergeant"));
@@ -472,7 +472,7 @@ describe("Settings: with Nag on", () => {
 
   it("every control has a role, a name and a state, and a 44 point target", async () => {
     await renderSettings(NAG_ON);
-    const names = ["Calm", "Nag", "Voice: Mom", "Voice: Spouse", "Voice: Coach", "Voice: Drill sergeant", "Level: Gentle", "Level: Firm", "Level: Relentless"];
+    const names = ["Calm", "Nag", "Voice: Mom", "Voice: Dad", "Voice: Partner", "Voice: Coach", "Voice: Drill sergeant", "Level: Gentle", "Level: Firm", "Level: Relentless"];
     for (const name of names) {
       const node = radio(name);
       expect(typeof node.props.accessibilityState.checked).toBe("boolean");

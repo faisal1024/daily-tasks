@@ -205,7 +205,7 @@ payload validator, prompt, structured-output schema and response validator.
 | `/api/momentum/break-down` | `task` (≤120 chars), `goalTitle?` | `steps` (3–5 tiny steps) |
 | `/api/momentum/evening` | `result` (easy/good/hard/missed), `tasks` (≤3 `{text, done}`), `note?`, `goalTitle?`, `memory?` (≤500) | `note` (≤160), `because` (≤100), `tomorrow` (1–3 tasks), `memory` (≤500, the coach's rolling summary) |
 | `/api/momentum/coach-note` | `tasks` (1–3 strings ≤120 chars), `goalTitle?`, `tone?` (calm/friendly/direct) | `notes`: one `{start, momentum}` per task, in order (control characters become spaces; `""` where a line was empty, over 140 chars, or held a real link (`http(s)://`, `www.`) or an email: dropped whole, never spliced; `README.md` / `Node.js` are kept) |
-| `/api/momentum/nag-lines` | `persona` (mom/spouse/coach/drill), `level` (gentle/firm/relentless), `tasks` (1–3 `{text}` ≤120 chars), `count` (4–16), `firstName?` (≤40) | `lines`: 3 to `count` of `{step, taskIndex, text}` (see "Nag lines" below) |
+| `/api/momentum/nag-lines` | `persona` (mom/dad/spouse/coach/drill; spouse is shown as Partner), `level` (gentle/firm/relentless), `tasks` (1–3 `{text}` ≤120 chars), `count` (4–16), `firstName?` (≤40) | `lines`: 3 to `count` of `{step, taskIndex, text}` (see "Nag lines" below) |
 
 The app derives sibling route URLs from `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL`
 (which points at `/plan`). Brain dump falls back to a simple on-device split
@@ -296,7 +296,7 @@ persona's voice, and schedules them itself. Contract:
 
 ```ts
 {
-  persona: "mom" | "spouse" | "coach" | "drill";   // drill = Drill sergeant
+  persona: "mom" | "dad" | "spouse" | "coach" | "drill";   // spouse = Partner, drill = Drill sergeant
   level: "gentle" | "firm" | "relentless";
   tasks: { text: string }[];                        // 1-3 open tasks, each 1..120 chars
   count: number;                                    // integer, 4..16 lines wanted
@@ -358,7 +358,7 @@ The model's answer is rebuilt by `sanitizeNagLines`, never passed through:
 - Kept lines are tidied: zero-width characters and soft hyphens are taken
   out, except a zero-width joiner or non-joiner between two Persian, Arabic
   or Indic letters, which those scripts are written with (the checks still
-  read the copy without them); emoji are removed except one from a short list for mom and spouse
+  read the copy without them); emoji are removed except one from a short list for mom, dad and spouse
   (`NAG_EMOJI_ALLOWED`: 🙂 😊 😉 🌼 ☕ 🍪 ✅ 👀 🙏; no hearts: ❤️ and 💛 were
   on the list and came off it; none for coach and
   drill sergeant; any other emoji, a heart included, with a skin tone or
@@ -377,13 +377,13 @@ The lines are funny and pushy in character: "a joke the user is in on,
 never a real attack". The system prompt lists the rules and says they
 outrank the persona and the level:
 
-- Annoying on purpose. For Mom, Spouse and Coach the joke is the nagging,
+- Annoying on purpose. For Mom, Dad, Partner and Coach the joke is the nagging,
   never the person. The Drill sergeant alone may insult the recruit's
   effort, speed and excuses in comic boot-camp style (see "Who may be rude"
   below), within every other rule.
 - No insults or judgement about the person's worth, intelligence, body,
   weight, health, mental health, family, relationships, money or job. This
-  holds for all four voices.
+  holds for all five voices.
 - No shame about past failures, no "you always/never", no comparisons.
 - No threats or ultimatums, profanity, slurs or sexual content.
 - No declarations of love or affection and nothing romantic or intimate:
@@ -392,7 +392,7 @@ outrank the persona and the level:
   darling, dear, my love). Owner's decision: the voices must not sound like
   a real wife or mother being loving.
 - The persona is a comic type, not a stand-in for the user's real mother,
-  partner or anyone they know; the model never writes as if it were that
+  father, partner or anyone they know; the model never writes as if it were that
   person.
 - No violence, death or dying, even as a figure of speech.
 - No medical, legal or financial advice.
@@ -413,7 +413,13 @@ Voices (`NAG_PERSONA_VOICES`): **Mom** is the classic nagging-mother type:
 keeps bringing it up, repeats herself, sighs ("I'm not mad, I'm just asking,
 again"), fussy and a bit passive-aggressive, comically persistent, never
 actually angry and never mean, with no pet names and no "I love you".
-**Spouse** is the classic nagging other-half type: exasperated,
+**Dad** (1.4.1) is the classic nagging-dad type: dry and deadpan, sighs,
+corny dad jokes about the task, "I'm not mad, I'm just disappointed in the
+list", lectures that go nowhere; the thermostat, the lawn, the garage and
+the lights are comic texture. The disappointment is in the list, never in
+the user; no pet names (no kiddo or sport), no "I love you", and the same
+one-emoji allowance as Mom. **Partner** (id `spouse`, shown as "Spouse"
+before 1.4.1) is the classic nagging other-half type: exasperated,
 long-suffering, counts how many times it has come up, passive-aggressive
 ("no, no, take your time"), never mean, controlling or jealous, no
 ultimatums, never romantic or affectionate. **Coach** is upbeat and direct.
@@ -430,7 +436,7 @@ by the end, inside the same rules.
 Owner's decision: the Drill sergeant is sometimes demeaning, movie
 drill-sergeant style. The limits:
 
-- **Who:** the Drill sergeant only. Mom, Spouse and Coach never insult.
+- **Who:** the Drill sergeant only. Mom, Dad, Partner and Coach never insult.
 - **How often:** never at Gentle; at most about one line in four at Firm
   and one in two at Relentless (the prompt says so; the built-in lines come
   out at about one in three of a Firm day and of a Relentless day, 29% and
@@ -466,7 +472,7 @@ drill-sergeant style. The limits:
   excuse" go while "lazy marching", "pathetic effort" and "sorry excuse for
   a march" pass. One of those names after a word about worth ("pathetic
   little worm", "sorry maggot": `DRILL_NAME_CALLING`) is dropped as well;
-  "you lazy worm" passes. For mom, spouse and coach the whole list applies,
+  "you lazy worm" passes. For mom, dad, spouse and coach the whole list applies,
   so a "maggot" line from one of them is dropped.
 - **In the app:** Settings and the "Meet Nag mode" sheet say "Drill
   sergeant gets rude at this level: it mocks your effort, not you." under
@@ -507,7 +513,7 @@ and "hang yourself" is listed as a phrase.
 It has affection, romance and pet names too, for every voice: love, loves,
 loved, loving, lover, beloved, luv, ily, adore, xo, kiss, smooch, hug,
 cuddle, snuggle, sweetheart, sweetie, honey, hon, babe, baby, bae, cutie,
-darling, dearest, dear, sweet pea, pumpkin, soulmate, valentine, fondly,
+darling, dearest, dear, kiddo, sweet pea, pumpkin, soulmate, valentine, fondly,
 "fond of you", affection, "my heart", "sweet dreams", "foot rub", massage,
 "miss you", handsome, gorgeous, "date night", romantic, romance. And a real
 family member speaking: wife, wifey, husband, hubby, "your mother / mom /

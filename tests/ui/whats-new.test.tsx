@@ -745,7 +745,7 @@ describe("the sheet", () => {
 
   it("the chips are radio buttons that carry their group, starting on the saved voice and level", async () => {
     await openSheet();
-    expect(["Mom", "Spouse", "Coach", "Drill sergeant"].map((name) => checked(`Voice: ${name}`))).toEqual([true, false, false, false]);
+    expect(["Mom", "Dad", "Partner", "Coach", "Drill sergeant"].map((name) => checked(`Voice: ${name}`))).toEqual([true, false, false, false, false]);
     expect(["Gentle", "Firm", "Relentless"].map((name) => checked(`Level: ${name}`))).toEqual([false, true, false]);
     expect(screen.getByTestId("nag-intro-voice").props.accessibilityRole).toBe("radiogroup");
     expect(screen.getByTestId("nag-intro-level").props.accessibilityRole).toBe("radiogroup");
@@ -814,7 +814,7 @@ describe("the sheet", () => {
     await fireEvent.press(radio("Level: Gentle"));
     expect(rude()).toBeNull();
     await fireEvent.press(radio("Level: Firm"));
-    await fireEvent.press(radio("Voice: Spouse"));
+    await fireEvent.press(radio("Voice: Partner"));
     expect(rude()).toBeNull();
   });
 
@@ -827,7 +827,7 @@ describe("the sheet", () => {
   it("with task names hidden the preview names no task, whatever is picked", async () => {
     await openSheet({ tasks: [WALK], notifications: { ...DEFAULT_NOTIFICATIONS, hideTaskNames: true } });
     const another = inSheet().getByRole("button", { name: "Show another" });
-    for (const voice of ["Mom", "Spouse", "Coach", "Drill sergeant"]) {
+    for (const voice of ["Mom", "Dad", "Partner", "Coach", "Drill sergeant"]) {
       await fireEvent.press(radio(`Voice: ${voice}`));
       for (let turn = 0; turn < 8; turn++) {
         expect(sample()).not.toMatch(/Walk|“/);
@@ -872,7 +872,7 @@ describe("the sheet", () => {
     expect(view.getByRole("button", { name: "Try Nag mode" })).toBeOnTheScreen();
     expect(view.getByRole("button", { name: "Not now" })).toBeOnTheScreen();
     expect(view.getByRole("header", { name: "Meet Nag mode" })).toBeOnTheScreen();
-    expect(view.getAllByRole("radio")).toHaveLength(7);
+    expect(view.getAllByRole("radio")).toHaveLength(8);
   });
 });
 
@@ -995,7 +995,7 @@ describe("Try Nag mode without Plus", () => {
   async function tryFree() {
     mockPlus = { ...FREE };
     const view = await openSheet();
-    await fireEvent.press(radio("Voice: Spouse"));
+    await fireEvent.press(radio("Voice: Partner"));
     await fireEvent.press(radio("Level: Gentle"));
     await fireEvent.press(inSheet().getByRole("button", { name: "See Plus" }));
     await flush();

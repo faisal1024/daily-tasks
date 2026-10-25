@@ -763,7 +763,7 @@ describe("nothing about a task leaves the phone", () => {
       await openSheet({ tasks: [SECRET, STRETCH] });
       expect(sample()).toMatch(LEAK);
       const another = inSheet().getByRole("button", { name: "Show another" });
-      for (const voice of ["Spouse", "Coach", "Drill sergeant", "Mom"]) {
+      for (const voice of ["Dad", "Partner", "Coach", "Drill sergeant", "Mom"]) {
         await fireEvent.press(radio(`Voice: ${voice}`));
         for (const level of ["Gentle", "Relentless", "Firm"]) {
           await fireEvent.press(radio(`Level: ${level}`));
@@ -791,7 +791,7 @@ describe("nothing about a task leaves the phone", () => {
   it("a sensitive task is not named in the preview at all, for any voice or level, and the Drill sergeant is not rude about it", async () => {
     await openSheet({ tasks: [{ id: "t0", text: "Call Dr Okonkwo about the biopsy", createdAt: "", carriedOver: false }] });
     const another = inSheet().getByRole("button", { name: "Show another" });
-    for (const voice of ["Mom", "Spouse", "Coach", "Drill sergeant"]) {
+    for (const voice of ["Mom", "Dad", "Partner", "Coach", "Drill sergeant"]) {
       await fireEvent.press(radio(`Voice: ${voice}`));
       for (const level of ["Gentle", "Firm", "Relentless"]) {
         await fireEvent.press(radio(`Level: ${level}`));

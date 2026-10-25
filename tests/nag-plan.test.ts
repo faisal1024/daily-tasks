@@ -259,7 +259,7 @@ describe("the day's record", () => {
       const first = plan({ settings, salt: `s${run}`, now: at(rng.int(5, 9), rng.int(0, 59)) });
       const later = new Date(2026, 9, 12, rng.int(10, 20), rng.int(0, 59));
       const open = [...OPEN.slice(0, 2), { id: "t9", text: "Renew the passport" }];
-      const again = planNagDay({ previous: first, now: later, dayKey: DAY, settings: { ...settings, nagPersona: NAG_PERSONAS[rng.int(0, 3)] }, open, salt: "unused" });
+      const again = planNagDay({ previous: first, now: later, dayKey: DAY, settings: { ...settings, nagPersona: NAG_PERSONAS[rng.int(0, NAG_PERSONAS.length - 1)] }, open, salt: "unused" });
       const shape = (record: NagDayRecord) => record.slots.map(({ id, fireAtMs, step }) => ({ id, fireAtMs, step }));
       expect(shape(again)).toEqual(shape(first));
       expect(again.salt).toBe(first.salt);

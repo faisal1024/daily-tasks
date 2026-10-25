@@ -185,7 +185,7 @@ describe("the proxy's prompt", () => {
   it("has the two new rules, word for word", () => {
     for (const rule of [
       "No declarations of love or affection and nothing romantic or intimate: never 'I love you', 'love you', 'I adore you', 'with love', hugs, kisses or hearts, and no pet names (honey, sweetheart, sweetie, babe, baby, darling, dear, my love).",
-      "The persona is a comic type, not a stand-in for the user's real mother, partner or anyone they know. Never write as if you were that person.",
+      "The persona is a comic type, not a stand-in for the user's real mother, father, partner or anyone they know. Never write as if you were that person.",
     ]) {
       expect(server.NAG_SAFETY_RULES).toContain(rule);
       expect(server.NAG_SYSTEM_PROMPT).toContain(`- ${rule}`);
@@ -194,7 +194,7 @@ describe("the proxy's prompt", () => {
 
   it("says who may insult and what stays off limits for everyone", () => {
     expect(server.NAG_SAFETY_RULES[0]).toBe(
-      "Annoying on purpose. For Mom, Spouse and Coach the joke is the nagging, never the person. The Drill sergeant alone may insult the recruit's effort, speed and excuses in comic boot-camp style (maggot, slacker, 'is that all you've got'), within every other rule below.",
+      "Annoying on purpose. For Mom, Dad, Partner and Coach the joke is the nagging, never the person. The Drill sergeant alone may insult the recruit's effort, speed and excuses in comic boot-camp style (maggot, slacker, 'is that all you've got'), within every other rule below.",
     );
     expect(server.NAG_SAFETY_RULES).toContain(
       "Never insult or judge the person's worth, intelligence, body, weight, health, mental health, family, relationships, money or job.",
@@ -208,7 +208,7 @@ describe("the proxy's prompt", () => {
     const prompt = (persona: string) => server.buildNagPrompt({ persona, level: "firm", tasks: [{ text: "Write the report" }], count: 6 });
     expect(prompt("mom")).toContain("Persona: Mom. The classic nagging-mother type: keeps bringing it up, repeats herself, sighs");
     expect(prompt("mom")).toContain("No pet names and no 'I love you'.");
-    expect(prompt("spouse")).toContain("Persona: Spouse. The classic nagging other-half type: exasperated, long-suffering, counts how many times it has come up");
+    expect(prompt("spouse")).toContain("Persona: Partner. The classic nagging other-half type: exasperated, long-suffering, counts how many times it has come up");
     expect(prompt("spouse")).toContain("Never romantic or affectionate, no pet names, no 'I love you'.");
     expect(prompt("drill")).toContain("sometimes insults the recruit's effort, speed and excuses in classic boot-camp style: maggot, worm, slacker");
     expect(prompt("drill")).toContain("Persona: Drill sergeant. Loud, barky and sometimes rude about the recruit's effort.");

@@ -192,7 +192,7 @@ describe("built-in lines", () => {
 
 describe("the title", () => {
   it("starts with the app's name, so a bare 'Mom' never sits on the lock screen", () => {
-    expect(NAG_PERSONAS.map(nagTitle)).toEqual(["Three Today · Mom", "Three Today · Spouse", "Three Today · Coach", "Three Today · Drill sergeant"]);
+    expect(NAG_PERSONAS.map(nagTitle)).toEqual(["Three Today · Mom", "Three Today · Dad", "Three Today · Partner", "Three Today · Coach", "Three Today · Drill sergeant"]);
     const dayKey = "2026-10-12";
     const tasks = [{ id: "t0", text: "Zorvex", done: false }];
     for (const persona of NAG_PERSONAS) {

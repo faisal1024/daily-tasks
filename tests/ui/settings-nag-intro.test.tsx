@@ -174,7 +174,7 @@ describe("Settings: What is Nag mode?", () => {
   it("Plus: Try Nag mode asks the question, and Turn on turns it on with what was picked", async () => {
     await renderSettings();
     await openIntro();
-    await fireEvent.press(inSheet().getByRole("radio", { name: "Voice: Spouse" }));
+    await fireEvent.press(inSheet().getByRole("radio", { name: "Voice: Partner" }));
     await fireEvent.press(inSheet().getByRole("radio", { name: "Level: Relentless" }));
     await fireEvent.press(inSheet().getByRole("button", { name: "Try Nag mode" }));
     await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
@@ -185,7 +185,7 @@ describe("Settings: What is Nag mode?", () => {
     await waitFor(() => expect(sheet()).toBeNull());
     await waitFor(() => expect(styleChecked("Nag")).toBe(true));
     expect(row()).toBeNull();
-    expect(screen.getByRole("radio", { name: "Voice: Spouse" }).props.accessibilityState.checked).toBe(true);
+    expect(screen.getByRole("radio", { name: "Voice: Partner" }).props.accessibilityState.checked).toBe(true);
     expect(screen.getByRole("radio", { name: "Level: Relentless" }).props.accessibilityState.checked).toBe(true);
     expect(announcePolitely).toHaveBeenCalledWith("Nag mode is on");
     await waitFor(async () =>
