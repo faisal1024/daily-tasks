@@ -943,6 +943,7 @@ export default function SettingsScreen() {
                   value={nagPersona}
                   onChange={setNagPersona}
                   options={NAG_PERSONAS.map((persona) => ({ value: persona, label: NAG_PERSONA_LABELS[persona] }))}
+                  columns={3}
                 />
               </View>
               <View className="gap-2">
@@ -953,6 +954,7 @@ export default function SettingsScreen() {
                   value={nagLevel}
                   onChange={setNagLevel}
                   options={NAG_LEVELS.map((level) => ({ value: level, label: NAG_LEVEL_LABELS[level] }))}
+                  columns={3}
                 />
                 <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-level-count">
                   {NAG_LEVEL_COUNT_NOTE[nagLevel]}
