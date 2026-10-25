@@ -7,7 +7,7 @@
 
 ## Summary
 
-Three Today (formerly Daily Tasks) is local-first. Your tasks, history, streaks, and settings are stored on your own device. There is no account, no sign-in, no advertising, and no tracking across apps or websites. Information leaves your device only in three cases, each described below: a small request when you use one of the smart (AI) features, anonymous usage counts (which you can turn off), and, handled by Apple and our subscription provider, the purchase record if you buy Plus and an anonymous Apple Ads attribution token if you installed the app from an ad.
+Three Today (formerly Daily Tasks) is local-first. Your tasks, history, streaks, and settings are stored on your own device. There is no account, no sign-in, no ads in the app, and no tracking across apps or websites. Information leaves your device only in three cases, each described below: a small request when you use one of the smart (AI) features, anonymous usage counts (which you can turn off), and, handled by Apple and our subscription provider, the purchase record if you buy Plus and an anonymous Apple attribution token.
 
 ## What we store on your device
 
@@ -51,7 +51,7 @@ To understand which features help, the app sends anonymous usage counts to our a
 
 Plus subscriptions and purchases are processed by Apple; we never see your payment details. To check whether Plus is active on your device, the app uses RevenueCat, a subscription service, with an anonymous app user ID it creates on your device. RevenueCat receives your purchase history for this app (products, dates, and status) from Apple so it can confirm your access and let you restore purchases. This is not linked to your name or used for advertising.
 
-If you installed Three Today from an Apple Ads ad on the App Store, the app passes RevenueCat an anonymous attribution token from Apple, so we can see which ad led to a subscription. The token contains no personal data, is not linked to your name or Apple ID, and is not used to track you across other apps or websites (it needs no tracking permission). If you didn't come from an ad, there is nothing to attribute.
+The app also sends RevenueCat an anonymous attribution token from Apple. If you came to Three Today from an Apple Ads ad on the App Store, Apple matches the token to that ad, so we can see which ad led to a subscription; otherwise there is no ad to match it to. The token contains no personal data, is not linked to your name or Apple ID, and is not used to track you across other apps or websites (it needs no tracking permission).
 
 ## Permissions we request
 
@@ -65,7 +65,7 @@ When the app opens, it may ask Apple's public App Store lookup service whether a
 
 ## Third parties
 
-We use three service providers, each only for the purpose described above: an AI provider (Anthropic) for the smart features, PostHog for anonymous usage counts, and RevenueCat for Plus purchases. We do not use advertising, crash reporting, or tracking services, and we do not sell or share personal data.
+We use three service providers, each only for the purpose described above: an AI provider (Anthropic) for the smart features, PostHog for anonymous usage counts, and RevenueCat for Plus purchases. There are no ads in the app, we do not use crash reporting or tracking services, and we do not sell or share personal data.
 
 ## Children
 

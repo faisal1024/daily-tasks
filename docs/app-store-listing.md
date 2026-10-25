@@ -68,9 +68,9 @@ Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70
 
 ```
 A small update to Nag mode, and a few fixes:
-• A new voice: Dad. Dry, patient, and sure to mention your list again.
+• A new voice: Dad. Dry, deadpan, and sure to bring up your list again.
 • Spouse is now called Partner. Same voice, new name.
-• If the day sets itself while you're changing a task's words, your change is saved.
+• If your day sets itself while you're editing a task, your edit is now saved.
 • A nag no longer repeats a line already said that day.
 ```
 
@@ -140,7 +140,7 @@ In App Store Connect → App Privacy, add to what's already there:
 - **Identifiers → Device ID**: Analytics; not linked; no tracking (PostHog's random per-install id), in addition to User ID above.
 - **Diagnostics → Other Diagnostic Data**: Analytics; not linked; no tracking (error-kind events, no content).
 - Declaring these even if the analytics key isn't set is safe; under-declaring is not.
-- 1.4.1: the app lets RevenueCat collect Apple's AdServices attribution token (Apple Ads installs only). It holds no personal data and isn't tracking under ATT; check RevenueCat's current App Privacy guidance before submitting in case it asks for a declaration.
+- 1.4.1: the app lets RevenueCat collect Apple's AdServices attribution token (sent for every install on iOS 14.3+; Apple matches it to an ad when there was one). It holds no personal data and isn't tracking under ATT; check RevenueCat's current App Privacy guidance before submitting in case it asks for a declaration.
 
 ## Before the first `eas metadata:push`
 

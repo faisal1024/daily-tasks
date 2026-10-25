@@ -2325,6 +2325,19 @@ describe("Today card (Phase 10a)", () => {
     expect(lastReport()).toEqual(["t0", null]);
   });
 
+  it("a re-render that changes nothing reports nothing again: the row gets the store's own stable function (1.4.1)", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    await pickFromMenu("t0", "Edit");
+    await fireEvent.changeText(screen.getByLabelText("Edit task 1"), "Walk far");
+    const report = mockStore.noteOpenEdit as jest.Mock;
+    expect(report).toHaveBeenLastCalledWith("t0", "Walk far");
+    report.mockClear();
+    await screen.rerender(<HomeScreen />);
+    await screen.rerender(<HomeScreen />);
+    expect(report).not.toHaveBeenCalled();
+  });
+
   it("the words don't check a task off on a set day either, and offer no Not today (1.4)", async () => {
     mockStore = makeStore({ ...SET, tasks: tasks("Walk") });
     await render(<HomeScreen />);

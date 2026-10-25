@@ -1432,7 +1432,8 @@ export default function HomeScreen() {
         onToggle={() => handleToggle(task.id)}
         onEdit={(text) => editTask(task.id, text)}
         // An edit open when the day is set is saved, not dropped (the store's setDay).
-        onDraftChange={ghost ? undefined : (text) => noteOpenEdit(task.id, text)}
+        // The store's own (stable) function: the row's effect runs only when the words change.
+        onDraftChange={ghost ? undefined : noteOpenEdit}
         onDelete={() => handleDelete(task.id, task.text)}
         onNotToday={() => handleNotToday(task.id)}
         onLockedPress={handleLockedTap}
