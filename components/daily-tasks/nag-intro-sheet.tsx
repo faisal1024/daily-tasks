@@ -238,6 +238,7 @@ export function NagIntroSheet({
               onChange={pickPersona}
               options={NAG_PERSONAS.map((value) => ({ value, label: NAG_PERSONA_LABELS[value] }))}
               testID="nag-intro-voice"
+              columns={3}
             />
           </View>
           <View className="gap-2">
@@ -249,6 +250,7 @@ export function NagIntroSheet({
               onChange={pickLevel}
               options={NAG_LEVELS.map((value) => ({ value, label: NAG_LEVEL_LABELS[value] }))}
               testID="nag-intro-level"
+              columns={3}
             />
             <Text className="text-xs" style={{ color: colors.muted }} testID="nag-intro-level-count">
               {NAG_LEVEL_COUNT_NOTE[level]}
