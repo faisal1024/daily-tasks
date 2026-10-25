@@ -227,6 +227,49 @@ describe("purchases", () => {
       expect(mockSetProxyUserId).toHaveBeenCalledWith(null);
     });
   });
+
+  // 1.4.1: the Apple Ads attribution token. Fire and forget, like the proxy
+  // user id: whatever it does, the paywall stays on.
+  describe("Apple Ads attribution token", () => {
+    const sdkWithAds = mockSdk as typeof mockSdk & { enableAdServicesAttributionTokenCollection?: jest.Mock };
+    let unhandled: jest.Mock;
+    beforeEach(() => {
+      process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY = "appl_test";
+      unhandled = jest.fn();
+      process.on("unhandledRejection", unhandled);
+    });
+    afterEach(() => {
+      process.off("unhandledRejection", unhandled);
+      delete sdkWithAds.enableAdServicesAttributionTokenCollection;
+    });
+
+    it("turns collection on once, right after the SDK is configured, and not again for a second call", async () => {
+      sdkWithAds.enableAdServicesAttributionTokenCollection = jest.fn().mockResolvedValue(undefined);
+      expect(configurePurchases()).toBe(true);
+      expect(sdkWithAds.enableAdServicesAttributionTokenCollection).toHaveBeenCalledTimes(1);
+      expect(sdkWithAds.enableAdServicesAttributionTokenCollection.mock.invocationCallOrder[0]).toBeGreaterThan(mockSdk.configure.mock.invocationCallOrder[0]);
+      expect(configurePurchases()).toBe(true);
+      expect(sdkWithAds.enableAdServicesAttributionTokenCollection).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["is missing (an older native build)", undefined],
+      ["throws", jest.fn(() => {
+        throw new Error("native crash");
+      })],
+      ["rejects", jest.fn().mockRejectedValue(new Error("no token"))],
+    ])("a method that %s never turns the paywall off", async (_why, method) => {
+      sdkWithAds.enableAdServicesAttributionTokenCollection = method as jest.Mock | undefined;
+      expect(configurePurchases()).toBe(true);
+      await flush();
+      await flush();
+      expect(unhandled).not.toHaveBeenCalled();
+      // The paywall still loads its plans.
+      mockSdk.getOfferings.mockResolvedValue({ current: { availablePackages: [ANNUAL] } });
+      mockSdk.checkTrialOrIntroductoryPriceEligibility.mockResolvedValue({ plus_annual: { status: 2 } });
+      expect((await loadPackages())[0]).toMatchObject({ kind: "annual" });
+    });
+  });
 });
 
 describe("redeemCode (Apple offer codes)", () => {

@@ -56,6 +56,14 @@ interface TaskRowBaseProps {
   index: number;
   onToggle: () => void;
   onEdit: (text: string) => void;
+  /**
+   * The words being typed into this task while they differ from the saved
+   * ones (trimmed), or null: so the screen can save an open edit when the
+   * day is set under it, rather than the row closing and dropping it
+   * (1.4.1). Called with the task's id, so the screen can pass one stable
+   * function to every row.
+   */
+  onDraftChange?: (taskId: string, text: string | null) => void;
   onDelete: () => void;
   /** Save it for later instead of doing it today (not on a set day). */
   onNotToday: () => void;
@@ -155,6 +163,7 @@ export function TaskRow({
   index,
   onToggle,
   onEdit,
+  onDraftChange,
   onDelete,
   onNotToday,
   onLockedPress,
@@ -218,9 +227,18 @@ export function TaskRow({
   });
   const swipeActions = actions.filter((action) => action === "notToday" || action === "delete");
 
+  // Set while editing (Set today, or auto-set at its time): the store has
+  // already saved the open words (onDraftChange), so the row just closes.
   useEffect(() => {
     if (!editable && editing) setEditing(false);
   }, [editable, editing]);
+  const trimmedDraft = draft.trim();
+  const openDraft = editing && trimmedDraft && trimmedDraft !== task.text ? trimmedDraft : null;
+  useEffect(() => {
+    if (!onDraftChange || ghost) return;
+    onDraftChange(task.id, openDraft);
+    return () => onDraftChange(task.id, null);
+  }, [onDraftChange, openDraft, ghost, task.id]);
   useEffect(() => {
     if (!editing) setDraft(task.text);
   }, [editing, task.text]);

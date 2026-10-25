@@ -320,7 +320,7 @@ describe("Settings: with Nag on", () => {
   it("the voice and the level are radio groups that save the choice", async () => {
     await renderSettings(NAG_ON);
     for (const [group, names] of [
-      ["Voice", ["Mom", "Spouse", "Coach", "Drill sergeant"]],
+      ["Voice", ["Mom", "Dad", "Partner", "Coach", "Drill sergeant"]],
       ["Level", ["Gentle", "Firm", "Relentless"]],
     ] as const) {
       const node = screen.getAllByLabelText(group).find((item) => item.props.accessibilityRole === "radiogroup");
@@ -333,7 +333,7 @@ describe("Settings: with Nag on", () => {
       }
     }
     const isOn = (name: string) => checked(name);
-    expect(["Voice: Mom", "Voice: Spouse", "Voice: Coach", "Voice: Drill sergeant"].map(isOn)).toEqual([true, false, false, false]);
+    expect(["Voice: Mom", "Voice: Dad", "Voice: Partner", "Voice: Coach", "Voice: Drill sergeant"].map(isOn)).toEqual([true, false, false, false, false]);
     expect(["Level: Gentle", "Level: Firm", "Level: Relentless"].map(isOn)).toEqual([false, true, false]);
 
     await fireEvent.press(voice("Drill sergeant"));
@@ -343,6 +343,19 @@ describe("Settings: with Nag on", () => {
     expect(checked("Level: Relentless")).toBe(true);
     expect(checked("Level: Firm")).toBe(false);
     await waitFor(async () => expect(await savedNotifications()).toMatchObject({ nagPersona: "drill", nagLevel: "relentless", style: "nag" }));
+  });
+
+  it("Dad saves as dad and Partner as spouse (1.4.1: the label changed, the saved id didn't); the five voice chips wrap onto a second row", async () => {
+    await renderSettings(NAG_ON);
+    const group = screen.getAllByLabelText("Voice").find((item) => item.props.accessibilityRole === "radiogroup");
+    expect(group?.props.className).toContain("flex-wrap");
+    expect(screen.getAllByRole("radio").filter((item) => /^Voice: /.test(item.props.accessibilityLabel))).toHaveLength(5);
+    await fireEvent.press(voice("Dad"));
+    await waitFor(async () => expect(await savedNotifications()).toMatchObject({ nagPersona: "dad", style: "nag" }));
+    expect(checked("Voice: Dad")).toBe(true);
+    await fireEvent.press(voice("Partner"));
+    await waitFor(async () => expect(await savedNotifications()).toMatchObject({ nagPersona: "spouse" }));
+    expect(checked("Voice: Partner")).toBe(true);
   });
 
   it("shows a sample built-in line for the voice and level, and another on 'Show another'", async () => {
@@ -472,7 +485,7 @@ describe("Settings: with Nag on", () => {
 
   it("every control has a role, a name and a state, and a 44 point target", async () => {
     await renderSettings(NAG_ON);
-    const names = ["Calm", "Nag", "Voice: Mom", "Voice: Spouse", "Voice: Coach", "Voice: Drill sergeant", "Level: Gentle", "Level: Firm", "Level: Relentless"];
+    const names = ["Calm", "Nag", "Voice: Mom", "Voice: Dad", "Voice: Partner", "Voice: Coach", "Voice: Drill sergeant", "Level: Gentle", "Level: Firm", "Level: Relentless"];
     for (const name of names) {
       const node = radio(name);
       expect(typeof node.props.accessibilityState.checked).toBe("boolean");

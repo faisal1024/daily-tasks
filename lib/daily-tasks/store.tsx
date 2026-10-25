@@ -1188,6 +1188,13 @@ interface StoreContextValue {
   toggleTask: (id: TaskId) => void;
   lockToday: () => void;
   /**
+   * Today's task row reports the words being typed into it (trimmed, and
+   * only while they differ from the saved words; null once the edit is
+   * saved, closed or left), so setting the day mid-edit saves them first
+   * instead of dropping them (1.4.1).
+   */
+  noteOpenEdit: (id: TaskId, text: string | null) => void;
+  /**
    * Unlock a set day (Settings only, 1.4). True only when it really unlocked
    * something: false when today wasn't set (e.g. the confirm was left open
    * past midnight and the new day isn't set).
@@ -1746,12 +1753,37 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const completedCount = countCompleted(state);
   const remainingSlots = Math.max(0, MAX_TASKS - state.tasks.length);
 
+  // The words of a task being edited on Today, while they differ from the
+  // saved ones (noteOpenEdit). A ref: typing re-renders nothing here.
+  const openEditRef = useRef<{ id: TaskId; text: string } | null>(null);
+  const noteOpenEdit = useCallback((id: TaskId, text: string | null) => {
+    if (text !== null) openEditRef.current = { id, text };
+    else if (openEditRef.current?.id === id) openEditRef.current = null;
+  }, []);
+  /**
+   * Sets the day (Set today, or auto-set at its time). An edit of a task's
+   * words already open on Today is saved first, as the last change before
+   * the day is set: a set day forbids starting a change, not finishing one
+   * begun before it was set, and the row closes once the day is set (1.4.1).
+   * Only when the day really gets set by this, so a refused auto-set (a day
+   * unlocked in Settings) never saves words mid-typing.
+   */
+  const setDay = useCallback((action: Extract<Action, { type: "lockToday" | "autoLockToday" }>) => {
+    const edit = openEditRef.current;
+    const current = stateRef.current;
+    if (edit && reducer(current, action) !== current) {
+      openEditRef.current = null;
+      dispatch({ type: "editTask", id: edit.id, text: edit.text, today: action.today });
+    }
+    dispatch(action);
+  }, []);
+
   useEffect(() => {
     if (!ready) return;
     const eligible = autoLockEligibleTaskCount(state.tasks, today, state.autoLock);
     if (!shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) return;
-    dispatch({ type: "autoLockToday", today, at: scheduledAutoLockAt(today, state.autoLock) });
-  }, [ready, state.autoLock, state.tasks, state.todayLocked, today]);
+    setDay({ type: "autoLockToday", today, at: scheduledAutoLockAt(today, state.autoLock) });
+  }, [ready, setDay, state.autoLock, state.tasks, state.todayLocked, today]);
 
   useEffect(() => {
     if (!ready || state.momentumPlan || !isMomentumProfileComplete(state.momentumProfile)) {
@@ -1885,7 +1917,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       if (fresh !== before) return;
       const eligible = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
       if (shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) {
-        dispatch({ type: "autoLockToday", today: fresh, at: scheduledAutoLockAt(fresh, state.autoLock) });
+        setDay({ type: "autoLockToday", today: fresh, at: scheduledAutoLockAt(fresh, state.autoLock) });
       }
     };
     const sub = RNAppState.addEventListener("change", onChange);
@@ -1895,6 +1927,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     syncWidgetTaps,
     syncFocusCommands,
     ensureDay,
+    setDay,
     state.autoLock,
     state.tasks,
     state.todayLocked,
@@ -1907,11 +1940,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       if (fresh !== before) return;
       const eligible = autoLockEligibleTaskCount(state.tasks, fresh, state.autoLock);
       if (shouldAutoLockToday(new Date(), eligible, state.todayLocked, state.autoLock)) {
-        dispatch({ type: "autoLockToday", today: fresh, at: scheduledAutoLockAt(fresh, state.autoLock) });
+        setDay({ type: "autoLockToday", today: fresh, at: scheduledAutoLockAt(fresh, state.autoLock) });
       }
     }, 60_000);
     return () => clearInterval(id);
-  }, [ensureDay, state.autoLock, state.tasks, state.todayLocked]);
+  }, [ensureDay, setDay, state.autoLock, state.tasks, state.todayLocked]);
 
   // Also roll over right at local midnight, so Today (which re-renders on the
   // hour) never pairs 00:00 with yesterday's tasks until the next minute tick.
@@ -1970,8 +2003,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "toggleTask", id, today: ensureDay() });
   }, [ensureDay, dayChangePending]);
   const lockToday = useCallback(() => {
-    dispatch({ type: "lockToday", today: ensureDay(), at: new Date().toISOString() });
-  }, [ensureDay]);
+    setDay({ type: "lockToday", today: ensureDay(), at: new Date().toISOString() });
+  }, [ensureDay, setDay]);
   const unlockToday = useCallback((): boolean => {
     const before = todayRef.current;
     const day = ensureDay();
@@ -2650,6 +2683,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       makeTaskNext,
       toggleTask,
       lockToday,
+      noteOpenEdit,
       unlockToday,
       resolveRollover,
       setNotificationsEnabled,
@@ -2743,6 +2777,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       makeTaskNext,
       toggleTask,
       lockToday,
+      noteOpenEdit,
       unlockToday,
       resolveRollover,
       setNotificationsEnabled,

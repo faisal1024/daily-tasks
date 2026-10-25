@@ -174,7 +174,7 @@ describe("Settings: What is Nag mode?", () => {
   it("Plus: Try Nag mode asks the question, and Turn on turns it on with what was picked", async () => {
     await renderSettings();
     await openIntro();
-    await fireEvent.press(inSheet().getByRole("radio", { name: "Voice: Spouse" }));
+    await fireEvent.press(inSheet().getByRole("radio", { name: "Voice: Partner" }));
     await fireEvent.press(inSheet().getByRole("radio", { name: "Level: Relentless" }));
     await fireEvent.press(inSheet().getByRole("button", { name: "Try Nag mode" }));
     await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
@@ -185,7 +185,7 @@ describe("Settings: What is Nag mode?", () => {
     await waitFor(() => expect(sheet()).toBeNull());
     await waitFor(() => expect(styleChecked("Nag")).toBe(true));
     expect(row()).toBeNull();
-    expect(screen.getByRole("radio", { name: "Voice: Spouse" }).props.accessibilityState.checked).toBe(true);
+    expect(screen.getByRole("radio", { name: "Voice: Partner" }).props.accessibilityState.checked).toBe(true);
     expect(screen.getByRole("radio", { name: "Level: Relentless" }).props.accessibilityState.checked).toBe(true);
     expect(announcePolitely).toHaveBeenCalledWith("Nag mode is on");
     await waitFor(async () =>
@@ -193,6 +193,20 @@ describe("Settings: What is Nag mode?", () => {
     );
     expect(eventsNamed("nag_mode_enabled")).toEqual([{ persona: "spouse", level: "relentless" }]);
     expect(eventsNamed("whats_new_action")).toEqual([{ id: ID, action: "try", persona: "spouse", level: "relentless", source: "settings" }]);
+  });
+
+  it("the sheet's five voice chips wrap, and Dad turns on as dad (1.4.1)", async () => {
+    await renderSettings();
+    await openIntro();
+    expect(screen.getByTestId("nag-intro-voice").props.className).toContain("flex-wrap");
+    expect(inSheet().getAllByRole("radio").filter((item) => /^Voice: /.test(item.props.accessibilityLabel))).toHaveLength(5);
+    await fireEvent.press(inSheet().getByRole("radio", { name: "Voice: Dad" }));
+    expect(screen.getByTestId("nag-intro-preview-title").props.children).toBe("Three Today · Dad");
+    await fireEvent.press(inSheet().getByRole("button", { name: "Try Nag mode" }));
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+    await pressAlertButton("Turn on");
+    await waitFor(async () => expect((await saved()).notifications).toMatchObject({ style: "nag", nagPersona: "dad" }));
+    expect(eventsNamed("nag_mode_enabled")).toEqual([{ persona: "dad", level: "firm" }]);
   });
 
   it("a double tap asks one question, from the sheet and from the style choice; answered, it can be asked again", async () => {

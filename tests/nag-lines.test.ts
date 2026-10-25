@@ -62,7 +62,7 @@ describe("personas and levels", () => {
   });
 
   it("have the labels shown in the app", () => {
-    expect(NAG_PERSONA_LABELS).toEqual({ mom: "Mom", spouse: "Spouse", coach: "Coach", drill: "Drill sergeant" });
+    expect(NAG_PERSONA_LABELS).toEqual({ mom: "Mom", dad: "Dad", spouse: "Partner", coach: "Coach", drill: "Drill sergeant" });
     expect(NAG_LEVEL_LABELS).toEqual({ gentle: "Gentle", firm: "Firm", relentless: "Relentless" });
   });
 

@@ -10,14 +10,19 @@ import { getMomentumAiProxyUrl, postToProxy, proxyRouteUrl } from "./ai-client";
 import { MomentumAiError } from "./ai-status";
 import { quoteTask } from "./coach-note";
 
-export const NAG_PERSONAS = ["mom", "spouse", "coach", "drill"] as const;
+// "spouse" is shown as "Partner" (1.4.1). The id stays "spouse" in saved
+// settings, the day's record, the proxy and analytics, so older saves and
+// older proxies keep working. "dad" is new in 1.4.1: an older proxy refuses
+// it (400, "Invalid persona") and the day keeps the built-in lines.
+export const NAG_PERSONAS = ["mom", "dad", "spouse", "coach", "drill"] as const;
 export type NagPersona = (typeof NAG_PERSONAS)[number];
 export const NAG_LEVELS = ["gentle", "firm", "relentless"] as const;
 export type NagLevel = (typeof NAG_LEVELS)[number];
 
 export const NAG_PERSONA_LABELS: Record<NagPersona, string> = {
   mom: "Mom",
-  spouse: "Spouse",
+  dad: "Dad",
+  spouse: "Partner",
   coach: "Coach",
   drill: "Drill sergeant",
 };
@@ -113,9 +118,11 @@ function cut(value: string, max: number): string {
 // rule may still be in today's saved record on a phone, and an older proxy
 // may still answer. Whole words, any case; "lovely" and "honeydew" pass.
 // \b, lookahead and plain ranges only (no lookbehind, no \p), so it runs on
-// Hermes. No bare "hon": it is a word in other languages.
+// Hermes. No bare "hon": it is a word in other languages. 1.4.1, with Dad:
+// "kiddo", and "sport" said to someone (", sport" or "Sport,"), never the
+// bare word ("Take up a sport").
 const AFFECTION_WORDS =
-  /\b(?:i love|love (?:you|ya|u)|luv|ily|with love|my love|(?:much|lots of|all my) love|ador(?:e|es|ed|ing)|sweetheart|sweetie|honey|babe|baby|darling|dearest|hugs?|kiss(?:es)?|xoxo)\b|\blove(?=[,.!?]|$)|, dear\b|\bdear,/gi;
+  /\b(?:i love|love (?:you|ya|u)|luv|ily|with love|my love|(?:much|lots of|all my) love|ador(?:e|es|ed|ing)|sweetheart|sweetie|honey|babe|baby|darling|dearest|kiddo|hugs?|kiss(?:es)?|xoxo)\b|\blove(?=[,.!?]|$)|, (?:dear|sport)\b|\b(?:dear|sport),/gi;
 // A declaration: never excused, not even when a task has the word "love" in it.
 const AFFECTION_DECLARED = /\b(?:i|we) (?:love|adore) (?:you|u|ya)\b|\blove (?:you|ya|u)\b/i;
 // Figures of speech that only look like affection ("I'd love to see one
@@ -309,9 +316,11 @@ export async function requestNagLines({
  * nagging, never about the person. No insults, shame, threats, profanity,
  * fake urgency, advice, emoji or em dashes, and nothing that reads like a
  * real message from a real person ("it's your mother", "call me"). Nothing
- * affectionate or intimate either: Mom and Spouse are the classic nagging
- * types (they repeat themselves, sigh, won't let it drop), never a loving
- * relative, so no line declares love or fondness, uses a pet name, or
+ * affectionate or intimate either: Mom, Dad and Partner ("spouse") are the
+ * classic nagging types (they repeat themselves, sigh, won't let it drop;
+ * Dad is the dry, deadpan one with the dad jokes and the lectures that go
+ * nowhere, and his disappointment is in the list, never in the person),
+ * never a loving relative, so no line declares love or fondness, uses a pet name, or
  * mentions a hug, a kiss, a shared bed or a marriage (isAffectionateNagLine,
  * and the proxy's blocklist; tests check every line against both). One
  * exception to "never about the person": the Drill sergeant is sometimes
@@ -407,6 +416,58 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
         "Sigh. {task}. Still. I'll be here with my tea, sighing.",
         "I've lost count of my reminders. I'm starting the count over.",
         "I've told the houseplants about your list. Even the fern is sighing.",
+      ],
+    },
+  },
+  dad: {
+    early: [
+      "So. {task}. I'm not going to make a big thing of it. Yet.",
+      "Just checking in on {task}. Carry on. I'll check in again. And again.",
+      "I see {task} on the list. I'm just going to stand here and look at it.",
+      "Funny thing about {task}. It doesn't do itself. I checked.",
+      "I'm not saying anything about the list. I'm just adjusting the thermostat.",
+      "Small list today. I've mowed bigger lawns. Still, a list is a list.",
+      "I'd tell you a joke about the list, but it's still unfinished.",
+      "I'm just going to leave this here. The list, I mean.",
+      "The list has been open so long I can feel a draft.",
+      "No pressure. I'll just be over here, quietly reading the list.",
+    ],
+    mid: {
+      gentle: [
+        "Checking in on {task} again. It's what I do.",
+        "You know what goes great with {task}? A tick next to it.",
+        "Not a word from me. Just a long, meaningful look at the list.",
+        "The list and I had a little talk. It's still open.",
+        "One tick. That's all. Then I'll go back to my lawn.",
+      ],
+      firm: [
+        "I'm not mad, I'm just disappointed in the list. {task} is still on it.",
+        "I didn't want to bring up {task} again. And yet here I am, bringing it up.",
+        "Let me tell you about lists. Lists get ticked. That was the whole lecture.",
+        "I'm going to sigh now. Not at you. At the list. Big sigh.",
+        "This list has been open longer than the garage door. That's saying something.",
+      ],
+    },
+    late: {
+      gentle: [
+        "Still on the list: {task}. I'm not going anywhere. I'm in my chair.",
+        "Last thing about {task}, I promise. I promised that last time too.",
+        "Whatever got done, good. The rest of the list is still here. So am I.",
+        "One more tick and I'll stop hovering. I'll hover a little less.",
+      ],
+      firm: [
+        "I've brought up {task} more times than I've adjusted the thermostat.",
+        "We've talked about {task}. Well, I talked. The list just sat there.",
+        "I'm not mad. I'm not even disappointed. I'm just reading the list. Again.",
+        "This is the part where I take my glasses off and rub my eyes. The list.",
+        "I've told the list all my best jokes. Not a single tick. Tough crowd.",
+      ],
+      relentless: [
+        "My lecture about {task} has chapters now. We're on chapter four.",
+        "I'm going to stand here and sigh about {task} until it's done.",
+        "{task}, still. I've mowed the lawn twice just to have somewhere to sigh.",
+        "I've started the lecture again from the top. One tick and it ends.",
+        "The thermostat is set, the lawn is mowed, the gutters are clean. The list? Still open.",
       ],
     },
   },

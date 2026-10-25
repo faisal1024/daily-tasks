@@ -656,7 +656,7 @@ describe("Plus ending and coming back", () => {
     await waitFor(() => expect(checked("Nag")).toBe(true));
     expect(checked("Calm")).toBe(false);
     expect(screen.getByTestId("settings-nag")).toBeOnTheScreen();
-    expect(screen.getByRole("radio", { name: "Voice: Spouse" }).props.accessibilityState.checked).toBe(true);
+    expect(screen.getByRole("radio", { name: "Voice: Partner" }).props.accessibilityState.checked).toBe(true);
     expect(alert).not.toHaveBeenCalled();
     expect(mockOpenPaywall).not.toHaveBeenCalled();
     expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? "{}").notifications).toMatchObject({ style: "nag", nagConfirmed: true, nagPersona: "spouse" });

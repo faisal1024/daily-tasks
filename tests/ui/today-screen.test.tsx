@@ -177,6 +177,7 @@ function makeStore(overrides: Partial<AppState> = {}) {
     markReorderHintSeen: jest.fn(),
     toggleTask: jest.fn(),
     lockToday: jest.fn(),
+    noteOpenEdit: jest.fn(),
     resolveRollover: jest.fn(),
     completeMomentumOnboarding: jest.fn(),
     setTodayReflection: jest.fn(),
@@ -2302,6 +2303,39 @@ describe("Today card (Phase 10a)", () => {
 
     await fireEvent.press(screen.getByRole("checkbox", { name: "Task 1: Walk" }));
     expect(mockStore.toggleTask).toHaveBeenCalledWith("t0");
+  });
+
+  it("an open Edit reports its trimmed words to the store while they differ from the saved ones, and nothing once it is saved (1.4.1)", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    const lastReport = () => (mockStore.noteOpenEdit as jest.Mock).mock.calls.at(-1);
+    await pickFromMenu("t0", "Edit");
+    const input = screen.getByLabelText("Edit task 1");
+    await fireEvent.changeText(input, "  Walk far ");
+    expect(lastReport()).toEqual(["t0", "Walk far"]);
+    // Typed back to what is saved (or blank): nothing to save.
+    await fireEvent.changeText(input, " Walk ");
+    expect(lastReport()).toEqual(["t0", null]);
+    await fireEvent.changeText(input, "   ");
+    expect(lastReport()).toEqual(["t0", null]);
+    await fireEvent.changeText(input, "Walk far");
+    expect(lastReport()).toEqual(["t0", "Walk far"]);
+    await fireEvent(input, "submitEditing");
+    expect(mockStore.editTask).toHaveBeenCalledWith("t0", "Walk far");
+    expect(lastReport()).toEqual(["t0", null]);
+  });
+
+  it("a re-render that changes nothing reports nothing again: the row gets the store's own stable function (1.4.1)", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    await pickFromMenu("t0", "Edit");
+    await fireEvent.changeText(screen.getByLabelText("Edit task 1"), "Walk far");
+    const report = mockStore.noteOpenEdit as jest.Mock;
+    expect(report).toHaveBeenLastCalledWith("t0", "Walk far");
+    report.mockClear();
+    await screen.rerender(<HomeScreen />);
+    await screen.rerender(<HomeScreen />);
+    expect(report).not.toHaveBeenCalled();
   });
 
   it("the words don't check a task off on a set day either, and offer no Not today (1.4)", async () => {

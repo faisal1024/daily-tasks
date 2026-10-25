@@ -24,6 +24,7 @@ import {
   nagPlanFromRecord,
   nagRecordApplies,
   nagRecordStub,
+  nagRecordWithPlannedWords,
   NAG_STORAGE_KEY,
   normalizeNagRecord,
   planNagDay,
@@ -213,13 +214,48 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
 }
 
 /**
- * The nags for today from the saved record (see nagPlanFromRecord). Reads
- * storage only: no network, and it never rejects (anything wrong is an empty
- * plan).
+ * When the plan put new words into slots still to come (a ticked task's
+ * nag pointed at the next one, and the like: nagRecordWithPlannedWords),
+ * they are written back into the record, so the record knows what each nag
+ * said and a day drawn again later doesn't say a line twice. Not awaited:
+ * it waits behind the runs (one writer at a time), reads the record again
+ * first and saves only when it is still the one this plan was made from
+ * (same day and version: a newer plan, AI lines or a stub since then are
+ * left alone, and their own sync writes their words), and saves nothing
+ * once the record was removed or emptied since it was asked for. Nothing
+ * is written when nothing changed. Never throws.
+ */
+function savePlannedWords(record: NagDayRecord | null, context: ReminderContext): void {
+  try {
+    if (!record || !nagRecordWithPlannedWords(record, context)) return;
+    const { dayKey, version } = record;
+    const epoch = cleared;
+    queue = queue
+      .then(() => stubbing)
+      .then(async () => {
+        if (cleared !== epoch) return;
+        const current = await loadNagRecord();
+        if (!current || current.dayKey !== dayKey || current.version !== version) return;
+        const next = nagRecordWithPlannedWords(current, context);
+        if (next && cleared === epoch) await saveNagRecord(next);
+      })
+      .catch(() => {});
+  } catch {
+    // Only the record's memory of what was said: the plan stands.
+  }
+}
+
+/**
+ * The nags for today from the saved record (see nagPlanFromRecord). No
+ * network, and it never rejects (anything wrong is an empty plan). It only
+ * writes to write back words it put in (savePlannedWords).
  */
 export const nagStrategy: ReminderStrategy = async (context) => {
   try {
-    return nagPlanFromRecord(await loadNagRecord(), context);
+    const record = await loadNagRecord();
+    const plan = nagPlanFromRecord(record, context);
+    savePlannedWords(record, context);
+    return plan;
   } catch {
     return [];
   }
@@ -248,8 +284,10 @@ export const nagModeStrategy: ReminderStrategy = async (context) => {
     record = null;
   }
   if (!nagRecordApplies(record, context)) return calm;
+  const nags = nagPlanFromRecord(record, context);
+  savePlannedWords(record, context);
   const taken = new Set<string>();
-  return [...mornings(calm), ...nagPlanFromRecord(record, context)].filter((item) => {
+  return [...mornings(calm), ...nags].filter((item) => {
     if (taken.has(item.id)) return false;
     taken.add(item.id);
     return true;

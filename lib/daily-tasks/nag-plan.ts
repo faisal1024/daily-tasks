@@ -291,6 +291,24 @@ export interface NagSlot {
   text: string;
   /** The task it names; null for a line about the list in general. */
   taskId: string | null;
+  /**
+   * 1.4.1: the words it was last scheduled with, when those were not `text`
+   * (a line put in for a ticked task, and the like: nagPlanFromRecord). Only
+   * read once the slot has gone off, as what it said; `text` stays the
+   * day's own line, so an undone tick brings it back. Absent in records
+   * saved before 1.4.1 and whenever the slot says its own words.
+   */
+  sent?: string;
+}
+
+/** What a slot that went off said: the words it was scheduled with. */
+function saidText(slot: NagSlot): string {
+  return slot.sent ?? slot.text;
+}
+
+/** `slot` without `sent`: for a slot whose words are written again. */
+function unsent({ sent: _sent, ...slot }: NagSlot): NagSlot {
+  return slot;
 }
 
 export interface NagDayRecord {
@@ -341,12 +359,19 @@ function asNagLine(value: unknown): NagLine | null {
 
 function asNagSlot(value: unknown): NagSlot | null {
   if (!value || typeof value !== "object") return null;
-  const { id, fireAtMs, step, text, taskId } = value as Record<string, unknown>;
+  const { id, fireAtMs, step, text, taskId, sent } = value as Record<string, unknown>;
   if (typeof id !== "string" || !id.startsWith("daily-tasks:")) return null;
   // A moment a Date can hold (up to 8.64e15 ms): anything else would be an Invalid Date in the plan.
   if (typeof fireAtMs !== "number" || !Number.isFinite(fireAtMs) || fireAtMs <= 0 || fireAtMs > MAX_DATE_MS) return null;
   if (typeof step !== "number" || !Number.isInteger(step) || step < 1 || typeof text !== "string") return null;
-  return { id, fireAtMs, step, text, taskId: typeof taskId === "string" && taskId ? taskId : null };
+  return {
+    id,
+    fireAtMs,
+    step,
+    text,
+    taskId: typeof taskId === "string" && taskId ? taskId : null,
+    ...(typeof sent === "string" && sent && sent !== text ? { sent } : {}),
+  };
 }
 
 /** A saved record, checked; null for anything that isn't one. */
@@ -396,7 +421,7 @@ export function normalizeNagRecord(value: unknown): NagDayRecord | null {
  */
 export function nagRecordStub(record: NagDayRecord, now: Date): NagDayRecord {
   const nowMs = now.getTime();
-  const slots = record.slots.filter((slot) => slot.fireAtMs <= nowMs).map((slot) => ({ ...slot, text: "", taskId: null }));
+  const slots = record.slots.filter((slot) => slot.fireAtMs <= nowMs).map((slot) => ({ ...unsent(slot), text: "", taskId: null }));
   return {
     ...record,
     tasksKey: "",
@@ -419,7 +444,7 @@ export function isNagRecordStub(record: NagDayRecord, now: Date): boolean {
     record.lineTasks.length === 0 &&
     record.tasksKey === "" &&
     record.timingKey === "" &&
-    record.slots.every((slot) => slot.fireAtMs <= nowMs && slot.text === "" && slot.taskId === null)
+    record.slots.every((slot) => slot.fireAtMs <= nowMs && slot.text === "" && slot.taskId === null && slot.sent === undefined)
   );
 }
 
@@ -452,7 +477,7 @@ function withLines(
   slots: NagSlot[],
   { lines, lineTasks, total, nowMs, ownTexts }: { lines: NagLine[]; lineTasks: string[]; total: number; nowMs: number; ownTexts: string[] },
 ): NagSlot[] {
-  const said = new Set(slots.filter((slot) => slot.fireAtMs <= nowMs && slot.text).map((slot) => slot.text));
+  const said = new Set(slots.filter((slot) => slot.fireAtMs <= nowMs && saidText(slot)).map(saidText));
   return slots.map((slot) => {
     if (slot.fireAtMs <= nowMs) return slot;
     const line = lineForStep(lines, slot.step, total);
@@ -461,7 +486,7 @@ function withLines(
       return slot;
     }
     said.add(line.text);
-    return { ...slot, text: line.text, taskId: line.taskIndex === null ? null : (lineTasks[line.taskIndex] ?? null) };
+    return { ...unsent(slot), text: line.text, taskId: line.taskIndex === null ? null : (lineTasks[line.taskIndex] ?? null) };
   });
 }
 
@@ -551,12 +576,13 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
   const tasks = hideNames ? [] : open;
   const sensitiveDay = open.some((task) => nagTaskIsSensitive(task.text));
   const lines = builtInNagLines({ persona, level, tasks, count: total, seed: `${dayKey}|${salt}`, sensitiveDay });
-  const said = new Set(past.filter((slot) => slot.text).map((slot) => slot.text));
+  // What the nags that went off said: the words they were scheduled with.
+  const said = new Set(past.filter((slot) => saidText(slot)).map(saidText));
   let slots = future.map((slot) => {
     const line = unsaidLine(lines, slot.step, total, said);
-    if (!line) return { ...slot, text: "", taskId: null };
+    if (!line) return { ...unsent(slot), text: "", taskId: null };
     said.add(line.text);
-    return { ...slot, text: line.text, taskId: line.taskIndex === null ? null : (tasks[line.taskIndex]?.id ?? null) };
+    return { ...unsent(slot), text: line.text, taskId: line.taskIndex === null ? null : (tasks[line.taskIndex]?.id ?? null) };
   });
 
   const keepAi = sameDay && !hideNames && aiLinesFit(previous, persona, level, open);
@@ -673,9 +699,69 @@ export function nagRecordApplies(record: NagDayRecord | null, context: NagPlanCo
  * out at the end, so the answer doesn't change as the day's nags go off.
  */
 export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanContext): ReminderPlan {
-  if (!nagRecordApplies(record, context)) return [];
+  const worked = nagSlotWords(record, context);
+  if (!worked) return [];
+  const plan: ReminderPlan = [];
+  for (const { slot, past, words } of worked.slots) {
+    // No line for this slot (or none without a name): it isn't scheduled.
+    if (!words || past) continue;
+    plan.push({
+      id: slot.id,
+      fireAt: new Date(slot.fireAtMs),
+      // "Three Today · Mom", never the persona alone: it must not read as a real person's message.
+      title: nagTitle(worked.persona),
+      body: words.text,
+      kind: NAG_KIND,
+      // Ids and numbers only, never the words.
+      data: { ...(words.taskId && !worked.hide ? { taskId: words.taskId } : {}), step: slot.step },
+      interruptionLevel: "active" as const,
+      categoryId: NAG_CATEGORY_ID,
+    });
+  }
+  return plan;
+}
+
+/**
+ * The record with each slot still to come noting the words it is scheduled
+ * with when they are not its own (`sent`: a slot whose task was ticked off
+ * or removed, an affectionate stored AI line, a rude line on a sensitive
+ * day), and the note taken off again when it says its own words (the tick
+ * was undone). Once that nag has gone off its `sent` is what it said, so a
+ * day drawn again later (another level or window) doesn't say it twice.
+ * `text` and `taskId` are never changed, so the day's own lines come back
+ * when a tick is undone, and the scheduled nags never depend on `sent`: a
+ * note written late can't change one. A slot that already went off is never
+ * touched. Nothing while names were just hidden and the record hasn't been
+ * planned again (planNagDay rewrites it); with names hidden the words put
+ * in never name a task. The version is kept: the plan is the one already
+ * scheduled. Null when there is nothing to write.
+ */
+export function nagRecordWithPlannedWords(record: NagDayRecord | null, context: NagPlanContext): NagDayRecord | null {
+  const worked = nagSlotWords(record, context);
+  if (!worked || worked.rewrite || !record) return null;
+  let changed = false;
+  const slots = worked.slots.map(({ slot, past, words }) => {
+    if (past) return slot;
+    const sent = words && words.text !== slot.text ? words.text : undefined;
+    if (sent === slot.sent) return slot;
+    changed = true;
+    return sent === undefined ? unsent(slot) : { ...slot, sent };
+  });
+  return changed ? { ...record, slots } : null;
+}
+
+/**
+ * The words of every slot of the day's record as nagPlanFromRecord works
+ * them out (see there), in the record's order; `words` is null for a slot
+ * with no line. Null when the record doesn't apply or nothing is open.
+ */
+function nagSlotWords(
+  record: NagDayRecord | null,
+  context: NagPlanContext,
+): { persona: NagPersona; hide: boolean; rewrite: boolean; slots: { slot: NagSlot; past: boolean; words: NagWords | null }[] } | null {
+  if (!nagRecordApplies(record, context)) return null;
   const open = nagOpenTasks(context.tasks);
-  if (open.length === 0) return [];
+  if (open.length === 0) return null;
   const openIds = new Set(open.map((task) => task.id));
   const hide = context.settings.hideTaskNames === true;
   const nowMs = context.now.getTime();
@@ -686,8 +772,9 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
   const sensitiveDay = sensitiveIds.size > 0;
   const builtIn = (tasks: NagOpenTask[]) =>
     builtInNagLines({ persona: record.persona, level: record.level, tasks, count: record.total, seed: `${record.dayKey}|${record.salt}`, sensitiveDay });
-  // The task a line put in here is about: never a sensitive one.
-  const next = open.find((task) => !sensitiveIds.has(task.id)) ?? null;
+  // The task a line put in here is about: never a sensitive one, and none
+  // while names are hidden (the line is a general one then).
+  const next = hide ? null : (open.find((task) => !sensitiveIds.has(task.id)) ?? null);
   const general = rewrite ? builtIn([]) : [];
   const forNext = rewrite ? [] : builtIn(next ? [next] : []);
   const ownTexts = open.map((task) => task.text);
@@ -698,13 +785,22 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
   const insensitive = (slot: NagSlot) =>
     (record.source === "local" && slot.taskId !== null && sensitiveIds.has(slot.taskId)) ||
     (sensitiveDay && record.persona === "drill" && NAG_DRILL_RUDE.test(slot.text));
+  // A nag that went off counts with the words it was scheduled with.
   const used = new Set<string>();
-  for (const slot of record.slots) if (slot.text && (!rewrite || slot.fireAtMs <= nowMs)) used.add(slot.text);
-  const plan: ReminderPlan = [];
+  for (const slot of record.slots) {
+    const past = slot.fireAtMs <= nowMs;
+    const text = past ? saidText(slot) : slot.text;
+    if (text && (!rewrite || past)) used.add(text);
+  }
+  const slots: { slot: NagSlot; past: boolean; words: NagWords | null }[] = [];
   for (const slot of record.slots) {
     const past = slot.fireAtMs <= nowMs;
     let words: NagWords | null = { text: slot.text, taskId: slot.taskId };
-    if (rewrite) {
+    if (past && slot.sent !== undefined) {
+      // Went off with words put in for it: those are what it said.
+      words = { text: slot.sent, taskId: null };
+    } else if (rewrite) {
+      // Gone off before names were hidden: left out, and not counted as said.
       if (past) continue;
       const line = unsaidLine(general, slot.step, record.total, used);
       words = line ? { text: line.text, taskId: null } : null;
@@ -712,22 +808,12 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
       const line = unsaidLine(forNext, slot.step, record.total, used);
       words = line ? { text: line.text, taskId: line.taskIndex === null || !next ? null : next.id } : null;
     }
-    // No line for this slot (or none without a name): it isn't scheduled.
-    if (!words || !words.text) continue;
+    if (!words || !words.text) {
+      slots.push({ slot, past, words: null });
+      continue;
+    }
     used.add(words.text);
-    if (past) continue;
-    plan.push({
-      id: slot.id,
-      fireAt: new Date(slot.fireAtMs),
-      // "Three Today · Mom", never the persona alone: it must not read as a real person's message.
-      title: nagTitle(record.persona),
-      body: words.text,
-      kind: NAG_KIND,
-      // Ids and numbers only, never the words.
-      data: { ...(words.taskId && !hide ? { taskId: words.taskId } : {}), step: slot.step },
-      interruptionLevel: "active" as const,
-      categoryId: NAG_CATEGORY_ID,
-    });
+    slots.push({ slot, past, words });
   }
-  return plan;
+  return { persona: record.persona, hide, rewrite, slots };
 }

@@ -320,7 +320,7 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
   {
     icon: "megaphone-outline",
     title: "Nag mode",
-    detail: "Reminders as Mom, Spouse, Coach or Drill sergeant, as pushy as you pick.",
+    detail: "Reminders as Mom, Dad, Partner, Coach or Drill sergeant, as pushy as you pick.",
   },
 ];
 
@@ -383,7 +383,7 @@ export function paywallSubhead(source: PaywallSource, options: { taskCount?: num
     case "routines":
       return "Two routines are free, and they keep working. Plus keeps as many as you like, with the AI helpers too.";
     case "nag_mode":
-      return "Nag mode reminds you as Mom, Spouse, Coach or Drill sergeant. Calm reminders and your three stay free either way.";
+      return "Nag mode reminds you as Mom, Dad, Partner, Coach or Drill sergeant. Calm reminders and your three stay free either way.";
     default:
       return "Your three tasks stay free forever. Plus adds the AI helpers.";
   }

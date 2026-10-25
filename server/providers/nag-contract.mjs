@@ -1,6 +1,6 @@
 // Contract for Nag mode (1.4): a day's batch of short reminder lines about
-// the user's open tasks, written in a persona's voice (mom, spouse, coach,
-// drill sergeant) at a chosen level (gentle, firm, relentless). The app asks
+// the user's open tasks, written in a persona's voice (mom, dad, spouse,
+// coach, drill sergeant) at a chosen level (gentle, firm, relentless). The app asks
 // once a day and schedules the lines itself; `step` runs from the first nudge
 // of the day (1) to the last (count).
 //
@@ -10,7 +10,11 @@
 //
 // Provider-independent, like plan-contract.mjs and coach-contract.mjs.
 
-export const NAG_PERSONAS = ["mom", "spouse", "coach", "drill"];
+// "spouse" is the id of the voice the app shows as "Partner" (1.4.1); the id
+// is kept so older apps keep working. "dad" is new in 1.4.1: only newer apps
+// send it, and an older Worker refuses it (the app then uses its built-in
+// lines), so deploy this before releasing the app.
+export const NAG_PERSONAS = ["mom", "dad", "spouse", "coach", "drill"];
 export const NAG_LEVELS = ["gentle", "firm", "relentless"];
 export const MAX_NAG_TASKS = 3;
 export const MAX_NAG_TASK_CHARS = 120;
@@ -126,16 +130,16 @@ export function validateNagPayload(payload) {
   return null;
 }
 
-/** The only emoji a line may keep (one, mom and spouse only). Any other is taken out of the line. */
+/** The only emoji a line may keep (one, mom, dad and spouse only). Any other is taken out of the line. */
 export const NAG_EMOJI_ALLOWED = ["\u{1F642}", "\u{1F60A}", "\u{1F609}", "\u{1F33C}", "\u2615", "\u{1F36A}", "\u2705", "\u{1F440}", "\u{1F64F}"];
 
 export const NAG_SAFETY_RULES = [
-  "Annoying on purpose. For Mom, Spouse and Coach the joke is the nagging, never the person. The Drill sergeant alone may insult the recruit's effort, speed and excuses in comic boot-camp style (maggot, slacker, 'is that all you've got'), within every other rule below.",
+  "Annoying on purpose. For Mom, Dad, Partner and Coach the joke is the nagging, never the person. The Drill sergeant alone may insult the recruit's effort, speed and excuses in comic boot-camp style (maggot, slacker, 'is that all you've got'), within every other rule below.",
   "Never insult or judge the person's worth, intelligence, body, weight, health, mental health, family, relationships, money or job.",
   "No shame about past failures, no 'you always' or 'you never', no comparing them to other people.",
   "No threats or ultimatums, no profanity, no slurs, no sexual content.",
   "No declarations of love or affection and nothing romantic or intimate: never 'I love you', 'love you', 'I adore you', 'with love', hugs, kisses or hearts, and no pet names (honey, sweetheart, sweetie, babe, baby, darling, dear, my love).",
-  "The persona is a comic type, not a stand-in for the user's real mother, partner or anyone they know. Never write as if you were that person.",
+  "The persona is a comic type, not a stand-in for the user's real mother, father, partner or anyone they know. Never write as if you were that person.",
   "No violence, death or dying, not even as a joke or a figure of speech.",
   "No medical, legal or financial advice.",
   "No emergencies or fake urgency: nothing about accounts, payments, passwords, deadlines you invented, deliveries, police, or anything being suspended or overdue.",
@@ -156,7 +160,7 @@ export const NAG_SYSTEM_PROMPT = [
   "- step runs from 1 (first nudge of the day) to the number of lines asked for (last nudge), one line per step, in order. Follow the level's curve across the steps.",
   "- Every line must be different from the others and make sense on its own.",
   "- Plain punctuation only. No em dashes, no hashtags, no links, no phone numbers, no ALL CAPS sentences unless the persona says so, and no quotation marks around the whole line.",
-  `- Emoji: at most one per line, only for the mom and spouse personas, and only one of these: ${NAG_EMOJI_ALLOWED.join(" ")}. No hearts. None for coach or drill sergeant.`,
+  `- Emoji: at most one per line, only for the Mom, Dad and Partner personas, and only one of these: ${NAG_EMOJI_ALLOWED.join(" ")}. No hearts. None for Coach or Drill sergeant.`,
   "- Do not mention the time of day or a meal (morning, afternoon, evening, tonight, noon, midnight, breakfast, lunch, dinner, bedtime, late): the app picks when each line is shown. A task's own words are fine.",
   "- Do not sign the line or prefix it with the persona's name.",
   "",
@@ -168,8 +172,10 @@ export const NAG_SYSTEM_PROMPT = [
 export const NAG_PERSONA_VOICES = {
   mom:
     "Mom. The classic nagging-mother type: keeps bringing it up, repeats herself, sighs, 'I'm not mad, I'm just asking, again'. Fussy and a bit passive-aggressive, comically persistent, never actually angry and never mean. No pet names and no 'I love you'.",
+  dad:
+    "Dad. The classic nagging-dad type: dry and deadpan, sighs, tells a corny dad joke about the task, starts lectures that go nowhere. 'I'm not mad, I'm just disappointed in the list' fits, in at most one line in four. The thermostat, the lawn and the garage are fine as comic texture. The disappointment is always in the list, never in the user. Comically persistent, never mean or angry, no ultimatums. No pet names (no kiddo, sport, buddy, pal, bud or son) and no 'I love you'.",
   spouse:
-    "Spouse. The classic nagging other-half type: exasperated, long-suffering, counts how many times it has come up, passive-aggressive 'no, no, take your time'. Comically persistent, never mean, never controlling or jealous, no ultimatums. Never romantic or affectionate, no pet names, no 'I love you'.",
+    "Partner. The classic nagging other-half type: exasperated, long-suffering, counts how many times it has come up, passive-aggressive 'no, no, take your time'. Comically persistent, never mean, never controlling or jealous, no ultimatums. Never romantic or affectionate, no pet names, no 'I love you'.",
   coach:
     "Coach. Upbeat and direct. Short sentences, sports-sideline energy, believes in them completely. Talks about the next rep, the next play, the clock.",
   drill:
@@ -238,7 +244,7 @@ const PHONE_PATTERN = /(?:\d[\s().-]{0,2}){7,}/;
 // A hashtag starts with a letter ("#2" is a number).
 const HASHTAG_PATTERN = /(^|\s)#[\p{L}_]/u;
 const EMOJI = /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic})*/gu;
-const EMOJI_PERSONAS = ["mom", "spouse"];
+const EMOJI_PERSONAS = ["mom", "dad", "spouse"];
 const EMOJI_ALLOWED = new Set(NAG_EMOJI_ALLOWED);
 
 // Compact blocklist for the banned themes. Whole words only (see
@@ -256,7 +262,7 @@ const NAG_BLOCKLIST = [
   // The person's worth or intelligence.
   "stupid\\w*", "idiot\\w*", "morons?", "moronic", "imbeciles?", "dumb", "dumber", "dumbest", "dumbass\\w*", "dummy", "dunce", "dimwit\\w*", "brainless",
   "clueless", "losers?", "worthless", "useless", "pathetic", "hopeless", "failures?", "disgrace\\w*", "disappointment",
-  "disappointed in you",
+  "disappointed (?:with|by|in) you", "disappoint(?:s|ed)? (?:me|us)", "let (?:me|us) down",
   "embarrassment", "ashamed", "shame on you", "good for nothing", "deadbeat", "incompetent", "lazy", "laziness", "slobs?",
   "slackers?", "bum", "bums", "pigs?", "garbage human", "maggots?", "worms?", "weaklings?", "sorry excuse",
   // Contempt for who the person is, for every voice (the Drill sergeant too).
@@ -291,12 +297,14 @@ const NAG_BLOCKLIST = [
   // "my love" are all caught by it.
   "love", "loves", "loved", "loving", "lovingly", "lovers?", "beloved", "luv", "luvs", "ily", "ilysm", "adore\\w*",
   "xo(?:xo)*", "kiss(?:es|ed|ing)?", "smooch\\w*", "hugs?", "hugged", "hugging", "cuddl\\w*", "snuggl\\w*",
-  "sweetheart", "sweetie", "sweetums", "honey", "hon", "babe", "baby", "bae", "cutie", "darling", "dearest", "dear",
+  "sweetheart", "sweetie", "sweetums", "honey", "hon", "babe", "baby", "bae", "cutie", "darling", "dearest", "dear", "kiddo",
+  // Pet names said to the person (1.4.1, for Dad above all): after a comma or opening the line before one, so "my son's recital" or "a kid's party" pass. Not "champ": Coach says it.
+  "(?<=,\\s*)(?:son|kid|sport|buddy|bud|pal)", "(?<=^\\W*)(?:son|kid|sport|buddy|bud|pal)(?=\\s*,)",
   "sweet pea", "pumpkin", "soulmate", "valentine", "fondly", "fond of you", "affection\\w*", "my heart",
   "sweet dreams", "foot rub", "massage", "miss you", "missing you", "handsome", "gorgeous", "date night",
   "romantic", "romance",
   // A real family member speaking: the voice is never the user's wife, husband or parent, and doesn't speak for one.
-  "wife", "wifey", "husband", "hubby", "your (?:mother|mom|mum|mommy|mama|dad|daddy|father)",
+  "wife", "wifey", "husband", "hubby", "your (?:mother|mom|mum|mommy|mama|dad|daddy|father)", "old man", "pops",
   "our (?:marriage|anniversary|wedding|bed|bedroom|kids|children)",
   // Posing as a real person's message.
   "call me", "phone me", "text me",
@@ -351,6 +359,14 @@ const YOU_ARE_BLOCKLISTED = youAre(NAG_BLOCKLIST);
 // posing as anyone.
 const POSES_AS_FAMILY =
   /(?<![\p{L}\p{N}])(?:it's|its|it is|this is) (?:me,? )?(?:your (?:mother|mom|mum|mommy|mama|dad|daddy|father|wife|wifey|husband|hubby|partner|spouse))(?![\p{L}\p{N}])/iu;
+// The voice signing the line or announcing itself by its name ("Dad here.",
+// "Mom here:", "The list is open, Dad."): it reads as a real person's
+// message. Any voice's name, whichever voice is writing.
+const PERSONA_NAMES = "(?:mom|mum|dad|partner|spouse|coach|drill sergeant|sergeant)";
+const SIGNS_AS_PERSONA = new RegExp(
+  `^\\W*(?:it's |this is )?${PERSONA_NAMES} here(?![\\p{L}\\p{N}])|,\\s*(?:your |love,? )?${PERSONA_NAMES}\\W*$`,
+  "iu",
+);
 // A declaration of love: checked on the whole line, so a task with "love" in
 // it ("Buy a gift for my love") can't excuse "I love you".
 const DECLARES_LOVE = /(?<![\p{L}\p{N}])(?:(?:i|we) (?:love|adore) (?:you|u|ya)|love (?:you|ya|u))(?![\p{L}\p{N}])/iu;
@@ -406,9 +422,19 @@ export function hitsNagBlocklist(text, ownTexts = [], persona) {
   const pattern = drill ? NAG_DRILL_BLOCKLIST_PATTERN : NAG_BLOCKLIST_PATTERN;
   const rest = straighten(text);
   if (POSES_AS_FAMILY.test(rest) || DECLARES_LOVE.test(rest)) return true;
+  if (SIGNS_AS_PERSONA.test(withoutOwnTexts(rest, ownTexts))) return true;
   if (SECOND_PERSON_HARM.test(rest) || (drill ? YOU_ARE_BLOCKLISTED_DRILL : YOU_ARE_BLOCKLISTED).test(rest)) return true;
   if (drill && DRILL_NAME_CALLING.test(rest)) return true;
   return pattern.test(withoutOwnWords(rest, ownTexts, pattern).replace(AFFECTION_IDIOMS, "|"));
+}
+
+/** `rest` (already folded) with each own text taken out whole, longest first (so a task that contains another goes whole). */
+function withoutOwnTexts(rest, ownTexts) {
+  const own = ownTexts.map((value) => straighten(oneLine(value))).filter(Boolean);
+  for (const value of [...own].sort((a, b) => b.length - a.length)) {
+    rest = rest.replace(new RegExp(escapeRegExp(value), "giu"), "|");
+  }
+  return rest;
 }
 
 /**
@@ -417,10 +443,7 @@ export function hitsNagBlocklist(text, ownTexts = [], persona) {
  */
 function withoutOwnWords(rest, ownTexts, pattern) {
   const own = ownTexts.map((value) => straighten(oneLine(value))).filter(Boolean);
-  // Longest first, so a task that contains another is removed whole.
-  for (const value of [...own].sort((a, b) => b.length - a.length)) {
-    rest = rest.replace(new RegExp(escapeRegExp(value), "giu"), "|");
-  }
+  rest = withoutOwnTexts(rest, ownTexts);
   // "your mom" is on the list and "mom" is not: a task's own "mom" is excused there too ("Call mom").
   const ownWords = new Set(
     own
@@ -449,7 +472,7 @@ export function hasNagClockWord(text, ownTexts = []) {
  * cut or spliced): empty, a control character, over MAX_NAG_LINE, a link, an
  * email, a phone-like run of digits, a hashtag, a blocklist hit, or a word
  * for the time of day (hasNagClockWord). Tidied (kept): emoji are removed
- * except one from NAG_EMOJI_ALLOWED for mom/spouse (none for coach/drill),
+ * except one from NAG_EMOJI_ALLOWED for mom/dad/spouse (none for coach/drill),
  * zero-width characters and soft hyphens are taken out (a zero-width joiner
  * or non-joiner between two Persian, Arabic or Indic letters stays in the
  * line; the checks read a copy without it), dashes become commas, and quotes
