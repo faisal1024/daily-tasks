@@ -77,7 +77,7 @@ afterEach(() => {
 });
 
 describe("words put in after a tick are written back to the record", () => {
-  it("a tick: the plan's new words for slots still to come are saved, the nag that went off and the version are not touched", async () => {
+  it("a tick: slots still to come note the words they are scheduled with; their own words, the nag that went off and the version are not touched", async () => {
     const record = planned();
     await store(record);
     // 10:30: the 9:57 nag went off; the report's later nag is still to come.
@@ -87,9 +87,9 @@ describe("words put in after a tick are written back to the record", () => {
     const after = await saved();
     expect(after.version).toBe(record.version);
     expect(after.slots[0]).toEqual(record.slots[0]);
-    expect(after.slots.slice(1).map((slot) => slot.text)).toEqual(plan.map((item) => item.body));
-    expect(after.slots.some((slot, index) => slot.text !== record.slots[index].text)).toBe(true);
-    expect(after.slots.filter((slot) => slot.fireAtMs > at(10, 30).getTime()).some((slot) => slot.taskId === "t1")).toBe(false);
+    expect(after.slots.map(({ text, taskId }) => ({ text, taskId }))).toEqual(record.slots.map(({ text, taskId }) => ({ text, taskId })));
+    expect(after.slots.slice(1).map((slot) => slot.sent ?? slot.text)).toEqual(plan.map((item) => item.body));
+    expect(after.slots.some((slot) => slot.sent !== undefined)).toBe(true);
 
     // Looking again: the same plan, and nothing more is written.
     const setItem = AsyncStorage.setItem as jest.Mock;
@@ -148,8 +148,9 @@ describe("words put in after a tick are written back to the record", () => {
     await nagStrategy(context());
     await settle();
     const written = await saved();
-    // The nag at 9:57 went off with the line the plan put in; it is not the one first saved.
-    const said = written.slots[0].text;
+    // The nag at 9:57 went off with the line the plan put in; it is not the slot's own one.
+    const said = written.slots[0].sent ?? "";
+    expect(written.slots[0].text).toBe(record.slots[0].text);
     expect(said).not.toBe(record.slots[0].text);
     expect(said).toMatch(/dentist/i);
 
@@ -160,7 +161,37 @@ describe("words put in after a tick are written back to the record", () => {
     const future = redrawn.slots.filter((slot) => slot.fireAtMs > at(11, 30).getTime());
     expect(future.length).toBeGreaterThan(2);
     expect(future.map((slot) => slot.text)).not.toContain(said);
-    expect(new Set(redrawn.slots.map((slot) => slot.text)).size).toBe(redrawn.slots.length);
+    const spoken = redrawn.slots.map((slot) => (slot.fireAtMs <= at(11, 30).getTime() ? (slot.sent ?? slot.text) : slot.text));
+    expect(new Set(spoken).size).toBe(spoken.length);
+  });
+
+  it("a tick undone: the task's own nags come back, and a write that lands after the untick changes no pending nag", async () => {
+    const record = planned();
+    await store(record);
+    const ownPlan = await nagStrategy(context({ tasks: TASKS }));
+    // The tick's write waits behind a slow AI run; the untick's sync comes first.
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    request.mockImplementationOnce(async () => {
+      await gate;
+      throw new MomentumAiError("timeout", "slow");
+    });
+    const run = ensureNagDay(input(), { request });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await nagStrategy(context());
+    expect(await nagStrategy(context({ tasks: TASKS }))).toEqual(ownPlan);
+    release();
+    await run;
+    await settle();
+    // Whatever was noted last, the plan for the open tasks is the day's own one.
+    expect(await nagStrategy(context({ tasks: TASKS }))).toEqual(ownPlan);
+    await settle();
+    const after = await saved();
+    expect(after.slots.map(({ text, taskId }) => ({ text, taskId }))).toEqual(record.slots.map(({ text, taskId }) => ({ text, taskId })));
+    expect(after.slots.filter((slot) => slot.fireAtMs > at(8).getTime()).every((slot) => slot.sent === undefined)).toBe(true);
+    expect(ownPlan.filter((item) => item.data?.taskId === "t1").length).toBeGreaterThan(0);
   });
 });
 
