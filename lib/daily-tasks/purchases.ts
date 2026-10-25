@@ -77,7 +77,26 @@ export function configurePurchases(): boolean {
   // The proxy checks Plus by this anonymous id (never a name or email).
   // Separate from configure: a failure here must not turn the paywall off.
   refreshProxyUserId(sdk);
+  collectAdServicesToken(sdk);
   return configured;
+}
+
+/**
+ * Apple Ads attribution: RevenueCat reads Apple's AdServices token so a Plus
+ * trial or subscription can be tied to the Apple Ads keyword that brought the
+ * install. The token is anonymous (no personal data, no device id) and Apple
+ * documents it as needing no App Tracking Transparency prompt. Fire and
+ * forget, separate from configure (like refreshProxyUserId): a missing method,
+ * a throw or a rejection must never turn the paywall off.
+ */
+function collectAdServicesToken(sdk: PurchasesModule): void {
+  try {
+    const collect = sdk.default.enableAdServicesAttributionTokenCollection;
+    if (typeof collect !== "function") return;
+    Promise.resolve(collect.call(sdk.default)).catch(() => {});
+  } catch {
+    // No attribution this launch; nothing else depends on it.
+  }
 }
 
 /** (Re)read RevenueCat's anonymous id for the proxy (at launch, after purchase/restore). */
