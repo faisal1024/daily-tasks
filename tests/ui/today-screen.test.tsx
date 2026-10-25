@@ -2305,6 +2305,26 @@ describe("Today card (Phase 10a)", () => {
     expect(mockStore.toggleTask).toHaveBeenCalledWith("t0");
   });
 
+  it("an open Edit reports its trimmed words to the store while they differ from the saved ones, and nothing once it is saved (1.4.1)", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    const lastReport = () => (mockStore.noteOpenEdit as jest.Mock).mock.calls.at(-1);
+    await pickFromMenu("t0", "Edit");
+    const input = screen.getByLabelText("Edit task 1");
+    await fireEvent.changeText(input, "  Walk far ");
+    expect(lastReport()).toEqual(["t0", "Walk far"]);
+    // Typed back to what is saved (or blank): nothing to save.
+    await fireEvent.changeText(input, " Walk ");
+    expect(lastReport()).toEqual(["t0", null]);
+    await fireEvent.changeText(input, "   ");
+    expect(lastReport()).toEqual(["t0", null]);
+    await fireEvent.changeText(input, "Walk far");
+    expect(lastReport()).toEqual(["t0", "Walk far"]);
+    await fireEvent(input, "submitEditing");
+    expect(mockStore.editTask).toHaveBeenCalledWith("t0", "Walk far");
+    expect(lastReport()).toEqual(["t0", null]);
+  });
+
   it("the words don't check a task off on a set day either, and offer no Not today (1.4)", async () => {
     mockStore = makeStore({ ...SET, tasks: tasks("Walk") });
     await render(<HomeScreen />);

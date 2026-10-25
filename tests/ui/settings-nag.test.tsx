@@ -345,6 +345,19 @@ describe("Settings: with Nag on", () => {
     await waitFor(async () => expect(await savedNotifications()).toMatchObject({ nagPersona: "drill", nagLevel: "relentless", style: "nag" }));
   });
 
+  it("Dad saves as dad and Partner as spouse (1.4.1: the label changed, the saved id didn't); the five voice chips wrap onto a second row", async () => {
+    await renderSettings(NAG_ON);
+    const group = screen.getAllByLabelText("Voice").find((item) => item.props.accessibilityRole === "radiogroup");
+    expect(group?.props.className).toContain("flex-wrap");
+    expect(screen.getAllByRole("radio").filter((item) => /^Voice: /.test(item.props.accessibilityLabel))).toHaveLength(5);
+    await fireEvent.press(voice("Dad"));
+    await waitFor(async () => expect(await savedNotifications()).toMatchObject({ nagPersona: "dad", style: "nag" }));
+    expect(checked("Voice: Dad")).toBe(true);
+    await fireEvent.press(voice("Partner"));
+    await waitFor(async () => expect(await savedNotifications()).toMatchObject({ nagPersona: "spouse" }));
+    expect(checked("Voice: Partner")).toBe(true);
+  });
+
   it("shows a sample built-in line for the voice and level, and another on 'Show another'", async () => {
     await renderSettings(NAG_ON);
     const momLines = JSON.stringify(NAG_TEMPLATES.mom).replace(/\{task\}/g, "“Call the dentist”");
