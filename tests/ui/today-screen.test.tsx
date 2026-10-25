@@ -177,6 +177,7 @@ function makeStore(overrides: Partial<AppState> = {}) {
     markReorderHintSeen: jest.fn(),
     toggleTask: jest.fn(),
     lockToday: jest.fn(),
+    noteOpenEdit: jest.fn(),
     resolveRollover: jest.fn(),
     completeMomentumOnboarding: jest.fn(),
     setTodayReflection: jest.fn(),

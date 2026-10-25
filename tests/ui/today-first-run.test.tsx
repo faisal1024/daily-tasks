@@ -57,6 +57,7 @@ function makeStore(overrides: Partial<AppState> = {}, extra: Record<string, unkn
     deleteTask: jest.fn(),
     toggleTask: jest.fn(),
     lockToday: jest.fn(),
+    noteOpenEdit: jest.fn(),
     unlockToday: jest.fn(),
     resolveRollover: jest.fn(),
     markOnboardingSeen: jest.fn(),

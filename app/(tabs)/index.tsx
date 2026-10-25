@@ -197,6 +197,7 @@ export default function HomeScreen() {
     makeTaskNext,
     toggleTask,
     lockToday,
+    noteOpenEdit,
     resolveRollover,
     markOnboardingSeen,
     markReorderHintSeen,
@@ -1430,6 +1431,8 @@ export default function HomeScreen() {
         editable={!state.todayLocked}
         onToggle={() => handleToggle(task.id)}
         onEdit={(text) => editTask(task.id, text)}
+        // An edit open when the day is set is saved, not dropped (the store's setDay).
+        onDraftChange={ghost ? undefined : (text) => noteOpenEdit(task.id, text)}
         onDelete={() => handleDelete(task.id, task.text)}
         onNotToday={() => handleNotToday(task.id)}
         onLockedPress={handleLockedTap}
