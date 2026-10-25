@@ -673,9 +673,68 @@ export function nagRecordApplies(record: NagDayRecord | null, context: NagPlanCo
  * out at the end, so the answer doesn't change as the day's nags go off.
  */
 export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanContext): ReminderPlan {
-  if (!nagRecordApplies(record, context)) return [];
+  const worked = nagSlotWords(record, context);
+  if (!worked) return [];
+  const plan: ReminderPlan = [];
+  for (const { slot, past, words } of worked.slots) {
+    // No line for this slot (or none without a name): it isn't scheduled.
+    if (!words || past) continue;
+    plan.push({
+      id: slot.id,
+      fireAt: new Date(slot.fireAtMs),
+      // "Three Today · Mom", never the persona alone: it must not read as a real person's message.
+      title: nagTitle(worked.persona),
+      body: words.text,
+      kind: NAG_KIND,
+      // Ids and numbers only, never the words.
+      data: { ...(words.taskId && !worked.hide ? { taskId: words.taskId } : {}), step: slot.step },
+      interruptionLevel: "active" as const,
+      categoryId: NAG_CATEGORY_ID,
+    });
+  }
+  return plan;
+}
+
+/**
+ * The record with the words nagPlanFromRecord puts in for the slots still
+ * to come written back into them (a slot whose task was ticked off or
+ * removed, an affectionate stored AI line, a rude line on a sensitive day),
+ * so a nag that goes off with such a line is in the record as said, and a
+ * day drawn again later (another level or window) doesn't say it once more.
+ * Only slots still to come: one that already went off keeps the words it
+ * was saved with (a task ticked on the widget after it went off doesn't
+ * change what it said). A slot with no line left keeps its words too: it
+ * isn't scheduled, so nothing was said, and its own line is back if the
+ * task is. Never while names were just hidden and the record hasn't been
+ * planned again (planNagDay rewrites it). With names hidden the words put
+ * in never name a task, so nothing named is written. The version is kept:
+ * the plan these words give is the one already scheduled. Null when there
+ * is nothing to write.
+ */
+export function nagRecordWithPlannedWords(record: NagDayRecord | null, context: NagPlanContext): NagDayRecord | null {
+  const worked = nagSlotWords(record, context);
+  if (!worked || worked.rewrite || !record) return null;
+  let changed = false;
+  const slots = worked.slots.map(({ slot, past, words }) => {
+    if (past || !words || (words.text === slot.text && words.taskId === slot.taskId)) return slot;
+    changed = true;
+    return { ...slot, text: words.text, taskId: words.taskId };
+  });
+  return changed ? { ...record, slots } : null;
+}
+
+/**
+ * The words of every slot of the day's record as nagPlanFromRecord works
+ * them out (see there), in the record's order; `words` is null for a slot
+ * with no line. Null when the record doesn't apply or nothing is open.
+ */
+function nagSlotWords(
+  record: NagDayRecord | null,
+  context: NagPlanContext,
+): { persona: NagPersona; hide: boolean; rewrite: boolean; slots: { slot: NagSlot; past: boolean; words: NagWords | null }[] } | null {
+  if (!nagRecordApplies(record, context)) return null;
   const open = nagOpenTasks(context.tasks);
-  if (open.length === 0) return [];
+  if (open.length === 0) return null;
   const openIds = new Set(open.map((task) => task.id));
   const hide = context.settings.hideTaskNames === true;
   const nowMs = context.now.getTime();
@@ -686,8 +745,9 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
   const sensitiveDay = sensitiveIds.size > 0;
   const builtIn = (tasks: NagOpenTask[]) =>
     builtInNagLines({ persona: record.persona, level: record.level, tasks, count: record.total, seed: `${record.dayKey}|${record.salt}`, sensitiveDay });
-  // The task a line put in here is about: never a sensitive one.
-  const next = open.find((task) => !sensitiveIds.has(task.id)) ?? null;
+  // The task a line put in here is about: never a sensitive one, and none
+  // while names are hidden (the line is a general one then).
+  const next = hide ? null : (open.find((task) => !sensitiveIds.has(task.id)) ?? null);
   const general = rewrite ? builtIn([]) : [];
   const forNext = rewrite ? [] : builtIn(next ? [next] : []);
   const ownTexts = open.map((task) => task.text);
@@ -700,11 +760,12 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
     (sensitiveDay && record.persona === "drill" && NAG_DRILL_RUDE.test(slot.text));
   const used = new Set<string>();
   for (const slot of record.slots) if (slot.text && (!rewrite || slot.fireAtMs <= nowMs)) used.add(slot.text);
-  const plan: ReminderPlan = [];
+  const slots: { slot: NagSlot; past: boolean; words: NagWords | null }[] = [];
   for (const slot of record.slots) {
     const past = slot.fireAtMs <= nowMs;
     let words: NagWords | null = { text: slot.text, taskId: slot.taskId };
     if (rewrite) {
+      // Gone off before names were hidden: left out, and not counted as said.
       if (past) continue;
       const line = unsaidLine(general, slot.step, record.total, used);
       words = line ? { text: line.text, taskId: null } : null;
@@ -712,22 +773,12 @@ export function nagPlanFromRecord(record: NagDayRecord | null, context: NagPlanC
       const line = unsaidLine(forNext, slot.step, record.total, used);
       words = line ? { text: line.text, taskId: line.taskIndex === null || !next ? null : next.id } : null;
     }
-    // No line for this slot (or none without a name): it isn't scheduled.
-    if (!words || !words.text) continue;
+    if (!words || !words.text) {
+      slots.push({ slot, past, words: null });
+      continue;
+    }
     used.add(words.text);
-    if (past) continue;
-    plan.push({
-      id: slot.id,
-      fireAt: new Date(slot.fireAtMs),
-      // "Three Today · Mom", never the persona alone: it must not read as a real person's message.
-      title: nagTitle(record.persona),
-      body: words.text,
-      kind: NAG_KIND,
-      // Ids and numbers only, never the words.
-      data: { ...(words.taskId && !hide ? { taskId: words.taskId } : {}), step: slot.step },
-      interruptionLevel: "active" as const,
-      categoryId: NAG_CATEGORY_ID,
-    });
+    slots.push({ slot, past, words });
   }
-  return plan;
+  return { persona: record.persona, hide, rewrite, slots };
 }
