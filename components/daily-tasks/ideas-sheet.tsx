@@ -17,6 +17,7 @@ import { useColors } from "@/hooks/use-colors";
 import { showActionSheet } from "@/lib/daily-tasks/action-sheet";
 import { suggestionsHint } from "@/lib/daily-tasks/ai-status";
 import { routineBlock, routineBlockedLine } from "@/lib/daily-tasks/routines";
+import type { TaskWhen } from "@/lib/daily-tasks/types";
 import { THINKING_HINT_DELAY_MS, type IdeasSource } from "@/lib/daily-tasks/today-view";
 
 export interface IdeaItem {
@@ -42,8 +43,24 @@ interface IdeasSheetProps {
   onAdd: (text: string) => void;
   onAddAll: (texts: string[]) => void;
   onRegenerate: () => void;
-  /** Brain-dump leftovers saved for later. */
-  parked?: { id: string; text: string }[];
+  /**
+   * Brain-dump leftovers saved for later, what's for today first (1.6 F,
+   * savedItemsView): `label` is a quiet date ("Tue"), `reason` the line for
+   * one that leads ("For today", "Due today", "Overdue"), shown above the
+   * ideas under "For today".
+   */
+  parked?: {
+    id: string;
+    text: string;
+    when?: TaskWhen;
+    label?: string;
+    reason?: string;
+    dueToday?: boolean;
+  }[];
+  /** The days "Change day" offers (whenChoices), with onSetParkedWhen. */
+  dayChoices?: { label: string; date: string }[];
+  /** A saved item's date changed by hand; null for "No date" (1.6 F). */
+  onSetParkedWhen?: (id: string, when: TaskWhen | null) => void;
   onAddParked?: (id: string) => void;
   onRemoveParked?: (id: string) => void;
   /**
@@ -102,6 +119,8 @@ export function IdeasSheet({
   parked = [],
   onAddParked,
   onRemoveParked,
+  dayChoices = [],
+  onSetParkedWhen,
   onSwapParked,
   swapTargets = [],
   onLock,
@@ -126,6 +145,9 @@ export function IdeasSheet({
   const shownIdeas = routineKeys.size > 0 ? ideas.filter((idea) => !routineKeys.has(keyOf(idea.text))) : ideas;
   const available = shownIdeas.filter((idea) => !addedTexts.has(keyOf(idea.text)));
   const full = remainingSlots <= 0;
+  // Saved items due today lead the ideas (1.6 F); the saved-only view lists them first anyway.
+  const dueParked = savedOnly ? [] : parked.filter((item) => item.dueToday);
+  const laterParked = savedOnly ? parked : parked.filter((item) => !item.dueToday);
   // Saved items can't move onto a full day, or a locked one.
   const parkedBlocked = full || locked;
   // A full, unlocked day: a saved item can swap places with an open task (1.5 D).
@@ -156,6 +178,183 @@ export function IdeasSheet({
     }
     setSwapChoosing((current) => (current === item.id ? null : item.id));
   };
+
+  // "Change day" on a dated saved item (1.6 F): a menu on iOS, choices under
+  // the item on Android (like Swap in).
+  const [dayChoosing, setDayChoosing] = useState<string | null>(null);
+  useEffect(() => {
+    if (!visible) setDayChoosing(null);
+  }, [visible]);
+  const setDay = (item: (typeof parked)[number], date: string | null) => {
+    setDayChoosing(null);
+    if (!onSetParkedWhen) return;
+    onSetParkedWhen(item.id, date ? { date, kind: item.when?.kind ?? "on" } : null);
+  };
+  const chooseDay = (item: (typeof parked)[number]) => {
+    if (Platform.OS === "ios") {
+      showActionSheet(
+        {
+          title: `Change day for “${item.text}”`,
+          options: [...dayChoices.map((choice) => choice.label), "No date", "Cancel"],
+          destructiveButtonIndex: dayChoices.length,
+          cancelButtonIndex: dayChoices.length + 1,
+        },
+        (index) => {
+          if (index < dayChoices.length) setDay(item, dayChoices[index].date);
+          else if (index === dayChoices.length) setDay(item, null);
+        },
+      );
+      return;
+    }
+    setDayChoosing((current) => (current === item.id ? null : item.id));
+  };
+
+  // One saved item: add (or swap in) and remove, with its date or "For today" under it.
+  // Under the "For today" header the reason ("For today") would repeat it:
+  // the label instead ("Today", "By today", "Overdue"), which still opens
+  // Change day.
+  const renderParked = (item: (typeof parked)[number], underHeader = false) => {
+    const detail = underHeader ? item.label : (item.reason ?? item.label);
+    const canChangeDay = Boolean(onSetParkedWhen && item.when && dayChoices.length > 0);
+    const detailText = detail ? (
+      <Text className="text-sm" style={{ color: colors.muted }} testID={`parked-when-${item.id}`}>
+        {detail}
+      </Text>
+    ) : null;
+    return (
+      <View key={item.id} className="gap-2">
+      <View
+        className="rounded-2xl border p-3 flex-row items-center gap-3"
+        style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+      >
+        <View className="flex-1 gap-0.5">
+          <Pressable
+            onPress={() => onAddParked?.(item.id)}
+            disabled={parkedBlocked}
+            accessibilityRole="button"
+            accessibilityLabel={detail ? `Add ${item.text}, ${detail}` : `Add ${item.text}`}
+            accessibilityState={{ disabled: parkedBlocked }}
+            hitSlop={6}
+            className="flex-row items-center gap-3"
+            style={{ opacity: parkedBlocked ? 0.5 : 1 }}
+          >
+            <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
+            <Text className="flex-1 text-base text-foreground">{item.text}</Text>
+          </Pressable>
+          {/* The date can be wrong: tapping it changes or clears it (1.6 F). */}
+          {detailText && canChangeDay ? (
+            <Pressable
+              onPress={() => chooseDay(item)}
+              accessibilityRole="button"
+              accessibilityLabel={`${detail}. Change day for ${item.text}`}
+              accessibilityHint="Pick another day, or no date"
+              hitSlop={10}
+              style={{ marginLeft: 36, alignSelf: "flex-start" }}
+              testID={`parked-day-${item.id}`}
+            >
+              {detailText}
+            </Pressable>
+          ) : detailText ? (
+            <View style={{ marginLeft: 36 }}>{detailText}</View>
+          ) : null}
+        </View>
+        {canSwap ? (
+          <Pressable
+            onPress={() => chooseSwap(item)}
+            accessibilityRole="button"
+            accessibilityLabel={`Swap in ${item.text}`}
+            accessibilityHint="Pick which of today's tasks it replaces"
+            hitSlop={6}
+            className="rounded-full px-3 justify-center"
+            style={{ minHeight: 36, borderWidth: 1, borderColor: colors.primary }}
+            testID={`swap-in-${item.id}`}
+          >
+            <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+              Swap in
+            </Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={() => onRemoveParked?.(item.id)}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${item.text} from saved`}
+          hitSlop={10}
+        >
+          <Ionicons name="close-circle-outline" size={20} color={colors.muted} />
+        </Pressable>
+      </View>
+      {canChangeDay && dayChoosing === item.id ? (
+        <View className="gap-2 px-1" testID={`day-choices-${item.id}`}>
+          <View className="flex-row flex-wrap gap-2">
+            {[...dayChoices, { label: "No date", date: "" }].map((choice) => (
+              <Pressable
+                key={choice.label}
+                onPress={() => setDay(item, choice.date || null)}
+                accessibilityRole="button"
+                accessibilityLabel={choice.date ? `Move to ${choice.label}` : "No date"}
+                className="rounded-full px-3 justify-center"
+                style={{ minHeight: 44, borderWidth: 1, borderColor: colors.primary }}
+              >
+                <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                  {choice.label}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable
+              onPress={() => setDayChoosing(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+              className="rounded-full px-3 justify-center"
+              style={{ minHeight: 44 }}
+            >
+              <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
+                Cancel
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+      {canSwap && swapChoosing === item.id ? (
+        <View className="gap-2 px-1" testID={`swap-choices-${item.id}`}>
+          <Text className="text-sm" style={{ color: colors.muted }}>
+            {SWAP_IN_QUESTION}
+          </Text>
+          <View className="flex-row flex-wrap gap-2">
+            {swapTargets.map((target) => (
+              <Pressable
+                key={target.id}
+                onPress={() => {
+                  setSwapChoosing(null);
+                  onSwapParked?.(item.id, target.id);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Replace ${target.text}`}
+                className="rounded-full px-3 justify-center"
+                style={{ minHeight: 44, borderWidth: 1, borderColor: colors.primary }}
+              >
+                <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                  {target.text}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable
+              onPress={() => setSwapChoosing(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+              className="rounded-full px-3 justify-center"
+              style={{ minHeight: 44 }}
+            >
+              <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
+                Cancel
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+      </View>
+    );
+  };
+
   // The saved-only view is just the saved items: no milestone group either.
   const shownMilestone = !savedOnly && milestoneGroup && milestoneGroup.ideas.length > 0 ? milestoneGroup : null;
   // Opened for the milestone group: scroll to it once it has been laid out.
@@ -210,6 +409,15 @@ export function IdeasSheet({
           ref={scrollRef}
           contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 14 }}
         >
+          {dueParked.length > 0 && (
+            <View className="gap-2" testID="due-today-ideas">
+              <Text accessibilityRole="header" className="text-sm font-semibold" style={{ color: colors.muted }}>
+                For today
+              </Text>
+              {dueParked.map((item) => renderParked(item, true))}
+            </View>
+          )}
+
           {shownRoutines.length > 0 && (
             <TodaysRoutines
               routines={shownRoutines}
@@ -292,7 +500,7 @@ export function IdeasSheet({
             <Text className="text-base" style={{ color: colors.muted }} testID="ideas-hint">
               {locked
                 ? "Today is locked. Unlock it to add one."
-                : savedOnly
+                : savedOnly && full
                   ? canSwap
                     ? "Your day is full. Swap one of these in for an open task."
                     : "Your day is full. Free a slot to swap one of these in."
@@ -397,7 +605,7 @@ export function IdeasSheet({
             </Pressable>
           )}
 
-          {parked.length > 0 && (
+          {laterParked.length > 0 && (
             <View className="gap-2 mt-2" testID="parked-ideas">
               {/* The saved-only sheet's title already says it. */}
               {!savedOnly && (
@@ -408,89 +616,7 @@ export function IdeasSheet({
                   Saved for later
                 </Text>
               )}
-              {parked.map((item) => (
-                <View key={item.id} className="gap-2">
-                <View
-                  className="rounded-2xl border p-3 flex-row items-center gap-3"
-                  style={{ borderColor: colors.border, backgroundColor: colors.surface }}
-                >
-                  <Pressable
-                    onPress={() => onAddParked?.(item.id)}
-                    disabled={parkedBlocked}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Add ${item.text}`}
-                    accessibilityState={{ disabled: parkedBlocked }}
-                    hitSlop={6}
-                    className="flex-1 flex-row items-center gap-3"
-                    style={{ opacity: parkedBlocked ? 0.5 : 1 }}
-                  >
-                    <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
-                    <Text className="flex-1 text-base text-foreground">{item.text}</Text>
-                  </Pressable>
-                  {canSwap ? (
-                    <Pressable
-                      onPress={() => chooseSwap(item)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Swap in ${item.text}`}
-                      accessibilityHint="Pick which of today's tasks it replaces"
-                      hitSlop={6}
-                      className="rounded-full px-3 justify-center"
-                      style={{ minHeight: 36, borderWidth: 1, borderColor: colors.primary }}
-                      testID={`swap-in-${item.id}`}
-                    >
-                      <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-                        Swap in
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                  <Pressable
-                    onPress={() => onRemoveParked?.(item.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${item.text} from saved`}
-                    hitSlop={10}
-                  >
-                    <Ionicons name="close-circle-outline" size={20} color={colors.muted} />
-                  </Pressable>
-                </View>
-                {canSwap && swapChoosing === item.id ? (
-                  <View className="gap-2 px-1" testID={`swap-choices-${item.id}`}>
-                    <Text className="text-sm" style={{ color: colors.muted }}>
-                      {SWAP_IN_QUESTION}
-                    </Text>
-                    <View className="flex-row flex-wrap gap-2">
-                      {swapTargets.map((target) => (
-                        <Pressable
-                          key={target.id}
-                          onPress={() => {
-                            setSwapChoosing(null);
-                            onSwapParked?.(item.id, target.id);
-                          }}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Replace ${target.text}`}
-                          className="rounded-full px-3 justify-center"
-                          style={{ minHeight: 44, borderWidth: 1, borderColor: colors.primary }}
-                        >
-                          <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-                            {target.text}
-                          </Text>
-                        </Pressable>
-                      ))}
-                      <Pressable
-                        onPress={() => setSwapChoosing(null)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Cancel"
-                        className="rounded-full px-3 justify-center"
-                        style={{ minHeight: 44 }}
-                      >
-                        <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
-                          Cancel
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                ) : null}
-                </View>
-              ))}
+              {laterParked.map((item) => renderParked(item))}
             </View>
           )}
 

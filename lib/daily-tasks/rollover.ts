@@ -28,6 +28,7 @@ function buildDayTaskRecords(
       rolloverOutcome: completed ? null : incompleteOutcome,
       ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
       ...(task.routineId ? { routineId: task.routineId } : {}),
+      ...(task.when ? { when: task.when } : {}),
     };
   });
 }
@@ -87,6 +88,7 @@ function restoreTasksFromRecord(record: DayRecord): Task[] {
     carriedOver: task.carriedOver,
     ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
     ...(task.routineId ? { routineId: task.routineId } : {}),
+    ...(task.when ? { when: task.when } : {}),
   }));
 }
 
@@ -247,6 +249,8 @@ export function resolvePendingRollover(
       ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
       // Still that routine's task: it isn't suggested again today.
       ...(task.routineId ? { routineId: task.routineId } : {}),
+      // Its soft date (1.6 F), so a deadline carried over can still come back Overdue.
+      ...(task.when ? { when: task.when } : {}),
     })),
   ];
 

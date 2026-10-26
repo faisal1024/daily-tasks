@@ -217,7 +217,7 @@ payload validator, prompt, structured-output schema and response validator.
 | Route | Payload | Returns |
 |---|---|---|
 | `/api/momentum/plan` | goal profile, recent performance, recent task titles, reflection, `stats?` (1.5, see below) | milestones, today's suggestions, task pool |
-| `/api/momentum/brain-dump` | `text` (≤2000 chars), `openSlots` (1–3), `goalTitle?`, `agenda?` (≤12 strings ≤120 chars; also accepted by `/plan`), `stats?` (1.5, see below) | `picks` (≤ openSlots; each `{text, reason?}`, `reason` ≤5 words / 40 chars, 1.5), `parked` (≤10) |
+| `/api/momentum/brain-dump` | `text` (≤2000 chars), `openSlots` (1–3), `goalTitle?`, `agenda?` (≤12 strings ≤120 chars; also accepted by `/plan`), `stats?` (1.5, see below), `today?` (1.6 F, yyyy-MM-dd, see below) | `picks` (≤ openSlots; each `{text, reason?, when?}`, `reason` ≤5 words / 40 chars, 1.5), `parked` (≤10; each `{text, when?}`) |
 | `/api/momentum/break-down` | `task` (≤120 chars), `goalTitle?` | `steps` (3–5 tiny steps) |
 | `/api/momentum/evening` | `result` (easy/good/hard/missed), `tasks` (≤3 `{text, done}`), `note?`, `goalTitle?`, `memory?` (≤500) | `note` (≤160), `because` (≤100), `tomorrow` (1–3 tasks), `memory` (≤500, the coach's rolling summary) |
 | `/api/momentum/coach-note` | `tasks` (1–3 strings ≤120 chars), `goalTitle?`, `tone?` (calm/friendly/direct) | `notes`: one `{start, momentum}` per task, in order (control characters become spaces; `""` where a line was empty, over 140 chars, or held a real link (`http(s)://`, `www.`) or an email: dropped whole, never spliced; `README.md` / `Node.js` are kept) |
@@ -301,6 +301,36 @@ and proxy keeps working.
 - **App:** suggestions marked `true` are shown under "Next on your path" in
   Ideas, as long as the path's first open milestone is still the one sent. No mark (an older proxy, or the model marked none): the
   app shows its built-in milestone suggestions there instead.
+
+### Soft dates on brain-dump items (1.6 F, optional)
+
+Optional in both directions: an older app sends no `today` and never reads
+`when`; an older proxy ignores `today` and returns no `when` (its sanitizer
+rebuilds items from `text`/`reason` only), and the app then reads dates from
+the words itself when it saves an item.
+
+- **Request:** `today`, the phone's local date as `yyyy-MM-dd`, sent only with
+  Plus. Present but not a real calendar day → **400** "Invalid today".
+- **Prompt:** with `today`, the model gets today's weekday and date, a table
+  of the next 14 days (so it reads weekdays off it instead of doing sums) and
+  the rule: a date only where the person wrote a day or date for the item,
+  never a guess and never one before today. Without it: "when is null".
+- **Schema:** every pick and parked item has `when`, required but nullable
+  (strict schemas): `null` or `{ date: "YYYY-MM-DD", kind: "on" | "by" }`.
+  `on` is a day it's for; `by` a deadline, `date` being the last day it can
+  be done ("before March" → the last day of February).
+- **Response:** `when` is passed on only when the app sent a valid `today`,
+  the date is real, not before `today` and at most 366 days after it, the kind
+  is known, and **that item's own text** names a day or date (`DATE_CUE`:
+  whole weekday and month names, an abbreviated month only with a dot or a
+  day number, "May" only with a number, short weekdays only after
+  by/on/before/due, today/tonight/tomorrow, next week/month, "3/14", "the
+  5th", "in two weeks"; the prompt asks the model to keep the day words in
+  the item's text); otherwise the item goes out without it (`cleanWhen`).
+  This stops a date made up for an item with no day in it; it can't prove a
+  written day was read right, so the app lets every date be changed or
+  cleared. The app checks the date again (`normalizeWhen` in
+  `lib/daily-tasks/resurface.ts`).
 
 ### 30-day stats and pick reasons (1.5, plan and brain-dump routes, optional)
 
