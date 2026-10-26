@@ -419,12 +419,6 @@ export default function HomeScreen() {
   const coachTasksReady = coachTasksSet(total, state.todayLocked);
   const coachAi = coachAiUser && coachTasksReady;
   const coachTexts = useMemo(() => state.tasks.map((task) => task.text), [state.tasks]);
-  // What the coach has noticed over 30 days (1.5): sent with a brain dump,
-  // and "Moved 3 times" under a pick the AI gave no reason for.
-  const basicMemory = useMemo(
-    () => buildBasicMemory(state.history, today, state.memoryClearedAt ?? null),
-    [state.history, today, state.memoryClearedAt],
-  );
   // Routines due today and not on the list yet (1.3): suggested on Today
   // (under the task card) and in Ideas. One selector for both (and for the
   // routines sheet's save note), so an added routine leaves both at once.
@@ -1248,10 +1242,12 @@ export default function HomeScreen() {
     // The day being closed is the one on screen now, whenever the reply lands.
     const day = today;
     const input = buildEveningInput(state, result, typedNote);
+    // A "Clear memory" while this is on its way drops the memory it brings back.
+    const startedAt = Date.now();
     // Confirmed Plus only: "still checking" must not spend an AI call on a free user.
     void closeDay(input, { useAi: plusConfirmed && getMomentumAiProxyUrl() != null })
       .then((close) => {
-        setEveningClose(close, day, result);
+        setEveningClose(close, day, result, startedAt);
         track("evening_closed", { source: close.source, count: close.tomorrow.length });
       })
       .finally(() => {
@@ -1946,6 +1942,9 @@ export default function HomeScreen() {
         freeAiLeft={freeAiLeft}
         locked={state.todayLocked}
         onSort={async (text) => {
+          // What the coach has noticed over 30 days (1.5), worked out only
+          // when a dump is sorted: sent with it, and checks the reasons.
+          const basicMemory = buildBasicMemory(state.history, today, state.memoryClearedAt ?? null);
           const stats = memoryStatsPayload(basicMemory);
           const params = {
             text,

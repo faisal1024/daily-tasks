@@ -8,12 +8,14 @@ import { buildBasicMemory, MAX_COACH_MEMORY, memorySentences } from "@/lib/daily
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 
 export const CLEAR_MEMORY_TITLE = "Clear what your coach remembers?";
-export const CLEAR_MEMORY_MESSAGE =
-  "Your coach starts noticing again from tomorrow. Your history and streaks stay.";
+export const CLEAR_MEMORY_MESSAGE = "This forgets the patterns your coach noticed. Your history and streaks stay.";
 export const CLEAR_MEMORY_MESSAGE_PLUS =
-  "Your coach's notes are deleted, and it starts noticing again from tomorrow. Your history and streaks stay.";
+  "This deletes your coach's notes and forgets the patterns. Your history and streaks stay.";
 export const MEMORY_CLEARED_NOTE = "Memory cleared.";
 export const NO_COACH_NOTES = "Nothing yet. After an evening check-in, your coach writes what it learned here.";
+export const COACH_MEMORY_INTRO =
+  "Worked out on your phone from the last 30 days. A short summary goes with brain dumps and suggestions so picks fit you. Nothing else leaves your phone.";
+export const PLUS_NOTES_LINE = "Plus adds notes your coach writes after each evening check-in.";
 
 /**
  * "What your coach remembers" (1.5, Settings, everyone): the basic memory in
@@ -61,7 +63,7 @@ export function CoachMemorySection() {
       <View className="gap-1.5">
         <SectionLabel icon="bulb-outline" label="What your coach remembers" />
         <Text className="text-sm mt-0.5" style={{ color: colors.muted }}>
-          Worked out on your phone from your last 30 days. A short summary goes with brain dumps and suggestions so your coach can use it.
+          {COACH_MEMORY_INTRO}
         </Text>
       </View>
       <View className="bg-surface rounded-2xl p-4 border border-border gap-4">
@@ -94,10 +96,14 @@ export function CoachMemorySection() {
                     backgroundColor: colors.background,
                   }}
                 />
+                <Text className="text-xs" style={{ color: colors.muted }} testID="coach-memory-budget">
+                  {`${Array.from(draft).length} of ${MAX_COACH_MEMORY} characters`}
+                </Text>
                 <View className="flex-row gap-3">
                   <Pressable
                     onPress={save}
                     accessibilityRole="button"
+                    accessibilityLabel="Save your coach's notes"
                     className="rounded-full px-4 py-2"
                     style={{ backgroundColor: colors.primary, minHeight: 36 }}
                   >
@@ -108,6 +114,7 @@ export function CoachMemorySection() {
                   <Pressable
                     onPress={() => setEditing(false)}
                     accessibilityRole="button"
+                    accessibilityLabel="Cancel editing your coach's notes"
                     className="rounded-full px-4 py-2"
                     style={{ backgroundColor: `${colors.primary}16`, minHeight: 36 }}
                   >
@@ -136,7 +143,11 @@ export function CoachMemorySection() {
               </>
             )}
           </View>
-        ) : null}
+        ) : (
+          <Text className="text-sm" style={{ color: colors.muted }} testID="coach-memory-plus-line">
+            {PLUS_NOTES_LINE}
+          </Text>
+        )}
 
         {hasSomething ? (
           <Pressable

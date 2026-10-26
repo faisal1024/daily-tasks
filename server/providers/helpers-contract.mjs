@@ -6,6 +6,7 @@
 // server/routes.mjs wires them to URLs.
 
 import { agendaPromptLines, isValidAgenda } from "./agenda.mjs";
+import { foldForMatch, HAS_BIDI, LINK_PATTERN } from "./nag-contract.mjs";
 import { cleanStats, statsPromptLines } from "./stats.mjs";
 const SAFETY =
   "Never use shame, guilt, urgency, medical advice, financial advice, or unsafe " +
@@ -99,14 +100,19 @@ export function buildBrainDumpPrompt(payload) {
     payload.goalTitle ? `The person's bigger goal: ${payload.goalTitle}` : "No specific goal set.",
     `Pick at most ${payload.openSlots} item(s) for today.`,
     ...agendaPromptLines(payload.agenda),
-    ...statsPromptLines(payload.stats),
+    ...statsPromptLines(payload.stats, { counts: false }),
+    ...((cleanStats(payload.stats)?.moved.length ?? 0) > 0
+      ? ["Those titles are context only: never add one as a pick or a parked item unless it is in the brain dump below."]
+      : []),
     "Brain dump (their words):",
     '"""',
     payload.text.trim(),
     '"""',
     "Give each pick a reason of at most five words saying why it's for today, " +
-      'like "Quick win", "Due Friday", "Moved 3 times" or "Unblocks the rest". ' +
-      "Name a deadline only if they wrote one, and a move count only if it's listed above. " +
+      'like "Quick win", "Due Friday", "Unblocks the rest" or "Been waiting a while". ' +
+      "Name a deadline only if they wrote one. " +
+      'Say "Been waiting a while" only for a task listed above as one they keep moving. ' +
+      "A reason never says how many times something was moved, and never blames or shames. " +
       "Don't repeat the task's words.",
   ].join("\n");
 }
@@ -136,20 +142,47 @@ function textItems(list, max, limit) {
 
 // C0/C1 control characters and the Unicode line/paragraph separators.
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
-const LINK_PATTERN = /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
+// Invisible format characters taken out of a reason (joiners stay: emoji).
+const FORMAT_SHOWN = /[\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g;
+
+// Keep these in step with lib/daily-tasks/ai-helpers.ts (a test compares them).
+// A count of times: "3 times", "moved twice", "put off four times".
+export const ONCE_TWICE = /\b(?:once|twice|thrice)\b/i;
+export const COUNT = /\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|many|multiple|countless|a few)\b/i;
+export const MOVE_WORDS =
+  /\b(?:times?|move[ds]?|moving|put off|putting off|push(?:ed|es|ing)?|postpone[ds]?|postponing|slip(?:ped|s|ping)?|carr(?:ied|ies|y)|delay(?:ed|s|ing)?|reschedul(?:ed|es|e|ing)|again)\b/i;
+// Blame or shame: never under a pick.
+export const SHAME =
+  /\b(?:lazy|laziness|fail(?:ing|ed|ure)?|pathetic|useless|excuses?|shame(?:ful)?|guilt(?:y)?|slack(?:ing|er)|procrastinat\w*|still not done)\b|\bagain\s*[?!]/i;
+// "Been waiting a while" and the like: only for a task the app says keeps moving.
+export const WAITING_REASON =
+  /\b(?:wait(?:ing|ed)?|a while|still on (?:your|the) (?:plate|list)|keeps? coming back|move[ds]?|moving|put off|push(?:ed)?|postponed?|slipped|carried|delayed|rescheduled|dodged)\b/i;
+
+/** Same words, ignoring case and spacing (the app's memoryTaskKey). */
+const taskKey = (text) => String(text).trim().replace(/\s+/g, " ").toLowerCase();
 
 /**
  * A pick's reason as shown under it (1.5), or "" when there is none to show:
  * one line, at most five words and 40 characters (a longer one is dropped,
- * never cut), no link or email, and not just the task's own words again.
- * Older apps never read it.
+ * never cut), no bidi controls, no link, email or bare domain (also when
+ * hidden behind accents or zero-width characters), never a count of moves
+ * ("Moved 3 times"), no blame or shame, and not just the task's own words
+ * again. Older apps never read it.
  */
 export function cleanReason(value, taskText = "") {
-  if (typeof value !== "string") return "";
-  const text = value.replace(CONTROL, " ").replace(/\s+/g, " ").trim().replace(/[.!]+$/u, "").trim();
-  if (!text || Array.from(text).length > MAX_REASON_CHARS) return "";
-  if (text.split(" ").length > MAX_REASON_WORDS || LINK_PATTERN.test(text)) return "";
-  if (text.toLowerCase() === String(taskText).trim().toLowerCase()) return "";
+  if (typeof value !== "string" || HAS_BIDI.test(value)) return "";
+  const text = value
+    .replace(FORMAT_SHOWN, "")
+    .replace(CONTROL, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.!]+$/u, "")
+    .trim();
+  if (!text || Array.from(text).length > MAX_REASON_CHARS || text.split(" ").length > MAX_REASON_WORDS) return "";
+  const folded = foldForMatch(text);
+  if ([text, folded].some((form) => LINK_PATTERN.test(form))) return "";
+  if (ONCE_TWICE.test(folded) || (COUNT.test(folded) && MOVE_WORDS.test(folded)) || SHAME.test(folded)) return "";
+  if (folded.toLowerCase() === foldForMatch(String(taskText)).trim().toLowerCase()) return "";
   return text;
 }
 
@@ -183,17 +216,12 @@ export function fromDump(itemText, dumpText) {
 }
 
 /** Rebuild the brain-dump response from validated fields only. */
-// "Moved 3 times", "Put off twice", "Pushed back again".
-const MOVED_REASON = /\b(?:moved|put off|pushed)\b/i;
-
 export function sanitizeBrainDump(result, payload) {
-  // A move count the app didn't send is made up: that reason is dropped
-  // (one without a number too, since it can't be checked).
-  const sentCounts = new Set((cleanStats(payload?.stats)?.moved ?? []).map((item) => item.times));
-  const honest = (item) => {
-    if (!item.reason || !MOVED_REASON.test(item.reason)) return item;
-    return sentCounts.has(Number(item.reason.match(/\d+/)?.[0])) ? item : { text: item.text };
-  };
+  // "Been waiting a while" is only true of a task the app said keeps moving
+  // (same words as one in stats.moved); on any other pick it is dropped.
+  const moved = new Set((cleanStats(payload?.stats)?.moved ?? []).map((item) => taskKey(item.text)));
+  const honest = (item) =>
+    !item.reason || !WAITING_REASON.test(foldForMatch(item.reason)) || moved.has(taskKey(item.text)) ? item : { text: item.text };
   return {
     picks: textItems(result.picks, MAX_TASK_TEXT, 3).map(honest),
     parked: textItems(result.parked, MAX_TASK_TEXT, MAX_PARKED).map(({ text }) => ({ text })),

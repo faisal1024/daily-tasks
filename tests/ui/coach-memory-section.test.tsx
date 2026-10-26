@@ -10,6 +10,8 @@ import {
   CoachMemorySection,
   CLEAR_MEMORY_MESSAGE,
   CLEAR_MEMORY_MESSAGE_PLUS,
+  COACH_MEMORY_INTRO,
+  PLUS_NOTES_LINE,
   CLEAR_MEMORY_TITLE,
   MEMORY_CLEARED_NOTE,
   NO_COACH_NOTES,
@@ -70,7 +72,7 @@ function pastDay(date: string, done: number, open: number): DayRecord {
   return syncTodayHistory(state, date).history[date];
 }
 
-const BASIC_LINE = "In the last 30 days, you finished 4 of 6 tasks.";
+const BASIC_LINE = "You finished 4 tasks in the last 30 days.";
 
 async function seed(extra: Partial<AppState> = {}, { withHistory = true }: { withHistory?: boolean } = {}) {
   const state: AppState = {
@@ -125,6 +127,11 @@ describe("What your coach remembers", () => {
     expect(screen.queryByTestId("coach-memory-notes")).toBeNull();
     expect(screen.queryByText(NOTES)).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit your coach's notes" })).toBeNull();
+    // One muted line says what Plus adds, and the intro says what leaves the phone.
+    expect(screen.getByText(PLUS_NOTES_LINE)).toBeOnTheScreen();
+    expect(PLUS_NOTES_LINE).toBe("Plus adds notes your coach writes after each evening check-in.");
+    expect(screen.getByText(COACH_MEMORY_INTRO)).toBeOnTheScreen();
+    expect(COACH_MEMORY_INTRO).toMatch(/Nothing else leaves your phone\.$/);
   });
 
   it("with nothing to remember: 'Nothing yet', no notes for free, and no Clear memory button", async () => {
@@ -149,7 +156,7 @@ describe("What your coach remembers", () => {
     expect(screen.getByText(NO_COACH_NOTES)).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Edit your coach's notes" }));
     await fireEvent.changeText(screen.getByLabelText("Your coach's notes"), "  Prefers evenings.  ");
-    await fireEvent.press(screen.getByRole("button", { name: "Save" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Save your coach's notes" }));
     await waitFor(async () => expect((await saved()).coachMemory).toBe("Prefers evenings."));
     expect(screen.getByText("Prefers evenings.")).toBeOnTheScreen();
   });
@@ -161,15 +168,19 @@ describe("What your coach remembers", () => {
     const input = screen.getByLabelText("Your coach's notes");
     expect(input.props.value).toBe(NOTES);
     expect(input.props.maxLength).toBe(MAX_COACH_MEMORY);
+    // The character budget is shown while editing.
+    expect(screen.getByTestId("coach-memory-budget")).toHaveTextContent(`${Array.from(NOTES).length} of ${MAX_COACH_MEMORY} characters`);
+    expect(screen.queryByText(PLUS_NOTES_LINE)).toBeNull();
     await fireEvent.changeText(input, "Thrown away");
-    await fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByTestId("coach-memory-budget")).toHaveTextContent(`11 of ${MAX_COACH_MEMORY} characters`);
+    await fireEvent.press(screen.getByRole("button", { name: "Cancel editing your coach's notes" }));
     expect(screen.getByText(NOTES)).toBeOnTheScreen();
     expect((await saved()).coachMemory).toBe(NOTES);
 
     await fireEvent.press(screen.getByRole("button", { name: "Edit your coach's notes" }));
     expect(screen.getByLabelText("Your coach's notes").props.value).toBe(NOTES);
     await fireEvent.changeText(screen.getByLabelText("Your coach's notes"), "Kept.");
-    await fireEvent.press(screen.getByRole("button", { name: "Save" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Save your coach's notes" }));
     await waitFor(async () => expect((await saved()).coachMemory).toBe("Kept."));
     expect(screen.queryByLabelText("Your coach's notes")).toBeNull();
   });
@@ -179,7 +190,7 @@ describe("What your coach remembers", () => {
     await renderSection();
     await fireEvent.press(screen.getByRole("button", { name: "Edit your coach's notes" }));
     await fireEvent.changeText(screen.getByLabelText("Your coach's notes"), "   \n ");
-    await fireEvent.press(screen.getByRole("button", { name: "Save" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Save your coach's notes" }));
     await waitFor(async () => expect((await saved()).coachMemory).toBeNull());
     expect(screen.getByText(NO_COACH_NOTES)).toBeOnTheScreen();
   });
@@ -248,7 +259,7 @@ describe("What your coach remembers", () => {
     it("an earlier clearing is honoured on load: only days after it are summed", async () => {
       await seed({ memoryClearedAt: "2026-10-09" });
       await renderSection();
-      expect(screen.getByText("Since you cleared it, you finished 2 of 3 tasks.")).toBeOnTheScreen();
+      expect(screen.getByText("You finished 2 tasks since you cleared it.")).toBeOnTheScreen();
     });
   });
 
@@ -257,7 +268,7 @@ describe("What your coach remembers", () => {
     await renderSection();
     await fireEvent.press(screen.getByRole("button", { name: "Edit your coach's notes" }));
     await fireEvent.changeText(screen.getByLabelText("Your coach's notes"), "New note");
-    await fireEvent.press(screen.getByRole("button", { name: "Save" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Save your coach's notes" }));
     await fireEvent.press(clearButton()!);
     await pressAlert("Clear");
     await waitFor(async () => expect((await saved()).memoryClearedAt).toBe(TODAY));

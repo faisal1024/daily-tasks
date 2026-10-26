@@ -289,28 +289,40 @@ and proxy keeps working.
 ### 30-day stats and pick reasons (1.5, plan and brain-dump routes, optional)
 
 Optional in both directions: an older app sends no `stats` and reads no
-`reason`; an older proxy ignores `stats` and an app that gets no reasons
-shows its own (below).
+`reason`; an older proxy ignores `stats`. Note that an older proxy **does**
+return a `reason` on picks (the schema has always required one) but never
+checked it, so it can be a long sentence or a count: the app's own check
+(below) drops what doesn't fit. Deploy the Worker before the app ships.
 
-- **Request:** `stats: { days, done, total, bestDays?, moved? }`, worked out
+- **Request:** `stats: { days, done, total, span?, bestDays?, moved? }`, worked out
   on the phone from the last 30 days of history (`lib/daily-tasks/coach-memory.ts`,
   `memoryStatsPayload`), from the day after "Clear memory" when that is more
   recent. `days` 0–31 active days, `done` ≤ `total` ≤ 93 tasks, `bestDays` up
   to 2 English weekday names, `moved` up to 3 `{ text (≤64 chars), times (2–99) }`:
-  tasks moved to another day more than once. Sent only when there is at least
+  tasks moved to another day more than once. `span` (1–30) is how many days
+  the window covers when that is under 30 (after "Clear memory"); the prompt
+  then says "over the last N days". Sent only when there is at least
   one active day. A malformed `stats` is ignored, never a 400
   (`server/providers/stats.mjs`, `cleanStats`); bad entries inside it are
-  dropped one by one. Titles are fenced in the prompt as data.
+  dropped one by one. Titles are fenced in the prompt as data; in the
+  brain-dump prompt they carry no counts and are marked context only (never
+  added as picks or parked items).
 - **Brain-dump response:** each pick may carry `reason`: one line, at most
-  five words and 40 characters (longer ones are dropped, never cut), no link
-  or email, not the pick's own words (`cleanReason`). A reason that names a
-  move ("Moved 3 times", "put off", "pushed") is kept only when the request's
-  `stats.moved` has that count. Parked items never carry one. The app checks
-  the same rules again (`cleanReason` in `lib/daily-tasks/ai-helpers.ts`).
+  five words and 40 characters (longer ones are dropped, never cut), no bidi
+  controls, no link, email or bare domain (also behind accents or zero-width
+  characters: `foldForMatch`), not the pick's own words, and no blame or
+  shame from a short list (`cleanReason`). A reason never states a count of
+  moves: one with "once"/"twice", or a number (digit or word) together with
+  times/moved/put off/pushed/postponed/slipped/carried/delayed/rescheduled/
+  again, is dropped. A "waiting"-style reason ("Been waiting a while", "put
+  off", "keeps coming back") is kept only on a pick whose words match a
+  `stats.moved` title (case and spacing ignored). Parked items never carry
+  one. The app checks the same rules again (`cleanReason` in
+  `lib/daily-tasks/ai-helpers.ts`, and `withMovedReasons`).
 - **App:** the reason is shown muted under each pick (brain-dump review and
-  the first-run "Here are your three"). A pick with none gets "Moved N times"
-  when the 30-day memory has it moved twice or more (`withMovedReasons`); the
-  on-device split says "First on your list" / "Next on your list".
+  the first-run "Here are your three"). A pick with none gets "Been waiting
+  a while" when the 30-day memory has it moved twice or more
+  (`withMovedReasons`); the on-device split shows no reason.
 - **Plan prompt:** the stats are added next to the five-day lines; with moved
   tasks it asks for a smaller first step of them rather than the same task.
 - **Nag lines:** a task may carry `moved` (1–99, times moved to another day);

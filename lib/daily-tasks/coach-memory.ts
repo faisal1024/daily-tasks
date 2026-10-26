@@ -14,7 +14,7 @@
 // ignoring case and spacing. Routine tasks don't count: coming back is what
 // they do.
 
-import type { BrainDumpResult } from "./ai-helpers";
+import { isWaitingReason, WAITING_REASON, type BrainDumpResult } from "./ai-helpers";
 import { addDays, fromDateKey, nextDay } from "./date";
 import type { DayRecord, History } from "./types";
 
@@ -40,6 +40,8 @@ export interface BasicMemory {
   from: string;
   /** Memory was cleared inside the window: `from` is the day after. */
   sinceCleared: boolean;
+  /** Days the window covers: 30, or fewer after "Clear memory" (0 on the day it was cleared). */
+  span: number;
   /** Days with at least one task. */
   activeDays: number;
   completed: number;
@@ -60,29 +62,38 @@ export function memoryTaskKey(text: string): string {
 
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
-/** The first day the memory looks at: 30 days back, or the day after it was cleared. */
-export function memoryStart(today: string, clearedAt: string | null): { from: string; sinceCleared: boolean } {
-  const start = addDays(today, -MEMORY_DAYS);
-  if (clearedAt && DAY_KEY.test(clearedAt) && clearedAt >= start) {
-    return { from: nextDay(clearedAt), sinceCleared: true };
-  }
-  return { from: start, sinceCleared: false };
-}
-
-function pastDays(history: History, today: string, from: string): DayRecord[] {
-  return Object.values(history)
-    .filter((day) => day.date >= from && day.date < today)
-    .sort((a, b) => a.date.localeCompare(b.date));
-}
-
 /**
- * How many times each task was moved (keyed by memoryTaskKey), with the
- * newest wording. Only tasks moved at least once are in the map.
+ * The first day the memory looks at: 30 days back, or the day after it was
+ * cleared. A clearing dated after today (the clock was ahead) counts as
+ * today. `span` is how many days the window covers (1 to 30; 0 when it was
+ * cleared today).
  */
-export function movedCounts(history: History, today: string, clearedAt: string | null = null): Map<string, MovedTask> {
-  const { from } = memoryStart(today, clearedAt);
-  const days = pastDays(history, today, from);
-  const todayRecord = history[today];
+export function memoryStart(today: string, clearedAt: string | null): { from: string; sinceCleared: boolean; span: number } {
+  const start = addDays(today, -MEMORY_DAYS);
+  const cleared = clearedAt && DAY_KEY.test(clearedAt) ? (clearedAt > today ? today : clearedAt) : null;
+  if (cleared && cleared >= start) {
+    const from = nextDay(cleared);
+    let span = 0;
+    for (let key = from; key < today && span < MEMORY_DAYS; key = nextDay(key)) span += 1;
+    return { from, sinceCleared: true, span };
+  }
+  return { from: start, sinceCleared: false, span: MEMORY_DAYS };
+}
+
+/** The days of the window that have a record, oldest first: 30 lookups, never the whole history. */
+function pastDays(history: History, today: string, from: string): DayRecord[] {
+  const days: DayRecord[] = [];
+  for (let back = MEMORY_DAYS; back >= 1; back -= 1) {
+    const key = addDays(today, -back);
+    if (key < from) continue;
+    const day = history[key];
+    if (day && Array.isArray(day.tasks)) days.push(day);
+  }
+  return days;
+}
+
+/** Moved counts from the window's days (and today's record, which only shows what came back). */
+function movedFromDays(days: DayRecord[], todayRecord: DayRecord | undefined): Map<string, MovedTask> {
   const lastSeen = new Map<string, string>();
   const wording = new Map<string, string>();
   for (const day of todayRecord ? [...days, todayRecord] : days) {
@@ -109,6 +120,15 @@ export function movedCounts(history: History, today: string, clearedAt: string |
   return out;
 }
 
+/**
+ * How many times each task was moved (keyed by memoryTaskKey), with the
+ * newest wording. Only tasks moved at least once are in the map.
+ */
+export function movedCounts(history: History, today: string, clearedAt: string | null = null): Map<string, MovedTask> {
+  const { from } = memoryStart(today, clearedAt);
+  return movedFromDays(pastDays(history, today, from), history[today]);
+}
+
 /** A task's first word, as a kind of task ("Call", "Email"); null for none. */
 function kindOf(text: string): string | null {
   const word = text.trim().match(/^[\p{L}\p{N}][\p{L}\p{M}\p{N}'’-]*/u)?.[0];
@@ -118,8 +138,9 @@ function kindOf(text: string): string | null {
 
 /** The basic memory for `today`, from the history before it. */
 export function buildBasicMemory(history: History, today: string, clearedAt: string | null = null): BasicMemory {
-  const { from, sinceCleared } = memoryStart(today, clearedAt);
-  const days = pastDays(history, today, from).filter((day) => day.tasks.length > 0);
+  const { from, sinceCleared, span } = memoryStart(today, clearedAt);
+  const inWindow = pastDays(history, today, from);
+  const days = inWindow.filter((day) => day.tasks.length > 0);
   let completed = 0;
   let total = 0;
   const weekdays = new Map<number, { days: number; done: number; total: number }>();
@@ -150,13 +171,14 @@ export function buildBasicMemory(history: History, today: string, clearedAt: str
     .sort(([kindA, a], [kindB, b]) => b.total - a.total || kindA.localeCompare(kindB));
   const finishedKinds = kindList.filter(([, c]) => c.done / c.total >= 0.8).slice(0, 2).map(([kind]) => kind);
   const slippingKinds = kindList.filter(([, c]) => c.done / c.total <= 1 / 3).slice(0, 2).map(([kind]) => kind);
-  const moved = [...movedCounts(history, today, clearedAt).values()]
+  const moved = [...movedFromDays(inWindow, history[today]).values()]
     .filter((task) => task.times >= MOVED_NOTICE_TIMES)
     .sort((a, b) => b.times - a.times || a.text.localeCompare(b.text))
     .slice(0, MAX_MOVED_SHOWN);
   return {
     from,
     sinceCleared,
+    span,
     activeDays: days.length,
     completed,
     total,
@@ -170,8 +192,9 @@ export function buildBasicMemory(history: History, today: string, clearedAt: str
 const quote = (text: string) => `“${text}”`;
 const listOf = (items: string[], joiner: string) =>
   items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} ${joiner} ${items[items.length - 1]}`;
+const tasksWord = (count: number) => (count === 1 ? "task" : "tasks");
 
-/** The basic memory in plain sentences, for "What your coach remembers". */
+/** The basic memory in plain sentences, for "What your coach remembers". Kind, never a verdict. */
 export function memorySentences(memory: BasicMemory): string[] {
   if (memory.total === 0) {
     return [
@@ -180,21 +203,23 @@ export function memorySentences(memory: BasicMemory): string[] {
         : "Nothing yet. After a few days with your three, patterns show up here.",
     ];
   }
-  const lead = memory.sinceCleared ? "Since you cleared it" : `In the last ${MEMORY_DAYS} days`;
-  const sentences = [`${lead}, you finished ${memory.completed} of ${memory.total} ${memory.total === 1 ? "task" : "tasks"}.`];
+  const when = memory.sinceCleared ? "since you cleared it" : `in the last ${MEMORY_DAYS} days`;
+  const sentences = [
+    memory.completed > 0
+      ? `You finished ${memory.completed} ${tasksWord(memory.completed)} ${when}.`
+      : `You set ${memory.total} ${tasksWord(memory.total)} ${when}.`,
+  ];
   if (memory.bestWeekdays.length > 0) {
     sentences.push(`You get the most done on ${listOf(memory.bestWeekdays.map((day) => `${WEEKDAY_NAMES[day]}s`), "and")}.`);
-  }
-  if (memory.moved.length > 0) {
-    sentences.push(
-      `Moved more than once: ${memory.moved.map((task) => `${quote(task.text)} (${task.times} times)`).join(", ")}.`,
-    );
   }
   if (memory.finishedKinds.length > 0) {
     sentences.push(`Tasks that start with ${listOf(memory.finishedKinds.map(quote), "or")} usually get done.`);
   }
+  if (memory.moved.length > 0) {
+    sentences.push(`Tasks that keep coming back: ${memory.moved.map((task) => quote(task.text)).join(", ")}.`);
+  }
   if (memory.slippingKinds.length > 0) {
-    sentences.push(`Ones that start with ${listOf(memory.slippingKinds.map(quote), "or")} tend to slip.`);
+    sentences.push(`Tasks starting with ${listOf(memory.slippingKinds.map(quote), "or")} are harder to get to.`);
   }
   return sentences;
 }
@@ -204,6 +229,8 @@ export interface MemoryStatsPayload {
   days: number;
   done: number;
   total: number;
+  /** Days the window covers, only when under 30 (after "Clear memory"). */
+  span?: number;
   bestDays?: string[];
   moved?: MovedTask[];
 }
@@ -213,20 +240,25 @@ function capText(text: string, max: number): string {
   return chars.length > max ? `${chars.slice(0, max - 1).join("").trimEnd()}…` : text;
 }
 
+/** The proxy's limits (server/providers/stats.mjs). */
+const MAX_STATS_DAYS = 31;
+const MAX_STATS_TASKS = 93;
+
 /**
  * The compact summary sent to the AI: counts, up to two weekday names and
  * up to three short task titles. Null when there is nothing to tell yet.
- * The proxy's limits are 31 days and 93 tasks, so the counts are capped
- * there (a day can hold more than three tasks from an older build).
+ * Over the proxy's 93 tasks (a day can hold more than three from an older
+ * build), the total is capped and `done` scaled to keep the same share.
  */
 export function memoryStatsPayload(memory: BasicMemory): MemoryStatsPayload | null {
   if (memory.activeDays === 0 || memory.total === 0) return null;
-  const total = Math.min(memory.total, 93);
-  const done = Math.min(memory.completed, total);
+  const total = Math.min(memory.total, MAX_STATS_TASKS);
+  const done = memory.total > MAX_STATS_TASKS ? Math.round((memory.completed * MAX_STATS_TASKS) / memory.total) : memory.completed;
   return {
-    days: Math.min(memory.activeDays, 31),
-    done,
+    days: Math.min(memory.activeDays, MAX_STATS_DAYS),
+    done: Math.min(done, total),
     total,
+    ...(memory.span >= 1 && memory.span < MEMORY_DAYS ? { span: memory.span } : {}),
     ...(memory.bestWeekdays.length > 0 ? { bestDays: memory.bestWeekdays.map((day) => WEEKDAY_NAMES[day]) } : {}),
     ...(memory.moved.length > 0
       ? { moved: memory.moved.slice(0, MAX_MOVED_SHOWN).map((task) => ({ text: capText(task.text, MAX_STATS_TEXT), times: task.times })) }
@@ -234,22 +266,40 @@ export function memoryStatsPayload(memory: BasicMemory): MemoryStatsPayload | nu
   };
 }
 
-/** "Moved 3 times" for a pick that has been moved before, or null. */
-export function movedReason(text: string, memory: BasicMemory | null): string | null {
-  if (!memory) return null;
+/** The memory has this pick as one that keeps moving (twice or more). */
+function keepsMoving(text: string, memory: BasicMemory | null): boolean {
+  if (!memory) return false;
   const key = memoryTaskKey(text);
-  const task = memory.moved.find((item) => memoryTaskKey(item.text) === key);
-  return task ? `Moved ${task.times} times` : null;
+  return memory.moved.some((item) => memoryTaskKey(item.text) === key);
 }
 
 /**
- * The picks with a reason from the memory where the AI gave none (an older
- * proxy, the on-device split): "Moved 3 times". The AI's own reasons stay.
+ * "Been waiting a while" for a pick the memory has as one that keeps moving,
+ * or null. Never a count: how often it moved isn't said under a pick.
+ */
+export function movedReason(text: string, memory: BasicMemory | null): string | null {
+  return keepsMoving(text, memory) ? WAITING_REASON : null;
+}
+
+/**
+ * The picks' reasons checked against the memory: a "waiting"-style reason
+ * the AI gave a pick that doesn't keep moving is dropped, and a pick that
+ * does keep moving with no reason gets "Been waiting a while". Other AI
+ * reasons stay. The same object back when nothing changes.
  */
 export function withMovedReasons(result: BrainDumpResult, memory: BasicMemory | null): BrainDumpResult {
-  if (!memory || memory.moved.length === 0) return result;
-  const reasons = result.picks.map((pick, index) => result.reasons?.[index] || movedReason(pick, memory) || "");
-  return reasons.some(Boolean) ? { ...result, reasons } : result;
+  let changed = false;
+  const reasons = result.picks.map((pick, index) => {
+    const given = result.reasons?.[index] ?? "";
+    const kept = given && isWaitingReason(given) && !keepsMoving(pick, memory) ? "" : given;
+    const reason = kept || movedReason(pick, memory) || "";
+    if (reason !== given) changed = true;
+    return reason;
+  });
+  if (!changed) return result;
+  if (reasons.some(Boolean)) return { ...result, reasons };
+  const { reasons: _dropped, ...rest } = result;
+  return rest;
 }
 
 /** How many times each of `tasks` was moved, by id (only those moved at least once): nag weights (1.5). */

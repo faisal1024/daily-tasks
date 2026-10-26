@@ -68,7 +68,7 @@ function shownJoiners(value, { emoji = false } = {}) {
   });
 }
 // Direction marks, embeddings, overrides and isolates: a line from the model with one is dropped whole.
-const HAS_BIDI = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
+export const HAS_BIDI = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
 
 function charLength(value) {
   return Array.from(value).length;
@@ -245,7 +245,7 @@ export function buildNagPrompt(payload) {
 
 // Real links (same pattern as coach-contract.mjs) plus bare hosts on common
 // endings: a reminder never sends anyone anywhere.
-const LINK_PATTERN =
+export const LINK_PATTERN =
   /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}|\b[a-z0-9-]+\.(?:com|net|org|io|co|app|me|ly|info|biz|xyz)\b/i;
 // Seven or more digits, allowing the usual separators ("555-123-4567", "+1 (555) 123 4567").
 const PHONE_PATTERN = /(?:\d[\s().-]{0,2}){7,}/;

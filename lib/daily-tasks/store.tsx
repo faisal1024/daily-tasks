@@ -224,6 +224,7 @@ type Action =
   | { type: "updateMomentumProfile"; profile: MomentumProfile }
   | { type: "regenerateMomentumPlan"; now: Date }
   | { type: "requestMomentumPlanStarted" }
+  | { type: "requestMomentumPlanDropped" }
   | { type: "requestMomentumPlanSucceeded"; plan: NonNullable<AppState["momentumPlan"]> }
   | { type: "requestMomentumPlanFailed"; kind: AiFailureKind; goalTitle: string | null; now: Date }
   | {
@@ -685,11 +686,19 @@ function reduce(state: AppState, action: Action): AppState {
       const next = clearTaskSteps(state, action.taskId);
       return next === state ? state : syncTodayHistory(next, action.today);
     }
-    case "hydrate":
+    case "hydrate": {
+      // A "Clear memory" dated after today (the clock was ahead) counts as
+      // today, so the memory isn't empty until that date comes (1.5).
+      const clock = todayKey();
+      const loaded =
+        action.state.memoryClearedAt && action.state.memoryClearedAt > clock
+          ? { ...action.state, memoryClearedAt: clock }
+          : action.state;
       // The live list is the saved day's list: if its history record ever
       // drifted (an old build, a bad save), repair it now, before a rollover
       // archives the stale copy as that day's history.
-      return syncTodayHistory(action.state, action.state.lastOpenedDate);
+      return syncTodayHistory(loaded, loaded.lastOpenedDate);
+    }
     case "rollover": {
       const rolled = applyRollover(state, action.today);
       // A draft for a day that has already passed is no longer useful.
@@ -1068,6 +1077,14 @@ function reduce(state: AppState, action: Action): AppState {
         momentumPlanStatus: "loading",
         momentumPlanError: null,
       };
+    // An answer built on memory that was cleared meanwhile (1.5): the ideas
+    // already shown stay.
+    case "requestMomentumPlanDropped":
+      return {
+        ...state,
+        momentumPlanStatus: state.momentumPlan ? "ready" : "idle",
+        momentumPlanError: null,
+      };
     case "requestMomentumPlanSucceeded":
       // The goal changed while this request was in flight: drop the stale plan.
       // Going back to "ready" lets the auto-fetch run for the new goal.
@@ -1268,7 +1285,8 @@ interface StoreContextValue {
    * moment as focus_session_ended {outcome: "done"}) while the app runs.
    */
   focusDoneCount: number;
-  setEveningClose: (close: EveningClose, day: string, result: ReflectionResult) => void;
+  /** `startedAt` (ms): when the close was asked for; a "Clear memory" since then drops its memory. */
+  setEveningClose: (close: EveningClose, day: string, result: ReflectionResult, startedAt?: number) => void;
   /** `shown` is what the card offered; the unused rest is saved for later. */
   applyTomorrowDraft: (tasks: string[], shown: string[]) => void;
   dismissTomorrowDraft: () => void;
@@ -2118,12 +2136,17 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // late (e.g. started before a goal edit) must not overwrite a newer result
   // or flip "loading" off while the newer request is still in flight.
   const latestAiRequest = useRef(0);
+  // When "Clear memory" was last used (ms, this session). A request already
+  // on its way then carried the old memory: its answer is dropped (a plan)
+  // or its new memory ignored (an evening close).
+  const lastMemoryClearAt = useRef(0);
   const requestMomentumPlan = useCallback(async (options: { newPath?: boolean } = {}) => {
     // AI ideas are a Plus feature; free users keep the on-device template plan.
     if (!hasPlus) return;
     const requestId = ++latestAiRequest.current;
     dispatch({ type: "requestMomentumPlanStarted" });
     const now = new Date();
+    const startedAt = Date.now();
     try {
       // Read fresh each time (events change); never blocks the plan on failure.
       const agenda = state.agendaEnabled ? await readTodayAgenda(now) : [];
@@ -2145,6 +2168,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         now,
       });
       if (!isLatestRequest(requestId, latestAiRequest.current)) return;
+      if (lastMemoryClearAt.current >= startedAt) {
+        dispatch({ type: "requestMomentumPlanDropped" });
+        return;
+      }
       dispatch({ type: "requestMomentumPlanSucceeded", plan });
     } catch (error) {
       if (!isLatestRequest(requestId, latestAiRequest.current)) return;
@@ -2281,8 +2308,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "clearReviewDue" });
   }, []);
   const setEveningClose = useCallback(
-    (close: EveningClose, day: string, result: ReflectionResult) => {
-      dispatch({ type: "setEveningClose", close, day, result });
+    (close: EveningClose, day: string, result: ReflectionResult, startedAt?: number) => {
+      // Memory cleared while the close was on its way: its memory was built
+      // on what was cleared, so it isn't kept (the note and draft are).
+      const stale = startedAt !== undefined && lastMemoryClearAt.current >= startedAt;
+      dispatch({ type: "setEveningClose", close: stale ? { ...close, memory: null } : close, day, result });
     },
     [],
   );
@@ -2302,6 +2332,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "setCoachMemory", text });
   }, []);
   const clearCoachMemory = useCallback(() => {
+    lastMemoryClearAt.current = Date.now();
     dispatch({ type: "clearCoachMemory", today: ensureDay() });
   }, [ensureDay]);
   // Stamped with the store's day (like setCoachNotes), so a claim in the first

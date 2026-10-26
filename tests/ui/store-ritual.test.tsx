@@ -315,3 +315,33 @@ describe("store: Not today (Phase 10a)", () => {
     expect(result.current.completedCount).toBe(1);
   });
 });
+
+describe("store: Clear memory while a request is on its way (1.5)", () => {
+  it("an evening close asked for before the clearing doesn't bring its memory back; one asked for after does", async () => {
+    const { result } = await renderStore({ coachMemory: "Mornings work best." });
+    const askedAt = Date.now();
+    jest.setSystemTime(new Date(2026, 8, 25, 20, 1));
+    await act(async () => result.current.clearCoachMemory());
+    expect(result.current.state.coachMemory).toBeNull();
+    expect(result.current.state.memoryClearedAt).toBe(D);
+    await act(async () =>
+      result.current.setEveningClose(close({ memory: "Built on what was cleared.", source: "ai" }), D, "good", askedAt),
+    );
+    expect(result.current.state.coachMemory).toBeNull();
+    // The note and the draft are still kept.
+    expect(result.current.state.eveningClose).toEqual({ date: D, result: "good", note: "A good day." });
+
+    jest.setSystemTime(new Date(2026, 8, 25, 20, 2));
+    const later = Date.now();
+    await act(async () => result.current.setEveningClose(close({ memory: "Fresh.", source: "ai" }), D, "good", later));
+    expect(result.current.state.coachMemory).toBe("Fresh.");
+    // No start time (an older caller): kept, as before.
+    await act(async () => result.current.setEveningClose(close({ memory: "Also kept.", source: "ai" }), D, "good"));
+    expect(result.current.state.coachMemory).toBe("Also kept.");
+  });
+
+  it("a clearing dated after today (the clock was ahead) is set to today on launch", async () => {
+    const { result } = await renderStore({ memoryClearedAt: "2027-01-01" });
+    expect(result.current.state.memoryClearedAt).toBe(D);
+  });
+});

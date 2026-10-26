@@ -8,11 +8,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   cleanReason,
   localBrainDump,
-  LOCAL_FIRST_REASON,
-  LOCAL_NEXT_REASON,
   parseBrainDumpResponse,
   pickReason,
   requestBrainDump,
+  WAITING_REASON,
   type BrainDumpResult,
 } from "../lib/daily-tasks/ai-helpers";
 import {
@@ -218,11 +217,17 @@ describe("movedCounts", () => {
 
 describe("memoryStart", () => {
   it("is 30 days back, or the day after a more recent clearing", () => {
-    expect(memoryStart(TODAY, null)).toEqual({ from: "2026-09-21", sinceCleared: false });
-    expect(memoryStart(TODAY, day(10))).toEqual({ from: day(11), sinceCleared: true });
+    expect(memoryStart(TODAY, null)).toEqual({ from: "2026-09-21", sinceCleared: false, span: 30 });
+    // Days 11 to 20: ten days.
+    expect(memoryStart(TODAY, day(10))).toEqual({ from: day(11), sinceCleared: true, span: 10 });
     // The month rolls over.
-    expect(memoryStart(TODAY, "2026-09-30")).toEqual({ from: "2026-10-01", sinceCleared: true });
-    expect(memoryStart(TODAY, "2026-08-01")).toEqual({ from: "2026-09-21", sinceCleared: false });
+    expect(memoryStart(TODAY, "2026-09-30")).toEqual({ from: "2026-10-01", sinceCleared: true, span: 20 });
+    expect(memoryStart(TODAY, "2026-08-01")).toEqual({ from: "2026-09-21", sinceCleared: false, span: 30 });
+  });
+
+  it("a clearing dated after today (the clock was ahead) counts as today", () => {
+    expect(memoryStart(TODAY, "2027-01-01")).toEqual(memoryStart(TODAY, TODAY));
+    expect(memoryStart(TODAY, TODAY)).toEqual({ from: day(22), sinceCleared: true, span: 0 });
   });
 });
 
@@ -248,12 +253,14 @@ describe("buildBasicMemory and memorySentences", () => {
     const memory = buildBasicMemory(h, TODAY);
     expect(memory).toMatchObject({ sinceCleared: false, activeDays: 5, completed: 5, total: 11 });
     expect(memorySentences(memory)).toEqual([
-      "In the last 30 days, you finished 5 of 11 tasks.",
+      "You finished 5 tasks in the last 30 days.",
       "You get the most done on Sundays.",
-      "Moved more than once: “Taxes” (3 times).",
       "Tasks that start with “Email” usually get done.",
-      "Ones that start with “Call” or “Taxes” tend to slip.",
+      "Tasks that keep coming back: “Taxes”.",
+      "Tasks starting with “Call” or “Taxes” are harder to get to.",
     ]);
+    // Kind words only: no counts of moves, no "N of M" verdict.
+    expect(memorySentences(memory).join(" ")).not.toMatch(/\d+ times| of 11/);
   });
 
   it("names the best weekdays only when seen twice and better than the rest, and uses 'task' for one", () => {
@@ -265,7 +272,12 @@ describe("buildBasicMemory and memorySentences", () => {
     });
     expect(memorySentences(buildBasicMemory(h, TODAY))).toContain("You get the most done on Mondays.");
     const once = buildBasicMemory(history({ [day(19)]: [{ text: "Read", done: true }] }), TODAY);
-    expect(memorySentences(once)).toEqual(["In the last 30 days, you finished 1 of 1 task."]);
+    expect(memorySentences(once)).toEqual(["You finished 1 task in the last 30 days."]);
+  });
+
+  it("with nothing finished, says what was set (never a zero score)", () => {
+    const none = buildBasicMemory(history({ [day(19)]: [{ text: "Read" }, { text: "Walk" }] }), TODAY);
+    expect(memorySentences(none)[0]).toBe("You set 2 tasks in the last 30 days.");
   });
 
   it("starts 'Since you cleared it' and drops what came before the clearing", () => {
@@ -275,7 +287,7 @@ describe("buildBasicMemory and memorySentences", () => {
     });
     const memory = buildBasicMemory(h, TODAY, day(15));
     expect(memory).toMatchObject({ from: day(16), sinceCleared: true, total: 2, completed: 1 });
-    expect(memorySentences(memory)[0]).toBe("Since you cleared it, you finished 1 of 2 tasks.");
+    expect(memorySentences(memory)[0]).toBe("You finished 1 task since you cleared it.");
   });
 
   it("shows at most three moved tasks, most moved first, and none moved only once", () => {
@@ -295,6 +307,7 @@ describe("memoryStatsPayload", () => {
   const memory = (over: Partial<BasicMemory> = {}): BasicMemory => ({
     from: "2026-09-21",
     sinceCleared: false,
+    span: 30,
     activeDays: 3,
     completed: 2,
     total: 7,
@@ -314,7 +327,8 @@ describe("memoryStatsPayload", () => {
   it("is null right after clearing, and comes back from the next day's history", () => {
     const h = history({ [day(19)]: [{ text: "A", done: true }] });
     expect(memoryStatsPayload(buildBasicMemory(h, TODAY, TODAY))).toBeNull();
-    expect(memoryStatsPayload(buildBasicMemory(h, TODAY, day(18)))).toEqual({ days: 1, done: 1, total: 1 });
+    // Cleared on the 18th: the window is the 19th and 20th, and says so.
+    expect(memoryStatsPayload(buildBasicMemory(h, TODAY, day(18)))).toEqual({ days: 1, done: 1, total: 1, span: 2 });
   });
 
   it("leaves bestDays and moved out when there are none, and names them when there are", () => {
@@ -328,7 +342,10 @@ describe("memoryStatsPayload", () => {
     const payload = memoryStatsPayload(
       memory({ activeDays: 40, total: 120, completed: 200, moved: [{ text: "x".repeat(100), times: 5 }] }),
     )!;
+    // done can't be over total: kept at 93 of 93.
     expect(payload).toMatchObject({ days: 31, total: 93, done: 93 });
+    // Over 93 tasks the share is kept: 60 of 120 is sent as 47 of 93 (rounded).
+    expect(memoryStatsPayload(memory({ total: 120, completed: 60 }))).toMatchObject({ total: 93, done: 47 });
     expect(Array.from(payload.moved![0].text)).toHaveLength(64);
     expect(payload.moved![0].text.endsWith("…")).toBe(true);
     // What the app sends is what the Worker keeps whole.
@@ -342,7 +359,9 @@ describe("memoryStatsPayload", () => {
       [TODAY]: [{ text: "Taxes" }],
     });
     const payload = memoryStatsPayload(buildBasicMemory(h, TODAY))!;
-    expect(cleanStats(payload)).toEqual({ bestDays: [], moved: [], ...payload });
+    expect(cleanStats(payload)).toEqual({ bestDays: [], moved: [], span: 30, ...payload });
+    const cleared = memoryStatsPayload(buildBasicMemory(h, TODAY, day(17)))!;
+    expect(cleanStats(cleared)).toEqual({ bestDays: [], moved: [], ...cleared });
   });
 });
 
@@ -392,7 +411,8 @@ describe("cleanReason (app)", () => {
     ["Quick win", "Quick win"],
     ["quick win.", "Quick win"],
     ["  Due   Friday!! ", "Due Friday"],
-    ["Moved 3 times", "Moved 3 times"],
+    ["Been waiting a while", "Been waiting a while"],
+    ["Due in 2 days", "Due in 2 days"],
     ["One two three four five", "One two three four five"],
     ["x".repeat(40), "X" + "x".repeat(39)],
     ["Line\nbreak", "Line break"],
@@ -408,6 +428,15 @@ describe("cleanReason (app)", () => {
     ["an email", "ask bob@example.com"],
     ["an empty string", "   "],
     ["only punctuation", "..."],
+    ["a bare domain", "see evil.com"],
+    ["a domain split by a zero-width space", "evil\u200B.com"],
+    ["a bidi control", "Quick \u202Ewin"],
+    ["a count of moves", "Moved 3 times"],
+    ["a count in words", "Put off four times"],
+    ["twice", "Moved twice"],
+    ["another verb", "Carried over 4 times"],
+    ["shame", "Stop being lazy"],
+    ["again?!", "Again?!"],
   ])("drops %s, never cuts it", (_label, input) => {
     expect(cleanReason(input, "Something else")).toBe("");
   });
@@ -469,6 +498,7 @@ describe("fallback reasons", () => {
   const memory = (...moved: [string, number][]): BasicMemory => ({
     from: "2026-09-21",
     sinceCleared: false,
+    span: 30,
     activeDays: 3,
     completed: 1,
     total: 3,
@@ -478,29 +508,35 @@ describe("fallback reasons", () => {
     slippingKinds: [],
   });
 
-  it("pickReason: the AI's own, else 'First on your list' / 'Next on your list' for the offline split, else nothing", () => {
+  it("pickReason: the AI's own (or the memory's), else nothing; the offline split shows none", () => {
     expect(pickReason(ai(["Quick win", "", ""]), 0)).toBe("Quick win");
     expect(pickReason(ai(["Quick win", "", ""]), 1)).toBeNull();
     expect(pickReason(ai(), 0)).toBeNull();
     const local = localBrainDump("walk\nswim\nread\nrun", 3);
-    expect([0, 1, 2].map((index) => pickReason(local, index))).toEqual([LOCAL_FIRST_REASON, LOCAL_NEXT_REASON, LOCAL_NEXT_REASON]);
-    expect(LOCAL_FIRST_REASON).toBe("First on your list");
-    expect(LOCAL_NEXT_REASON).toBe("Next on your list");
+    expect([0, 1, 2].map((index) => pickReason(local, index))).toEqual([null, null, null]);
     expect(pickReason(local, 3)).toBeNull();
     expect(pickReason(local, -1)).toBeNull();
   });
 
-  it("movedReason: 'Moved N times', matching ignoring case and spacing", () => {
-    expect(movedReason("  taxes ", memory(["Taxes", 3]))).toBe("Moved 3 times");
-    expect(movedReason("Taxes", memory(["Taxes", 2]))).toBe("Moved 2 times");
+  it("movedReason: 'Been waiting a while', never a count, matching ignoring case and spacing", () => {
+    expect(WAITING_REASON).toBe("Been waiting a while");
+    expect(movedReason("  taxes ", memory(["Taxes", 3]))).toBe(WAITING_REASON);
+    expect(movedReason("Taxes", memory(["Taxes", 2]))).toBe(WAITING_REASON);
     expect(movedReason("Other", memory(["Taxes", 3]))).toBeNull();
     expect(movedReason("Taxes", null)).toBeNull();
   });
 
   it("withMovedReasons: fills only the picks with none; the AI's reason stays", () => {
     const result = withMovedReasons(ai(["Quick win", "", ""]), memory(["a", 2], ["B", 4], ["C", 3]));
-    expect(result.reasons).toEqual(["Quick win", "Moved 4 times", "Moved 3 times"]);
-    expect(withMovedReasons(ai(), memory(["B", 5])).reasons).toEqual(["", "Moved 5 times", ""]);
+    expect(result.reasons).toEqual(["Quick win", WAITING_REASON, WAITING_REASON]);
+    expect(withMovedReasons(ai(), memory(["B", 5])).reasons).toEqual(["", WAITING_REASON, ""]);
+  });
+
+  it("withMovedReasons: a 'waiting' reason on a pick that doesn't keep moving is dropped", () => {
+    const result = withMovedReasons(ai(["Been waiting a while", "Put off for ages", "Quick win"]), memory(["B", 3]));
+    expect(result.reasons).toEqual(["", "Put off for ages", "Quick win"]);
+    const none = withMovedReasons(ai(["Been waiting a while", "", ""]), null);
+    expect(none).not.toHaveProperty("reasons");
   });
 
   it("withMovedReasons: the same object back when there is nothing to add", () => {
@@ -510,9 +546,9 @@ describe("fallback reasons", () => {
     expect(withMovedReasons(result, memory(["Z", 3]))).toBe(result);
   });
 
-  it("on the offline split a moved pick shows 'Moved N times', the others keep their place on the list", () => {
+  it("on the offline split only a pick that keeps moving gets a reason", () => {
     const local = withMovedReasons(localBrainDump("Walk\nTaxes\nRead", 3), memory(["Taxes", 3]));
-    expect([0, 1, 2].map((index) => pickReason(local, index))).toEqual([LOCAL_FIRST_REASON, "Moved 3 times", LOCAL_NEXT_REASON]);
+    expect([0, 1, 2].map((index) => pickReason(local, index))).toEqual([null, WAITING_REASON, null]);
   });
 });
 
