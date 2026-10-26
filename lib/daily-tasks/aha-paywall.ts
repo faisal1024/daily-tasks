@@ -1,7 +1,7 @@
 // The gentle second paywall (source "aha"): offered once per install, at the
 // first real "aha" after the first day: using last night's draft for today,
-// tapping Set (even with only one or two tasks: Set is a deliberate "my day is
-// set" moment), or a brain dump that fills the day's three. Typing the third
+// tapping Lock (even with only one or two tasks: Lock is a deliberate "my day is
+// locked" moment), or a brain dump that fills the day's three. Typing the third
 // task by hand doesn't count (too interruptive mid-typing). Pure, so the rule
 // can be unit tested; plus-context persists what it needs and the Today screen
 // reports the moments.

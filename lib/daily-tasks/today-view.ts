@@ -61,7 +61,7 @@ export type TodayStatusKind = "empty" | "choosing" | "set" | "auto";
 export interface TodayStatus {
   kind: TodayStatusKind;
   text: string;
-  /** Show the "Set today" action. */
+  /** Show the "Lock today" action. */
   canLock: boolean;
 }
 
@@ -74,7 +74,7 @@ export function todayStatus(params: {
   lockSource: LockSource | null;
   taskCount: number;
   completedCount: number;
-  /** When the day was set automatically, in the device's format ("12:00 PM" or "12:00"). */
+  /** When the day was locked automatically, in the device's format ("12:00 PM" or "12:00"). */
   autoLockTime?: string | null;
 }): TodayStatus {
   const { locked, lockSource, taskCount, completedCount, autoLockTime } = params;
@@ -90,11 +90,11 @@ export function todayStatus(params: {
       const when = autoLockTime ? ` at ${autoLockTime}` : "";
       return {
         kind: "auto",
-        text: `Set automatically${when}.${tail}`,
+        text: `Locked automatically${when}.${tail}`,
         canLock: false,
       };
     }
-    return { kind: "set", text: `Today is set.${tail}`, canLock: false };
+    return { kind: "set", text: `Today is locked.${tail}`, canLock: false };
   }
   if (taskCount === 0) {
     return {
@@ -120,8 +120,8 @@ export function todayStatus(params: {
     kind: "choosing",
     text:
       taskCount < MAX_TASKS
-        ? "Still choosing. Set the day when it feels right."
-        : "Happy with these three? Set them.",
+        ? "Still choosing. Lock the day when it feels right."
+        : "Happy with these three? Lock them in.",
     canLock: true,
   };
 }
@@ -199,29 +199,29 @@ export function lockConfirmation(taskCount: number): { title: string; message: s
   if (open === 0) {
     // All three chosen: nothing is lost by locking, so keep it light.
     return {
-      title: "Set today?",
-      message: "You can still check tasks off. Editing pauses until tomorrow, or until you unlock it in Settings.",
+      title: "Lock today?",
+      message: "You can still check tasks off. Editing pauses until tomorrow, or until you unlock it.",
     };
   }
   const slots = open === 1 ? " Your empty slot stays empty." : " Your empty slots stay empty.";
   return {
-    title: "Set today?",
-    message:
-      "You can still check tasks off. Adding and editing pause until tomorrow, or until you unlock it in Settings." + slots,
+    title: "Lock today?",
+    message: "You can still check tasks off. Adding and editing pause until tomorrow, or until you unlock it." + slots,
   };
 }
 
-/** The quiet line beside a set day on Today, and its VoiceOver hint (1.4). */
-export const LOCKED_HINT = "Unlock in Settings";
+/** VoiceOver hint on a locked day's empty slot (Unlock is on the status line since 1.5). */
+export const LOCKED_HINT = "Today is locked. Unlock it to add one.";
 
 /**
- * Said (toast and VoiceOver) when a tap on a set day would have changed the
+ * Said (toast and VoiceOver) when a tap on a locked day would have changed the
  * three: a row's words, an empty slot, Not today (1.4). Also the message on a
- * set row's menu, which has no Edit, Not today or Delete.
+ * locked row's menu, which has no Edit, Not today or Delete. Since 1.5 the
+ * Unlock tap sits on Today's status line, so it no longer points to Settings.
  */
-export const LOCKED_CHANGE_NOTE = "Today is set. Unlock it in Settings to change your three.";
+export const LOCKED_CHANGE_NOTE = "Today is locked. Unlock it to change your three.";
 
-/** Shown in Settings (and announced) once "Unlock" has unlocked today (1.4). */
+/** Shown (and announced) once "Unlock" has unlocked today, on Today or in Settings. */
 export const UNLOCKED_NOTE = "Today is unlocked.";
 
 export interface UnlockConfirmation {
@@ -232,15 +232,15 @@ export interface UnlockConfirmation {
 }
 
 /**
- * Copy for Settings' "Unlock today" (1.4). Unlocking is deliberately a step
- * away from Today, and "Keep locked" is the prominent choice. One rule for
- * both kinds of set day; only the message differs, because an automatic set
- * wasn't the user's own choice and unlocking it holds auto-set off for the
- * rest of the day.
+ * Copy for "Unlock" (the tap on Today's status line since 1.5, and Settings'
+ * "Unlock today" row). It always asks first: "Unlock" is the clear action and
+ * "Keep locked" the cancel. One rule for both kinds of locked day; only the
+ * message differs, because an automatic lock wasn't the user's own choice and
+ * unlocking it holds auto-lock off for the rest of the day.
  */
 export function unlockConfirmation(params: {
   lockSource: LockSource | null;
-  /** When auto-set set today, in the device's format ("12:00 PM" or "12:00"). */
+  /** When auto-lock locked today, in the device's format ("12:00 PM" or "12:00"). */
   autoLockTime?: string | null;
 }): UnlockConfirmation {
   const { lockSource, autoLockTime } = params;
@@ -249,8 +249,8 @@ export function unlockConfirmation(params: {
     title: "Unlock today?",
     message:
       lockSource === "auto"
-        ? `The app set today automatically${when}. Unlocking keeps it open for the rest of today.`
-        : "Your three will be open to change again. You can set today again any time.",
+        ? `Today was locked automatically${when}. Unlocking keeps it open for the rest of today.`
+        : "Today will be open to change again. You can lock today again any time.",
     keep: "Keep locked",
     unlock: "Unlock",
   };
@@ -302,7 +302,7 @@ export function brainDumpToast(added: number, saved: number, options?: { locked?
   if (added > 0) parts.push(`Added ${added}.`);
   if (saved > 0) parts.push(`${saved} saved for later in Ideas.`);
   if (parts.length === 0) return null;
-  if (options?.locked && added === 0) parts.unshift("Today is set.");
+  if (options?.locked && added === 0) parts.unshift("Today is locked.");
   return parts.join(" ");
 }
 

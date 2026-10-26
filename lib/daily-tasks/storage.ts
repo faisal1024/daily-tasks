@@ -11,6 +11,7 @@ import { normalizeRoutines } from "./routines";
 import { isReviewTrigger } from "./review-prompt";
 import { normalizeWhatsNewSeen } from "./whats-new";
 import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
+import { FIRST_DAYS_KEY, FIRST_DAYS_SHOWN_KEY } from "./first-days";
 import type {
   AppState,
   AutoLockConfig,
@@ -34,6 +35,7 @@ import type {
 } from "./types";
 import {
   DEFAULT_AUTO_LOCK,
+  NEW_INSTALL_AUTO_LOCK,
   DEFAULT_MOMENTUM_PROFILE,
   DEFAULT_MOMENTUM_SETTINGS,
   DEFAULT_NOTIFICATIONS,
@@ -269,6 +271,14 @@ function normalizeMinute(value: unknown): number {
     : DEFAULT_AUTO_LOCK.minute;
 }
 
+// Migration note (1.5): new installs start with auto-lock OFF
+// (NEW_INSTALL_AUTO_LOCK, in buildInitialState). Reading a save never flips
+// it: a 1.4.x save always has `enabled` written out and keeps it as is, and an
+// older save without the field (or without autoLock at all) reads as ON, the
+// value those builds ran with. So only a brand-new install, or "Reset all
+// data", starts with it off. One more path: a save that can't be read or
+// parsed with no usable backup loads as a new install (loadState returns
+// null), so that person goes through first run again with auto-lock off.
 function normalizeAutoLock(value: unknown): AutoLockConfig {
   if (!isRecord(value)) {
     return DEFAULT_AUTO_LOCK;
@@ -722,7 +732,8 @@ export function buildInitialState(now: Date = new Date()): AppState {
       },
     },
     notifications: DEFAULT_NOTIFICATIONS,
-    autoLock: DEFAULT_AUTO_LOCK,
+    // Off for a new install from 1.5 (see normalizeAutoLock for saved state).
+    autoLock: NEW_INSTALL_AUTO_LOCK,
     hasSeenOnboarding: false,
     reorderHintSeen: false,
     // A new install: first run marks every current announcement seen when it ends.
@@ -846,7 +857,16 @@ export async function clearState(): Promise<void> {
   try {
     // The trial note's local counts and record go too (they're about this data),
     // and the day's nag lines (they can hold task text).
-    await AsyncStorage.multiRemove([STORAGE_KEY, BACKUP_KEY, PLUS_USES_KEY, TRIAL_NOTE_KEY, NAG_STORAGE_KEY]);
+    // And the first-days cards' record (1.5), so the next first run starts it fresh.
+    await AsyncStorage.multiRemove([
+      STORAGE_KEY,
+      BACKUP_KEY,
+      PLUS_USES_KEY,
+      TRIAL_NOTE_KEY,
+      NAG_STORAGE_KEY,
+      FIRST_DAYS_KEY,
+      FIRST_DAYS_SHOWN_KEY,
+    ]);
   } catch (err) {
     console.warn("[daily-tasks] failed to clear state", err);
   }
