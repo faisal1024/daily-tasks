@@ -145,15 +145,15 @@ export type RoutinesWhere = "today" | "ideas";
 
 /**
  * The one muted line under "Today's routines" when its Add buttons are off.
- * A full day reads the same in both places; a set day on Today collapses the
- * card to this line (nothing to add until next time), while Ideas points to
- * Settings, the one place a set day can be unlocked (1.4).
+ * A full day reads the same in both places; a locked day on Today collapses
+ * the card to this line (nothing to add until next time), while Ideas says to
+ * unlock it (the Unlock tap is on Today's status line since 1.5).
  */
 export function routineBlockedLine(block: RoutineBlock, options: { where: RoutinesWhere }): string | null {
   if (block === "set") {
     return options.where === "today"
-      ? "Today is set. Your routines will be here next time."
-      : "Today is set. Unlock it in Settings to add one.";
+      ? "Today is locked. Your routines will be here next time."
+      : "Today is locked. Unlock it to add one.";
   }
   if (block === "full") return "Your three are picked. Free a slot to add one.";
   return null;

@@ -211,9 +211,10 @@ export default function SettingsScreen() {
     [],
   );
 
-  // The only way to unlock a set day (1.4): one deliberate step away from
-  // Today, and "Keep locked" is the prominent answer. One rule for a day set
-  // by hand and one set automatically; only the words differ.
+  // Unlock a locked day. Since 1.5 Today's status line has its own Unlock;
+  // this row stays as a second way in. Both ask first, with "Unlock" the
+  // clear action and "Keep locked" the cancel; only the words differ for a
+  // day locked by hand and one locked automatically.
   const confirmUnlock = () => {
     const copy = unlockConfirmation({
       lockSource: state.todayLockSource,
@@ -222,10 +223,11 @@ export default function SettingsScreen() {
         clockTimeOf(state.todayLockedAt) ?? formatClockTime(state.autoLock.hour, state.autoLock.minute),
     });
     Alert.alert(copy.title, copy.message, [
-      { text: copy.keep, style: "cancel", isPreferred: true },
+      { text: copy.keep, style: "cancel" },
       {
         text: copy.unlock,
         style: "default",
+        isPreferred: true,
         onPress: () => {
           // False when nothing was unlocked (the alert sat open past midnight
           // and the new day isn't set): nothing to track or say.
@@ -484,8 +486,8 @@ export default function SettingsScreen() {
           </Text>
         </View>
 
-        {/* Only while today is set: the one place to unlock it (1.4). First on
-            the screen, so it's found without scrolling. */}
+        {/* Only while today is locked. First on the screen, so it's found
+            without scrolling (Today's status line has an Unlock too, 1.5). */}
         {state.todayLocked ? (
           <Pressable
             onPress={confirmUnlock}
@@ -500,7 +502,7 @@ export default function SettingsScreen() {
             <View className="flex-1">
               <Text className="text-base font-semibold text-foreground">Unlock today</Text>
               <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                Today is set. Unlock it to change your three.
+                Today is locked. Unlock it to change your three.
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.muted} />
@@ -779,29 +781,29 @@ export default function SettingsScreen() {
 
         <Section
           icon="checkmark-done-outline"
-          title="Setting the day"
-          subtitle="A set day keeps your three fixed; you can still check them off."
+          title="Locking the day"
+          subtitle="A locked day keeps your three fixed; you can still check them off."
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-3">
             <View className="flex-row items-center justify-between gap-4">
               <View className="flex-1">
                 <Text className="text-base font-semibold text-foreground">
-                  Set the day automatically
+                  Lock the day automatically
                 </Text>
                 <Text className="text-xs mt-1" style={{ color: colors.muted }}>
-                  Days with at least one task are set at this time.
+                  Days with at least one task lock at this time.
                 </Text>
               </View>
               <Switch
                 value={state.autoLock.enabled}
                 onValueChange={setAutoLockEnabled}
                 trackColor={{ true: colors.primary }}
-                accessibilityLabel="Set the day automatically"
+                accessibilityLabel="Lock the day automatically"
               />
             </View>
             <TimePickerRow
               label="Time"
-              accessibilityLabel="Time to set the day"
+              accessibilityLabel="Time to lock the day"
               hour={state.autoLock.hour}
               minute={state.autoLock.minute}
               disabled={!state.autoLock.enabled}

@@ -159,7 +159,7 @@ export function BrainDumpSheet({
               <Text className="text-base" style={{ color: colors.muted }} testID="brain-dump-write-hint">
                 Get it all out of your head: errands, worries, ideas.{" "}
                 {locked
-                  ? "Today is set, so everything is saved in Ideas."
+                  ? "Today is locked, so everything is saved in Ideas."
                   : `We'll suggest ${slotWord} for today and save the rest.`}
               </Text>
               <TextInput
@@ -274,7 +274,7 @@ export function BrainDumpSheet({
               )}
               <Text className="text-base" style={{ color: colors.muted }} testID="brain-dump-review-hint">
                 {locked
-                  ? "Today is set, so these are saved in Ideas for another day."
+                  ? "Today is locked, so these are saved in Ideas for another day."
                   : `Tick ${openSlots === 1 ? "1" : `up to ${openSlots}`} for today. Everything else is saved in Ideas for another day.`}
               </Text>
               {items.map((item, index) => {

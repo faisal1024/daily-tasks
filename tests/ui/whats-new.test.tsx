@@ -278,9 +278,8 @@ describe("who sees it", () => {
     expect(screen.getByRole("button", { name: "I'll add my own" })).toBeOnTheScreen();
     await advance(5000);
     expect(sheet()).toBeNull();
+    // First run is three screens since 1.5: "I'll add my own" goes straight to Today.
     await fireEvent.press(screen.getByRole("button", { name: "I'll add my own" }));
-    await fireEvent.press(screen.getByRole("button", { name: "Not now" }));
-    await fireEvent.press(screen.getByRole("button", { name: "Done" }));
     await advance(5000);
     expect(sheet()).toBeNull();
     const saved = await savedState();

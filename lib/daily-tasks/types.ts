@@ -395,11 +395,23 @@ export const DEFAULT_NOTIFICATIONS: NotificationConfig = {
   nagPausedDate: null,
 };
 
+/**
+ * Auto-lock as saved state is read: noon, and ON when a save has no valid
+ * `enabled` (that's what every build up to 1.4.x gave it). Not what a new
+ * install starts with: see NEW_INSTALL_AUTO_LOCK.
+ */
 export const DEFAULT_AUTO_LOCK: AutoLockConfig = {
   enabled: true,
   hour: 12,
   minute: 0,
 };
+
+/**
+ * What a new install (and "Reset all data") starts with from 1.5: auto-lock
+ * OFF, still at noon once turned on. Existing users keep whatever they have
+ * (storage reads a save without the field as DEFAULT_AUTO_LOCK, unchanged).
+ */
+export const NEW_INSTALL_AUTO_LOCK: AutoLockConfig = { ...DEFAULT_AUTO_LOCK, enabled: false };
 
 /** The reminder kinds that can be switched on and off (not the master switch, not the wording). */
 export type NotificationKey = "morning" | "progress" | "evening" | "hourly";

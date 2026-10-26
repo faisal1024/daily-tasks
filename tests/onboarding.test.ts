@@ -5,6 +5,7 @@ import {
   DEFAULT_AUTO_LOCK,
   DEFAULT_MOMENTUM_PROFILE,
   DEFAULT_MOMENTUM_SETTINGS,
+  NEW_INSTALL_AUTO_LOCK,
   TASK_SUGGESTIONS,
 } from "../lib/daily-tasks/types";
 
@@ -56,9 +57,10 @@ describe("buildInitialState (new install)", () => {
     expect(state.todayReflectionResult).toBeNull();
   });
 
-  it("starts with noon auto-lock enabled", () => {
+  it("starts with auto-lock off for a new install (1.5), still at noon once turned on", () => {
     const state = buildInitialState();
-    expect(state.autoLock).toEqual(DEFAULT_AUTO_LOCK);
+    expect(state.autoLock).toEqual({ ...DEFAULT_AUTO_LOCK, enabled: false });
+    expect(state.autoLock).toEqual(NEW_INSTALL_AUTO_LOCK);
   });
 
   it("does not seed any default task text", () => {

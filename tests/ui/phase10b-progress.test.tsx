@@ -368,19 +368,19 @@ describe("TimePickerRow", () => {
   it("a separate spoken name (Settings' short 'Time') is used on both platforms", async () => {
     Platform.OS = "ios";
     const { rerender } = await render(
-      <TimePickerRow label="Time" accessibilityLabel="Time to set the day" hour={9} minute={0} onChange={jest.fn()} />,
+      <TimePickerRow label="Time" accessibilityLabel="Time to lock the day" hour={9} minute={0} onChange={jest.fn()} />,
     );
     expect(screen.getByText("Time")).toBeOnTheScreen();
-    const picker = screen.getByLabelText("Time to set the day");
+    const picker = screen.getByLabelText("Time to lock the day");
     // Themed from the app (light in tests), without minute snapping.
     expect(picker.props.themeVariant).toBe("light");
     expect(picker.props.accentColor).toEqual(expect.any(String));
     expect(picker.props.minuteInterval).toBeUndefined();
     Platform.OS = "android";
     await rerender(
-      <TimePickerRow label="Time" accessibilityLabel="Time to set the day" hour={9} minute={0} onChange={jest.fn()} />,
+      <TimePickerRow label="Time" accessibilityLabel="Time to lock the day" hour={9} minute={0} onChange={jest.fn()} />,
     );
-    expect(screen.getByRole("button", { name: /^Time to set the day: / })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /^Time to lock the day: / })).toBeOnTheScreen();
   });
 
   it("web: falls back to the stepper (no native picker)", async () => {

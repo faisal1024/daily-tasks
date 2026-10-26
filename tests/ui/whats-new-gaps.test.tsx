@@ -332,9 +332,8 @@ describe("a save from 1.3", () => {
     await launch();
     await advance(5000);
     expect(sheet()).toBeNull();
+    // First run is three screens since 1.5: "I'll add my own" goes straight to Today.
     await fireEvent.press(screen.getByRole("button", { name: "I'll add my own" }));
-    await fireEvent.press(screen.getByRole("button", { name: "Not now" }));
-    await fireEvent.press(screen.getByRole("button", { name: "Done" }));
     await advance(5000);
     expect(sheet()).toBeNull();
     expect((await savedState()).whatsNewSeen).toEqual([ID]);

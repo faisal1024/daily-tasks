@@ -1,4 +1,4 @@
-// Phase 3 components: BrainDumpSheet, the parked section + Set these three of the
+// Phase 3 components: BrainDumpSheet, the parked section + Lock these three of the
 // IdeasSheet, and TaskRow's step checklist / Break it down link.
 import { Ionicons } from "@expo/vector-icons";
 import { ActionSheetIOS } from "react-native";
@@ -135,7 +135,7 @@ describe("BrainDumpSheet", () => {
       await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "call mum");
       await rerender(<BrainDumpSheet {...p} locked />);
       expect(screen.getByTestId("brain-dump-write-hint")).toHaveTextContent(
-        "Get it all out of your head: errands, worries, ideas. Today is set, so everything is saved in Ideas.",
+        "Get it all out of your head: errands, worries, ideas. Today is locked, so everything is saved in Ideas.",
       );
       expect(screen.queryByText(/for today/)).toBeNull();
       // What was typed is still there, and can still be sorted.
@@ -148,7 +148,7 @@ describe("BrainDumpSheet", () => {
       await render(<BrainDumpSheet {...p} />);
       await writeAndSort();
       expect(screen.getByTestId("brain-dump-review-hint")).toHaveTextContent(
-        "Today is set, so these are saved in Ideas for another day.",
+        "Today is locked, so these are saved in Ideas for another day.",
       );
       expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
       const saved = screen.getAllByTestId("brain-dump-saved-row");
@@ -365,22 +365,22 @@ describe("IdeasSheet: saved from your brain dump", () => {
     expect(p.onRemoveParked).toHaveBeenCalledWith("p1");
   });
 
-  it("offers Set these three when full (with Done still available)", async () => {
+  it("offers Lock these three when full (with Done still available)", async () => {
     const p = props();
     const onLock = jest.fn();
     await render(<IdeasSheet {...p} remainingSlots={0} onLock={onLock} />);
-    await fireEvent.press(screen.getByRole("button", { name: "Set these three" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Lock these three" }));
     expect(onLock).toHaveBeenCalledTimes(1);
     await fireEvent.press(screen.getByRole("button", { name: "Done" }));
     expect(p.onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("doesn't offer Set these three without a handler or while there's room", async () => {
+  it("doesn't offer Lock these three without a handler or while there's room", async () => {
     const { rerender } = await render(<IdeasSheet {...props()} remainingSlots={0} />);
-    expect(screen.queryByRole("button", { name: "Set these three" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lock these three" })).toBeNull();
     expect(screen.getByRole("button", { name: "Done" })).toBeOnTheScreen();
     await rerender(<IdeasSheet {...props()} remainingSlots={1} onLock={jest.fn()} />);
-    expect(screen.queryByRole("button", { name: "Set these three" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lock these three" })).toBeNull();
   });
 });
 
