@@ -27,6 +27,7 @@ import {
   nagRecordWithPlannedWords,
   NAG_STORAGE_KEY,
   nagSnoozeOutcome,
+  nagSnoozeUntil,
   normalizeNagRecord,
   planNagDay,
   snoozeNagRecord,
@@ -65,6 +66,19 @@ let cleared = 0;
 // overwritten by a stub of the record from before.
 let stubbing: Promise<void> = Promise.resolve();
 
+// 1.6 G: a snooze tapped but not saved yet (it waits behind a request for
+// lines, up to 20 seconds). Until it lands, the strategies plan as if it had,
+// so a sync meanwhile doesn't put back the nags the tap took off the phone.
+// In memory only; cleared once the snooze is saved, dropped or reset.
+let snoozeInFlight: { dayKey: string; until: number } | null = null;
+
+/** `record` as the plan should see it while a snooze is on its way (snoozeInFlight). */
+function withSnoozeInFlight(record: NagDayRecord | null): NagDayRecord | null {
+  const snooze = snoozeInFlight;
+  if (!record || !snooze || record.dayKey !== snooze.dayKey || (record.snoozedUntil ?? 0) >= snooze.until) return record;
+  return { ...record, snoozedUntil: snooze.until };
+}
+
 /**
  * Removes the day's record entirely: on "Reset all data". At once, not
  * behind a run in progress (a request for lines can take 20 seconds); that
@@ -72,6 +86,7 @@ let stubbing: Promise<void> = Promise.resolve();
  */
 export async function clearNagRecord(): Promise<void> {
   cleared += 1;
+  snoozeInFlight = null;
   try {
     await AsyncStorage.removeItem(NAG_STORAGE_KEY);
   } catch {
@@ -90,6 +105,7 @@ export async function clearNagRecord(): Promise<void> {
  */
 export function stubNagRecord(now: Date = new Date()): Promise<void> {
   cleared += 1;
+  snoozeInFlight = null;
   const epoch = cleared;
   const run = (async () => {
     try {
@@ -242,11 +258,14 @@ export function snoozeNagDay(
   }: Pick<NagDayDeps, "onChange"> & { onSnoozed?: (outcome: { nextAt: number | null; pastWindow: boolean }) => void } = {},
 ): Promise<void> {
   const epoch = cleared;
+  // The tap's moment, taken now: the run may wait behind a request for lines.
+  const at = now ?? new Date();
+  const mine = today === toDateKey(at) ? { dayKey: today, until: nagSnoozeUntil(at) } : null;
+  if (mine) snoozeInFlight = mine;
   const run = queue
     .then(() => stubbing)
     .then(async () => {
       if (cleared !== epoch) return;
-      const at = now ?? new Date();
       if (today !== toDateKey(at)) return;
       const record = await loadNagRecord();
       if (!record || record.dayKey !== today || cleared !== epoch) return;
@@ -256,7 +275,11 @@ export function snoozeNagDay(
         onSnoozed?.(nagSnoozeOutcome(next, at, window));
       }
     })
-    .catch(() => {});
+    .catch(() => {})
+    .finally(() => {
+      // Saved (the record says it now), or dropped: either way no longer in flight.
+      if (snoozeInFlight === mine) snoozeInFlight = null;
+    });
   queue = run;
   return run;
 }
@@ -301,7 +324,7 @@ function savePlannedWords(record: NagDayRecord | null, context: ReminderContext)
 export const nagStrategy: ReminderStrategy = async (context) => {
   try {
     const record = await loadNagRecord();
-    const plan = nagPlanFromRecord(record, context);
+    const plan = nagPlanFromRecord(withSnoozeInFlight(record), context);
     savePlannedWords(record, context);
     return plan;
   } catch {
@@ -332,7 +355,7 @@ export const nagModeStrategy: ReminderStrategy = async (context) => {
     record = null;
   }
   if (!nagRecordApplies(record, context)) return calm;
-  const nags = nagPlanFromRecord(record, context);
+  const nags = nagPlanFromRecord(withSnoozeInFlight(record), context);
   savePlannedWords(record, context);
   const taken = new Set<string>();
   return [...mornings(calm), ...nags].filter((item) => {

@@ -456,7 +456,10 @@ The model's answer is rebuilt by `sanitizeNagLines`, never passed through:
   off). A task's line with a distinctive word of another task (one its own
   task doesn't have) is dropped ("“Walk the dog” before the dentist
   closes."), and so is a general line with a distinctive word of any task
-  sent ("Don't forget the dentist.", "Your report is waiting."). Common verbs
+  sent ("Don't forget the dentist.", "Your report is waiting."). A task with
+  no such word ("Gym", "Tax") has its three-letter words counted instead,
+  except `NAG_SHORT_STOPWORDS`; words are matched through a light stemmer
+  (plurals, "-ing", "-ed"). Common verbs
   and task words (call, email, make, work, list, today, time...) are on
   `NAG_STOPWORDS`, the same list as the app's, so they never drop a line. The
   prompt asks for the task quoted exactly (a noun like "Dentist" or a command

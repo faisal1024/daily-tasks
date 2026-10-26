@@ -22,6 +22,7 @@ import {
   NAG_DRILL_RUDE,
   nagDistinctiveWords,
   nagLineFitsTask,
+  nagLineWords,
   NAG_LEVELS,
   NAG_PERSONAS,
   nagTaskIsSensitive,
@@ -1028,7 +1029,7 @@ function nagSlotWords(
   // task has too doesn't count. A line of the AI's, general or not, that holds
   // one isn't said: it gets the stand-in a ticked task's slot gets.
   const closedWords = closedTaskWords(record, context, open, openIds);
-  const holdsClosedWord = (text: string) => closedWords.size > 0 && nagDistinctiveWords(text).some((word) => closedWords.has(wordKey(word)));
+  const holdsClosedWord = (text: string) => closedWords.size > 0 && nagLineWords(text).some((word) => closedWords.has(wordKey(word)));
   const aiTexts = new Set(record.source === "ai" ? record.lines.map((line) => line.text) : []);
   const aboutClosedTask = (slot: NagSlot) => aiTexts.has(slot.text) && holdsClosedWord(slot.text);
   // A nag that went off counts with the words it was scheduled with.

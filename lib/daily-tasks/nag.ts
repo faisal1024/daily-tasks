@@ -266,24 +266,57 @@ const STOPWORDS = new Set(NAG_STOPWORDS);
 const WORD_RUN = /[a-z0-9\u00C0-\u1FFF\u2070-\uFFFF]+/gi;
 /** The shortest distinctive word. */
 const NAG_DISTINCTIVE_MIN = 4;
-// "reports" and "report" are one word to the check.
-const stemWord = (word: string) => (word.length > NAG_DISTINCTIVE_MIN && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word);
+/** A task with no word that long: its three-letter words count ("Gym", "Vet", "Tax", "Car"). */
+const NAG_SHORT_MIN = 3;
+/** Three-letter words that never count (the same list on the proxy: NAG_SHORT_STOPWORDS). */
+export const NAG_SHORT_STOPWORDS: readonly string[] = [
+  "the", "and", "for", "you", "get", "now", "can", "not", "but", "all", "any", "out", "one", "two", "day", "way", "see", "let",
+  "put", "try", "new", "old", "big", "top", "bit", "lot", "end", "set", "run", "own", "too", "yet", "got", "did", "has", "had",
+  "was", "are", "its", "our", "off", "few", "how", "why", "who", "may", "say", "ask", "use",
+  // Verbs any task can have, as on the long list ("call", "send").
+  "fix", "pay", "buy",
+];
+const SHORT_STOPWORDS = new Set(NAG_SHORT_STOPWORDS);
+// A plural, an "-ing" or an "-ed" off, so "walking" and "Walk", "groceries"
+// and "Grocery", "classes" and "class" are one word to the check. Light on
+// purpose (English only, no dictionary): "writing" and "write" stay two. A
+// language written without spaces (Japanese, Chinese, Thai) is one long run
+// here and isn't matched word by word: out of scope.
+const undouble = (stem: string) => (stem.length > 3 && /([bdgmnprt])\1$/.test(stem) ? stem.slice(0, -1) : stem);
+const stemWord = (word: string) => {
+  let stem = word;
+  if (stem.length > 4 && stem.endsWith("ies")) stem = `${stem.slice(0, -3)}y`;
+  else if (stem.length > 4 && /(?:s|x|z|ch|sh)es$/.test(stem)) stem = stem.slice(0, -2);
+  else if (stem.length > 3 && stem.endsWith("s") && !stem.endsWith("ss")) stem = stem.slice(0, -1);
+  if (stem.length >= 6 && stem.endsWith("ing")) stem = undouble(stem.slice(0, -3));
+  else if (stem.length >= 5 && stem.endsWith("ed") && !stem.endsWith("eed")) stem = undouble(stem.slice(0, -2));
+  return stem;
+};
+const wordsOf = (value: string) => (foldName(typeof value === "string" ? value : "").match(WORD_RUN) ?? []).map((raw) => raw.toLowerCase());
+const isStopword = (word: string, stem: string) => STOPWORDS.has(word) || STOPWORDS.has(stem) || SHORT_STOPWORDS.has(word) || SHORT_STOPWORDS.has(stem);
 
 /**
- * 1.6 G: a task's distinctive words (or a line's): four letters or more, not
- * all digits, not on NAG_STOPWORDS, any case, accents off, a plural "s" off.
- * A line holding one of another task's is about that task too.
+ * 1.6 G: a task's distinctive words: four letters or more, not all digits,
+ * not on NAG_STOPWORDS, any case, accents off, stemmed (stemWord). A task
+ * with none ("Gym", "Pay the vet") has its three-letter words instead, those
+ * not on NAG_SHORT_STOPWORDS. A line holding one of another task's is about
+ * that task too.
  */
 export function nagDistinctiveWords(value: string): string[] {
-  const words = foldName(typeof value === "string" ? value : "").match(WORD_RUN) ?? [];
-  const out = new Set<string>();
-  for (const raw of words) {
-    const word = raw.toLowerCase();
+  const long = new Set<string>();
+  const short = new Set<string>();
+  for (const word of wordsOf(value)) {
     const stem = stemWord(word);
-    if (Array.from(word).length < NAG_DISTINCTIVE_MIN || /^[0-9]+$/.test(word) || STOPWORDS.has(word) || STOPWORDS.has(stem)) continue;
-    out.add(stem);
+    const length = Array.from(word).length;
+    if (length < NAG_SHORT_MIN || /^[0-9]+$/.test(word) || isStopword(word, stem)) continue;
+    (length >= NAG_DISTINCTIVE_MIN ? long : short).add(stem);
   }
-  return [...out];
+  return [...(long.size > 0 ? long : short)];
+}
+
+/** 1.6 G: every word of a line, stemmed as a task's are: what a task's distinctive words are looked for in. */
+export function nagLineWords(value: string): string[] {
+  return [...new Set(wordsOf(value).map(stemWord))];
 }
 
 /** A quoted name is this task: its words exactly (any case), or the first whole words of a long one. */
@@ -317,9 +350,12 @@ export function nagLineFitsTask(text: string, taskIndex: number | null, taskText
   const quotes = Array.from(text.matchAll(QUOTED_NAME), (match) => match[1]);
   const mentions = (rest: string, task: string) => {
     const name = foldName(task);
-    return Array.from(name).length >= NAG_NAME_MIN_MENTION && holdsWords(foldName(rest), name);
+    const length = Array.from(name).length;
+    // A three-letter task ("Gym", "Vet") is looked for too, unless its word never counts ("Run").
+    const lookedFor = length >= NAG_NAME_MIN_MENTION || (length >= NAG_SHORT_MIN && nagDistinctiveWords(task).length > 0);
+    return lookedFor && holdsWords(foldName(rest), name);
   };
-  const lineWords = new Set(nagDistinctiveWords(text));
+  const lineWords = new Set(nagLineWords(text));
   if (taskIndex === null) {
     return (
       !quotes.some((quote) => taskTexts.some((task) => quoteIsTask(quote, task))) &&

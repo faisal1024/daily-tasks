@@ -544,26 +544,62 @@ const STOPWORDS = new Set(NAG_STOPWORDS);
 // A run of letters and digits: the app's ranges exactly, so both sides split a line the same way.
 const WORD_RUN = /[a-z0-9\u00C0-\u1FFF\u2070-\uFFFF]+/gi;
 const NAG_DISTINCTIVE_MIN = 4;
-const stemWord = (word) => (word.length > NAG_DISTINCTIVE_MIN && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word);
+const NAG_SHORT_MIN = 3;
+/** Three-letter words that never count (the app's NAG_SHORT_STOPWORDS; a test keeps them equal). */
+export const NAG_SHORT_STOPWORDS = [
+  "the", "and", "for", "you", "get", "now", "can", "not", "but", "all", "any", "out", "one", "two", "day", "way", "see", "let",
+  "put", "try", "new", "old", "big", "top", "bit", "lot", "end", "set", "run", "own", "too", "yet", "got", "did", "has", "had",
+  "was", "are", "its", "our", "off", "few", "how", "why", "who", "may", "say", "ask", "use",
+  // Verbs any task can have, as on the long list ("call", "send").
+  "fix", "pay", "buy",
+];
+const SHORT_STOPWORDS = new Set(NAG_SHORT_STOPWORDS);
+// A plural, an "-ing" or an "-ed" off, so "walking" and "Walk", "groceries"
+// and "Grocery", "classes" and "class" are one word to the check. Light on
+// purpose (English only, no dictionary): "writing" and "write" stay two. A
+// language written without spaces (Japanese, Chinese, Thai) is one long run
+// here and isn't matched word by word: out of scope.
+const undouble = (stem) => (stem.length > 3 && /([bdgmnprt])\1$/.test(stem) ? stem.slice(0, -1) : stem);
+const stemWord = (word) => {
+  let stem = word;
+  if (stem.length > 4 && stem.endsWith("ies")) stem = `${stem.slice(0, -3)}y`;
+  else if (stem.length > 4 && /(?:s|x|z|ch|sh)es$/.test(stem)) stem = stem.slice(0, -2);
+  else if (stem.length > 3 && stem.endsWith("s") && !stem.endsWith("ss")) stem = stem.slice(0, -1);
+  if (stem.length >= 6 && stem.endsWith("ing")) stem = undouble(stem.slice(0, -3));
+  else if (stem.length >= 5 && stem.endsWith("ed") && !stem.endsWith("eed")) stem = undouble(stem.slice(0, -2));
+  return stem;
+};
+const wordsOf = (value) => (foldName(typeof value === "string" ? value : "").match(WORD_RUN) ?? []).map((raw) => raw.toLowerCase());
+const isStopword = (word, stem) => STOPWORDS.has(word) || STOPWORDS.has(stem) || SHORT_STOPWORDS.has(word) || SHORT_STOPWORDS.has(stem);
 
 /**
- * A task's distinctive words (or a line's), as the app finds them
- * (nagDistinctiveWords): four letters or more, not all digits, not on
- * NAG_STOPWORDS, any case, accents off, a plural "s" off.
+ * A task's distinctive words, as the app finds them (nagDistinctiveWords):
+ * four letters or more, not all digits, not on NAG_STOPWORDS, stemmed; for a
+ * task with none, its three-letter words not on NAG_SHORT_STOPWORDS.
  *
  * @param {string} value
  * @returns {string[]}
  */
 export function nagDistinctiveWords(value) {
-  const words = foldName(typeof value === "string" ? value : "").match(WORD_RUN) ?? [];
-  const out = new Set();
-  for (const raw of words) {
-    const word = raw.toLowerCase();
+  const long = new Set();
+  const short = new Set();
+  for (const word of wordsOf(value)) {
     const stem = stemWord(word);
-    if (charLength(word) < NAG_DISTINCTIVE_MIN || /^[0-9]+$/.test(word) || STOPWORDS.has(word) || STOPWORDS.has(stem)) continue;
-    out.add(stem);
+    const length = charLength(word);
+    if (length < NAG_SHORT_MIN || /^[0-9]+$/.test(word) || isStopword(word, stem)) continue;
+    (length >= NAG_DISTINCTIVE_MIN ? long : short).add(stem);
   }
-  return [...out];
+  return [...(long.size > 0 ? long : short)];
+}
+
+/**
+ * Every word of a line, stemmed as a task's are (the app's nagLineWords).
+ *
+ * @param {string} value
+ * @returns {string[]}
+ */
+export function nagLineWords(value) {
+  return [...new Set(wordsOf(value).map(stemWord))];
 }
 
 const NAG_NAME_CUT_AT = 40;
@@ -622,9 +658,12 @@ export function nagLineFitsTask(text, taskIndex, taskTexts) {
   const quotes = Array.from(text.matchAll(QUOTED_NAME), (match) => match[1]);
   const mentions = (rest, task) => {
     const name = foldName(task);
-    return charLength(name) >= NAG_NAME_MIN_MENTION && holdsWords(foldName(rest), name);
+    const length = charLength(name);
+    // A three-letter task ("Gym", "Vet") is looked for too, unless its word never counts ("Run").
+    const lookedFor = length >= NAG_NAME_MIN_MENTION || (length >= NAG_SHORT_MIN && nagDistinctiveWords(task).length > 0);
+    return lookedFor && holdsWords(foldName(rest), name);
   };
-  const lineWords = new Set(nagDistinctiveWords(text));
+  const lineWords = new Set(nagLineWords(text));
   if (taskIndex === null) {
     return (
       !quotes.some((quote) => taskTexts.some((task) => quoteIsTask(quote, task))) &&

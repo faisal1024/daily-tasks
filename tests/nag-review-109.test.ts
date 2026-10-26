@@ -10,7 +10,11 @@ import { describe, expect, it } from "vitest";
 import * as server from "../server/providers/nag-contract.mjs";
 import {
   MAX_NAG_LINE,
+  NAG_PERSONAS,
+  NAG_SHORT_STOPWORDS,
   NAG_STOPWORDS,
+  nagLineWords,
+  nagTaskName,
   NAG_TEMPLATES,
   nagDistinctiveWords,
   nagLineFitsTask,
@@ -94,8 +98,10 @@ describe("P1: a line uses no distinctive word of another task, and a general lin
       expect(server.nagDistinctiveWords(text)).toEqual(nagDistinctiveWords(text));
     }
     expect(nagDistinctiveWords("Call the dentist")).toEqual(["dentist"]);
-    expect(nagDistinctiveWords("Email J.R. the 2026 taxes")).toEqual(["taxe"]);
-    expect(nagDistinctiveWords("Make the bed")).toEqual([]);
+    expect(nagDistinctiveWords("Email J.R. the 2026 taxes")).toEqual(["tax"]);
+    // No word of four letters or more: its three-letter ones count.
+    expect(nagDistinctiveWords("Make the bed")).toEqual(["bed"]);
+    expect(nagDistinctiveWords("Run")).toEqual([]);
   });
 
   it("the proxy checks every task it was sent, and the phone every open task, also one past the three sent", async () => {
@@ -360,5 +366,103 @@ describe("P3: own lines, the built-in lines", () => {
       expect(all).not.toContain(gone);
     }
     for (const line of all) expect(line, line).not.toMatch(/\b(?:minutes?|doing \{task\}|move on \{task\}|leave it all)\b/i);
+  });
+});
+
+describe("round 2: three-letter tasks (Gym, Vet, Tax, Car)", () => {
+  const SETS: [string[], string, number | null][] = [
+    [["Gym", "Pay rent"], "Don't skip the gym today.", null],
+    [["Gym", "Pay rent"], "“Pay rent”, then hit the gym.", 1],
+    [["Take Rex to the vet", "Pay rent"], "The vet won't wait forever.", null],
+    [["Tax", "Call mom"], "Your taxes are still open.", null],
+    [["Tax", "Call mom"], "“Call mom”. Then the tax stuff.", 1],
+    [["Fix the car", "Call mom"], "The car is still in the driveway.", null],
+    [["Fix the car", "Call mom"], "“Call mom” from the car.", 1],
+  ];
+
+  it.each(SETS)("%j: %j (for %s) names the short task, so it fails on both sides", (texts, line, index) => {
+    expect(nagLineFitsTask(line, index, texts)).toBe(false);
+    expect(server.nagLineFitsTask(line, index, texts)).toBe(false);
+  });
+
+  it("a line for the short task itself still passes, quoted or not; a stopword task (Run) is never looked for", () => {
+    for (const [texts, line] of [
+      [["Gym", "Pay rent"], "Gym. Today. Go."],
+      [["Gym", "Pay rent"], "“Gym”, recruit."],
+      [["Tax", "Call mom"], "“Tax”: still open."],
+    ] as [string[], string][]) {
+      expect(nagLineFitsTask(line, 0, texts), line).toBe(true);
+      expect(server.nagLineFitsTask(line, 0, texts), line).toBe(true);
+    }
+    expect(nagLineFitsTask("Go for a run, then the list.", null, ["Run", "Call mom"])).toBe(true);
+    expect(server.nagLineFitsTask("Go for a run, then the list.", null, ["Run", "Call mom"])).toBe(true);
+    expect([...server.NAG_SHORT_STOPWORDS]).toEqual([...NAG_SHORT_STOPWORDS]);
+  });
+
+  it("once Gym is ticked, neither an AI line nor an own line about it is sent", () => {
+    const tasks: SimTask[] = [
+      { id: "g", text: "Gym", done: false },
+      { id: "r", text: "Pay rent", done: false },
+    ];
+    const settings = { ...NAG_ON, nagOwnLines: ["Gym, now!"] };
+    const record = applyAiNagLines(
+      planNagDay({ previous: null, now: at(8), dayKey: DAY, settings, open: openOf(tasks), salt: "gym" }),
+      [
+        { step: 1, taskIndex: null, text: "Don't skip the gym today." },
+        { step: 2, taskIndex: 1, text: "“Pay rent”, please." },
+        { step: 3, taskIndex: null, text: "The list is still open." },
+      ],
+      openOf(tasks),
+      at(8),
+    );
+    const open = nagPlanFromRecord(record, context(tasks, { settings })).map((item) => item.body);
+    expect(open).toContain("Don't skip the gym today.");
+    expect(open).toContain("Gym, now!");
+    const ticked = tasks.map((task) => (task.id === "g" ? { ...task, done: true } : task));
+    for (const list of [ticked, tasks.filter((task) => task.id !== "g")]) {
+      for (const item of nagPlanFromRecord(record, context(list, { settings }))) expect(item.body, item.body).not.toMatch(/gym/i);
+    }
+  });
+});
+
+describe("round 2: light stems", () => {
+  it.each([
+    ["walking", "Walk the dog"],
+    ["reporting", "Write the report"],
+    ["groceries", "Grocery run"],
+    ["classes", "Yoga class"],
+    ["walked", "Walk the dog"],
+    ["shopping", "Shop for shoes"],
+    ["mopped", "Mop"],
+  ])("%s matches %s on both sides", (word, task) => {
+    const line = `Still thinking about the ${word}.`;
+    expect(nagLineFitsTask(line, null, [task, "Call mom"]), line).toBe(false);
+    expect(server.nagLineFitsTask(line, null, [task, "Call mom"]), line).toBe(false);
+    expect(server.nagLineWords(line)).toEqual(nagLineWords(line));
+  });
+
+  it("over-rejection stays negligible on five realistic task sets: every {task} line passes, at most one general line drops", () => {
+    const SETS = [
+      ["Call mom", "Finish the quarterly report", "Gym"],
+      ["Dentist", "Groceries", "Reply to Sam's email"],
+      ["Walk the dog", "Pay rent", "Read 20 pages"],
+      ["Clean the kitchen", "Book flights to Denver", "Tax"],
+      ["Fix the car", "Write cover letter", "Take Rex to the vet"],
+    ];
+    const all = NAG_PERSONAS.flatMap((persona) => {
+      const pools = NAG_TEMPLATES[persona];
+      return [...pools.early, ...pools.mid.gentle, ...pools.mid.firm, ...pools.late.gentle, ...pools.late.firm, ...pools.late.relentless];
+    });
+    for (const set of SETS) {
+      for (const template of all.filter((line) => line.includes("{task}"))) {
+        set.forEach((task, index) => {
+          const text = template.replace("{task}", () => nagTaskName(task));
+          expect(nagLineFitsTask(text, index, set), text).toBe(true);
+          expect(server.nagLineFitsTask(text, index, set), text).toBe(true);
+        });
+      }
+      const dropped = all.filter((line) => !line.includes("{task}") && !nagLineFitsTask(line, null, set));
+      expect(dropped.length, `${set.join(", ")}: ${dropped.join(" | ")}`).toBeLessThanOrEqual(1);
+    }
   });
 });
