@@ -4,6 +4,10 @@
 // The router asks here first, for a cold start and while
 // running; the request waits in focus-link.ts until the store is ready, and
 // the app shows Today. Every other link goes through unchanged.
+// Capture from anywhere (1.6 E): `dailytasks://dump` (the Dump widget and
+// control, the "Brain dump" shortcut) waits in capture.ts the same way, and
+// Today opens the brain dump.
+import { parseCaptureLink, queueCaptureOpen } from "@/lib/daily-tasks/capture";
 import {
   isFocusLink,
   parseFocusOpenLink,
@@ -14,6 +18,11 @@ import {
 
 export function redirectSystemPath({ path }: { path: string; initial: boolean }): string {
   try {
+    const capture = parseCaptureLink(path);
+    if (capture) {
+      queueCaptureOpen(capture);
+      return "/";
+    }
     const start = parseFocusStartLink(path);
     if (start) {
       queueFocusStart(start);

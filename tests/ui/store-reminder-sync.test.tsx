@@ -319,9 +319,22 @@ describe("store: the Sunday reset's reminder (1.6)", () => {
     const plan = await strategy!({ ...context, now: context.now!, draft: context.draft ?? null, plus, pending: [], lastDeliveredAt: null });
     return plan.find((item) => item.kind === "sunday_reset");
   };
+  // PR #110: the reminder has the card's gate, so these have a planned day before today.
+  const EARLIER = {
+    "2026-09-24": {
+      date: "2026-09-24",
+      total: 3,
+      completed: 2,
+      locked: false,
+      lockSource: null,
+      tasks: [],
+      reflection: null,
+      reflectionResult: null,
+    },
+  };
 
   it("is planned for the next Sunday at 6 PM, and the Settings switch off rewrites the reminders without it", async () => {
-    const { result } = await renderOnDay({ tasks: THREE }, new Date(2026, 8, 25, 8));
+    const { result } = await renderOnDay({ tasks: THREE, history: EARLIER }, new Date(2026, 8, 25, 8));
     // Friday 25 Sep 2026: the next Sunday is the 27th.
     expect(lastSync().sundayReset).toEqual({ reminder: true, doneWeek: null, dismissedWeek: null, freeIntroWeek: null });
     expect((await sundayItem())?.fireAt).toEqual(new Date(2026, 8, 27, 18, 0));
@@ -342,12 +355,19 @@ describe("store: the Sunday reset's reminder (1.6)", () => {
     expect((await sundayItem())?.fireAt).toEqual(new Date(2026, 8, 27, 18, 0));
   });
 
-  it("finishing or closing the week's card rewrites them without that Sunday's reminder", async () => {
-    const { result } = await renderOnDay({ tasks: THREE }, new Date(2026, 8, 25, 8));
+  // PR #110: that Sunday's reminder moves to the Sunday after (not none).
+  it("finishing or closing the week's card rewrites them with the Sunday after instead", async () => {
+    const { result } = await renderOnDay({ tasks: THREE, history: EARLIER }, new Date(2026, 8, 25, 8));
     sync.mockClear();
     await act(async () => result.current.updateSundayReset({ dismissedWeek: "2026-09-27" }));
     await settle();
     expect(sync).toHaveBeenCalledTimes(1);
+    expect((await sundayItem())?.fireAt).toEqual(new Date(2026, 9, 4, 18, 0));
+  });
+
+  it("none before a planned day: the first-run day has no Sunday reminder", async () => {
+    await renderOnDay({ tasks: THREE }, new Date(2026, 8, 25, 8));
+    expect(lastSync().sundayReset).toBeUndefined();
     expect(await sundayItem()).toBeUndefined();
   });
 });

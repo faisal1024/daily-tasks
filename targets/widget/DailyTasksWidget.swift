@@ -867,7 +867,12 @@ struct DailyTasksWidget: Widget {
 struct DailyTasksWidgetBundle: WidgetBundle {
   var body: some Widget {
     DailyTasksWidget()
+    // 1.6 E: one tap to the brain dump (DumpWidget.swift).
+    DumpWidget()
     FocusLiveActivity()
+    if #available(iOS 18.0, *) {
+      DumpControl()
+    }
   }
 }
 

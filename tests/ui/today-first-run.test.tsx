@@ -127,6 +127,42 @@ async function openTodayBrainDump() {
   expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
 }
 
+describe("Today: first run vs a capture request (1.6 E)", () => {
+  it("a dump request over first run opens nothing (the first run stays; the request is cleared, not held)", async () => {
+    const clearDumpPrompt = jest.fn();
+    mockStore = makeStore({}, { dumpPrompt: { source: "widget", nonce: 1 }, clearDumpPrompt });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("first-run-dump")).toBeOnTheScreen();
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    expect(clearDumpPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("a capture toast waits for first run: nothing during it, said once it's done", async () => {
+    const clearCaptureNotice = jest.fn();
+    const notice = { count: 1, text: "Buy stamps", full: false, nonce: 1 };
+    mockStore = makeStore({}, { captureNotice: notice, clearCaptureNotice });
+    const view = await render(<HomeScreen />);
+    expect(screen.getByTestId("first-run-dump")).toBeOnTheScreen();
+    expect(screen.queryByTestId("today-toast")).toBeNull();
+    expect(clearCaptureNotice).not.toHaveBeenCalled();
+
+    await fireEvent.press(button("I'll add my own"));
+    mockStore = makeStore({ hasSeenOnboarding: true }, { captureNotice: notice, clearCaptureNotice });
+    await view.rerender(<HomeScreen />);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Saved for later: “Buy stamps”/);
+    expect(clearCaptureNotice).toHaveBeenCalledTimes(1);
+  });
+
+  it("first run ending later does not bring the dropped dump request back", async () => {
+    mockStore = makeStore({ hasSeenOnboarding: false }, { dumpPrompt: { source: "link", nonce: 1 }, clearDumpPrompt: jest.fn() });
+    const view = await render(<HomeScreen />);
+    // First run finishes later: the dropped request does not reappear.
+    mockStore = makeStore({ hasSeenOnboarding: true }, { dumpPrompt: null, clearDumpPrompt: jest.fn() });
+    await view.rerender(<HomeScreen />);
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+  });
+});
+
 describe("Today: first run", () => {
   it("shows for a new user, not the old onboarding modal", async () => {
     mockStore = makeStore();

@@ -48,9 +48,14 @@ export type AnalyticsEvent =
   | "finish_card_shared"
   // 1.5 D: a saved item swapped in for an open task on a full day.
   | "saved_swapped_in"
+  // 1.6 E: the brain dump opened from outside the app (source "widget" |
+  // "intent" | "link"), and captures from the share sheet or the "Add to
+  // Three Today" shortcut saved for later (count). Never their text.
+  | "capture_opened"
+  | "capture_imported"
   // 1.6: the Sunday reset. step "card" | "intro" | "wins" | "dump" | "three" | "done";
   // action "shown" | "start" | "next" | "skip" | "saved" | "close" | "dismissed" | "plus" | "set";
-  // source "today" | "progress"; count = items saved (dump) or tasks set (three).
+  // source "today" | "progress" | "notification"; count = items saved (dump) or tasks set (three).
   | "sunday_reset"
   | "agenda_toggled"
   | "goal_set"

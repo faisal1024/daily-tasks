@@ -10,7 +10,7 @@ import {
 } from "react";
 import { Platform, AppState as RNAppState, type AppStateStatus } from "react-native";
 
-import { addDays, storeDayFor, todayKey } from "./date";
+import { addDays, storeDayFor, toDateKey, todayKey } from "./date";
 import {
   cancelFocusTimerNotification,
   dismissFocusTimerNotification,
@@ -65,6 +65,22 @@ import {
   type FocusStartRequest,
 } from "./focus-link";
 import { loadLastTimer } from "./focus-timer-storage";
+import {
+  parseCaptureFiles,
+  parseCaptureOpenRequest,
+  planCaptureImport,
+  subscribeCaptureOpens,
+  takeCaptureOpens,
+  type CaptureNotice,
+  type CaptureOpenRequest,
+  type CaptureSource,
+} from "./capture";
+import {
+  deleteCaptureFile,
+  markCaptureOpenRequestHandled,
+  readCaptureFiles,
+  readCaptureOpenRequest,
+} from "./capture-bridge";
 import { isAppActive, useAppActive } from "@/hooks/use-app-active";
 import { syncLiveActivity } from "./live-activity";
 import {
@@ -150,6 +166,7 @@ import {
   clearState,
   loadState,
   makeId,
+  persistState,
   refreshBackup,
   saveState,
 } from "./storage";
@@ -197,7 +214,7 @@ import type {
   TaskId,
   TaskWhen,
 } from "./types";
-import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
+import { DEFAULT_NOTIFICATIONS, MAX_PARKED_TASKS, MAX_TASKS } from "./types";
 
 type Action =
   | { type: "hydrate"; state: AppState }
@@ -248,6 +265,10 @@ type Action =
   | { type: "markReviewDue"; at: string; source: ReviewTrigger }
   | { type: "clearReviewDue" }
   | { type: "parkTasks"; texts: string[]; at: string; dates?: Record<string, TaskWhen>; refDays?: (string | undefined)[] }
+  // 1.6 E: captures from the inbox, only into the room there is (never
+  // pushing a saved item out; the rest wait in the inbox). `refDays`: each
+  // capture's own day, so its "tomorrow" is read from when it was written.
+  | { type: "parkCaptures"; texts: string[]; at: string; refDays: (string | undefined)[] }
   | { type: "setParkedWhen"; id: string; when: TaskWhen | null }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
@@ -374,6 +395,20 @@ function resetMilestonesIfGoalChanged(
 ): Partial<AppState> {
   if (nextGoalTitle === state.momentumProfile.goalTitle) return {};
   return { completedMilestoneIds: [], pendingMilestoneCelebration: null };
+}
+
+/**
+ * Captures into Saved for later, only as many as fit (see planCaptureImport).
+ * Dates in them are read from the day each was captured (`refDays`), against
+ * the store's day (1.6 F), not the clock's.
+ */
+function parkCapturedTexts(state: AppState, texts: string[], at: string, refDays: (string | undefined)[]): AppState {
+  const room = Math.max(0, MAX_PARKED_TASKS - state.parkedTasks.length);
+  if (room === 0) return state;
+  return parkTasks(state, texts.slice(0, room), at, undefined, {
+    today: state.lastOpenedDate,
+    refDays: refDays.slice(0, room),
+  });
 }
 
 // Case- and space-insensitive, like Saved for later's own matching (1.6 F).
@@ -654,6 +689,8 @@ function reduce(state: AppState, action: Action): AppState {
         today: state.lastOpenedDate,
         ...(action.refDays ? { refDays: action.refDays } : {}),
       });
+    case "parkCaptures":
+      return parkCapturedTexts(state, action.texts, action.at, action.refDays);
     case "setParkedWhen":
       return setParkedWhen(state, action.id, action.when);
     case "removeParkedTask":
@@ -1445,6 +1482,21 @@ interface StoreContextValue {
    */
   focusPrompt: { taskId: TaskId; source: "widget" | "siri" | "live_activity" | "notification"; nonce: number } | null;
   clearFocusPrompt: () => void;
+  /**
+   * Capture from anywhere (1.6 E; see capture.ts): open the brain dump (the
+   * Dump widget or control, the "Brain dump" shortcut, a `dailytasks://dump`
+   * link). Cleared with clearDumpPrompt once Today has acted on it.
+   */
+  dumpPrompt: { source: CaptureSource; nonce: number } | null;
+  clearDumpPrompt: () => void;
+  /**
+   * Captures from the share sheet or the "Save for later" shortcut just
+   * saved for later (count, and the text when it's one), or Saved for later
+   * being full with captures still waiting. Cleared with clearCaptureNotice
+   * once said.
+   */
+  captureNotice: (CaptureNotice & { nonce: number }) | null;
+  clearCaptureNotice: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -2850,6 +2902,107 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     return () => sub.remove();
   }, [ready, appActive, handleFocusStarts]);
 
+  // Capture from anywhere (1.6 E; see capture.ts). Once ready and on screen
+  // (never in a background launch: "Add to Three Today" runs the app in the
+  // background), on each link, and whenever the app becomes active:
+  // - the capture inbox goes to Saved for later (never today's three), and
+  //   Today says so;
+  // - a request to open the brain dump (a link the router queued, or the one
+  //   native code left in the App Group for a cold start) shows Today with
+  //   the brain dump. One request id counts once, however it arrives.
+  const [dumpPrompt, setDumpPrompt] = useState<StoreContextValue["dumpPrompt"]>(null);
+  const clearDumpPrompt = useCallback(() => setDumpPrompt(null), []);
+  const [captureNotice, setCaptureNotice] = useState<StoreContextValue["captureNotice"]>(null);
+  const clearCaptureNotice = useCallback(() => setCaptureNotice(null), []);
+  const handledCaptureIds = useRef(new Set<string>());
+  // One import at a time (it waits for the save before deleting files).
+  const importingCaptures = useRef(false);
+  // How many were waiting (no room) when Today last said so: said again
+  // only when that changes, not on every foreground.
+  const toldWaiting = useRef(0);
+  // The inbox: read oldest first, save what fits (never onto today, never
+  // pushing a saved item out), store that for good, then delete those files.
+  // A file is only deleted once Saved for later has it on disk; if the save
+  // fails it's read again next time and is then already there (no double
+  // toast or count). What doesn't fit waits in the inbox.
+  const importCaptures = useCallback(async () => {
+    if (importingCaptures.current) return;
+    const files = readCaptureFiles();
+    if (files.length === 0) {
+      toldWaiting.current = 0;
+      return;
+    }
+    importingCaptures.current = true;
+    try {
+      const { items, junk } = parseCaptureFiles(files);
+      junk.forEach((name) => deleteCaptureFile(name));
+      const before = stateRef.current;
+      const plan = planCaptureImport(before, items, MAX_PARKED_TASKS);
+      const texts = plan.save.map((item) => item.text);
+      // Each capture's own (local) day: a "tomorrow" written yesterday is today.
+      const refDays = plan.save.map((item) => (item.at > 0 ? toDateKey(new Date(item.at)) : undefined));
+      const at = new Date().toISOString();
+      const after = texts.length > 0 ? parkCapturedTexts(before, texts, at, refDays) : before;
+      const added = after.parkedTasks.length - before.parkedTasks.length;
+      if (texts.length > 0) dispatch({ type: "parkCaptures", texts, at, refDays });
+      if (added > 0) track("capture_imported", { count: added });
+      const waiting = plan.waiting.length;
+      const sayFull = waiting > 0 && waiting !== toldWaiting.current;
+      toldWaiting.current = waiting;
+      if (added > 0 || sayFull) {
+        setCaptureNotice({
+          count: added,
+          text: added === 1 ? (after.parkedTasks[after.parkedTasks.length - 1]?.text ?? null) : null,
+          full: waiting > 0,
+          nonce: Date.now(),
+        });
+      }
+      const done = [...plan.save, ...plan.present];
+      if (done.length === 0) return;
+      // Stored for good first (the save effect writes the same again).
+      if (!(await persistState(after))) return;
+      done.forEach((item) => deleteCaptureFile(item.name));
+    } finally {
+      importingCaptures.current = false;
+    }
+  }, []);
+  // Captures waiting for room come in as soon as room is made (an item used
+  // or removed from Saved for later), not only at the next foreground.
+  const parkedCount = useRef(state.parkedTasks.length);
+  useEffect(() => {
+    const before = parkedCount.current;
+    parkedCount.current = state.parkedTasks.length;
+    if (!ready || state.parkedTasks.length >= before || toldWaiting.current === 0 || !isAppActive()) return;
+    void importCaptures();
+  }, [ready, state.parkedTasks.length, importCaptures]);
+  const syncCaptures = useCallback(() => {
+    if (!readyRef.current || !hydratedRef.current || !isAppActive()) return;
+    void importCaptures();
+    const requests: CaptureOpenRequest[] = takeCaptureOpens();
+    const { raw, handledId } = readCaptureOpenRequest();
+    const stored = parseCaptureOpenRequest(raw, handledId, Date.now());
+    if (stored) {
+      markCaptureOpenRequestHandled(stored.id);
+      requests.push(stored);
+    }
+    const fresh = requests.filter((request) => !request.id || !handledCaptureIds.current.has(request.id));
+    fresh.forEach((request) => request.id && handledCaptureIds.current.add(request.id));
+    const request = fresh[fresh.length - 1];
+    if (!request) return;
+    track("capture_opened", { source: request.source });
+    navigateToToday();
+    setDumpPrompt({ source: request.source, nonce: Date.now() });
+  }, [importCaptures]);
+  useEffect(() => subscribeCaptureOpens(syncCaptures), [syncCaptures]);
+  useEffect(() => {
+    if (!ready || !appActive) return;
+    syncCaptures();
+    const sub = RNAppState.addEventListener("change", (status) => {
+      if (status === "active") syncCaptures();
+    });
+    return () => sub.remove();
+  }, [ready, appActive, syncCaptures]);
+
   const journeyLevel = levelForXp(state.journey.xp);
   const journeyProgress = levelProgress(state.journey.xp);
   const pendingLevelUpValue = pendingLevelUp(state.journey);
@@ -2959,6 +3112,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       stopFocusSession,
       focusPrompt,
       clearFocusPrompt,
+      dumpPrompt,
+      clearDumpPrompt,
+      captureNotice,
+      clearCaptureNotice,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -3058,6 +3215,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       stopFocusSession,
       focusPrompt,
       clearFocusPrompt,
+      dumpPrompt,
+      clearDumpPrompt,
+      captureNotice,
+      clearCaptureNotice,
       refreshNotificationPermission,
       requestPermission,
       resetAll,

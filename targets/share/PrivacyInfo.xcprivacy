@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The share extension's privacy manifest (1.6 E). It tracks nothing and
+  collects nothing: a shared thought is written to the App Group for the app
+  and never leaves the device from here.
+  Required-reason APIs: UserDefaults(suiteName:) for the App Group
+  (CaptureInbox.swift's open request), reason 1C8F.1 (read and write data
+  only accessible to the apps and extensions in the same App Group).
+  No file timestamp, disk space, boot time or keyboard APIs are used.
+-->
+<plist version="1.0">
+  <dict>
+    <key>NSPrivacyTracking</key>
+    <false/>
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+      <dict>
+        <key>NSPrivacyAccessedAPIType</key>
+        <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+        <key>NSPrivacyAccessedAPITypeReasons</key>
+        <array>
+          <string>1C8F.1</string>
+        </array>
+      </dict>
+    </array>
+  </dict>
+</plist>
