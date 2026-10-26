@@ -33,8 +33,19 @@ autolinking in package.json).
 your three for today." until the app writes the new day. Task text on the lock screen is marked
 `privacySensitive`.
 
+## Dump widget and control (1.6 E)
+
+The same extension also has the **Dump** widget (kind `ThreeTodayDump`: Lock
+Screen circular and rectangular, Home Screen small) and, on iOS 18, the
+**Dump** control. Both open the app straight to the brain dump
+(`dailytasks://dump?source=widget`). They show nothing personal. The share
+extension (`targets/share`) and the capture inbox are described in
+`docs/2026-10-v1.6.md` (1.6 E).
+
 ## Release notes
 
 - EAS needs a provisioning profile for the extension bundle id
   `com.faisalislam.dailytasks.widget` and the App Group on both ids. The first
   production build may need `eas credentials` / an interactive `eas build` once.
+- 1.6 E adds the share extension `com.faisalislam.dailytasks.share` (same App
+  Group): one more interactive `eas build` / `eas credentials` run, once.

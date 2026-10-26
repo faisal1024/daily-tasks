@@ -70,6 +70,24 @@ describe("shared Swift sources", () => {
     ).toBe(true);
   });
 
+  // 1.6 E: the capture inbox writer is in the share extension, the widget
+  // extension and (copied at prebuild) the app.
+  it("keeps CaptureInbox.swift identical in the share and widget extensions, on the JS bridge's keys", () => {
+    const share = read("targets/share/CaptureInbox.swift");
+    const widget = read("targets/widget/CaptureInbox.swift");
+    expect(
+      share === widget,
+      "CaptureInbox.swift differs between targets/share and targets/widget. " +
+        "Edit targets/share's and copy it over: cp targets/share/CaptureInbox.swift targets/widget/",
+    ).toBe(true);
+    const bridge = read("lib/daily-tasks/capture-bridge.ts");
+    for (const key of ["capture.inbox", "capture.processedSeq", "capture.openRequest"]) {
+      expect(share).toContain(`"${key}"`);
+      expect(bridge).toContain(`"${key}"`);
+    }
+    expect(share).toContain('"group.com.faisalislam.dailytasks"');
+  });
+
   it("points the app and the widget at the same App Group and keys as the JS bridge", () => {
     const swift = read("targets/widget/FocusActivityShared.swift");
     const bridge = read("lib/daily-tasks/widget-bridge.ts");

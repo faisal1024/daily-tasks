@@ -64,6 +64,20 @@ import {
   type FocusStartRequest,
 } from "./focus-link";
 import { loadLastTimer } from "./focus-timer-storage";
+import {
+  parseCaptureInbox,
+  parseCaptureOpenRequest,
+  subscribeCaptureOpens,
+  takeCaptureOpens,
+  type CaptureOpenRequest,
+  type CaptureSource,
+} from "./capture";
+import {
+  markCaptureInboxProcessed,
+  markCaptureOpenRequestHandled,
+  readCaptureInbox,
+  readCaptureOpenRequest,
+} from "./capture-bridge";
 import { isAppActive, useAppActive } from "@/hooks/use-app-active";
 import { syncLiveActivity } from "./live-activity";
 import {
@@ -1384,6 +1398,19 @@ interface StoreContextValue {
    */
   focusPrompt: { taskId: TaskId; source: "widget" | "siri" | "live_activity" | "notification"; nonce: number } | null;
   clearFocusPrompt: () => void;
+  /**
+   * Capture from anywhere (1.6 E; see capture.ts): open the brain dump (the
+   * Dump widget or control, the "Brain dump" shortcut, a `dailytasks://dump`
+   * link). Cleared with clearDumpPrompt once Today has acted on it.
+   */
+  dumpPrompt: { source: CaptureSource; nonce: number } | null;
+  clearDumpPrompt: () => void;
+  /**
+   * Captures from the share sheet or the "Add to Three Today" shortcut just
+   * saved for later (count). Cleared with clearCaptureNotice once said.
+   */
+  captureNotice: { count: number; nonce: number } | null;
+  clearCaptureNotice: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -2758,6 +2785,57 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     return () => sub.remove();
   }, [ready, appActive, handleFocusStarts]);
 
+  // Capture from anywhere (1.6 E; see capture.ts). Once ready and on screen
+  // (never in a background launch: "Add to Three Today" runs the app in the
+  // background), on each link, and whenever the app becomes active:
+  // - the capture inbox goes to Saved for later (never today's three), and
+  //   Today says so;
+  // - a request to open the brain dump (a link the router queued, or the one
+  //   native code left in the App Group for a cold start) shows Today with
+  //   the brain dump. One request id counts once, however it arrives.
+  const [dumpPrompt, setDumpPrompt] = useState<StoreContextValue["dumpPrompt"]>(null);
+  const clearDumpPrompt = useCallback(() => setDumpPrompt(null), []);
+  const [captureNotice, setCaptureNotice] = useState<StoreContextValue["captureNotice"]>(null);
+  const clearCaptureNotice = useCallback(() => setCaptureNotice(null), []);
+  const handledCaptureIds = useRef(new Set<string>());
+  const syncCaptures = useCallback(() => {
+    if (!readyRef.current || !hydratedRef.current || !isAppActive()) return;
+    const inbox = readCaptureInbox();
+    const { items, lastSeq } = parseCaptureInbox(inbox.raw, inbox.processedSeq);
+    if (lastSeq > inbox.processedSeq) {
+      if (items.length > 0) {
+        dispatch({ type: "parkTasks", texts: items.map((item) => item.text), at: new Date().toISOString() });
+        track("capture_imported", { count: items.length });
+        setCaptureNotice({ count: items.length, nonce: Date.now() });
+      }
+      // Everything read is marked saved, including entries with no text.
+      markCaptureInboxProcessed(lastSeq);
+    }
+    const requests: CaptureOpenRequest[] = takeCaptureOpens();
+    const { raw, handledId } = readCaptureOpenRequest();
+    const stored = parseCaptureOpenRequest(raw, handledId, Date.now());
+    if (stored) {
+      markCaptureOpenRequestHandled(stored.id);
+      requests.push(stored);
+    }
+    const fresh = requests.filter((request) => !request.id || !handledCaptureIds.current.has(request.id));
+    fresh.forEach((request) => request.id && handledCaptureIds.current.add(request.id));
+    const request = fresh[fresh.length - 1];
+    if (!request) return;
+    track("capture_opened", { source: request.source });
+    navigateToToday();
+    setDumpPrompt({ source: request.source, nonce: Date.now() });
+  }, []);
+  useEffect(() => subscribeCaptureOpens(syncCaptures), [syncCaptures]);
+  useEffect(() => {
+    if (!ready || !appActive) return;
+    syncCaptures();
+    const sub = RNAppState.addEventListener("change", (status) => {
+      if (status === "active") syncCaptures();
+    });
+    return () => sub.remove();
+  }, [ready, appActive, syncCaptures]);
+
   const journeyLevel = levelForXp(state.journey.xp);
   const journeyProgress = levelProgress(state.journey.xp);
   const pendingLevelUpValue = pendingLevelUp(state.journey);
@@ -2864,6 +2942,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       stopFocusSession,
       focusPrompt,
       clearFocusPrompt,
+      dumpPrompt,
+      clearDumpPrompt,
+      captureNotice,
+      clearCaptureNotice,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -2960,6 +3042,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       stopFocusSession,
       focusPrompt,
       clearFocusPrompt,
+      dumpPrompt,
+      clearDumpPrompt,
+      captureNotice,
+      clearCaptureNotice,
       refreshNotificationPermission,
       requestPermission,
       resetAll,

@@ -56,6 +56,7 @@ import { UpdateBanner } from "@/components/daily-tasks/update-banner";
 import { WeekRow } from "@/components/daily-tasks/week-row";
 import { useAppUpdate } from "@/hooks/use-app-update";
 import { SHEET_SWAP_DELAY_MS, usePaywallGate } from "@/hooks/use-paywall-gate";
+import { captureToast } from "@/lib/daily-tasks/capture";
 import { useHour } from "@/hooks/use-hour";
 import { useKeyboardVisible } from "@/hooks/use-keyboard-visible";
 import { useScreenFocused } from "@/hooks/use-screen-focused";
@@ -262,6 +263,10 @@ export default function HomeScreen() {
     stopFocusSession,
     focusPrompt,
     clearFocusPrompt,
+    dumpPrompt,
+    clearDumpPrompt,
+    captureNotice,
+    clearCaptureNotice,
   } = useDailyTasks();
   const {
     paywallEnabled,
@@ -1172,6 +1177,51 @@ export default function HomeScreen() {
   const busyRef = useRef(false);
   // The sheet counts as something on screen too: no rating ask or paywall over it.
   busyRef.current = somethingUp || whatsNew.openId !== null || whatsNewHandingOff;
+
+  // Capture from anywhere (1.6 E; see lib/daily-tasks/capture.ts). The Dump
+  // widget or control, the "Brain dump" shortcut or a dump link: the brain
+  // dump opens (on a locked day too: the sheet saves everything for later
+  // and says so). Not over first run, and not over the paywall (a purchase
+  // under way); any other sheet steps aside first (one modal at a time on
+  // iOS) and the dump follows once it has animated away.
+  const dumpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (dumpTimer.current) clearTimeout(dumpTimer.current);
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!dumpPrompt) return;
+    clearDumpPrompt();
+    if (!state.hasSeenOnboarding || firstRunActive || paywallSource !== null || brainDumpOpen) return;
+    let stepped = whatsNewStepAside.current();
+    if (ideasOpen) setIdeasOpen(false);
+    if (routinesOpen) setRoutinesOpen(false);
+    if (focusTaskId !== null) setFocusTaskId(null);
+    if (shareOpen) setShareOpen(false);
+    stepped = stepped || ideasOpen || routinesOpen || focusTaskId !== null || shareOpen;
+    if (dumpTimer.current) clearTimeout(dumpTimer.current);
+    dumpTimer.current = null;
+    if (!stepped) {
+      setBrainDumpOpen(true);
+      return;
+    }
+    dumpTimer.current = setTimeout(() => {
+      dumpTimer.current = null;
+      setBrainDumpOpen(true);
+    }, SHEET_SWAP_DELAY_MS);
+    // Only when a new prompt arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dumpPrompt]);
+  // Captures from the share sheet or "Add to Three Today", just saved for later.
+  useEffect(() => {
+    if (!captureNotice) return;
+    clearCaptureNotice();
+    showToast(captureToast(captureNotice.count));
+    // Only when a new notice arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [captureNotice]);
 
   // The gentle aha paywall: once per install, after day 1, at a real win
   // (last night's draft used, Set, or a brain dump that filled the day's
