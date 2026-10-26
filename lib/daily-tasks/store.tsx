@@ -190,6 +190,7 @@ import type {
   Routine,
   ReviewTrigger,
   TaskId,
+  TaskWhen,
 } from "./types";
 import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
 
@@ -241,7 +242,7 @@ type Action =
   | { type: "markReviewPrompted"; at: string }
   | { type: "markReviewDue"; at: string; source: ReviewTrigger }
   | { type: "clearReviewDue" }
-  | { type: "parkTasks"; texts: string[]; at: string }
+  | { type: "parkTasks"; texts: string[]; at: string; dates?: Record<string, TaskWhen> }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
   | { type: "swapParkedTask"; parkedId: string; taskId: string; today: string; at: string; newId: string }
@@ -622,7 +623,7 @@ function reduce(state: AppState, action: Action): AppState {
         ? state
         : { ...state, analyticsEnabled: action.enabled };
     case "parkTasks":
-      return parkTasks(state, action.texts, action.at);
+      return parkTasks(state, action.texts, action.at, action.dates);
     case "removeParkedTask":
       return removeParkedTask(state, action.id);
     case "addParkedTask": {
@@ -1320,7 +1321,8 @@ interface StoreContextValue {
   suggestNewPath: () => void;
   /** Days with a plan (today included): the "Day N" chip. */
   daysShowedUp: number;
-  parkTasks: (texts: string[]) => void;
+  /** `dates`: soft dates from the AI sort, keyed by the text's loose key (1.6 F). */
+  parkTasks: (texts: string[], dates?: Record<string, TaskWhen>) => void;
   removeParkedTask: (id: string) => void;
   addParkedTask: (id: string) => void;
   /**
@@ -2390,8 +2392,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const editMilestones = useCallback((items: { id?: string; title: string; description?: string }[]) => {
     dispatch({ type: "setMilestones", items });
   }, []);
-  const parkTasksCb = useCallback((texts: string[]) => {
-    dispatch({ type: "parkTasks", texts, at: new Date().toISOString() });
+  const parkTasksCb = useCallback((texts: string[], dates?: Record<string, TaskWhen>) => {
+    dispatch({ type: "parkTasks", texts, at: new Date().toISOString(), ...(dates ? { dates } : {}) });
   }, []);
   const removeParkedTaskCb = useCallback((id: string) => {
     dispatch({ type: "removeParkedTask", id });

@@ -71,12 +71,15 @@ export function MorningHero({
  */
 export function TomorrowDraftCard({
   draft,
+  reasons = {},
   remainingSlots,
   onUse,
   onChange,
   onDismiss,
 }: {
   draft: TomorrowDraft;
+  /** A muted line under a task, by its text: "Due today" for a saved item due today (1.6 F). */
+  reasons?: Record<string, string>;
   remainingSlots: number;
   /** The ticked tasks, in the draft's order. */
   onUse: (tasks: string[]) => void;
@@ -196,7 +199,7 @@ export function TomorrowDraftCard({
                 disabled={full}
                 accessibilityRole={pickOne ? "radio" : "checkbox"}
                 accessibilityState={{ checked: on, disabled: full }}
-                accessibilityLabel={text}
+                accessibilityLabel={reasons[text] ? `${text}, ${reasons[text]}` : text}
                 accessibilityHint={full ? "Untick another one first." : pickOne && !on && count > 0 ? "Picks this one instead." : undefined}
                 style={{
                   flexDirection: "row",
@@ -216,9 +219,16 @@ export function TomorrowDraftCard({
                   color={on ? colors.primary : colors.muted}
                   accessibilityElementsHidden
                 />
-                <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "600" }}>
-                  {text}
-                </Text>
+                <View className="flex-1 gap-0.5">
+                  <Text className="text-base text-foreground" style={{ fontWeight: "600" }}>
+                    {text}
+                  </Text>
+                  {reasons[text] ? (
+                    <Text className="text-sm" style={{ color: colors.muted }} testID="tomorrow-draft-reason">
+                      {reasons[text]}
+                    </Text>
+                  ) : null}
+                </View>
               </Pressable>
             </View>
           );

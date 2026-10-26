@@ -1099,6 +1099,8 @@ describe("Brain dump flow", () => {
       text: "all my stuff",
       openSlots: 2,
       goalTitle: "Run a 5K",
+      // 1.6 F: Plus sends the local day so the AI can read dates.
+      today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     });
     expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
 

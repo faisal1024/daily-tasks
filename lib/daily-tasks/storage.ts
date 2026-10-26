@@ -8,6 +8,7 @@ import { MAX_SESSION_MS, type FocusSession } from "./focus-session";
 import { NAG_LEVELS, NAG_PERSONAS } from "./nag";
 import { NAG_STORAGE_KEY, normalizeNagWindow } from "./nag-plan";
 import { normalizeRoutines } from "./routines";
+import { normalizeWhen } from "./resurface";
 import { isReviewTrigger } from "./review-prompt";
 import { normalizeWhatsNewSeen } from "./whats-new";
 import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
@@ -95,11 +96,16 @@ function normalizeParkedTasks(value: unknown): ParkedTask[] {
       (item): item is Record<string, unknown> =>
         isRecord(item) && typeof item.id === "string" && typeof item.text === "string",
     )
-    .map((item) => ({
-      id: item.id as string,
-      text: item.text as string,
-      parkedAt: typeof item.parkedAt === "string" ? item.parkedAt : "",
-    }))
+    .map((item) => {
+      const parked: ParkedTask = {
+        id: item.id as string,
+        text: item.text as string,
+        parkedAt: typeof item.parkedAt === "string" ? item.parkedAt : "",
+      };
+      // 1.6 F: a malformed date is dropped, never the item.
+      const when = normalizeWhen(item.when);
+      return when ? { ...parked, when } : parked;
+    })
     .slice(-MAX_PARKED_TASKS);
 }
 

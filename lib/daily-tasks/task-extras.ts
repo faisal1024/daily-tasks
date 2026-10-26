@@ -1,20 +1,44 @@
 // Pure state transitions for brain-dump parking and task step checklists.
 // Kept out of the React store so they're unit-tested directly.
 
-import type { AppState, ParkedTask, Task, TaskStep } from "./types";
+import { localDayOf, normalizeWhen, parseLocalWhen } from "./resurface";
+import type { AppState, ParkedTask, Task, TaskStep, TaskWhen } from "./types";
 import { MAX_PARKED_TASKS, MAX_TASKS } from "./types";
 
 const key = (text: string) => text.trim().toLowerCase();
+// Case- and space-insensitive, like the draft's and rollover's matching.
+const looseKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
 
 function makeId(prefix: string, index: number, now: string): string {
   return `${prefix}_${Date.parse(now) || 0}_${index}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 /**
+ * The date in an item's own words, unless it's the day it's being saved on:
+ * something set aside today ("Not today", or left out of today's picks)
+ * isn't due today just because it says "today" or today's weekday.
+ */
+function ownWords(text: string, today: string): TaskWhen | null {
+  const when = parseLocalWhen(text, today);
+  return when && when.date !== today ? when : null;
+}
+
+/**
  * Park brain-dump leftovers. Skips blanks and anything already parked or on
  * today's list; keeps the newest MAX_PARKED_TASKS.
+ *
+ * Each item keeps a soft date (1.6 F): the one in `dates` (the AI sort's,
+ * keyed by looseKey of the text), else one read from its own words
+ * (parseLocalWhen; not today itself, see ownWords). A date before today
+ * (the local day of `now`) is ignored.
  */
-export function parkTasks(state: AppState, texts: string[], now: string): AppState {
+export function parkTasks(
+  state: AppState,
+  texts: string[],
+  now: string,
+  dates?: Record<string, TaskWhen>,
+): AppState {
+  const today = localDayOf(now);
   const taken = new Set([
     ...state.parkedTasks.map((p) => key(p.text)),
     ...state.tasks.map((t) => key(t.text)),
@@ -24,15 +48,14 @@ export function parkTasks(state: AppState, texts: string[], now: string): AppSta
     const text = raw.trim();
     if (!text || taken.has(key(text))) return;
     taken.add(key(text));
-    added.push({ id: makeId("parked", index, now), text, parkedAt: now });
+    const parked: ParkedTask = { id: makeId("parked", index, now), text, parkedAt: now };
+    const when = today ? (normalizeWhen(dates?.[looseKey(text)], today) ?? ownWords(text, today)) : null;
+    added.push(when ? { ...parked, when } : parked);
   });
   if (added.length === 0) return state;
   const parkedTasks = [...state.parkedTasks, ...added].slice(-MAX_PARKED_TASKS);
   return { ...state, parkedTasks };
 }
-
-// Case- and space-insensitive, like the draft's and rollover's matching.
-const looseKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
 
 /**
  * Take tasks that just landed on Today out of Saved for later, so the same

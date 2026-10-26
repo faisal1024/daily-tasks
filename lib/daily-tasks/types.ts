@@ -86,11 +86,23 @@ export interface CoachNotesCache {
   logged: boolean;
 }
 
+/**
+ * A soft date on a saved item (1.6 F, see resurface.ts): `on` a day it's
+ * for, or `by` a deadline (`date` is the last day it can be done).
+ */
+export interface TaskWhen {
+  /** Local date key, yyyy-MM-dd. */
+  date: string;
+  kind: "on" | "by";
+}
+
 /** Brain-dump leftovers kept for another day (shown in the Ideas sheet). */
 export interface ParkedTask {
   id: string;
   text: string;
   parkedAt: string;
+  /** Its soft date, when the words had one (1.6 F). Absent in older saves. */
+  when?: TaskWhen;
 }
 
 // Generous so a brain dump never silently drops what someone typed.

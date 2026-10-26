@@ -108,6 +108,7 @@ import {
 } from "@/lib/daily-tasks/coach-note";
 import { addDays, fromDateKey, greetingFor, greetingText, storeDayFor, todayKey } from "@/lib/daily-tasks/date";
 import { recordPlusUse } from "@/lib/daily-tasks/trial-note";
+import { draftDueReasons, savedItemsView, withDueTomorrow } from "@/lib/daily-tasks/resurface";
 import { sessionEndedAnnouncement, STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
 import { durationWords, timerMenuLengths } from "@/lib/daily-tasks/focus-timer";
 import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-storage";
@@ -171,7 +172,7 @@ import {
   showEveningCheckIn,
 } from "@/lib/daily-tasks/evening";
 import { eveningTeaserLine, showsEveningTeaser } from "@/lib/daily-tasks/evening-teaser";
-import type { ReflectionResult, Task } from "@/lib/daily-tasks/types";
+import type { ReflectionResult, Task, TaskWhen } from "@/lib/daily-tasks/types";
 
 /** Wait this long after the app becomes active before asking. */
 const REVIEW_SETTLE_MS = 2000;
@@ -308,6 +309,8 @@ export default function HomeScreen() {
   // Evening close in flight.
   const [closingDay, setClosingDay] = useState(false);
   const closingRef = useRef(false);
+  // The last brain-dump sort's soft dates (1.6 F), saved with what's parked.
+  const dumpDatesRef = useRef<Record<string, TaskWhen> | undefined>(undefined);
   // The day whose AI close fell back with nothing drafted (offers "Try again").
   const [eveningAiFailedFor, setEveningAiFailedFor] = useState<string | null>(null);
   // Opened from "Saved for later" (full day): show just the saved items.
@@ -414,6 +417,9 @@ export default function HomeScreen() {
     // Yesterday: anything finished after the close, or dropped at rollover.
     sourceDay: state.tomorrowDraft ? state.history[addDays(state.tomorrowDraft.forDate, -1)] : null,
   });
+  // Saved for later as Ideas shows it: due today first (1.6 F).
+  const savedItems = useMemo(() => savedItemsView(state.parkedTasks, today), [state.parkedTasks, today]);
+  const savedDueToday = savedItems.filter((item) => item.dueToday).length;
   // An empty day opens on the morning ritual: last night's draft, or the prompt.
   const emptyMorning = total === 0 && !state.todayLocked;
   // Kept fresh while the app is open (top of each hour, and on coming back).
@@ -1465,7 +1471,10 @@ export default function HomeScreen() {
     const startedAt = Date.now();
     // Confirmed Plus only: "still checking" must not spend an AI call on a free user.
     const useAi = plusConfirmed && getMomentumAiProxyUrl() != null;
+    // Saved items due tomorrow lead the draft (1.6 F, Plus like the coach's draft).
+    const parked = state.parkedTasks;
     void closeDay(input, { useAi })
+      .then((closed) => (useAi ? withDueTomorrow(closed, parked, day) : closed))
       .then((close) => {
         setEveningClose(close, day, result, startedAt);
         // Asked the coach, got the on-device close with nothing for tomorrow: offer a retry.
@@ -1901,7 +1910,8 @@ export default function HomeScreen() {
               {/* A full or locked day hides the ideas entry, but saved items
                   must stay reachable (to view or remove; on a locked day
                   nothing swaps in until it's unlocked). */}
-              {(state.todayLocked || remainingSlots === 0) && state.parkedTasks.length > 0 && (
+              {/* 1.6 F: also when a saved item is due today, so it's put forward. */}
+              {(state.todayLocked || remainingSlots === 0 || savedDueToday > 0) && state.parkedTasks.length > 0 && (
                 <Pressable
                   onPress={() => {
                     setIdeasSavedOnly(true);
@@ -1910,14 +1920,14 @@ export default function HomeScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Saved for later, ${state.parkedTasks.length} ${
                     state.parkedTasks.length === 1 ? "item" : "items"
-                  }`}
+                  }${savedDueToday > 0 ? `, ${savedDueToday} due today` : ""}`}
                   hitSlop={8}
                   className="self-start flex-row items-center gap-1.5"
                   testID="saved-ideas-link"
                 >
                   <Ionicons name="bookmark-outline" size={15} color={colors.primary} />
                   <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-                    Saved for later ({state.parkedTasks.length})
+                    Saved for later ({state.parkedTasks.length}){savedDueToday > 0 ? ` · ${savedDueToday} due today` : ""}
                   </Text>
                 </Pressable>
               )}
@@ -1934,6 +1944,7 @@ export default function HomeScreen() {
                     // A new night's draft starts fresh; the same one keeps the user's ticks.
                     key={draft.forDate}
                     draft={draft}
+                    reasons={draftDueReasons(draft.tasks, state.parkedTasks, today)}
                     remainingSlots={remainingSlots}
                     onUse={(picked) => {
                       // The card only offers what fits; trim again in case room just changed.
@@ -2204,7 +2215,8 @@ export default function HomeScreen() {
           }
           void requestMomentumPlan();
         }}
-        parked={state.parkedTasks}
+        // Due today first, each dated one labelled (1.6 F).
+        parked={savedItems}
         onAddParked={(id) => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
           addParkedTask(id);
@@ -2267,11 +2279,15 @@ export default function HomeScreen() {
             ...sorted,
             result: withMovedReasons(sorted.result, basicMemory),
           });
+          dumpDatesRef.current = undefined;
           if (hasPlus) {
             const sorted = await sortBrainDump({
               ...params,
               ...(state.agendaEnabled ? { agenda: await readTodayAgenda() } : {}),
+              // 1.6 F: the AI reads dates ("deck for Tuesday") for Plus only.
+              today,
             });
+            dumpDatesRef.current = sorted.result.dates;
             track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
             if (sorted.result.source === "ai") void recordPlusUse("brain_dump");
             return withReasons(sorted);
@@ -2323,7 +2339,10 @@ export default function HomeScreen() {
             haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
             addTasks(accepted);
           }
-          parkTasks(saved);
+          const dates = dumpDatesRef.current;
+          if (dates) parkTasks(saved, dates);
+          else parkTasks(saved);
+          dumpDatesRef.current = undefined;
           setBrainDumpOpen(false);
           // Offered only if the dump really filled the day's three (checked once the sheet has gone).
           if (accepted.length > 0) offerAhaPaywall({ fillsFrom: total });

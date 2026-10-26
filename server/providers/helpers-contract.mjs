@@ -48,7 +48,31 @@ export const BRAIN_DUMP_SYSTEM_PROMPT =
 
 export const BRAIN_DUMP_TOOL_NAME = "emit_brain_dump";
 export const BRAIN_DUMP_TOOL_DESCRIPTION =
-  "Return today's picks (at most openSlots), each with a reason of at most five words, and the parked items. Call this tool.";
+  "Return today's picks (at most openSlots), each with a reason of at most five words, and the parked items, each with its date (when) or null. Call this tool.";
+
+// A soft date on an item (1.6 F): `on` a day it's for, or `by` a deadline,
+// with `date` the last day it can be done. Always present (strict schemas
+// need every property required), null when the person wrote no day.
+export const WHEN_SCHEMA = {
+  anyOf: [
+    { type: "null" },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["date", "kind"],
+      properties: {
+        date: { type: "string" },
+        kind: { type: "string", enum: ["on", "by"] },
+      },
+    },
+  ],
+};
+// The furthest ahead a date may be: a year and a day (keep in step with
+// MAX_WHEN_DAYS_AHEAD in lib/daily-tasks/resurface.ts).
+export const MAX_WHEN_DAYS_AHEAD = 366;
+// Days listed in the prompt so the model reads weekdays off a table instead
+// of doing calendar sums.
+export const WHEN_TABLE_DAYS = 14;
 
 export const BRAIN_DUMP_SCHEMA = {
   type: "object",
@@ -62,10 +86,11 @@ export const BRAIN_DUMP_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["text", "reason"],
+        required: ["text", "reason", "when"],
         properties: {
           text: { type: "string" },
           reason: { type: "string" },
+          when: WHEN_SCHEMA,
         },
       },
     },
@@ -75,12 +100,74 @@ export const BRAIN_DUMP_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["text"],
-        properties: { text: { type: "string" } },
+        required: ["text", "when"],
+        properties: { text: { type: "string" }, when: WHEN_SCHEMA },
       },
     },
   },
 };
+
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 86_400_000;
+
+/** A real calendar day as yyyy-MM-dd, as UTC midnight ms; NaN otherwise. */
+function dateKeyMs(value) {
+  if (typeof value !== "string" || !DATE_KEY.test(value)) return NaN;
+  const [y, m, d] = value.split("-").map(Number);
+  const ms = Date.UTC(y, m - 1, d);
+  const date = new Date(ms);
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d ? ms : NaN;
+}
+
+function dateKeyOf(ms) {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+// Words that say a day or date is written somewhere in the dump. Without
+// any, every `when` is dropped: the model must never invent a date.
+export const DATE_CUE = new RegExp(
+  [
+    "\\b(?:today|tonight|tomorrow|tmrw|tmr|weekend|week|month|year|deadline|due|eod|eow|eom)\\b",
+    "\\b(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)(?:day|nesday|rsday|urday|sday)?s?\\b",
+    "\\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\b",
+    "\\d",
+  ].join("|"),
+  "i",
+);
+
+/**
+ * A model's `when`, or null: a real date, a known kind, not before the
+ * payload's `today` and at most MAX_WHEN_DAYS_AHEAD after it, and only when
+ * the dump names some day or date. No `today` sent (an older app, a free
+ * sort): always null.
+ */
+export function cleanWhen(value, payload) {
+  const today = dateKeyMs(payload?.today);
+  if (!Number.isFinite(today) || typeof payload?.text !== "string" || !DATE_CUE.test(payload.text)) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const at = dateKeyMs(value.date);
+  if (!Number.isFinite(at) || (value.kind !== "on" && value.kind !== "by")) return null;
+  const ahead = Math.round((at - today) / DAY_MS);
+  if (ahead < 0 || ahead > MAX_WHEN_DAYS_AHEAD) return null;
+  return { date: value.date, kind: value.kind };
+}
+
+/** The prompt lines that let the model date items (only with `today`). */
+export function whenPromptLines(payload) {
+  const today = dateKeyMs(payload?.today);
+  if (!Number.isFinite(today)) return ["Set when to null on every item."];
+  const day = (ms) => `${WEEKDAY_NAMES[new Date(ms).getUTCDay()]} ${dateKeyOf(ms)}`;
+  const next = Array.from({ length: WHEN_TABLE_DAYS }, (_, i) => day(today + (i + 1) * DAY_MS));
+  return [
+    `Today is ${day(today)}. The next days: ${next.join(", ")}.`,
+    "Set when on an item only if they wrote a day or date for it (\"deck for Tuesday\", \"passport before March\"), " +
+      'as { date: "YYYY-MM-DD", kind }: kind "on" for a day it is for, "by" for a deadline, with date the last day ' +
+      "it can be done (by Friday → that Friday; before Friday → the Thursday; before March → the last day of February). " +
+      "Use the next matching day from the list above. Otherwise when is null. Never guess a date, never one before today.",
+  ];
+}
 
 export function validateBrainDumpPayload(payload) {
   if (!payload || typeof payload !== "object") return "Invalid JSON payload";
@@ -90,6 +177,9 @@ export function validateBrainDumpPayload(payload) {
   }
   if (!optionalGoal(payload.goalTitle)) return "Invalid goalTitle";
   if (!isValidAgenda(payload.agenda)) return "Invalid agenda";
+  // `today` (1.6 F) is optional (older apps, free sorts don't send it); when
+  // sent it must be a real yyyy-MM-dd day.
+  if (payload.today !== undefined && !Number.isFinite(dateKeyMs(payload.today))) return "Invalid today";
   // `stats` (1.5) isn't checked here: a malformed one is ignored
   // (statsPromptLines), so a brain dump is never refused over it.
   return null;
@@ -108,6 +198,7 @@ export function buildBrainDumpPrompt(payload) {
     '"""',
     payload.text.trim(),
     '"""',
+    ...whenPromptLines(payload),
     "Give each pick a reason of at most five words saying why it's for today, " +
       'like "Quick win", "Due Friday", "Unblocks the rest" or "Been waiting a while". ' +
       "Name a deadline only if they wrote one. " +
@@ -125,6 +216,14 @@ function isShortTask(item, max) {
 function shorten(text, max) {
   const chars = Array.from(text.trim());
   return chars.length > max ? `${chars.slice(0, max - 1).join("").trimEnd()}…` : chars.join("");
+}
+
+/** The raw items textItems keeps, in the same order. */
+function textItemSources(list, limit) {
+  return (Array.isArray(list) ? list : [])
+    .filter((item) => item && typeof item === "object" && typeof item.text === "string" && item.text.trim())
+    .filter((item) => item.text.length <= MAX_ECHO_TEXT)
+    .slice(0, limit);
 }
 
 function textItems(list, max, limit) {
@@ -223,9 +322,16 @@ export function sanitizeBrainDump(result, payload) {
   const moved = new Set((cleanStats(payload?.stats)?.moved ?? []).map((item) => taskKey(item.text)));
   const honest = (item) =>
     !item.reason || !WAITING_REASON.test(foldForMatch(item.reason)) || moved.has(taskKey(item.text)) ? item : { text: item.text };
+  // A date (1.6 F) only when valid and the app sent today (cleanWhen).
+  const dated = (item, raw) => {
+    const when = cleanWhen(raw?.when, payload);
+    return when ? { ...item, when } : item;
+  };
+  const rawPicks = textItemSources(result.picks, 3);
+  const rawParked = textItemSources(result.parked, MAX_PARKED);
   return {
-    picks: textItems(result.picks, MAX_TASK_TEXT, 3).map(honest),
-    parked: textItems(result.parked, MAX_TASK_TEXT, MAX_PARKED).map(({ text }) => ({ text })),
+    picks: textItems(result.picks, MAX_TASK_TEXT, 3).map((item, i) => dated(honest(item), rawPicks[i])),
+    parked: textItems(result.parked, MAX_TASK_TEXT, MAX_PARKED).map(({ text }, i) => dated({ text }, rawParked[i])),
   };
 }
 
