@@ -55,15 +55,25 @@ function fakeEnv(vars: Record<string, string> = {}, admit: (keys: string[]) => L
   return { env: { ...vars, LIMITS }, stub, LIMITS };
 }
 
-/** Minimal in-memory stand-in for ctx.storage.sql (the four statements Limits uses). */
+/** Minimal in-memory stand-in for ctx.storage.sql (the statements Limits uses). */
 function fakeSql() {
   const rows = new Map<string, { day: number; key: string; n: number }>();
+  // Lifetime allowances (1.5's one free break-down per id): never cleaned up.
+  const once = new Map<string, number>();
   const statements: string[] = [];
   const exec = vi.fn((query: string, ...args: unknown[]) => {
     statements.push(query);
     let result: unknown[] = [];
     if (query.startsWith("CREATE TABLE")) {
-      expect(query).toContain("day_counts");
+      expect(query).toMatch(/day_counts|once_counts/);
+    } else if (query.startsWith("SELECT n FROM once_counts")) {
+      const n = once.get(args[0] as string);
+      result = n === undefined ? [] : [{ n }];
+    } else if (query.startsWith("INSERT INTO once_counts")) {
+      once.set(args[0] as string, (once.get(args[0] as string) ?? 0) + 1);
+    } else if (query.startsWith("UPDATE once_counts SET n = n - 1")) {
+      const n = once.get(args[0] as string);
+      if (n !== undefined && n > 0) once.set(args[0] as string, n - 1);
     } else if (query.startsWith("DELETE FROM day_counts WHERE day < ?")) {
       for (const [id, row] of rows) if (row.day < (args[0] as number)) rows.delete(id);
     } else if (query.startsWith("SELECT n FROM day_counts")) {
@@ -79,7 +89,7 @@ function fakeSql() {
     }
     return { toArray: () => result };
   });
-  return { sql: { exec }, rows, statements };
+  return { sql: { exec }, rows, once, statements };
 }
 
 // worker.mjs caches its setup per isolate, so load a fresh copy per test.
@@ -392,6 +402,20 @@ describe("Limits durable object", () => {
     expect(limits.spend(req("w"), T)).toBe("free");
     const counts = Object.fromEntries([...store.rows.values()].map((r) => [r.key, r.n]));
     expect(counts).toEqual({ global: 2, "ip:a": 2, "free:user:u": 1, "free:user:v": 1, "free:ip:a": 2 });
+  });
+
+  it("keeps a lifetime allowance in once_counts across days and instances, and refunds it (1.5)", async () => {
+    const shared = fakeSql();
+    const env = { RATE_LIMIT_PER_MIN: "0" };
+    const once = { key: "once:break-down:user:u", cap: 1, lifetime: true };
+    const first = await make(env, shared).create();
+    expect(first.spend({ keys: ["ip:a"], free: [once] }, T)).toBe("ok");
+    expect(first.spend({ keys: ["ip:a"], free: [once] }, T)).toBe("free");
+    const later = await make(env, shared).create();
+    expect(later.spend({ keys: ["ip:a"], free: [once] }, T + 3 * DAY)).toBe("free");
+    later.refund({ free: [once] });
+    expect(later.spend({ keys: ["ip:a"], free: [once] }, T + 3 * DAY)).toBe("ok");
+    expect(shared.once.get(once.key)).toBe(1);
   });
 
   it("treats a free cap of 0 as no free AI", async () => {

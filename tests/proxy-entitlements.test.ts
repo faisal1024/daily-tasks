@@ -357,6 +357,24 @@ describe("createBudget (Node)", () => {
     expect(budget.spend({ keys: ["ip:a"], free: [{ key: "free:user:v", cap: 1 }, { key: "free:ip:a", cap: 3 }] })).toBe("ok");
   });
 
+  it("keeps a lifetime allowance across days and gives it back on refund (1.5)", () => {
+    const clock = { t: NOW };
+    const budget = config.createBudget(cfg({ RATE_LIMIT_PER_MIN: "0" }), { now: () => clock.t });
+    const once = { key: "once:break-down:user:u", cap: 1, lifetime: true };
+    expect(budget.spend({ keys: ["ip:a"], free: [once] })).toBe("ok");
+    expect(budget.spend({ keys: ["ip:a"], free: [once] })).toBe("free");
+    clock.t += 2 * 24 * 60 * 60_000;
+    expect(budget.spend({ keys: ["ip:a"], free: [once] })).toBe("free");
+    budget.refund({ free: [once] });
+    expect(budget.spend({ keys: ["ip:a"], free: [once] })).toBe("ok");
+  });
+
+  it("reads the free break-down limits (1, and 20 per network a day, by default)", () => {
+    expect(config.readConfig({}).freeBreakDownsPerClient).toBe(1);
+    expect(config.readConfig({}).freeBreakDownsPerNetworkPerDay).toBe(20);
+    expect(config.readConfig({ FREE_BREAK_DOWNS_PER_CLIENT: "0" }).freeBreakDownsPerClient).toBe(0);
+  });
+
   it("treats a free cap of 0 as no free AI, never unlimited", () => {
     const budget = config.createBudget(cfg());
     expect(budget.spend({ keys: ["ip:a"], free: [{ key: "free:ip:a", cap: 0 }] })).toBe("free");

@@ -127,6 +127,16 @@ answer (Plus: 1 hour; not Plus: 1 minute, and Plus routes always re-check a
 "not Plus" answer so a new subscriber is never refused). Plan, break-down,
 evening, coach-note and nag-lines are Plus-only (**402** when refused); brain dumps stay open to free
 users up to `FREE_BRAIN_DUMPS_PER_DAY` per user (and 3× that per network).
+**One free Break it down (1.5):** a free id gets `FREE_BREAK_DOWNS_PER_CLIENT`
+(1) break-down ever, counted per hashed app user id in the Worker's Limits
+object (table `once_counts`, never cleaned up), within a per-network ceiling of
+`FREE_BREAK_DOWNS_PER_NETWORK_PER_DAY` (20) free tries a day. After that it's
+402 "Free limit reached". If the AI call then fails, the try is given back.
+Honest limits: RevenueCat's anonymous id is new after a reinstall (or "Reset"
+in RevenueCat), so a reinstall gets one more free try; the network ceiling and
+the global cap bound that. No id = no free try (old builds are already allowed
+without one until `ENTITLEMENT_REQUIRE_ID=1`). The Node server keeps the count
+in memory, so a restart forgets it.
 If RevenueCat can't answer (down, rate-limited, or our key is wrong) requests
 are allowed for a moment and a warning is logged: paying users are never
 locked out by an outage.
@@ -613,6 +623,8 @@ pass this sanitiser (a test runs every one through it). See
   | `DAILY_LIMIT_PER_CLIENT` | 200 in code; 40 in `render.yaml`/`wrangler.toml` | 429, `Retry-After: 3600` |
   | `GLOBAL_DAILY_LIMIT` | 5000 in code; 500 in `render.yaml`/`wrangler.toml` | 503 for everyone (spend circuit breaker) |
   | `FREE_BRAIN_DUMPS_PER_DAY` | 8 (0 = no free AI) | 402 "Free limit reached" (enforce only) |
+  | `FREE_BREAK_DOWNS_PER_CLIENT` | 1 per id, ever (0 = no free try) | 402 "Free limit reached" (enforce only) |
+  | `FREE_BREAK_DOWNS_PER_NETWORK_PER_DAY` | 20 (0 = no free try) | 402 "Free limit reached" (enforce only) |
   | `ENTITLEMENT_MODE` | off | `log` counts, `enforce` answers 402 on Plus routes |
   | `REVENUECAT_SECRET_KEY` | unset | needed for `log`/`enforce` (V1 secret key) |
   | `ENTITLEMENT_REQUIRE_ID` | unset | `1` = requests without an app user id count as free (see "Early supporters") |

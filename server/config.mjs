@@ -54,6 +54,12 @@ export function readConfig(env = {}) {
     // Server-side ceiling on a free user's AI brain dumps per day (the app
     // gives 1 first-run sort + 3 to try; a retry after a timeout also counts).
     freeBrainDumpsPerDay: positiveInt(env.FREE_BRAIN_DUMPS_PER_DAY, 8),
+    // 1.5: a free user's Break it down tries, per app user id, ever (not per
+    // day; the app gives one). 0 turns the free try off.
+    freeBreakDownsPerClient: positiveInt(env.FREE_BREAK_DOWNS_PER_CLIENT, 1),
+    // A reinstall gets a new anonymous id (and so a new try): this caps free
+    // tries per network per day. 0 means none, never unlimited.
+    freeBreakDownsPerNetworkPerDay: positiveInt(env.FREE_BREAK_DOWNS_PER_NETWORK_PER_DAY, 20),
     // Requests without an app user id (old builds; supporters before their
     // grant) share this daily ceiling, so they can't use the whole budget.
     noIdDailyLimit: positiveInt(env.NO_ID_DAILY_LIMIT, 250),
@@ -189,6 +195,11 @@ export function createBudget(config, { now } = {}) {
     if (!freeLimiters.has(cap)) freeLimiters.set(cap, createRateLimiter({ perMinute: 0, perDay: cap, globalPerDay: 0, now }));
     return freeLimiters.get(cap);
   };
+  // Lifetime allowances (`lifetime: true`, e.g. one free break-down per id):
+  // never roll over. In memory, so a restart of this process forgets them;
+  // the Worker keeps them in its Durable Object.
+  const onceCounts = new Map();
+  const usedOnce = (key) => onceCounts.get(key) ?? 0;
   return {
     limiter,
     admit(keys) {
@@ -206,13 +217,26 @@ export function createBudget(config, { now } = {}) {
         const result = limiter.peekDay(key);
         if (result !== "ok") return result;
       }
-      for (const { key, cap } of free) {
+      for (const { key, cap, lifetime } of free) {
         // 0 means "no free AI", never "unlimited".
-        if (cap <= 0 || freeLimiter(cap).admit(key) !== "ok") return "free";
+        if (cap <= 0) return "free";
+        if (lifetime ? usedOnce(key) >= cap : freeLimiter(cap).peekDay(key) !== "ok") return "free";
       }
       for (const key of keys) limiter.record(key);
-      for (const { key, cap } of free) freeLimiter(cap).record(key);
+      for (const { key, cap, lifetime } of free) {
+        if (lifetime) onceCounts.set(key, usedOnce(key) + 1);
+        else freeLimiter(cap).record(key);
+      }
       return "ok";
+    },
+    /** Give back lifetime allowances spent on a request whose AI call failed. */
+    refund({ free }) {
+      for (const { key, lifetime } of free) {
+        if (!lifetime) continue;
+        const used = usedOnce(key);
+        if (used <= 1) onceCounts.delete(key);
+        else onceCounts.set(key, used - 1);
+      }
     },
   };
 }
