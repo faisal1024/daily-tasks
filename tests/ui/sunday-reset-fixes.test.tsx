@@ -19,6 +19,7 @@ import type { ReminderContext, ReminderPlan } from "@/lib/daily-tasks/reminder-p
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
+import { SHEET_SWAP_DELAY_MS } from "@/lib/daily-tasks/sheet-swap";
 import { SUNDAY_RESET_KIND, WEEK_SORT_TIMEOUT_MS } from "@/lib/daily-tasks/sunday-reset";
 import { DEFAULT_AUTO_LOCK, MAX_PARKED_TASKS, type AppState, type DayRecord } from "@/lib/daily-tasks/types";
 
@@ -132,6 +133,14 @@ async function open(at: Date, saved: Partial<AppState> = {}, earlier = true) {
 }
 
 const press = (testID: string) => fireEvent.press(screen.getByTestId(testID));
+/** A plain tap on the Sunday notification (`date` keeps each tap distinct). */
+const tap = (date: number) => ({
+  actionIdentifier: "expo.modules.notifications.actions.DEFAULT",
+  notification: {
+    date,
+    request: { identifier: "daily-tasks:2026-10-25:sunday_reset:1800", content: { data: { kind: "sunday_reset" } } },
+  },
+});
 const parkedTexts = () => latest.state.parkedTasks.map((item) => item.text);
 const parked = (texts: string[]) =>
   texts.map((text, i) => ({ id: `p${i}`, text, parkedAt: new Date(2026, 9, 20, 9, 0).toISOString() }));
@@ -159,6 +168,7 @@ beforeEach(async () => {
   mockResponseListeners.length = 0;
   mockPlus.entitlementActive = true;
   mockPlus.entitlementKnown = true;
+  mockPlus.paywallSource = null;
   proxyUrl.mockReturnValue(null);
 });
 
@@ -278,6 +288,34 @@ describe("the notification tap", () => {
     expect(reset.isOpen).toBe(true);
   });
 
+  // PR #110 re-review (P2): never on top of another of Today's sheets.
+  it("steps Today's other sheets aside first, then opens once they have gone", async () => {
+    await open(new Date(2026, 9, 25, 18, 1));
+    let otherUp = true;
+    const stepAsideOthers = jest.fn(() => {
+      const was = otherUp;
+      otherUp = false;
+      return was;
+    });
+    await act(async () => void reset.registerOthers(stepAsideOthers));
+    await act(async () => mockResponseListeners.forEach((listener) => listener(tap(3))));
+    expect(stepAsideOthers).toHaveBeenCalledTimes(1);
+    expect(otherUp).toBe(false);
+    // Not at once: the other sheet animates away first.
+    expect(reset.isOpen).toBe(false);
+    await waitFor(() => expect(reset.isOpen).toBe(true), { timeout: SHEET_SWAP_DELAY_MS + 1000 });
+  });
+
+  it("waits for the paywall to close (never closes it), then opens", async () => {
+    mockPlus.paywallSource = "settings";
+    const view = await open(new Date(2026, 9, 25, 18, 1));
+    await act(async () => mockResponseListeners.forEach((listener) => listener(tap(4))));
+    expect(reset.isOpen).toBe(false);
+    mockPlus.paywallSource = null;
+    view.rerender(tree());
+    await waitFor(() => expect(reset.isOpen).toBe(true));
+  });
+
   it("does nothing for another notification", async () => {
     await open(new Date(2026, 9, 25, 18, 1));
     await act(async () => {
@@ -344,6 +382,96 @@ describe("stepping aside and the background", () => {
     await press("sunday-reset-sort");
     await waitFor(() => expect(screen.getByTestId("sunday-reset-set")).toBeOnTheScreen());
     expect(parkedTexts()).toEqual(["Book the dentist"]);
+  });
+});
+
+/** Capture AppState listeners; the sheet's own are those added after `mark()`. */
+function captureAppState() {
+  const addEventListener = RNAppState.addEventListener as unknown as jest.Mock;
+  const original = addEventListener.getMockImplementation();
+  const listeners = new Set<(status: string) => void>();
+  addEventListener.mockImplementation((_type: string, listener: (status: string) => void) => {
+    listeners.add(listener);
+    return { remove: () => listeners.delete(listener) };
+  });
+  restoreAppState = () => addEventListener.mockImplementation(original);
+  let before = new Set<(status: string) => void>();
+  return {
+    mark: () => {
+      before = new Set(listeners);
+    },
+    send: (status: string) =>
+      act(async () => [...listeners].filter((listener) => !before.has(listener)).forEach((listener) => listener(status))),
+  };
+}
+
+// PR #110 re-review (P1): items saved when the app went to the background are
+// the dump's own, never "already saved": nothing typed is ever taken out.
+describe("nothing typed is lost after the app went to the background", () => {
+  const TYPED = ["Book the dentist", "Finish the slides", "Call Sam back", "Water the plants"];
+  const everyTypedItemKept = () => {
+    const kept = [...(latest.state.tomorrowDraft?.tasks ?? []), ...parkedTexts()];
+    for (const text of TYPED) expect(kept).toContain(text);
+  };
+
+  it("background, no edit, Next, Finish (the simple split)", async () => {
+    const app = captureAppState();
+    await open(SUNDAY_6PM);
+    app.mark();
+    await press("sunday-reset-start");
+    await press("sunday-reset-next");
+    await fireEvent.changeText(screen.getByTestId("sunday-reset-dump"), TYPED.join("\n"));
+    await app.send("background");
+    expect(parkedTexts()).toEqual(TYPED);
+    await app.send("active");
+    await press("sunday-reset-sort");
+    await waitFor(() => expect(screen.getByTestId("sunday-reset-set")).toBeOnTheScreen());
+    expect(parkedTexts()).toEqual(TYPED);
+    expect(screen.getAllByTestId("sunday-reset-candidate").length).toBe(TYPED.length);
+    await press("sunday-reset-set");
+    everyTypedItemKept();
+    expect(screen.getByTestId("sunday-reset-done-line")).toHaveTextContent(/^Monday's plan will be waiting/);
+  });
+
+  it("the same with the coach rewording the items (no copies in both)", async () => {
+    proxyUrl.mockReturnValue("https://proxy.test/api/momentum/plan");
+    brainDump.mockResolvedValue({
+      picks: ["Book a dentist visit", "Finish the slides deck"],
+      parked: ["Call Sam back today", "Water the plants"],
+      source: "ai",
+    });
+    const app = captureAppState();
+    await open(SUNDAY_6PM);
+    app.mark();
+    await press("sunday-reset-start");
+    await press("sunday-reset-next");
+    await fireEvent.changeText(screen.getByTestId("sunday-reset-dump"), TYPED.join("\n"));
+    await app.send("background");
+    await app.send("active");
+    await press("sunday-reset-sort");
+    await waitFor(() => expect(screen.getByTestId("sunday-reset-set")).toBeOnTheScreen());
+    expect(parkedTexts()).toEqual(TYPED);
+    await press("sunday-reset-set");
+    everyTypedItemKept();
+    expect(latest.state.tomorrowDraft?.tasks).toEqual(["Book the dentist", "Finish the slides"]);
+  });
+
+  it("background, then closed while it sorts: every typed item stays saved", async () => {
+    proxyUrl.mockReturnValue("https://proxy.test/api/momentum/plan");
+    brainDump.mockReturnValue(new Promise(() => {}));
+    const app = captureAppState();
+    await open(SUNDAY_6PM);
+    app.mark();
+    await press("sunday-reset-start");
+    await press("sunday-reset-next");
+    await fireEvent.changeText(screen.getByTestId("sunday-reset-dump"), TYPED.join("\n"));
+    await app.send("background");
+    await app.send("active");
+    await press("sunday-reset-sort");
+    await waitFor(() => expect(brainDump).toHaveBeenCalled());
+    await press("sunday-reset-close");
+    await waitFor(() => expect(reset.isOpen).toBe(false));
+    expect(parkedTexts()).toEqual(TYPED);
   });
 });
 

@@ -189,6 +189,20 @@ describe("the done screen", () => {
   });
 });
 
+/** Run in another time zone (Node re-reads TZ when it is set), restored after. */
+function inTimeZone(zone: string, run: () => void) {
+  const before = process.env.TZ;
+  process.env.TZ = zone;
+  try {
+    run();
+  } finally {
+    if (before === undefined) delete process.env.TZ;
+    else process.env.TZ = before;
+  }
+}
+
+// In America/New_York (PR #110 re-review), so the clocks really change that
+// day on any machine: EDT (UTC−4) until 2 AM, EST (UTC−5) after.
 describe("the Sunday notification on the US fall-back day (Sunday 1 Nov 2026)", () => {
   const context = (now: Date, over: Partial<ReminderContext> = {}): ReminderContext => ({
     now,
@@ -206,18 +220,29 @@ describe("the Sunday notification on the US fall-back day (Sunday 1 Nov 2026)", 
     ...over,
   });
 
-  it("is at 6 PM local that day, and the week after once it has gone", () => {
+  it("the zone really changes its clocks that day", () => {
+    inTimeZone("America/New_York", () => {
+      expect(new Date(2026, 10, 1, 0, 30).getTimezoneOffset()).toBe(240);
+      expect(new Date(2026, 10, 1, 18, 0).getTimezoneOffset()).toBe(300);
+    });
+  });
+
+  it("is at 6 PM local that day, and the week after once it has gone", () => inTimeZone("America/New_York", () => {
+    // 6 PM EST is 23:00 UTC.
+    expect(sundayResetReminder(context(new Date(2026, 10, 1, 9, 0)))?.fireAt.toISOString()).toBe("2026-11-01T23:00:00.000Z");
     const morning = sundayResetReminder(context(new Date(2026, 10, 1, 9, 0)));
     expect(morning?.fireAt).toEqual(new Date(2026, 10, 1, 18, 0));
     expect(morning?.fireAt.getHours()).toBe(18);
     expect(morning?.id).toBe("daily-tasks:2026-11-01:sunday_reset:1800");
     expect(sundayResetReminder(context(new Date(2026, 10, 1, 18, 0)))?.fireAt).toEqual(new Date(2026, 10, 8, 18, 0));
-  });
+    // From the Saturday before (still EDT), it lands at 6 PM EST all the same.
+    expect(sundayResetReminder(context(new Date(2026, 9, 31, 20, 0)))?.fireAt.toISOString()).toBe("2026-11-01T23:00:00.000Z");
+  }));
 
-  it("finished that afternoon, it moves to the next Sunday instead of none", () => {
+  it("finished that afternoon, it moves to the next Sunday instead of none", () => inTimeZone("America/New_York", () => {
     const done = { ...DEFAULT_SUNDAY_RESET, doneWeek: "2026-11-01" };
     expect(sundayResetReminder(context(new Date(2026, 10, 1, 15, 0), { sundayReset: done }))?.fireAt).toEqual(
       new Date(2026, 10, 8, 18, 0),
     );
-  });
+  }));
 });

@@ -7,6 +7,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { usePaywallGate } from "@/hooks/use-paywall-gate";
 import { track } from "@/lib/daily-tasks/analytics";
+import { usePlus } from "@/lib/daily-tasks/plus-context";
+import { SHEET_SWAP_DELAY_MS } from "@/lib/daily-tasks/sheet-swap";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { subscribeSundayResetResponses } from "@/lib/daily-tasks/sunday-reset-response";
 
@@ -19,9 +21,20 @@ export interface SundayResetApi {
   start: (source: SundayResetSource) => void;
   /** Close an open sheet as its × does (typed text is saved). True when one was open. */
   stepAside: () => boolean;
+  /**
+   * Today registers how to clear its own sheets (brain dump, Ideas, focus,
+   * What's new…) before a notification tap opens the reset: true when
+   * something stepped aside. Returns the unregister.
+   */
+  registerOthers: (stepAsideOthers: () => boolean) => () => void;
 }
 
-const NO_PROVIDER: SundayResetApi = { isOpen: false, start: () => {}, stepAside: () => false };
+const NO_PROVIDER: SundayResetApi = {
+  isOpen: false,
+  start: () => {},
+  stepAside: () => false,
+  registerOthers: () => () => {},
+};
 const SundayResetContext = createContext<SundayResetApi>(NO_PROVIDER);
 
 export function useSundayReset(): SundayResetApi {
@@ -30,6 +43,8 @@ export function useSundayReset(): SundayResetApi {
 
 export function SundayResetProvider({ children }: { children: ReactNode }) {
   const { ready, hasPlus, state } = useDailyTasks();
+  // Not over the paywall (a purchase may be under way): a tap waits for it.
+  const { paywallSource } = usePlus();
   const [open, setOpen] = useState<SundayResetSource | null>(null);
   const openRef = useRef(open);
   openRef.current = open;
@@ -61,10 +76,27 @@ export function SundayResetProvider({ children }: { children: ReactNode }) {
     return true;
   }, []);
 
+  const others = useRef<(() => boolean) | null>(null);
+  const registerOthers = useCallback((stepAsideOthers: () => boolean) => {
+    others.current = stepAsideOthers;
+    return () => {
+      if (others.current === stepAsideOthers) others.current = null;
+    };
+  }, []);
+
   // A tap on the Sunday notification opens the reset (once the app has
   // loaded, after first run, and only with Plus: it is a Plus notification).
+  // Today's other sheets step aside first, and the reset follows once they
+  // have animated away; the paywall is waited for, never closed.
   const [tapped, setTapped] = useState(0);
   const tapPending = useRef(false);
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (tapTimer.current) clearTimeout(tapTimer.current);
+    },
+    [],
+  );
   useEffect(
     () =>
       subscribeSundayResetResponses(() => {
@@ -74,14 +106,27 @@ export function SundayResetProvider({ children }: { children: ReactNode }) {
     [],
   );
   useEffect(() => {
-    if (!tapPending.current || !ready || !state.hasSeenOnboarding) return;
+    if (!tapPending.current || !ready || !state.hasSeenOnboarding || paywallSource !== null) return;
     tapPending.current = false;
     if (!hasPlus || openRef.current) return;
     track("sunday_reset", { step: "card", action: "start", source: "notification" });
-    setOpen("notification");
-  }, [tapped, ready, state.hasSeenOnboarding, hasPlus]);
+    const stepped = others.current ? others.current() : false;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    tapTimer.current = null;
+    if (!stepped) {
+      setOpen("notification");
+      return;
+    }
+    tapTimer.current = setTimeout(() => {
+      tapTimer.current = null;
+      if (!openRef.current) setOpen("notification");
+    }, SHEET_SWAP_DELAY_MS);
+  }, [tapped, ready, state.hasSeenOnboarding, hasPlus, paywallSource]);
 
-  const value = useMemo(() => ({ isOpen: open !== null, start, stepAside }), [open, start, stepAside]);
+  const value = useMemo(
+    () => ({ isOpen: open !== null, start, stepAside, registerOthers }),
+    [open, start, stepAside, registerOthers],
+  );
   return (
     <SundayResetContext.Provider value={value}>
       {children}

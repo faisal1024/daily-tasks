@@ -41,6 +41,7 @@ import {
   overflowLine,
   resetTargetDay,
   savedForReset,
+  savedMatch,
   sortWeek,
   sundayResetOf,
   WEEK_SORT_TIMEOUT_MS,
@@ -61,7 +62,12 @@ export interface SundayResetSheetHandle {
   close: () => void;
 }
 
-const STEP_OF: Partial<Record<Stage, number>> = { wins: 1, dump: 2, sorting: 2, three: 3 };
+const STEP_OF: Partial<Record<Stage, number>> = {
+  wins: 1,
+  dump: 2,
+  sorting: 2,
+  three: 3,
+};
 const looseKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
 
 export const SundayResetSheet = forwardRef<
@@ -89,12 +95,16 @@ export const SundayResetSheet = forwardRef<
   const [chosen, setChosen] = useState<string[]>([]);
   const [own, setOwn] = useState("");
   const [overflow, setOverflow] = useState(0);
-  const [result, setResult] = useState<{ picked: number; added: number }>({ picked: 0, added: 0 });
+  const [result, setResult] = useState<{ picked: number; added: number }>({
+    picked: 0,
+    added: 0,
+  });
   // The day the sort was for, captured then (so finishing after midnight
   // still fills that day), and the store's day it ran on.
   const [plan, setPlan] = useState<{ sortDay: string; target: string } | null>(null);
-  // Items the dump step already saved (the app went to the background): a
-  // later save replaces them, so a half-typed line doesn't stay behind.
+  // Items the dump step already saved (the app went to the background). One
+  // is taken out again only if the user edits that line away; the sort
+  // commits the rest (see saveForLater).
   const provisional = useRef<string[]>([]);
   // Bumped on every open and close: a sort that lands after the sheet closed
   // (or reopened) belongs to an old session and is dropped.
@@ -136,57 +146,88 @@ export const SundayResetSheet = forwardRef<
   const target = plan?.target ?? resetTargetDay(today);
   const weekday = weekdayOf(target);
   const sundayRitual = isSunday(plan?.sortDay ?? today);
-  const wins = useMemo(() => winsCopy(weekWins(state.history, today), daysShowedUp), [state.history, today, daysShowedUp]);
+  const wins = useMemo(
+    () => winsCopy(weekWins(state.history, today), daysShowedUp),
+    [state.history, today, daysShowedUp],
+  );
+
+  /** Saved for later without this session's provisional items (what was there before, or saved by other means). */
+  const parkedBeforeDump = () => {
+    const mine = new Set(provisional.current.map(looseKey));
+    return parkedRef.current.filter((item) => !mine.has(looseKey(item.text)));
+  };
 
   /**
-   * Save `items` for later (only what fits), replacing whatever the dump step
-   * saved provisionally that isn't among them. `dates`: the AI's (1.6 F);
-   * without them the device reads dates from the words.
+   * Make Saved for later hold `items` (only what fits; dates: the AI's, 1.6 F,
+   * else read on the device). Provisional items (saved when the app went to
+   * the background) are only ever taken out when the current text no longer
+   * has that line: the user edited it away. Nothing else is removed, and
+   * nothing saved before this session is touched. Returns the items now in
+   * Saved for later (new or provisional) and how many didn't fit.
    */
-  const saveForLater = (items: string[], dates?: Record<string, TaskWhen>): { fits: string[]; overflow: number } => {
-    const keep = new Set(items.map(looseKey));
-    const stale = provisional.current.filter((text) => !keep.has(looseKey(text)));
+  const saveForLater = (
+    items: string[],
+    dates?: Record<string, TaskWhen>,
+  ): { inSaved: string[]; added: string[]; overflow: number } => {
+    const typedNow = new Set(localWeekSort(dumpRef.current, []).dumpItems.map(looseKey));
+    const wanted = new Set(items.map(looseKey));
+    const stale = provisional.current.filter((text) => !typedNow.has(looseKey(text)) && !wanted.has(looseKey(text)));
     let parked = parkedRef.current;
     if (stale.length > 0) {
       const gone = new Set(stale.map(looseKey));
-      for (const item of parked) if (gone.has(looseKey(item.text))) removeParkedTask(item.id);
-      parked = parked.filter((item) => !gone.has(looseKey(item.text)));
+      const before = new Set(parkedBeforeDump().map((item) => item.id));
+      for (const item of parked) if (gone.has(looseKey(item.text)) && !before.has(item.id)) removeParkedTask(item.id);
+      parked = parked.filter((item) => before.has(item.id) || !gone.has(looseKey(item.text)));
     }
+    const kept = provisional.current.filter((text) => !stale.includes(text));
     const fit = fitSaved(items, parked);
     if (fit.fits.length > 0) {
       if (dates && Object.keys(dates).length > 0) parkTasks(fit.fits, dates);
       else parkTasks(fit.fits);
     }
-    provisional.current = [];
-    return fit;
+    const have = new Set([...parked.map((item) => looseKey(item.text)), ...fit.fits.map(looseKey)]);
+    const inSaved: string[] = [];
+    for (const text of [...items, ...kept]) {
+      if (have.has(looseKey(text)) && !inSaved.some((other) => looseKey(other) === looseKey(text))) inSaved.push(text);
+    }
+    const added = inSaved.filter((text) => fit.fits.includes(text) || kept.includes(text));
+    provisional.current = [...kept, ...fit.fits.filter((text) => !kept.includes(text))];
+    return { inSaved, added, overflow: fit.overflow };
   };
 
   /** The dump as typed, saved with the simple split (closing, or the app leaving). */
   const saveTypedDump = () => {
-    const typed = dumpRef.current.trim();
-    if (!typed) return [];
-    const items = localWeekSort(typed, parkedRef.current.map((item) => item.text)).dumpItems;
-    return saveForLater(items).fits;
+    if (!dumpRef.current.trim() && provisional.current.length === 0) return;
+    const items = localWeekSort(
+      dumpRef.current,
+      parkedBeforeDump().map((item) => item.text),
+    ).dumpItems;
+    saveForLater(items);
   };
 
   const close = () => {
     const now = stageRef.current;
     // A week's dump typed but not sorted yet (or still sorting) is saved, never lost.
     if (now === "dump" || now === "sorting") saveTypedDump();
-    if (now !== "done") track("sunday_reset", { step: now === "sorting" ? "dump" : now, action: "close", source });
+    if (now !== "done")
+      track("sunday_reset", {
+        step: now === "sorting" ? "dump" : now,
+        action: "close",
+        source,
+      });
     onClose();
   };
   useImperativeHandle(ref, () => ({ close }));
 
   // Going to the background mid-dump saves it as closing does (the app may
-  // not come back); coming back carries on, and the sort replaces it.
+  // not come back); coming back carries on, and the sort builds on it.
   useEffect(() => {
     if (!visible) return;
     const sub = RNAppState.addEventListener("change", (status) => {
       if (status !== "background") return;
       const now = stageRef.current;
       if (now !== "dump" && now !== "sorting") return;
-      provisional.current = saveTypedDump();
+      saveTypedDump();
     });
     return () => sub.remove();
     // saveTypedDump reads refs only.
@@ -199,9 +240,15 @@ export const SundayResetSheet = forwardRef<
     const sortDay = today;
     const forDate = resetTargetDay(sortDay);
     setPlan({ sortDay, target: forDate });
-    track("sunday_reset", { step: "dump", action: typed ? "next" : "skip", source });
+    track("sunday_reset", {
+      step: "dump",
+      action: typed ? "next" : "skip",
+      source,
+    });
     setStage("sorting");
-    const parkedNow = state.parkedTasks;
+    // What was saved before this session: items this dump already saved
+    // (the app went to the background) are the dump's, not "saved" ones.
+    const parkedNow = parkedBeforeDump();
     const saved = savedForReset(parkedNow, sortDay, forDate);
     const memory = buildBasicMemory(state.history, sortDay, state.memoryClearedAt ?? null);
     const aiReachable = hasPlus && proxyRouteUrl(getMomentumAiProxyUrl(), "brain-dump") != null;
@@ -218,10 +265,25 @@ export const SundayResetSheet = forwardRef<
     });
     // Closed (and the dump saved) meanwhile: this answer is for nobody.
     if (mine !== session.current) return;
-    // Everything new from the week's dump goes to Saved for later now (what
-    // fits); the ones used on the next day leave it that morning.
-    const fit = saveForLater(sort.dumpItems, sort.dates);
-    if (fit.fits.length > 0) track("sunday_reset", { step: "dump", action: "saved", count: fit.fits.length, source });
+    // A reworded item the dump already saved keeps its saved words (no copy in both).
+    // Only those still in the text (a line edited since isn't "the same item").
+    const typedNow = new Set(localWeekSort(dumpRef.current, []).dumpItems.map(looseKey));
+    const kept = provisional.current.filter((text) => typedNow.has(looseKey(text)));
+    const asKept = (text: string) => savedMatch(text, kept) ?? text;
+    const dumpItems = sort.dumpItems.map(asKept);
+    const suggested = sort.suggested.map(asKept);
+    // Everything from the week's dump is in Saved for later now (what fits);
+    // the ones used on the next day leave it that morning.
+    const fit = saveForLater(dumpItems, sort.dates);
+    // Committed: nothing of this session's dump is taken out from here on.
+    provisional.current = [];
+    if (fit.added.length > 0)
+      track("sunday_reset", {
+        step: "dump",
+        action: "saved",
+        count: fit.added.length,
+        source,
+      });
     setOverflow(fit.overflow);
     const draft = state.tomorrowDraft?.forDate === forDate ? state.tomorrowDraft : null;
     const ownDraft = draft?.from === "reset" ? draft.tasks : [];
@@ -229,17 +291,29 @@ export const SundayResetSheet = forwardRef<
     const list = nextDayCandidates({
       ownDraft,
       dueOnTarget: saved.dueOnTarget,
-      suggested: sort.suggested,
-      dumpItems: fit.fits,
+      suggested,
+      dumpItems: fit.inSaved,
       saved: parkedNow.map((item) => item.text),
       existingDraft,
     });
-    setSorted(sort);
-    setResult({ picked: 0, added: fit.fits.length });
+    const reasonsByText: Record<string, string> = {};
+    for (const [text, reason] of Object.entries(sort.reasons)) reasonsByText[asKept(text)] = reason;
+    setSorted({ ...sort, suggested, dumpItems });
+    setResult({ picked: 0, added: fit.added.length });
     setAiMissed(aiReachable && sort.source !== "ai" && (typed !== "" || saved.order.length > 0));
     setCandidates(list);
-    setReasons({ ...draftDueReasons(list, parkedNow, sortDay), ...sort.reasons });
-    setChosen(defaultPicks({ ownDraft, dueOnTarget: saved.dueOnTarget, suggested: sort.suggested, existingDraft }));
+    setReasons({
+      ...draftDueReasons(list, parkedRef.current, sortDay),
+      ...reasonsByText,
+    });
+    setChosen(
+      defaultPicks({
+        ownDraft,
+        dueOnTarget: saved.dueOnTarget,
+        suggested,
+        existingDraft,
+      }),
+    );
     setStage("three");
   };
 
@@ -255,9 +329,13 @@ export const SundayResetSheet = forwardRef<
     const text = cleanOwnTask(own);
     if (!text) return;
     setOwn("");
-    setCandidates((current) => (current.some((item) => looseKey(item) === looseKey(text)) ? current : [text, ...current]));
+    setCandidates((current) =>
+      current.some((item) => looseKey(item) === looseKey(text)) ? current : [text, ...current],
+    );
     setChosen((current) =>
-      current.some((item) => looseKey(item) === looseKey(text)) || current.length >= MAX_TASKS ? current : [...current, text],
+      current.some((item) => looseKey(item) === looseKey(text)) || current.length >= MAX_TASKS
+        ? current
+        : [...current, text],
     );
   };
 
@@ -267,7 +345,12 @@ export const SundayResetSheet = forwardRef<
     const sortDay = plan?.sortDay ?? today;
     if (picked.length > 0) setResetDraft(picked, sorted?.source ?? "local", plan?.target);
     updateSundayReset({ doneWeek: weekKey(sortDay) });
-    track("sunday_reset", { step: "three", action: "set", count: picked.length, source });
+    track("sunday_reset", {
+      step: "three",
+      action: "set",
+      count: picked.length,
+      source,
+    });
     setResult((current) => ({ ...current, picked: picked.length }));
     setStage("done");
   };
@@ -296,7 +379,11 @@ export const SundayResetSheet = forwardRef<
     >
       <Text
         className="text-lg"
-        style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: disabled ? colors.muted : colors.onPrimary }}
+        style={{
+          fontFamily: Fonts.rounded,
+          fontWeight: "700",
+          color: disabled ? colors.muted : colors.onPrimary,
+        }}
       >
         {label}
       </Text>
@@ -350,7 +437,12 @@ export const SundayResetSheet = forwardRef<
                   : undefined
             }
             hitSlop={12}
-            style={{ minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" }}
+            style={{
+              minHeight: 44,
+              minWidth: 44,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
             testID="sunday-reset-close"
           >
             <Ionicons name="close" size={26} color={colors.muted} />
@@ -360,14 +452,21 @@ export const SundayResetSheet = forwardRef<
         <ScrollView
           keyboardShouldPersistTaps="handled"
           automaticallyAdjustKeyboardInsets
-          contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 24, gap: 14 }}
+          contentContainerStyle={{
+            padding: 20,
+            paddingBottom: insets.bottom + 24,
+            gap: 14,
+          }}
         >
           {stage === "wins" && (
             <>
               {heading("Your week's wins")}
               <View
                 className="rounded-2xl border p-4 gap-2"
-                style={{ borderColor: colors.border, backgroundColor: colors.surface }}
+                style={{
+                  borderColor: colors.border,
+                  backgroundColor: colors.surface,
+                }}
                 testID="sunday-reset-wins"
               >
                 <Text className="text-base text-foreground" style={{ fontWeight: "700" }}>
@@ -382,7 +481,11 @@ export const SundayResetSheet = forwardRef<
               {primary(
                 "Next",
                 () => {
-                  track("sunday_reset", { step: "wins", action: "next", source });
+                  track("sunday_reset", {
+                    step: "wins",
+                    action: "next",
+                    source,
+                  });
                   setStage("dump");
                 },
                 "sunday-reset-next",
@@ -504,7 +607,11 @@ export const SundayResetSheet = forwardRef<
                   placeholderTextColor={colors.muted}
                   accessibilityLabel={`Add your own for ${weekday}`}
                   className="flex-1 rounded-2xl border px-4 py-3 text-base"
-                  style={{ color: colors.foreground, borderColor: colors.border, backgroundColor: colors.surface }}
+                  style={{
+                    color: colors.foreground,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surface,
+                  }}
                   testID="sunday-reset-own"
                 />
                 <Pressable
@@ -515,10 +622,18 @@ export const SundayResetSheet = forwardRef<
                   accessibilityState={{ disabled: !own.trim() }}
                   hitSlop={8}
                   className="rounded-2xl px-4 py-3"
-                  style={{ minHeight: 44, backgroundColor: own.trim() ? `${colors.primary}16` : colors.surface }}
+                  style={{
+                    minHeight: 44,
+                    backgroundColor: own.trim() ? `${colors.primary}16` : colors.surface,
+                  }}
                   testID="sunday-reset-own-add"
                 >
-                  <Text className="text-base font-semibold" style={{ color: own.trim() ? colors.primary : colors.muted }}>
+                  <Text
+                    className="text-base font-semibold"
+                    style={{
+                      color: own.trim() ? colors.primary : colors.muted,
+                    }}
+                  >
                     Add
                   </Text>
                 </Pressable>
@@ -539,10 +654,18 @@ export const SundayResetSheet = forwardRef<
                   {sundayRitual ? "Your week is set up." : "Tomorrow is set up."}
                 </Text>
                 <Text className="text-base text-center" style={{ color: colors.muted }} testID="sunday-reset-done-line">
-                  {doneLine({ weekday, picked: result.picked, added: result.added })}
+                  {doneLine({
+                    weekday,
+                    picked: result.picked,
+                    added: result.added,
+                  })}
                 </Text>
                 {nudgeLine ? (
-                  <Text className="text-sm text-center" style={{ color: colors.muted }} testID="sunday-reset-nudge-line">
+                  <Text
+                    className="text-sm text-center"
+                    style={{ color: colors.muted }}
+                    testID="sunday-reset-nudge-line"
+                  >
                     {nudgeLine}
                   </Text>
                 ) : null}

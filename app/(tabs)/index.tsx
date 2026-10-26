@@ -1244,6 +1244,22 @@ export default function HomeScreen() {
     // The Sunday reset (1.6 H): closed as its × does, so a typed dump is saved.
     sundayReset: () => sundayReset.stepAside(),
   };
+  // A tap on the Sunday reset's notification (1.6 H): Today's own sheets step
+  // aside first (the brain dump too: what's typed in it stays), and the
+  // provider opens the reset once they've gone.
+  const stepAsideForReset = useRef<() => boolean>(() => false);
+  stepAsideForReset.current = () => {
+    // Every entry runs (no short-circuit): all of them close.
+    const stepped = Object.entries(stepAsideForDump.current)
+      .filter(([key]) => key !== "sundayReset")
+      .map(([, stepAside]) => stepAside())
+      .some(Boolean);
+    if (!brainDumpOpen) return stepped;
+    setBrainDumpOpen(false);
+    return true;
+  };
+  const registerResetOthers = sundayReset.registerOthers;
+  useEffect(() => registerResetOthers(() => stepAsideForReset.current()), [registerResetOthers]);
   const dumpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
