@@ -50,7 +50,7 @@ interface IdeasSheetProps {
   /** Routines due today and not on today's list yet (1.3). Nothing shows when empty. */
   routines?: { id: string; text: string }[];
   onAddRoutine?: (id: string) => void;
-  /** Today is set: nothing can be added until it's unlocked in Settings. */
+  /** Today is locked: nothing can be added until it's unlocked. */
   locked?: boolean;
   /** The user has routines (due today or not); without any, a quiet footer offers one. */
   hasRoutines?: boolean;
@@ -113,7 +113,7 @@ export function IdeasSheet({
   const shownIdeas = routineKeys.size > 0 ? ideas.filter((idea) => !routineKeys.has(keyOf(idea.text))) : ideas;
   const available = shownIdeas.filter((idea) => !addedTexts.has(keyOf(idea.text)));
   const full = remainingSlots <= 0;
-  // Saved items can't move onto a full day, or a set one.
+  // Saved items can't move onto a full day, or a locked one.
   const parkedBlocked = full || locked;
   // The saved-only view is just the saved items: no milestone group either.
   const shownMilestone = !savedOnly && milestoneGroup && milestoneGroup.ideas.length > 0 ? milestoneGroup : null;
@@ -291,7 +291,7 @@ export function IdeasSheet({
           <View className="gap-2" testID="general-ideas">
             {shownIdeas.map((idea) => {
               const added = addedTexts.has(keyOf(idea.text));
-              // A day set while the sheet was open takes nothing more.
+              // A day locked while the sheet was open takes nothing more.
               const disabled = added || full || locked;
               return (
                 <Pressable
@@ -476,7 +476,7 @@ export function IdeasSheet({
 
 /**
  * Routines due today, at the top of the sheet. Same one-tap add as an idea;
- * when today is full or set, the rows are disabled and say why. A routine
+ * when today is full or locked, the rows are disabled and say why. A routine
  * that isn't added simply isn't: nothing is marked missed.
  */
 function TodaysRoutines({
@@ -551,7 +551,7 @@ function TodaysRoutines({
 /**
  * Suggestions for the next open milestone on the goal path. Same one-tap add
  * as any other idea, with the same rules: nothing is added once today is full
- * or set, and one already on today's list shows as added.
+ * or locked, and one already on today's list shows as added.
  */
 function MilestoneIdeas({
   title,
@@ -563,7 +563,7 @@ function MilestoneIdeas({
   title: string;
   ideas: IdeaItem[];
   addedTexts: Set<string>;
-  /** Today is full or set. */
+  /** Today is full or locked. */
   blocked: boolean;
   onAdd: (text: string) => void;
 }) {

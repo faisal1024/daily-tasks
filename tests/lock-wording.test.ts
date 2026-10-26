@@ -18,6 +18,8 @@ const FILES = [
   "components/daily-tasks/first-days-cards.tsx",
   "lib/daily-tasks/today-view.ts",
   "lib/daily-tasks/routines.ts",
+  // Not shown anywhere yet (no UI calls selectCoachMessage), kept consistent anyway.
+  "lib/daily-tasks/coach-messages.ts",
 ];
 
 /** Source with comments removed (line, block and JSX `{/* *\/}` comments). */
@@ -37,6 +39,9 @@ const OLD_WORDING: [string, RegExp][] = [
   ["a bare Set button", /text: "Set"/],
   ["unlock in Settings", /unlock(ed)?( it| today)? in Settings/i],
   ["pin icon for the lock action", /pin-outline/],
+  ["the list / commitments are set", /\b(list|commitments) (is|are) set\b/i],
+  ["set it / set them (the list)", /\bset (it|them)\b/i],
+  ["Set the day phase", /phase: "Set/],
 ];
 
 describe("lock wording (1.5)", () => {

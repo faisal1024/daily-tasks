@@ -34,12 +34,23 @@ const FIRST_RUN_LIMIT_NOTICE =
 // became Today cards (components/daily-tasks/first-days-cards.tsx).
 export type FirstRunStep = "dump" | "sorting" | "three";
 
+/**
+ * How first run ended: `picked` tasks went on today; `source` is "dump" (a
+ * dump was sorted), "own" ("I'll add my own") or "resume" (tasks were already
+ * on today when it opened, so nothing was asked).
+ */
+export interface FirstRunResult {
+  picked: number;
+  source: "dump" | "own" | "resume";
+}
+
 interface FirstRunProps {
   visible: boolean;
   /** Sort the dump into picks and the rest (AI when available, else local). */
   onSort: (text: string) => Promise<SortedBrainDump>;
   /** The chosen three go on today's list; the rest is saved for later. */
-  onSet: (picks: string[], parked: string[]) => void;
+  /** Returns how many actually went on today (0 when the day was locked meanwhile). */
+  onSet: (picks: string[], parked: string[]) => number;
   onStep?: (step: FirstRunStep) => void;
   /**
    * Tasks already on today when it (re)appears (an earlier first run that
@@ -47,7 +58,7 @@ interface FirstRunProps {
    */
   resumeCount?: number;
   /** Over: on to Today. `picked` is how many went on today's list here. */
-  onFinish: (picked: number) => void;
+  onFinish: (result: FirstRunResult) => void;
 }
 
 /**
@@ -90,7 +101,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
     setStep("dump");
     if (resumeCount > 0) {
       committing.current = true;
-      onFinish(0);
+      onFinish({ picked: 0, source: "resume" });
       return;
     }
     onStep?.("dump");
@@ -112,7 +123,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
       if (committing.current) return;
       committing.current = true;
       onSet([], nextParked);
-      onFinish(0);
+      onFinish({ picked: 0, source: "dump" });
       return;
     }
     setPicks(nextPicks);
@@ -136,8 +147,8 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
     if (use.length === 0 || committing.current) return;
     committing.current = true;
     const rest = [...picks.filter((pick) => !chosen.has(pick)), ...parked];
-    onSet(use, rest);
-    onFinish(use.length);
+    const picked = onSet(use, rest);
+    onFinish({ picked, source: "dump" });
   };
 
   const toggle = (pick: string) => {
@@ -162,7 +173,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
               onPress={() => {
                 if (committing.current) return;
                 committing.current = true;
-                onFinish(0);
+                onFinish({ picked: 0, source: "own" });
               }}
             />
           </>
@@ -264,7 +275,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
             <>
               <Title
                 title={picks.length === 1 ? "Here's one for today" : `Here are your ${countWord(picks.length)} for today`}
-                body="Untick anything that isn't for today. It'll be saved for later."
+                body="Untick anything that isn't for today and we'll save it for later."
               />
               {notice ? (
                 <Text className="text-sm" style={{ color: colors.muted }}>

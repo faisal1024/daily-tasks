@@ -11,6 +11,7 @@ import { normalizeRoutines } from "./routines";
 import { isReviewTrigger } from "./review-prompt";
 import { normalizeWhatsNewSeen } from "./whats-new";
 import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
+import { FIRST_DAYS_KEY } from "./first-days";
 import type {
   AppState,
   AutoLockConfig,
@@ -275,7 +276,9 @@ function normalizeMinute(value: unknown): number {
 // it: a 1.4.x save always has `enabled` written out and keeps it as is, and an
 // older save without the field (or without autoLock at all) reads as ON, the
 // value those builds ran with. So only a brand-new install, or "Reset all
-// data", starts with it off.
+// data", starts with it off. One more path: a save that can't be read or
+// parsed with no usable backup loads as a new install (loadState returns
+// null), so that person goes through first run again with auto-lock off.
 function normalizeAutoLock(value: unknown): AutoLockConfig {
   if (!isRecord(value)) {
     return DEFAULT_AUTO_LOCK;
@@ -854,7 +857,15 @@ export async function clearState(): Promise<void> {
   try {
     // The trial note's local counts and record go too (they're about this data),
     // and the day's nag lines (they can hold task text).
-    await AsyncStorage.multiRemove([STORAGE_KEY, BACKUP_KEY, PLUS_USES_KEY, TRIAL_NOTE_KEY, NAG_STORAGE_KEY]);
+    // And the first-days cards' record (1.5), so the next first run starts it fresh.
+    await AsyncStorage.multiRemove([
+      STORAGE_KEY,
+      BACKUP_KEY,
+      PLUS_USES_KEY,
+      TRIAL_NOTE_KEY,
+      NAG_STORAGE_KEY,
+      FIRST_DAYS_KEY,
+    ]);
   } catch (err) {
     console.warn("[daily-tasks] failed to clear state", err);
   }

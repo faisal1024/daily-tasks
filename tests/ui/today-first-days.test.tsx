@@ -39,6 +39,8 @@ jest.mock("@/lib/daily-tasks/plus-context", () => ({
 jest.mock("@/components/daily-tasks/rollover-modal", () => ({ RolloverModal: () => null }));
 
 const TODAY = "2026-09-26";
+// First run's record waits for the next day (or the first check-off) for the nudge.
+const TOMORROW = "2026-09-27";
 const originalOS = Platform.OS;
 
 function makeStore(overrides: Partial<AppState> = {}, extra: Record<string, unknown> = {}) {
@@ -149,7 +151,7 @@ describe("first run ends (1.5): each path", () => {
     expect(mockStore.addTasks).not.toHaveBeenCalled();
     expect(completedEvents()).toEqual([{ source: "own", count: 0 }]);
     await waitFor(async () =>
-      expect(await storedRecord()).toEqual({ nudgeFrom: TODAY, nudgeDeclines: 0, widgetTip: "waiting" }),
+      expect(await storedRecord()).toEqual({ nudgeFrom: TOMORROW, nudgeDeclines: 0, widgetTip: "waiting" }),
     );
     expect(screen.queryByTestId("today-toast")).toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 700));
@@ -169,8 +171,8 @@ describe("first run ends (1.5): each path", () => {
     expect(mockStore.addTasks).not.toHaveBeenCalled();
     expect(mockStore.parkTasks).toHaveBeenCalledWith(["Note to self"]);
     expect(mockStore.markOnboardingSeen).toHaveBeenCalledTimes(1);
-    expect(completedEvents()).toEqual([{ source: "own", count: 0 }]);
-    await waitFor(async () => expect((await storedRecord())?.nudgeFrom).toBe(TODAY));
+    expect(completedEvents()).toEqual([{ source: "dump", count: 0 }]);
+    await waitFor(async () => expect((await storedRecord())?.nudgeFrom).toBe(TOMORROW));
     expect(screen.queryByTestId("today-toast")).toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 700));
     expect(announce.mock.calls.map(([text]) => text)).toEqual(["Picking your three"]);
@@ -195,7 +197,7 @@ describe("first run ends (1.5): each path", () => {
     // VoiceOver hears it a moment later, so the closing screen doesn't cut it off.
     await waitFor(() => expect(announce).toHaveBeenCalledWith("Your three are picked."));
     expect(announce.mock.calls.filter(([text]) => text === "Your three are picked.")).toHaveLength(1);
-    expect(await storedRecord()).toEqual({ nudgeFrom: TODAY, nudgeDeclines: 0, widgetTip: "waiting" });
+    expect(await storedRecord()).toEqual({ nudgeFrom: TOMORROW, nudgeDeclines: 0, widgetTip: "waiting" });
     expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 
@@ -217,29 +219,49 @@ describe("first run ends (1.5): each path", () => {
     expect(sortBrainDump).not.toHaveBeenCalled();
     expect(mockStore.markOnboardingSeen).toHaveBeenCalledTimes(1);
     expect(mockStore.addTasks).not.toHaveBeenCalled();
-    expect(completedEvents()).toEqual([{ source: "dump", count: 2 }]);
-    await waitFor(async () => expect((await storedRecord())?.nudgeFrom).toBe(TODAY));
+    expect(completedEvents()).toEqual([{ source: "resume", count: 2 }]);
+    await waitFor(async () => expect((await storedRecord())?.nudgeFrom).toBe(TOMORROW));
     expect(screen.queryByTestId("today-toast")).toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 700));
     expect(announce).not.toHaveBeenCalled();
     expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 
-  it("once first run has ended, the nudge card appears on Today (and was not asked about before)", async () => {
+  it("once first run has ended, the nudge card waits for the first check-off (not right after 'picked')", async () => {
     mockStore = makeStore({ hasSeenOnboarding: false });
     const { rerender } = await render(<HomeScreen />);
     await fireEvent.press(button("I'll add my own"));
     expect(mockStore.requestNotificationPermission).not.toHaveBeenCalled();
     // The store marks onboarding seen; Today re-renders.
-    mockStore = makeStore({ hasSeenOnboarding: true });
+    mockStore = makeStore({ hasSeenOnboarding: true, tasks: tasks("Walk", "Swim") });
+    await rerender(<HomeScreen />);
+    await waitFor(async () => expect((await storedRecord())?.nudgeFrom).toBe(TOMORROW));
+    await flush();
+    expect(screen.queryByTestId("nudge-card")).toBeNull();
+    // The first check-off brings it to today.
+    mockStore = makeStore({ hasSeenOnboarding: true, tasks: tasks("Walk", "Swim"), todayCompletions: ["t0"] });
     await rerender(<HomeScreen />);
     await waitFor(() => expect(screen.getByTestId("nudge-card")).toBeOnTheScreen());
+    expect((await storedRecord()).nudgeFrom).toBe(TODAY);
     expect(cardEvents()).toEqual([{ kind: "nudge", action: "shown" }]);
+  });
+
+  it("a day locked meanwhile: nothing lands on today, so no 'picked' note; it says where they went", async () => {
+    mockStore = makeStore({ hasSeenOnboarding: false });
+    const { rerender } = await render(<HomeScreen />);
+    await dump("walk, call mum, report");
+    mockStore = makeStore({ hasSeenOnboarding: false, tasks: tasks("Stretch"), todayLocked: true, todayLockSource: "auto" });
+    await rerender(<HomeScreen />);
+    await fireEvent.press(button("Use these three"));
+    expect(mockStore.addTasks).not.toHaveBeenCalled();
+    expect(completedEvents()).toEqual([{ source: "dump", count: 0 }]);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. 4 saved for later in Ideas\.$/);
+    expect(screen.queryByText(/picked/)).toBeNull();
   });
 });
 
 describe("Today cards", () => {
-  const record = (over = {}) => saveFirstDays({ ...startFirstDays(TODAY), ...over });
+  const record = (over = {}) => saveFirstDays({ ...startFirstDays(TODAY), nudgeFrom: TODAY, ...over });
 
   it("Yes while allowed turns reminders and the morning reminder on", async () => {
     await record();
@@ -296,6 +318,16 @@ describe("Today cards", () => {
     expect(await AsyncStorage.getItem(FIRST_DAYS_KEY)).toBeNull();
   });
 
+  it("no nudge card next to the rollover card", async () => {
+    await record();
+    mockStore = makeStore({
+      pendingRollover: { fromDate: "2026-09-25", tasks: [] } as unknown as AppState["pendingRollover"],
+    });
+    await render(<HomeScreen />);
+    await flush();
+    expect(screen.queryByTestId("nudge-card")).toBeNull();
+  });
+
   it("no card is behind first run", async () => {
     await record();
     mockStore = makeStore({ hasSeenOnboarding: false });
@@ -305,16 +337,25 @@ describe("Today cards", () => {
     expect(screen.queryByTestId("nudge-card")).toBeNull();
   });
 
-  it("the widget tip comes after the first finished day (not while the nudge is up), on iOS only", async () => {
-    const finished = { tasks: tasks("Walk", "Stretch", "Hydrate"), todayCompletions: ["t0", "t1", "t2"] };
+  it("the widget tip comes on the next open after the first finished day (never on that moment), on iOS only", async () => {
+    // A finished one-task day counts too (every planned task done).
+    const finished = { tasks: tasks("Walk"), todayCompletions: ["t0"] };
     await record();
     mockStore = makeStore(finished);
-    const { rerender } = await render(<HomeScreen />);
+    const { rerender, unmount } = await render(<HomeScreen />);
     await waitFor(() => expect(screen.getByTestId("nudge-card")).toBeOnTheScreen());
     expect(screen.queryByTestId("widget-tip")).toBeNull();
+    await waitFor(async () => expect((await storedRecord()).widgetTip).toBe("earned"));
 
+    // Nudge answered in the same session: still no tip on the finished day.
     mockStore = makeStore(finished, { notificationPermission: "granted" });
     await rerender(<HomeScreen />);
+    await flush();
+    expect(screen.queryByTestId("widget-tip")).toBeNull();
+    await unmount();
+
+    // The next launch.
+    await render(<HomeScreen />);
     await waitFor(() => expect(screen.getByTestId("widget-tip")).toBeOnTheScreen());
     expect(screen.queryByTestId("nudge-card")).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "Dismiss widget tip" }));

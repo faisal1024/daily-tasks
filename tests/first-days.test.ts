@@ -12,7 +12,9 @@ import {
   declineNudge,
   dismissWidgetTip,
   loadFirstDays,
+  noteCheckOff,
   noteFinishedDay,
+  openFirstDays,
   pickedNote,
   saveFirstDays,
   shouldShowNudgeCard,
@@ -42,10 +44,30 @@ beforeEach(() => {
 });
 
 const D1 = "2026-10-01";
-const fresh = () => startFirstDays(D1);
+/** A record whose nudge is due on D1. */
+const fresh = (): FirstDaysRecord => ({ ...startFirstDays(D1), nudgeFrom: D1 });
+/** A tip that's due: earned on a finished day, then the next open. */
+const dueTip = (record: FirstDaysRecord) => openFirstDays(noteFinishedDay(record, true));
 
 describe("nudge card: when it shows", () => {
-  it("shows from the first-run day while notifications are undetermined", () => {
+  it("first run's record waits for tomorrow, or the first check-off today (review fix)", () => {
+    const started = startFirstDays(D1);
+    expect(started.nudgeFrom).toBe("2026-10-02");
+    const show = (record: FirstDaysRecord, today: string) =>
+      shouldShowNudgeCard({ record, today, permission: "undetermined" });
+    expect(show(started, D1)).toBe(false);
+    expect(show(started, "2026-10-02")).toBe(true);
+    expect(noteCheckOff(started, D1, false)).toBe(started);
+    const checked = noteCheckOff(started, D1, true);
+    expect(checked.nudgeFrom).toBe(D1);
+    expect(show(checked, D1)).toBe(true);
+    // Never brings a snoozed one forward, never revives a retired one.
+    const snoozed = declineNudge(checked, D1);
+    expect(noteCheckOff(snoozed, "2026-10-02", true)).toBe(snoozed);
+    expect(noteCheckOff(answerNudge(started), D1, true).nudgeFrom).toBeNull();
+  });
+
+  it("shows from nudgeFrom on while notifications are undetermined", () => {
     const input = { record: fresh(), today: D1, permission: "undetermined" as const };
     expect(shouldShowNudgeCard(input)).toBe(true);
     expect(shouldShowNudgeCard({ ...input, today: "2026-10-09" })).toBe(true);
@@ -89,7 +111,7 @@ describe("nudge card: Not now and Yes", () => {
   });
 
   it("Yes retires it whatever iOS answered, and leaves the widget tip alone", () => {
-    const due = noteFinishedDay(fresh(), true);
+    const due = dueTip(fresh());
     const answered = answerNudge(due);
     expect(answered.nudgeFrom).toBeNull();
     expect(answered.widgetTip).toBe("due");
@@ -115,17 +137,22 @@ describe("widget tip", () => {
     ...over,
   });
 
-  it("waits until a day is finished, then is due", () => {
+  it("waits until a day is finished, is earned (not shown) that session, and is due from the next open", () => {
     expect(fresh().widgetTip).toBe("waiting");
     expect(shouldShowWidgetTip(input(fresh()))).toBe(false);
     expect(noteFinishedDay(fresh(), false).widgetTip).toBe("waiting");
-    const due = noteFinishedDay(fresh(), true);
+    const earned = noteFinishedDay(fresh(), true);
+    expect(earned.widgetTip).toBe("earned");
+    expect(shouldShowWidgetTip(input(earned))).toBe(false);
+    // A load of a waiting record changes nothing.
+    expect(openFirstDays(fresh())).toEqual(fresh());
+    const due = openFirstDays(earned);
     expect(due.widgetTip).toBe("due");
     expect(shouldShowWidgetTip(input(due))).toBe(true);
   });
 
   it("stays due on later days until dismissed, and once dismissed never comes back", () => {
-    const due = noteFinishedDay(fresh(), true);
+    const due = dueTip(fresh());
     // An unfinished day later on doesn't take it back.
     expect(noteFinishedDay(due, false)).toBe(due);
     const dismissed = dismissWidgetTip(due);
@@ -136,12 +163,12 @@ describe("widget tip", () => {
   });
 
   it("is iOS only (the widget is)", () => {
-    const due = noteFinishedDay(fresh(), true);
+    const due = dueTip(fresh());
     expect(shouldShowWidgetTip(input(due, { widgetsSupported: false }))).toBe(false);
   });
 
   it("never shows alongside the nudge card, and has no record to show without one", () => {
-    const due = noteFinishedDay(fresh(), true);
+    const due = dueTip(fresh());
     expect(shouldShowWidgetTip(input(due, { nudgeShowing: true }))).toBe(false);
     expect(shouldShowWidgetTip(input(null))).toBe(false);
   });
@@ -156,14 +183,19 @@ describe("the saved record", () => {
     expect(await loadFirstDays()).toBeNull();
   });
 
-  it("round-trips, and first run writes nudge-from-today + tip waiting", async () => {
+  it("round-trips, and first run writes nudge-from-tomorrow + tip waiting", async () => {
     await saveFirstDays(startFirstDays("2026-10-01"));
     expect(JSON.parse(store.data.get(FIRST_DAYS_KEY) ?? "null")).toEqual({
-      nudgeFrom: "2026-10-01",
+      nudgeFrom: "2026-10-02",
       nudgeDeclines: 0,
       widgetTip: "waiting",
     });
     expect(await loadFirstDays()).toEqual(startFirstDays("2026-10-01"));
+  });
+
+  it("an earned tip survives a save and load", async () => {
+    await saveFirstDays({ ...fresh(), widgetTip: "earned" });
+    expect((await loadFirstDays())?.widgetTip).toBe("earned");
   });
 
   it("a damaged field fails quiet: bad date retires the nudge, bad tip state retires the tip", async () => {

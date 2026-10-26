@@ -22,7 +22,8 @@ function props(overrides: Partial<Parameters<typeof FirstRun>[0]> = {}) {
   return {
     visible: true,
     onSort: jest.fn(async () => sorted(["Walk", "Call mum", "Report"], ["Groceries"])),
-    onSet: jest.fn(),
+    // Returns how many went on today: all of them, unless a test says otherwise.
+    onSet: jest.fn((picks: string[]) => picks.length),
     onStep: jest.fn(),
     onFinish: jest.fn(),
     ...overrides,
@@ -73,7 +74,7 @@ describe("FirstRun: choosing", () => {
     await fireEvent.press(button("Use these two"));
     expect(p.onSet).toHaveBeenCalledWith(["Walk", "Report"], ["Call mum", "Groceries"]);
     expect(p.onFinish).toHaveBeenCalledTimes(1);
-    expect(p.onFinish).toHaveBeenCalledWith(2);
+    expect(p.onFinish).toHaveBeenCalledWith({ picked: 2, source: "dump" });
     expect(p.onStep).toHaveBeenLastCalledWith("three");
   });
 
@@ -96,7 +97,7 @@ describe("FirstRun: choosing", () => {
     await dumpAndSort("note to self");
     expect(p.onSet).toHaveBeenCalledWith([], ["Note to self"]);
     expect(p.onFinish).toHaveBeenCalledTimes(1);
-    expect(p.onFinish).toHaveBeenCalledWith(0);
+    expect(p.onFinish).toHaveBeenCalledWith({ picked: 0, source: "dump" });
   });
 
   it("'I'll add my own' goes straight to Today without adding anything", async () => {
@@ -104,7 +105,7 @@ describe("FirstRun: choosing", () => {
     await render(<FirstRun {...p} />);
     await fireEvent.press(button("I'll add my own"));
     expect(p.onFinish).toHaveBeenCalledTimes(1);
-    expect(p.onFinish).toHaveBeenCalledWith(0);
+    expect(p.onFinish).toHaveBeenCalledWith({ picked: 0, source: "own" });
     expect(p.onSort).not.toHaveBeenCalled();
     expect(p.onSet).not.toHaveBeenCalled();
     expect((p.onStep as jest.Mock).mock.calls.map(([s]: [FirstRunStep]) => s)).toEqual(["dump"]);
@@ -128,17 +129,25 @@ describe("FirstRun: choosing", () => {
     expect(screen.queryByRole("checkbox", { name: "Old A" })).toBeNull();
     await fireEvent.press(button("Use this one"));
     expect(p.onSet).toHaveBeenCalledWith(["New A"], []);
-    expect(p.onFinish).toHaveBeenCalledWith(1);
+    expect(p.onFinish).toHaveBeenCalledWith({ picked: 1, source: "dump" });
   });
 });
 
 describe("FirstRun: three screens (1.5)", () => {
+  it("reports what actually went on today (onSet's answer), e.g. none on a day locked meanwhile", async () => {
+    const p = props({ onSet: jest.fn(() => 0) });
+    await render(<FirstRun {...p} />);
+    await dumpAndSort();
+    await fireEvent.press(button("Use these three"));
+    expect(p.onFinish).toHaveBeenCalledWith({ picked: 0, source: "dump" });
+  });
+
   it("has no nudge or widget screen: using the picks is the last step", async () => {
     const p = props();
     await render(<FirstRun {...p} />);
     await dumpAndSort();
     await fireEvent.press(button("Use these three"));
-    expect(p.onFinish).toHaveBeenCalledWith(3);
+    expect(p.onFinish).toHaveBeenCalledWith({ picked: 3, source: "dump" });
     expect(screen.queryByRole("button", { name: "Yes, nudge me" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
     expect(screen.queryByText("Keep your three in sight")).toBeNull();
@@ -236,7 +245,7 @@ describe("FirstRun: review fixes (7275263)", () => {
     const p = props({ resumeCount: 2 });
     await render(<FirstRun {...p} />);
     expect(p.onFinish).toHaveBeenCalledTimes(1);
-    expect(p.onFinish).toHaveBeenCalledWith(0);
+    expect(p.onFinish).toHaveBeenCalledWith({ picked: 0, source: "resume" });
     expect(p.onStep).not.toHaveBeenCalled();
     expect(p.onSet).not.toHaveBeenCalled();
   });

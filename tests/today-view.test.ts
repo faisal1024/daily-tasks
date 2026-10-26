@@ -528,10 +528,10 @@ describe("brainDumpToast", () => {
 describe("unlockConfirmation (1.4)", () => {
   const BUTTONS = { keep: "Keep locked", unlock: "Unlock" };
 
-  it("a day locked by hand: the three open up, and it can be locked again", () => {
+  it("a day locked by hand: it opens up again, and it can be locked again", () => {
     expect(unlockConfirmation({ lockSource: "manual" })).toEqual({
       title: "Unlock today?",
-      message: "Your three will be open to change again. You can lock today again any time.",
+      message: "Today will be open to change again. You can lock today again any time.",
       ...BUTTONS,
     });
     // An older save without a source reads the same; the time is only for auto-set.

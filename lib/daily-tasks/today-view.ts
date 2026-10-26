@@ -250,7 +250,7 @@ export function unlockConfirmation(params: {
     message:
       lockSource === "auto"
         ? `Today was locked automatically${when}. Unlocking keeps it open for the rest of today.`
-        : "Your three will be open to change again. You can lock today again any time.",
+        : "Today will be open to change again. You can lock today again any time.",
     keep: "Keep locked",
     unlock: "Unlock",
   };

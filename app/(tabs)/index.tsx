@@ -781,6 +781,28 @@ export default function HomeScreen() {
     Boolean(draft) ||
     phase !== "plan";
   const twoColumn = wide && rightHasContent;
+  // First run's old last screens as Today cards (1.5): the morning nudge from
+  // the first check-off (or the next day), the widget tip from the open after
+  // the first finished day. Never with first run or the rollover card up.
+  const firstDaysCards = (
+    <FirstDaysCards
+      today={today}
+      active={ready && state.hasSeenOnboarding && !firstRunActive && !state.pendingRollover && appActive}
+      version={firstDaysVersion}
+      checkedOff={completedCount > 0}
+      dayFinished={progress.isPerfect}
+      permission={notificationPermission}
+      onAskNudge={async () => {
+        const status = await requestNotificationPermission();
+        if (status === "granted") {
+          // "Yes" means the reminders it names: make sure they're on.
+          setNotificationsEnabled(true);
+          setNotificationEnabled("morning", true);
+        }
+        return status;
+      }}
+    />
+  );
   const dateLabel = fromDateKey(today).toLocaleDateString(undefined, {
     weekday: "long",
     day: "numeric",
@@ -1685,25 +1707,8 @@ export default function HomeScreen() {
               )}
               {/* The day-5 trial note: under the day's card and status, away from the rollover. */}
               {ready && !firstRunActive && <TrialNote today={today} active={appActive} />}
-              {/* First run's old last screens, as Today cards (1.5): the
-                  morning nudge on the first visits, the widget tip once
-                  after the first finished day. */}
-              <FirstDaysCards
-                today={today}
-                active={ready && state.hasSeenOnboarding && !firstRunActive && appActive}
-                version={firstDaysVersion}
-                dayFinished={progress.isPerfect && total >= MAX_TASKS}
-                permission={notificationPermission}
-                onAskNudge={async () => {
-                  const status = await requestNotificationPermission();
-                  if (status === "granted") {
-                    // "Yes" means the morning reminder: make sure it's on.
-                    setNotificationsEnabled(true);
-                    setNotificationEnabled("morning", true);
-                  }
-                  return status;
-                }}
-              />
+              {/* Only without a right column; otherwise under the coach's note. */}
+              {!rightHasContent && firstDaysCards}
             </View>
 
             {rightHasContent && (
@@ -1767,6 +1772,8 @@ export default function HomeScreen() {
                     }
                   />
                 )}
+                {/* First run's old last screens, as Today cards (1.5), under the coach's note. */}
+                {firstDaysCards}
                 {/* A finished day swaps these for the done card's quiet "Pull one more".
                     Under the coach's note they shrink to one quiet line of links. */}
                 {ideasVisible && !emptyMorning && !draft && phase !== "done" && quietEntries && (
@@ -2140,21 +2147,31 @@ export default function HomeScreen() {
           return sorted;
         }}
         onSet={(picks, parked) => {
-          // A day set meanwhile (auto-set fired mid-dump) takes nothing (the
+          // A day locked meanwhile (auto-lock fired mid-dump) takes nothing (the
           // store refuses): save every pick for later instead of losing it.
           const room = state.todayLocked ? 0 : remainingSlots;
           const accepted = picks.slice(0, room);
           if (accepted.length > 0) addTasks(accepted);
           parkTasks([...picks.slice(room), ...parked]);
+          if (accepted.length === 0 && picks.length > 0) {
+            // Nothing landed on today: say where the picks went instead of "picked".
+            const message = brainDumpToast(0, picks.length + parked.length, { locked: state.todayLocked });
+            if (message) {
+              showToast(message, state.todayLocked ? "locked" : "done");
+              announceLater(message);
+            }
+          }
+          return accepted.length;
         }}
         // Tasks already on today (an earlier first run added them, then
         // didn't finish): it just finishes. Read only when it (re)appears.
         resumeCount={state.tasks.length}
-        onFinish={(picked) => {
+        onFinish={({ picked, source }) => {
           markOnboardingSeen();
           setFirstRunActive(false);
-          const count = Math.max(picked, state.tasks.length);
-          track("onboarding_completed", { source: count > 0 ? "dump" : "own", count });
+          // Resumed: count what's already on today (nothing was dumped now).
+          const count = source === "resume" ? state.tasks.length : picked;
+          track("onboarding_completed", { source, count });
           // 1.5: no paywall at the end of first run (the aha paywall comes
           // later); the nudge and widget tip become Today cards from here.
           void saveFirstDays(startFirstDays(today)).then(() => setFirstDaysVersion((v) => v + 1));

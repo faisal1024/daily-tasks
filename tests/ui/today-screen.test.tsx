@@ -1924,7 +1924,7 @@ describe("Today: unlock and saved ideas", () => {
       { text: string; style?: string; isPreferred?: boolean; onPress?: () => void }[],
     ];
     expect(title).toBe("Unlock today?");
-    expect(message).toBe("Your three will be open to change again. You can lock today again any time.");
+    expect(message).toBe("Today will be open to change again. You can lock today again any time.");
     expect(buttons.map(({ text, style, isPreferred }) => ({ text, style, isPreferred: isPreferred ?? false }))).toEqual([
       { text: "Keep locked", style: "cancel", isPreferred: false },
       { text: "Unlock", style: "default", isPreferred: true },

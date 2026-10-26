@@ -15,6 +15,7 @@ import {
   type FirstDaysRecord,
 } from "@/lib/daily-tasks/first-days";
 import type { NotificationPermissionState } from "@/lib/daily-tasks/types";
+import { clearState } from "@/lib/daily-tasks/storage";
 
 import { renderWithProviders as render } from "./render";
 
@@ -39,6 +40,7 @@ const props = (over: Partial<Props> = {}): Props => ({
   today: D1,
   active: true,
   version: 0,
+  checkedOff: false,
   dayFinished: false,
   permission: "undetermined",
   onAskNudge: jest.fn(async () => "granted" as NotificationPermissionState),
@@ -46,6 +48,8 @@ const props = (over: Partial<Props> = {}): Props => ({
 });
 
 const seed = (record: FirstDaysRecord) => saveFirstDays(record);
+/** A record whose nudge is due on D1 (first run ended the day before, or a task was checked off). */
+const nudgeDue = (): FirstDaysRecord => ({ ...startFirstDays(D1), nudgeFrom: D1 });
 const stored = async () => JSON.parse((await AsyncStorage.getItem(FIRST_DAYS_KEY)) ?? "null");
 const cardEvents = () =>
   (track as jest.Mock).mock.calls.filter(([name]) => name === "first_days_card").map(([, p]) => p);
@@ -63,7 +67,7 @@ afterEach(() => {
 
 describe("nudge card", () => {
   it("shows only while the permission is undetermined", async () => {
-    await seed(startFirstDays(D1));
+    await seed(nudgeDue());
     const { rerender } = await render(<FirstDaysCards {...props()} />);
     await waitFor(() => expect(nudge()).toBeOnTheScreen());
     expect(screen.getByText("Want a nudge in the morning?")).toBeOnTheScreen();
@@ -87,7 +91,7 @@ describe("nudge card", () => {
   });
 
   it("stays away while first run (or a background launch) is up", async () => {
-    await seed(startFirstDays(D1));
+    await seed(nudgeDue());
     await render(<FirstDaysCards {...props({ active: false })} />);
     for (let i = 0; i < 4; i++) await act(async () => {});
     expect(nudge()).toBeNull();
@@ -95,7 +99,7 @@ describe("nudge card", () => {
   });
 
   it("Not now hides it for 3 days; the second Not now retires it for good", async () => {
-    await seed(startFirstDays(D1));
+    await seed(nudgeDue());
     const { rerender } = await render(<FirstDaysCards {...props()} />);
     await fireEvent.press(await screen.findByRole("button", { name: "Not now" }));
     expect(nudge()).toBeNull();
@@ -120,11 +124,11 @@ describe("nudge card", () => {
   });
 
   it("Yes asks once: while iOS is asking the button says so and a second tap does nothing", async () => {
-    await seed(startFirstDays(D1));
+    await seed(nudgeDue());
     const answer = deferred<NotificationPermissionState>();
     const onAskNudge = jest.fn(() => answer.promise);
     await render(<FirstDaysCards {...props({ onAskNudge })} />);
-    await fireEvent.press(await screen.findByRole("button", { name: "Yes" }));
+    await fireEvent.press(await screen.findByRole("button", { name: "Yes, remind me" }));
     expect(onAskNudge).toHaveBeenCalledTimes(1);
     // While iOS is asking, the card says so and neither button answers.
     const asking = screen.getByRole("button", { name: "Asking…" });
@@ -139,17 +143,14 @@ describe("nudge card", () => {
     expect(cardEvents().filter((e) => e.action === "not_now")).toEqual([]);
   });
 
-  // REAL BUG (PR #104, components/daily-tasks/first-days-cards.tsx, yes():
-  // `if (asking) return` reads React state, so two taps landing before the
-  // re-render both pass the guard: onAskNudge runs twice and "yes" is logged
-  // twice. FirstRun guards the same case with a ref (`committing`). Unskip
-  // once yes() checks a ref.
-  it.skip("Yes asks once even when a double tap lands in the same frame", async () => {
-    await seed(startFirstDays(D1));
+  // Was a real bug (PR #104 review): yes() guarded on state, so two taps in
+  // one frame both asked. It guards on a ref now.
+  it("Yes asks once even when a double tap lands in the same frame", async () => {
+    await seed(nudgeDue());
     const answer = deferred<NotificationPermissionState>();
     const onAskNudge = jest.fn(() => answer.promise);
     await render(<FirstDaysCards {...props({ onAskNudge })} />);
-    const yes = await screen.findByRole("button", { name: "Yes" });
+    const yes = await screen.findByRole("button", { name: "Yes, remind me" });
     await act(async () => {
       void fireEvent.press(yes);
       void fireEvent.press(yes);
@@ -160,12 +161,12 @@ describe("nudge card", () => {
   });
 
   it("a prompt that throws still retires the card (Settings › Reminders has it)", async () => {
-    await seed(startFirstDays(D1));
+    await seed(nudgeDue());
     const onAskNudge = jest.fn(async () => {
       throw new Error("boom");
     });
     await render(<FirstDaysCards {...props({ onAskNudge })} />);
-    await fireEvent.press(await screen.findByRole("button", { name: "Yes" }));
+    await fireEvent.press(await screen.findByRole("button", { name: "Yes, remind me" }));
     await waitFor(() => expect(nudge()).toBeNull());
     expect((await stored()).nudgeFrom).toBeNull();
   });
@@ -174,15 +175,37 @@ describe("nudge card", () => {
 describe("widget tip", () => {
   const waiting = () => startFirstDays(D1);
 
-  it("is not due before a day is finished, and becomes due (and saved) on the first finished day", async () => {
+  it("is earned on the first finished day but never shown in that session: it's due from the next open", async () => {
     await seed({ ...waiting(), nudgeFrom: null });
-    const { rerender } = await render(<FirstDaysCards {...props({ permission: "granted" })} />);
+    const { rerender, unmount } = await render(<FirstDaysCards {...props({ permission: "granted" })} />);
     for (let i = 0; i < 3; i++) await act(async () => {});
     expect(tip()).toBeNull();
     await rerender(<FirstDaysCards {...props({ permission: "granted", dayFinished: true })} />);
+    await waitFor(async () => expect((await stored()).widgetTip).toBe("earned"));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    // Not on the finished-day moment.
+    expect(tip()).toBeNull();
+    // Back from the background (active off, then on): due now.
+    await rerender(<FirstDaysCards {...props({ permission: "granted", dayFinished: true, active: false })} />);
+    await rerender(<FirstDaysCards {...props({ permission: "granted", dayFinished: true })} />);
     await waitFor(() => expect(tip()).toBeOnTheScreen());
-    expect(screen.getByText("Keep tomorrow's three on your Home Screen")).toBeOnTheScreen();
+    expect(screen.getByText("Keep your three on your Home Screen")).toBeOnTheScreen();
     expect((await stored()).widgetTip).toBe("due");
+    await unmount();
+  });
+
+  it("an earned tip is due on the next launch, or the next day", async () => {
+    await seed({ ...waiting(), nudgeFrom: null, widgetTip: "earned" });
+    const first = await render(<FirstDaysCards {...props({ permission: "granted" })} />);
+    await waitFor(() => expect(tip()).toBeOnTheScreen());
+    await first.unmount();
+
+    await seed({ ...waiting(), nudgeFrom: null });
+    const { rerender } = await render(<FirstDaysCards {...props({ permission: "granted", dayFinished: true })} />);
+    await waitFor(async () => expect((await stored()).widgetTip).toBe("earned"));
+    expect(tip()).toBeNull();
+    await rerender(<FirstDaysCards {...props({ permission: "granted", today: "2026-10-02" })} />);
+    await waitFor(() => expect(tip()).toBeOnTheScreen());
   });
 
   it("stays on later launches (day no longer finished) until dismissed, then never comes back", async () => {
@@ -211,7 +234,7 @@ describe("widget tip", () => {
   });
 
   it("never shows alongside the nudge: the nudge goes first, the tip follows once it's answered", async () => {
-    await seed({ ...waiting(), widgetTip: "due" });
+    await seed({ ...nudgeDue(), widgetTip: "due" });
     await render(<FirstDaysCards {...props({ dayFinished: true })} />);
     await waitFor(() => expect(nudge()).toBeOnTheScreen());
     expect(tip()).toBeNull();
@@ -230,9 +253,9 @@ describe("first_days_card analytics: ids only", () => {
   } as const;
 
   it("every event carries only kind/action/outcome drawn from the fixed ids (no text, dates or counts)", async () => {
-    await seed({ ...startFirstDays(D1), widgetTip: "due" });
+    await seed({ ...nudgeDue(), widgetTip: "due" });
     const { rerender } = await render(<FirstDaysCards {...props({ dayFinished: true })} />);
-    await fireEvent.press(await screen.findByRole("button", { name: "Yes" }));
+    await fireEvent.press(await screen.findByRole("button", { name: "Yes, remind me" }));
     await waitFor(() => expect(nudge()).toBeNull());
     await rerender(<FirstDaysCards {...props({ dayFinished: true, permission: "granted" })} />);
     await fireEvent.press(await screen.findByRole("button", { name: "Dismiss widget tip" }));
@@ -253,7 +276,7 @@ describe("first_days_card analytics: ids only", () => {
   });
 
   it("'shown' is logged once per card per day, again on the next day", async () => {
-    await seed(startFirstDays(D1));
+    await seed(nudgeDue());
     const { rerender } = await render(<FirstDaysCards {...props()} />);
     await waitFor(() => expect(nudge()).toBeOnTheScreen());
     await rerender(<FirstDaysCards {...props({ version: 1 })} />);
@@ -270,9 +293,44 @@ describe("the record is read again when first run writes a fresh one", () => {
     const { rerender } = await render(<FirstDaysCards {...props()} />);
     for (let i = 0; i < 3; i++) await act(async () => {});
     expect(nudge()).toBeNull();
-    await seed(startFirstDays(D1));
+    await seed(nudgeDue());
     expect(await loadFirstDays()).not.toBeNull();
     await rerender(<FirstDaysCards {...props({ version: 1 })} />);
     await waitFor(() => expect(nudge()).toBeOnTheScreen());
+  });
+});
+
+describe("nudge card timing (review fix)", () => {
+  it("not on the first-run day until a task is checked off; then today", async () => {
+    await seed(startFirstDays(D1));
+    const { rerender } = await render(<FirstDaysCards {...props()} />);
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect(nudge()).toBeNull();
+    await rerender(<FirstDaysCards {...props({ checkedOff: true })} />);
+    await waitFor(() => expect(nudge()).toBeOnTheScreen());
+    expect((await stored()).nudgeFrom).toBe(D1);
+  });
+
+  it("without a check-off it shows the next day", async () => {
+    await seed(startFirstDays(D1));
+    await render(<FirstDaysCards {...props({ today: "2026-10-02" })} />);
+    await waitFor(() => expect(nudge()).toBeOnTheScreen());
+  });
+
+  it("a check-off never brings a snoozed nudge forward", async () => {
+    await seed({ ...startFirstDays(D1), nudgeFrom: "2026-10-04", nudgeDeclines: 1 });
+    await render(<FirstDaysCards {...props({ today: "2026-10-02", checkedOff: true })} />);
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect(nudge()).toBeNull();
+    expect((await stored()).nudgeFrom).toBe("2026-10-04");
+  });
+});
+
+describe("Reset all data", () => {
+  it("removes the first-days record too, so the next first run starts it fresh", async () => {
+    await seed({ ...nudgeDue(), nudgeDeclines: 2, nudgeFrom: null, widgetTip: "done" });
+    expect(await AsyncStorage.getItem(FIRST_DAYS_KEY)).not.toBeNull();
+    await clearState();
+    expect(await AsyncStorage.getItem(FIRST_DAYS_KEY)).toBeNull();
   });
 });

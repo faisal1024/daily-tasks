@@ -1,6 +1,6 @@
 // The two Today cards that used to be first-run screens (1.5): "Want a nudge
-// in the morning?" on the first visits, and the widget tip after the first
-// finished day. First run itself is now three screens: brain dump → "Here are
+// in the morning?" from the first check-off (or the next day), and the widget
+// tip from the app open after the first finished day. First run itself is now three screens: brain dump → "Here are
 // your three" → Today.
 //
 // Kept in its own key (like the trial note), written when first run ends, so
@@ -19,7 +19,12 @@ export const NUDGE_SNOOZE_DAYS = 3;
 /** ...and the second "Not now" retires it (Settings › Reminders still has it all). */
 export const NUDGE_MAX_DECLINES = 2;
 
-export type WidgetTipState = "waiting" | "due" | "done";
+/**
+ * "waiting" for a finished day; "earned" once one is seen (not shown in that
+ * same session, so it never lands on the finished-day moment); "due" from the
+ * next app open or day until dismissed; then "done".
+ */
+export type WidgetTipState = "waiting" | "earned" | "due" | "done";
 
 export interface FirstDaysRecord {
   /**
@@ -29,13 +34,23 @@ export interface FirstDaysRecord {
   nudgeFrom: string | null;
   /** How many times "Not now" was tapped. */
   nudgeDeclines: number;
-  /** "waiting" until a day is finished, then "due" until dismissed. */
+  /** See WidgetTipState. */
   widgetTip: WidgetTipState;
 }
 
-/** The record first run writes as it ends, on `today`. */
+/**
+ * The record first run writes as it ends, on `today`. The nudge waits for
+ * tomorrow, or for the first check-off today (noteCheckOff), whichever comes
+ * first: not seconds after "Your three are picked."
+ */
 export function startFirstDays(today: string): FirstDaysRecord {
-  return { nudgeFrom: today, nudgeDeclines: 0, widgetTip: "waiting" };
+  return { nudgeFrom: addDays(today, 1), nudgeDeclines: 0, widgetTip: "waiting" };
+}
+
+/** A task checked off today brings a first nudge forward to today (never a snoozed one). */
+export function noteCheckOff(record: FirstDaysRecord, today: string, checkedOff: boolean): FirstDaysRecord {
+  if (!checkedOff || record.nudgeDeclines > 0 || record.nudgeFrom === null) return record;
+  return record.nudgeFrom > today ? { ...record, nudgeFrom: today } : record;
 }
 
 /** A date key `days` calendar days after `day` (local, DST-safe). */
@@ -79,9 +94,17 @@ export function answerNudge(record: FirstDaysRecord): FirstDaysRecord {
   return { ...record, nudgeFrom: null };
 }
 
-/** A finished day (all three done) makes a waiting tip due; it stays due until dismissed. */
+/**
+ * A finished day (every planned task done, at least one) earns the tip. It
+ * isn't shown in that session: openFirstDays makes it due on the next load.
+ */
 export function noteFinishedDay(record: FirstDaysRecord, dayFinished: boolean): FirstDaysRecord {
-  return dayFinished && record.widgetTip === "waiting" ? { ...record, widgetTip: "due" } : record;
+  return dayFinished && record.widgetTip === "waiting" ? { ...record, widgetTip: "earned" } : record;
+}
+
+/** On a load (the next app open, a new day): an earned tip becomes due. */
+export function openFirstDays(record: FirstDaysRecord): FirstDaysRecord {
+  return record.widgetTip === "earned" ? { ...record, widgetTip: "due" } : record;
 }
 
 /** The widget tip: iOS only (the widget is), once due, and one card at a time (the nudge first). */
@@ -116,7 +139,9 @@ function normalizeRecord(value: unknown): FirstDaysRecord | null {
       ? v.nudgeDeclines
       : 0;
   const widgetTip: WidgetTipState =
-    v.widgetTip === "waiting" || v.widgetTip === "due" || v.widgetTip === "done" ? v.widgetTip : "done";
+    v.widgetTip === "waiting" || v.widgetTip === "earned" || v.widgetTip === "due" || v.widgetTip === "done"
+      ? v.widgetTip
+      : "done";
   return { nudgeFrom, nudgeDeclines: declines, widgetTip };
 }
 
