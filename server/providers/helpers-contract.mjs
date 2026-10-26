@@ -146,17 +146,18 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 const FORMAT_SHOWN = /[\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g;
 
 // Keep these in step with lib/daily-tasks/ai-helpers.ts (a test compares them).
-// A count of times: "3 times", "moved twice", "put off four times".
+// A count of times: "3 times", "moved twice", "put off four times". The move
+// words are past-tense claims (not "Moves the project forward").
 export const ONCE_TWICE = /\b(?:once|twice|thrice)\b/i;
 export const COUNT = /\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|many|multiple|countless|a few)\b/i;
 export const MOVE_WORDS =
-  /\b(?:times?|move[ds]?|moving|put off|putting off|push(?:ed|es|ing)?|postpone[ds]?|postponing|slip(?:ped|s|ping)?|carr(?:ied|ies|y)|delay(?:ed|s|ing)?|reschedul(?:ed|es|e|ing)|again)\b/i;
+  /\b(?:times?|moved|put off|pushed|postponed|slipped|carried|delayed|rescheduled|again)\b/i;
 // Blame or shame: never under a pick.
 export const SHAME =
   /\b(?:lazy|laziness|fail(?:ing|ed|ure)?|pathetic|useless|excuses?|shame(?:ful)?|guilt(?:y)?|slack(?:ing|er)|procrastinat\w*|still not done)\b|\bagain\s*[?!]/i;
 // "Been waiting a while" and the like: only for a task the app says keeps moving.
 export const WAITING_REASON =
-  /\b(?:wait(?:ing|ed)?|a while|still on (?:your|the) (?:plate|list)|keeps? coming back|move[ds]?|moving|put off|push(?:ed)?|postponed?|slipped|carried|delayed|rescheduled|dodged)\b/i;
+  /\b(?:been waiting|waiting (?:a while|for a while|a long time|for ages|ages)|for a while|a while now|still on (?:your|the) (?:plate|list)|keeps? coming back|(?:been|was|got|keeps? getting) (?:moved|put off|pushed|postponed|delayed|rescheduled|carried over)|put off|pushed back|postponed|rescheduled|carried over|dodged)\b/i;
 
 /** Same words, ignoring case and spacing (the app's memoryTaskKey). */
 const taskKey = (text) => String(text).trim().replace(/\s+/g, " ").toLowerCase();

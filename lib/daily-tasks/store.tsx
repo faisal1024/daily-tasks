@@ -364,7 +364,7 @@ function resetMilestonesIfGoalChanged(
   return { completedMilestoneIds: [], pendingMilestoneCelebration: null };
 }
 
-function reducer(state: AppState, action: Action): AppState {
+export function reducer(state: AppState, action: Action): AppState {
   const next = keepGoalPath(state, action, reduce(state, action));
   // Today changed under yesterday's card (a draft, a brain dump, setting the
   // day): drop what's now covered or has no room. See settlePendingRollover.
@@ -2140,13 +2140,17 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // on its way then carried the old memory: its answer is dropped (a plan)
   // or its new memory ignored (an evening close).
   const lastMemoryClearAt = useRef(0);
+  // How many times it was used (this session): a plan request compares it.
+  const memoryClears = useRef(0);
+  // The day + goal the AI plan was last fetched for (see the auto-fetch below).
+  const lastAiPlanFetch = useRef<string | null>(null);
   const requestMomentumPlan = useCallback(async (options: { newPath?: boolean } = {}) => {
     // AI ideas are a Plus feature; free users keep the on-device template plan.
     if (!hasPlus) return;
     const requestId = ++latestAiRequest.current;
     dispatch({ type: "requestMomentumPlanStarted" });
     const now = new Date();
-    const startedAt = Date.now();
+    const clearsAtStart = memoryClears.current;
     try {
       // Read fresh each time (events change); never blocks the plan on failure.
       const agenda = state.agendaEnabled ? await readTodayAgenda(now) : [];
@@ -2168,7 +2172,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         now,
       });
       if (!isLatestRequest(requestId, latestAiRequest.current)) return;
-      if (lastMemoryClearAt.current >= startedAt) {
+      if (memoryClears.current !== clearsAtStart) {
+        // Fetch today's plan again, without what was cleared.
+        lastAiPlanFetch.current = null;
         dispatch({ type: "requestMomentumPlanDropped" });
         return;
       }
@@ -2207,7 +2213,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // Auto-generate the AI plan once per (day + goal) when a proxy URL is
   // configured. No URL → this is a no-op and the app stays on the local
   // template plan. Failures fall back to the template via requestMomentumPlan.
-  const lastAiPlanFetch = useRef<string | null>(null);
   useEffect(() => {
     const key = nextAiPlanFetchKey({
       ready,
@@ -2333,6 +2338,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   }, []);
   const clearCoachMemory = useCallback(() => {
     lastMemoryClearAt.current = Date.now();
+    memoryClears.current += 1;
     dispatch({ type: "clearCoachMemory", today: ensureDay() });
   }, [ensureDay]);
   // Stamped with the store's day (like setCoachNotes), so a claim in the first

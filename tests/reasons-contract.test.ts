@@ -39,6 +39,10 @@ describe("Worker cleanReason", () => {
     ["Due Friday.", "Due Friday"],
     ["  Been \n waiting   a while ", "Been waiting a while"],
     ["Due in 2 days", "Due in 2 days"],
+    ["Waiting on Sam", "Waiting on Sam"],
+    ["Keeps you moving", "Keeps you moving"],
+    ["Moves the project forward", "Moves the project forward"],
+    ["One move closer", "One move closer"],
     ["one two three four five", "one two three four five"],
     ["a".repeat(40), "a".repeat(40)],
   ])("keeps %j as %j", (input, expected) => {
@@ -98,6 +102,10 @@ describe("Worker cleanReason", () => {
       "Due \u202EFriday",
       "Stop being lazy",
       "Again?!",
+      "Waiting on Sam",
+      "Keeps you moving",
+      "Moves the project forward",
+      "Put off four times",
     ];
     for (const input of inputs) {
       const worker = cleanReason(input, "Call mum");
@@ -166,6 +174,10 @@ describe("sanitizeBrainDump reasons", () => {
       expect(reasonsOf(sanitizeBrainDump(moved("Quick win"), DUMP))).toEqual(["Quick win"]);
       expect(reasonsOf(sanitizeBrainDump(moved("Remove clutter"), DUMP))).toEqual(["Remove clutter"]);
       expect(reasonsOf(sanitizeBrainDump(moved("Due in 2 days"), DUMP))).toEqual(["Due in 2 days"]);
+      // Honest reasons that only sound like moving or waiting stay on any pick.
+      for (const reason of ["Waiting on Sam", "Keeps you moving", "Moves the project forward"]) {
+        expect(reasonsOf(sanitizeBrainDump(moved(reason, "Call mum"), { ...DUMP, stats: STATS })), reason).toEqual([reason]);
+      }
     });
   });
 

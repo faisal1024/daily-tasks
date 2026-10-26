@@ -84,17 +84,18 @@ const FORMAT = /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g;
 const LINK =
   /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}|\b[a-z0-9-]+\.(?:com|net|org|io|co|app|me|ly|info|biz|xyz)\b/i;
 // Keep these in step with server/providers/helpers-contract.mjs (a test compares them).
-// A count of times: "3 times", "moved twice", "put off four times".
+// A count of times: "3 times", "moved twice", "put off four times". The move
+// words are past-tense claims (not "Moves the project forward").
 const ONCE_TWICE = /\b(?:once|twice|thrice)\b/i;
 const COUNT = /\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|many|multiple|countless|a few)\b/i;
 const MOVE_WORDS =
-  /\b(?:times?|move[ds]?|moving|put off|putting off|push(?:ed|es|ing)?|postpone[ds]?|postponing|slip(?:ped|s|ping)?|carr(?:ied|ies|y)|delay(?:ed|s|ing)?|reschedul(?:ed|es|e|ing)|again)\b/i;
+  /\b(?:times?|moved|put off|pushed|postponed|slipped|carried|delayed|rescheduled|again)\b/i;
 // Blame or shame: never under a pick.
 const SHAME =
   /\b(?:lazy|laziness|fail(?:ing|ed|ure)?|pathetic|useless|excuses?|shame(?:ful)?|guilt(?:y)?|slack(?:ing|er)|procrastinat\w*|still not done)\b|\bagain\s*[?!]/i;
 // "Been waiting a while" and the like: only for a task the memory says keeps moving.
 const WAITING =
-  /\b(?:wait(?:ing|ed)?|a while|still on (?:your|the) (?:plate|list)|keeps? coming back|move[ds]?|moving|put off|push(?:ed)?|postponed?|slipped|carried|delayed|rescheduled|dodged)\b/i;
+  /\b(?:been waiting|waiting (?:a while|for a while|a long time|for ages|ages)|for a while|a while now|still on (?:your|the) (?:plate|list)|keeps? coming back|(?:been|was|got|keeps? getting) (?:moved|put off|pushed|postponed|delayed|rescheduled|carried over)|put off|pushed back|postponed|rescheduled|carried over|dodged)\b/i;
 
 /** Accents, full-width letters and invisible characters folded away, for the checks only. */
 function foldForMatch(value: string): string {

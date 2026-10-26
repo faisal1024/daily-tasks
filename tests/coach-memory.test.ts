@@ -413,6 +413,9 @@ describe("cleanReason (app)", () => {
     ["  Due   Friday!! ", "Due Friday"],
     ["Been waiting a while", "Been waiting a while"],
     ["Due in 2 days", "Due in 2 days"],
+    ["Waiting on Sam", "Waiting on Sam"],
+    ["Keeps you moving", "Keeps you moving"],
+    ["Moves the project forward", "Moves the project forward"],
     ["One two three four five", "One two three four five"],
     ["x".repeat(40), "X" + "x".repeat(39)],
     ["Line\nbreak", "Line break"],
@@ -537,6 +540,9 @@ describe("fallback reasons", () => {
     expect(result.reasons).toEqual(["", "Put off for ages", "Quick win"]);
     const none = withMovedReasons(ai(["Been waiting a while", "", ""]), null);
     expect(none).not.toHaveProperty("reasons");
+    // Not a claim about the task itself: kept on any pick.
+    const honest = ai(["Waiting on Sam", "Keeps you moving", "Moves the project forward"]);
+    expect(withMovedReasons(honest, memory(["Z", 3]))).toBe(honest);
   });
 
   it("withMovedReasons: the same object back when there is nothing to add", () => {
