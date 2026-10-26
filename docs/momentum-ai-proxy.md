@@ -321,10 +321,16 @@ the words itself when it saves an item.
   be done ("before March" → the last day of February).
 - **Response:** `when` is passed on only when the app sent a valid `today`,
   the date is real, not before `today` and at most 366 days after it, the kind
-  is known, and the dump names some day or date at all (`DATE_CUE`: day and
-  month names, today/tomorrow/week/weekend/due, a digit); otherwise the item
-  goes out without it (`cleanWhen`). The app checks the same again
-  (`normalizeWhen` in `lib/daily-tasks/resurface.ts`).
+  is known, and **that item's own text** names a day or date (`DATE_CUE`:
+  whole weekday and month names, an abbreviated month only with a dot or a
+  day number, "May" only with a number, short weekdays only after
+  by/on/before/due, today/tonight/tomorrow, next week/month, "3/14", "the
+  5th", "in two weeks"; the prompt asks the model to keep the day words in
+  the item's text); otherwise the item goes out without it (`cleanWhen`).
+  This stops a date made up for an item with no day in it; it can't prove a
+  written day was read right, so the app lets every date be changed or
+  cleared. The app checks the date again (`normalizeWhen` in
+  `lib/daily-tasks/resurface.ts`).
 
 ### 30-day stats and pick reasons (1.5, plan and brain-dump routes, optional)
 

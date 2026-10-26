@@ -1,7 +1,7 @@
 // 1.6 F, the Worker side and the seam with the app: the brain dump accepts an
 // optional `today`, and a model's `when` only survives when it is a real date,
-// not past, at most 366 days ahead, the dump names a day or date, and `today`
-// was sent. Old apps (no `today`) are unaffected; a new app against an old
+// not past, at most 366 days ahead, the item's own text names a day or date,
+// and `today` was sent. Old apps (no `today`) are unaffected; a new app against an old
 // Worker (no `when` in the answer) still works. Days are plain date keys, so
 // nothing here depends on the timezone.
 import type { AddressInfo } from "node:net";
@@ -52,7 +52,9 @@ describe("validateBrainDumpPayload: today", () => {
 
 describe("cleanWhen", () => {
   const ok = { date: "2026-10-27", kind: "on" };
-  const clean = (value: unknown, over: Record<string, unknown> = {}) => cleanWhen(value, payload(over));
+  // The item's own words must name a day (review fix): "Send the deck for Tuesday" does.
+  const clean = (value: unknown, over: Record<string, unknown> = {}, item = "Send the deck for Tuesday") =>
+    cleanWhen(value, payload(over), item);
 
   it("keeps a real, future date with a known kind and nothing else", () => {
     expect(clean(ok)).toEqual(ok);
@@ -97,14 +99,15 @@ describe("cleanWhen", () => {
 
   it("drops every date when the app sent no (or a bad) today", () => {
     const { today: _today, ...old } = payload();
-    expect(cleanWhen(ok, old)).toBeNull();
-    expect(cleanWhen(ok, payload({ today: "2026-02-30" }))).toBeNull();
-    expect(cleanWhen(ok, undefined)).toBeNull();
+    expect(cleanWhen(ok, old, "Deck for Tuesday")).toBeNull();
+    expect(cleanWhen(ok, payload({ today: "2026-02-30" }), "Deck for Tuesday")).toBeNull();
+    expect(cleanWhen(ok, undefined, "Deck for Tuesday")).toBeNull();
+    expect(cleanWhen(ok, payload())).toBeNull(); // no item text at all
   });
 
-  it("drops every date when the dump names no day or date", () => {
-    for (const text of ["call mum\nbuy shoes", "finish the report", "walk the dog and relax", "   "]) {
-      expect(clean(ok, { text }), text).toBeNull();
+  it("drops the date of an item whose own text names no day, even when the dump does", () => {
+    for (const item of ["Call mum", "Finish the report", "Walk the dog and relax", "   "]) {
+      expect(clean(ok, {}, item), item).toBeNull();
     }
   });
 
@@ -113,7 +116,6 @@ describe("cleanWhen", () => {
     "call mum tomorrow",
     "pay rent today",
     "gym tonight",
-    "report due soon",
     "finish by EOW",
     "passport before March",
     "taxes Oct 31",
@@ -122,31 +124,35 @@ describe("cleanWhen", () => {
     "visit mum this weekend",
     "plan next month",
     "ship by fri",
-  ])("accepts a dump that says %j", (text) => {
+    "the party on the 5th",
+    "May 3 picnic",
+    "rent by Mar. 1",
+    "file 3 Oct",
+  ])("accepts an item that says %j", (text) => {
     expect(DATE_CUE.test(text)).toBe(true);
-    expect(clean(ok, { text })).toEqual(ok);
+    expect(clean(ok, {}, text)).toEqual(ok);
   });
 });
 
 describe("sanitizeBrainDump: dates", () => {
   const result = {
     picks: [
-      { text: "Finish the deck", reason: "Due Tuesday", when: { date: "2026-10-27", kind: "by" } },
+      { text: "Finish the deck by Tuesday", reason: "Due Tuesday", when: { date: "2026-10-27", kind: "by" } },
       { text: "Call mum", reason: "Quick win", when: null },
     ],
     parked: [
-      { text: "Passport", when: { date: "2026-12-31", kind: "by" } },
-      { text: "Buy shoes", when: { date: "2020-01-01", kind: "on" } },
+      { text: "Passport by December 31", when: { date: "2026-12-31", kind: "by" } },
+      { text: "Buy shoes Friday", when: { date: "2020-01-01", kind: "on" } },
     ],
   };
 
   it("puts a valid when on its own item, on picks and parked alike", () => {
     expect(sanitizeBrainDump(result, payload())).toEqual({
       picks: [
-        { text: "Finish the deck", reason: "Due Tuesday", when: { date: "2026-10-27", kind: "by" } },
+        { text: "Finish the deck by Tuesday", reason: "Due Tuesday", when: { date: "2026-10-27", kind: "by" } },
         { text: "Call mum", reason: "Quick win" },
       ],
-      parked: [{ text: "Passport", when: { date: "2026-12-31", kind: "by" } }, { text: "Buy shoes" }],
+      parked: [{ text: "Passport by December 31", when: { date: "2026-12-31", kind: "by" } }, { text: "Buy shoes Friday" }],
     });
   });
 
@@ -155,10 +161,10 @@ describe("sanitizeBrainDump: dates", () => {
     const out = sanitizeBrainDump(result, old);
     expect(out).toEqual({
       picks: [
-        { text: "Finish the deck", reason: "Due Tuesday" },
+        { text: "Finish the deck by Tuesday", reason: "Due Tuesday" },
         { text: "Call mum", reason: "Quick win" },
       ],
-      parked: [{ text: "Passport" }, { text: "Buy shoes" }],
+      parked: [{ text: "Passport by December 31" }, { text: "Buy shoes Friday" }],
     });
     expect(JSON.stringify(out)).not.toContain("when");
   });
@@ -177,24 +183,37 @@ describe("sanitizeBrainDump: dates", () => {
         picks: [
           { text: "   ", when: { date: "2026-10-28", kind: "on" } },
           null,
-          { text: "Real pick", reason: "r", when: { date: "2026-10-29", kind: "on" } },
+          { text: "Real pick Thursday", reason: "r", when: { date: "2026-10-29", kind: "on" } },
         ],
         parked: [
           { text: "", when: { date: "2026-11-01", kind: "on" } },
           { text: "x".repeat(2000), when: { date: "2026-11-02", kind: "on" } },
           { text: "Parked one", when: null },
-          { text: "Parked two", when: { date: "2026-11-03", kind: "by" } },
+          { text: "Parked two by Nov 3", when: { date: "2026-11-03", kind: "by" } },
         ],
       },
       payload(),
     );
-    expect(out.picks).toEqual([{ text: "Real pick", reason: "r", when: { date: "2026-10-29", kind: "on" } }]);
-    expect(out.parked).toEqual([{ text: "Parked one" }, { text: "Parked two", when: { date: "2026-11-03", kind: "by" } }]);
+    expect(out.picks).toEqual([{ text: "Real pick Thursday", reason: "r", when: { date: "2026-10-29", kind: "on" } }]);
+    expect(out.parked).toEqual([{ text: "Parked one" }, { text: "Parked two by Nov 3", when: { date: "2026-11-03", kind: "by" } }]);
   });
 
-  it("drops dates when the dump names no day, however valid they look", () => {
-    const out = sanitizeBrainDump(result, payload({ text: "finish report\ncall mum\npassport\nbuy shoes" }));
+  it("drops dates on items whose own words name no day, however valid they look", () => {
+    const out = sanitizeBrainDump(
+      {
+        picks: [{ text: "Call Mark", reason: "r", when: { date: "2026-10-27", kind: "on" } }],
+        parked: [
+          { text: "Go to the market", when: { date: "2026-10-28", kind: "on" } },
+          { text: "Finish the deck", when: { date: "2026-10-29", kind: "by" } },
+        ],
+      },
+      payload(),
+    );
     expect(JSON.stringify(out)).not.toContain("when");
+  });
+
+  it("asks the model to keep the day words in a dated item's text", () => {
+    expect(whenPromptLines(payload()).join("\n")).toContain("Keep the day or date words in that item's text");
   });
 });
 
@@ -270,8 +289,8 @@ describe("over HTTP", () => {
   }
 
   const MODEL_ANSWER = {
-    picks: [{ text: "Finish the deck", reason: "Due Tuesday", when: { date: "2026-10-27", kind: "by" } }],
-    parked: [{ text: "Call mum", when: { date: "2026-10-29", kind: "on" } }, { text: "Buy shoes", when: null }],
+    picks: [{ text: "Finish the deck by Tuesday", reason: "Due Tuesday", when: { date: "2026-10-27", kind: "by" } }],
+    parked: [{ text: "Call mum Thursday", when: { date: "2026-10-29", kind: "on" } }, { text: "Buy shoes", when: null }],
   };
 
   it("returns dates with today, none without it, and 400 for a bad today (without calling the model)", async () => {
@@ -377,15 +396,24 @@ describe("the app reading the answer", () => {
 });
 
 describe("the date cue is not a licence to invent a date", () => {
-  // KNOWN WEAKNESS (helpers-contract.mjs DATE_CUE): the month alternative is
-  // `mar[a-z]*`, `dec[a-z]*`, `jun[a-z]*`... so ordinary words like "Mark",
-  // "market", "decide" or "junk" count as naming a date, and a model that
-  // invents a date for "Call Mark" keeps it. Skipped until DATE_CUE needs a
-  // real month name (or an abbreviation with a dot / digit).
-  it.skip.each(["Call Mark", "Go to the market", "Decide on a laptop", "Finish the deck", "Take out the junk"])(
-    "does not treat %j as naming a day",
-    (text) => {
-      expect(DATE_CUE.test(text)).toBe(false);
-    },
-  );
+  // Was a KNOWN WEAKNESS (month words like "mar[a-z]*" matched "Mark"); the
+  // cue is now whole names, abbreviations with a dot or day number, and
+  // date-like numbers, checked on each item's own text.
+  it.each([
+    "Call Mark",
+    "Go to the market",
+    "Decide on a laptop",
+    "Finish the deck",
+    "Take out the junk",
+    "Maybe call",
+    "I may call",
+    "Buy 2 apples",
+    "Report due soon",
+    "Mon ami",
+    "Sat down with Sam",
+    "Novel draft",
+    "Augment the plan",
+  ])("does not treat %j as naming a day", (text) => {
+    expect(DATE_CUE.test(text)).toBe(false);
+  });
 });

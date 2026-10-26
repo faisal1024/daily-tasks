@@ -22,6 +22,8 @@ export interface Task {
   steps?: TaskStep[];
   /** Added from a routine (1.3): that routine isn't suggested again today. */
   routineId?: string;
+  /** A saved item's soft date, carried onto Today so "Not today" keeps it (1.6 F). */
+  when?: TaskWhen;
 }
 
 /**

@@ -200,6 +200,7 @@ function makeStore(overrides: Partial<AppState> = {}) {
     markCoachNoteLogged: jest.fn(),
     parkTasks: jest.fn(),
     removeParkedTask: jest.fn(),
+    setParkedWhen: jest.fn(),
     addParkedTask: jest.fn(),
     setTaskSteps: jest.fn(),
     toggleTaskStep: jest.fn(),
@@ -4657,19 +4658,21 @@ describe("1.6 F: saved items with a date", () => {
   const order = (container: ReturnType<typeof within>) =>
     container.getAllByRole("button", { name: /^Add / }).map((b) => String(b.props.accessibilityLabel).replace(/^Add /, "").split(",")[0]);
 
-  it("Ideas on a full day: due today first with 'Due today', the rest in saved order with a quiet date", async () => {
+  it("Ideas on a full day: for today first with 'For today', the rest in saved order with a quiet date", async () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Read", "Stretch"), parkedTasks: dated });
     await render(<HomeScreen />);
     await fireEvent.press(screen.getByTestId("saved-ideas-link"));
     const sheet = within(screen.getByTestId("ideas-sheet"));
     expect(order(sheet)).toEqual(["Call mum", "Buy shoes", "Plain thing", "Old thing", "Passport"]);
-    expect(sheet.getByTestId("parked-when-p3")).toHaveTextContent("Due today");
+    expect(sheet.getByTestId("parked-when-p3")).toHaveTextContent("For today");
     expect(sheet.getByTestId("parked-when-p1")).toHaveTextContent("Tue");
-    expect(sheet.getByTestId("parked-when-p4")).toHaveTextContent("Sep 20");
-    expect(sheet.getByTestId("parked-when-p5")).toHaveTextContent("By Mar 1");
+    // A plan whose day has passed shows no date (review fix).
+    expect(sheet.queryByTestId("parked-when-p4")).toBeNull();
+    // Another year says so.
+    expect(sheet.getByTestId("parked-when-p5")).toHaveTextContent("By Mar 1, 2027");
     expect(sheet.queryByTestId("parked-when-p2")).toBeNull();
     // Voiced with the date too.
-    expect(sheet.getByRole("button", { name: "Add Call mum, Due today" })).toBeOnTheScreen();
+    expect(sheet.getByRole("button", { name: "Add Call mum, For today" })).toBeOnTheScreen();
   });
 
   it("Ideas with room: what is due today leads, above the ideas and the rest of Saved for later", async () => {
@@ -4679,7 +4682,8 @@ describe("1.6 F: saved items with a date", () => {
     const sheet = within(screen.getByTestId("ideas-sheet"));
     const lead = within(sheet.getByTestId("due-today-ideas"));
     expect(order(lead)).toEqual(["Call mum"]);
-    expect(lead.getByTestId("parked-when-p3")).toHaveTextContent("Due today");
+    expect(lead.getByTestId("parked-when-p3")).toHaveTextContent("For today");
+    expect(lead.getByRole("header")).toHaveTextContent("For today");
     // Not listed a second time below.
     expect(order(within(sheet.getByTestId("parked-ideas")))).toEqual(["Buy shoes", "Plain thing", "Old thing", "Passport"]);
   });
@@ -4697,8 +4701,8 @@ describe("1.6 F: saved items with a date", () => {
     mockStore = makeStore({ tasks: tasks("Walk"), parkedTasks: dated });
     await render(<HomeScreen />);
     const link = screen.getByTestId("saved-ideas-link");
-    expect(link).toHaveTextContent(/Saved for later \(5\) · 1 due today$/);
-    expect(link.props.accessibilityLabel).toBe("Saved for later, 5 items, 1 due today");
+    expect(link).toHaveTextContent(/Saved for later \(5\) · 1 for today$/);
+    expect(link.props.accessibilityLabel).toBe("Saved for later, 5 items, 1 for today");
   });
 
   it("the Today link stays hidden with room when nothing is due today (overdue and future don't count)", async () => {
@@ -4713,7 +4717,7 @@ describe("1.6 F: saved items with a date", () => {
       parkedTasks: [dated[2], { id: "p6", text: "Call dad", parkedAt, when: { date: TODAY, kind: "by" as const } }, dated[1]],
     });
     const { rerender } = await render(<HomeScreen />);
-    expect(screen.getByTestId("saved-ideas-link")).toHaveTextContent(/Saved for later \(3\) · 2 due today$/);
+    expect(screen.getByTestId("saved-ideas-link")).toHaveTextContent(/Saved for later \(3\) · 2 for today$/);
     mockStore = makeStore({ tasks: tasks("Walk", "Read", "Stretch"), parkedTasks: [dated[1]] });
     await rerender(<HomeScreen />);
     expect(screen.getByTestId("saved-ideas-link")).toHaveTextContent(/Saved for later \(1\)$/);
@@ -4728,7 +4732,41 @@ describe("1.6 F: saved items with a date", () => {
     expect(hint).toHaveTextContent("Room for two more today.");
     expect(hint).not.toHaveTextContent(/full/i);
     // And the item can be added (a free slot).
-    expect(screen.getByRole("button", { name: "Add Call mum, Due today" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add Call mum, For today" })).toBeEnabled();
+  });
+
+  it("a deadline missed this week leads as Overdue and counts on the link", async () => {
+    mockStore = makeStore({
+      tasks: tasks("Walk"),
+      parkedTasks: [{ id: "o", text: "Renew permit", parkedAt, when: { date: "2026-09-23", kind: "by" as const } }],
+    });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("saved-ideas-link")).toHaveTextContent(/· 1 for today$/);
+    await fireEvent.press(screen.getByTestId("need-ideas"));
+    const lead = within(screen.getByTestId("due-today-ideas"));
+    expect(lead.getByTestId("parked-when-o")).toHaveTextContent("Overdue");
+  });
+
+  it("tapping a date offers Change day (iOS menu): a day keeps the kind, No date clears it", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk"), parkedTasks: dated });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("need-ideas"));
+    const sheet = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+    await fireEvent.press(screen.getByRole("button", { name: "By Mar 1, 2027. Change day for Passport" }));
+    const options = sheet.mock.calls[0][0] as { options: string[]; cancelButtonIndex: number; destructiveButtonIndex: number };
+    expect(options.options).toEqual(["Today", "Tomorrow", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "No date", "Cancel"]);
+    expect(options.destructiveButtonIndex).toBe(7);
+    expect(options.cancelButtonIndex).toBe(8);
+    await act(async () => (sheet.mock.calls[0][1] as (index: number) => void)(1));
+    expect(mockStore.setParkedWhen).toHaveBeenCalledWith("p5", { date: "2026-09-27", kind: "by" });
+    await fireEvent.press(screen.getByRole("button", { name: "Tue. Change day for Buy shoes" }));
+    await act(async () => (sheet.mock.calls[1][1] as (index: number) => void)(7));
+    expect(mockStore.setParkedWhen).toHaveBeenLastCalledWith("p1", null);
+    // Cancel changes nothing.
+    await fireEvent.press(screen.getByRole("button", { name: "Tue. Change day for Buy shoes" }));
+    await act(async () => (sheet.mock.calls[2][1] as (index: number) => void)(8));
+    expect(mockStore.setParkedWhen).toHaveBeenCalledTimes(2);
+    sheet.mockRestore();
   });
 
   it("opened from the link on a full day, the hint still says so", async () => {

@@ -125,27 +125,46 @@ function dateKeyOf(ms) {
 
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-// Words that say a day or date is written somewhere in the dump. Without
-// any, every `when` is dropped: the model must never invent a date.
+// Words that say an item's own text names a day or date (1.6 F). An item
+// without any loses its `when`, so a date the model made up for "Call Mark"
+// or "Go to the market" never gets through. Checked per item, on the text
+// the model wrote, which the prompt asks to keep the day words in. Kept
+// narrow on purpose: whole weekday and month names, an abbreviated month only
+// with a dot or a day number ("Mar. 1", "Oct 31"), "May" only with a number,
+// short weekdays only after by/on/before/due, date-like numbers ("3/14", "the
+// 5th"). It can't prove the date is right, only that one was written.
+const MONTHS = "january|february|march|april|june|july|august|september|october|november|december";
+const MONTH_SHORT = "jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec";
+const WEEKDAYS = "monday|tuesday|wednesday|thursday|friday|saturday|sunday";
+const COUNT_WORDS = "\\d+|a|an|one|two|three|four|five|six|a couple of|a few";
 export const DATE_CUE = new RegExp(
   [
-    "\\b(?:today|tonight|tomorrow|tmrw|tmr|weekend|week|month|year|deadline|due|eod|eow|eom)\\b",
-    "\\b(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)(?:day|nesday|rsday|urday|sday)?s?\\b",
-    "\\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\b",
-    "\\d",
+    "\\b(?:today|tonight|tomorrow|tmrw|eod|eow|eom)\\b",
+    "\\b(?:next|this)\\s+(?:week|weekend|month)\\b",
+    "\\bend\\s+of\\s+(?:the\\s+)?(?:week|month)\\b",
+    `\\b(?:${WEEKDAYS})\\b`,
+    `\\b(?:by|on|before|due|until|till|next|this)\\s+(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\\b`,
+    `\\b(?:${MONTHS})\\b`,
+    `\\b(?:${MONTH_SHORT})(?:\\.|\\s+\\d)`,
+    `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:${MONTHS}|${MONTH_SHORT}|may)\\b`,
+    "\\bmay\\s+\\d{1,2}\\b",
+    "\\b\\d{1,2}[/.-]\\d{1,2}(?:[/.-]\\d{2,4})?\\b",
+    "\\b\\d{4}-\\d{2}-\\d{2}\\b",
+    "\\b\\d{1,2}(?:st|nd|rd|th)\\b",
+    `\\bin\\s+(?:${COUNT_WORDS})\\s+(?:days?|weeks?|months?)\\b`,
   ].join("|"),
   "i",
 );
 
 /**
- * A model's `when`, or null: a real date, a known kind, not before the
- * payload's `today` and at most MAX_WHEN_DAYS_AHEAD after it, and only when
- * the dump names some day or date. No `today` sent (an older app, a free
- * sort): always null.
+ * A model's `when` for one item, or null: a real date, a known kind, not
+ * before the payload's `today` and at most MAX_WHEN_DAYS_AHEAD after it, and
+ * only when the item's own text names a day or date (DATE_CUE). No `today`
+ * sent (an older app, a free sort): always null.
  */
-export function cleanWhen(value, payload) {
+export function cleanWhen(value, payload, itemText) {
   const today = dateKeyMs(payload?.today);
-  if (!Number.isFinite(today) || typeof payload?.text !== "string" || !DATE_CUE.test(payload.text)) return null;
+  if (!Number.isFinite(today) || typeof itemText !== "string" || !DATE_CUE.test(itemText)) return null;
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const at = dateKeyMs(value.date);
   if (!Number.isFinite(at) || (value.kind !== "on" && value.kind !== "by")) return null;
@@ -165,7 +184,9 @@ export function whenPromptLines(payload) {
     "Set when on an item only if they wrote a day or date for it (\"deck for Tuesday\", \"passport before March\"), " +
       'as { date: "YYYY-MM-DD", kind }: kind "on" for a day it is for, "by" for a deadline, with date the last day ' +
       "it can be done (by Friday → that Friday; before Friday → the Thursday; before March → the last day of February). " +
-      "Use the next matching day from the list above. Otherwise when is null. Never guess a date, never one before today.",
+      "Use the next matching day from the list above. Keep the day or date words in that item's text " +
+      '("Send the deck for Tuesday"): an item whose text names no day gets no date. ' +
+      "Otherwise when is null. Never guess a date, never one before today.",
   ];
 }
 
@@ -322,9 +343,10 @@ export function sanitizeBrainDump(result, payload) {
   const moved = new Set((cleanStats(payload?.stats)?.moved ?? []).map((item) => taskKey(item.text)));
   const honest = (item) =>
     !item.reason || !WAITING_REASON.test(foldForMatch(item.reason)) || moved.has(taskKey(item.text)) ? item : { text: item.text };
-  // A date (1.6 F) only when valid and the app sent today (cleanWhen).
+  // A date (1.6 F) only when valid, the app sent today, and the item's own
+  // words name a day (cleanWhen).
   const dated = (item, raw) => {
-    const when = cleanWhen(raw?.when, payload);
+    const when = cleanWhen(raw?.when, payload, item.text);
     return when ? { ...item, when } : item;
   };
   const rawPicks = textItemSources(result.picks, 3);

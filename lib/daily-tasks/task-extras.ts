@@ -1,7 +1,7 @@
 // Pure state transitions for brain-dump parking and task step checklists.
 // Kept out of the React store so they're unit-tested directly.
 
-import { localDayOf, normalizeWhen, parseLocalWhen } from "./resurface";
+import { isDateKey, isOverdue, localDayOf, normalizeWhen, parseLocalWhen } from "./resurface";
 import type { AppState, ParkedTask, Task, TaskStep, TaskWhen } from "./types";
 import { MAX_PARKED_TASKS, MAX_TASKS } from "./types";
 
@@ -13,14 +13,16 @@ function makeId(prefix: string, index: number, now: string): string {
   return `${prefix}_${Date.parse(now) || 0}_${index}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-/**
- * The date in an item's own words, unless it's the day it's being saved on:
- * something set aside today ("Not today", or left out of today's picks)
- * isn't due today just because it says "today" or today's weekday.
- */
-function ownWords(text: string, today: string): TaskWhen | null {
-  const when = parseLocalWhen(text, today);
-  return when && when.date !== today ? when : null;
+export interface ParkOptions {
+  /** The store's day (yyyy-MM-dd); else the local day of `now`. */
+  today?: string;
+  /**
+   * Per item, in the order of `texts`: the day it was written (a capture
+   * from the widget or share sheet, 1.6 E). Its words are read against that
+   * day, and a date on that very day is kept: it was captured for it, not
+   * set aside. Undefined entries are being saved today.
+   */
+  refDays?: (string | undefined)[];
 }
 
 /**
@@ -28,17 +30,20 @@ function ownWords(text: string, today: string): TaskWhen | null {
  * today's list; keeps the newest MAX_PARKED_TASKS.
  *
  * Each item keeps a soft date (1.6 F): the one in `dates` (the AI sort's,
- * keyed by looseKey of the text), else one read from its own words
- * (parseLocalWhen; not today itself, see ownWords). A date before today
- * (the local day of `now`) is ignored.
+ * or one carried from a task, keyed by looseKey of the text), else one read
+ * from its own words (parseLocalWhen). Never one before today. And never
+ * today itself for something set aside today (no refDay): left out of
+ * today's picks, or "Not today", it isn't for today just because its words
+ * say "today" or the AI read today's weekday.
  */
 export function parkTasks(
   state: AppState,
   texts: string[],
   now: string,
   dates?: Record<string, TaskWhen>,
+  options: ParkOptions = {},
 ): AppState {
-  const today = localDayOf(now);
+  const today = isDateKey(options.today) ? options.today : localDayOf(now);
   const taken = new Set([
     ...state.parkedTasks.map((p) => key(p.text)),
     ...state.tasks.map((t) => key(t.text)),
@@ -49,7 +54,18 @@ export function parkTasks(
     if (!text || taken.has(key(text))) return;
     taken.add(key(text));
     const parked: ParkedTask = { id: makeId("parked", index, now), text, parkedAt: now };
-    const when = today ? (normalizeWhen(dates?.[looseKey(text)], today) ?? ownWords(text, today)) : null;
+    const refDay = options.refDays?.[index];
+    const written = isDateKey(refDay) && today && refDay <= today ? refDay : null;
+    let when: TaskWhen | null = null;
+    if (today) {
+      // The AI's (or a carried) date, if it isn't before the day it's read against; else the words.
+      const base = written ?? today;
+      const read = normalizeWhen(dates?.[looseKey(text)], base) ?? parseLocalWhen(text, base);
+      when = normalizeWhen(read, today);
+      // A capture's deadline that passed before it was brought in still shows as Overdue.
+      if (!when && written && read && isOverdue(read, today)) when = read;
+      if (when && !written && when.date === today) when = null;
+    }
     added.push(when ? { ...parked, when } : parked);
   });
   if (added.length === 0) return state;
@@ -82,7 +98,7 @@ export function removeParkedTask(state: AppState, id: string): AppState {
  */
 export function swapParkedTask(
   state: AppState,
-  input: { parkedId: string; taskId: string; now: string; newId: string },
+  input: { parkedId: string; taskId: string; now: string; newId: string; today?: string },
 ): AppState {
   if (state.todayLocked) return state;
   const parked = state.parkedTasks.find((p) => p.id === input.parkedId);
@@ -92,10 +108,30 @@ export function swapParkedTask(
   const out = state.tasks[index];
   if (!text || state.tasks.some((task, i) => i !== index && key(task.text) === key(text))) return state;
   const tasks = state.tasks.slice();
-  tasks[index] = { id: input.newId, text, createdAt: input.now, carriedOver: false };
+  // Its date comes along (1.6 F), so it's still there if it's saved again.
+  tasks[index] = { id: input.newId, text, createdAt: input.now, carriedOver: false, ...(parked.when ? { when: parked.when } : {}) };
   const swapped = { ...removeParkedTask(state, parked.id), tasks };
   // The task that left is saved for later (parkTasks skips what's still on today).
-  return parkTasks(swapped, [out.text], input.now);
+  return parkTasks(swapped, [out.text], input.now, taskDates(out), { today: input.today });
+}
+
+/** A task's carried date (1.6 F) in parkTasks' `dates` form, if it has one. */
+export function taskDates(task: Task): Record<string, TaskWhen> | undefined {
+  return task.when ? { [looseKey(task.text)]: task.when } : undefined;
+}
+
+/** A saved item's date changed by hand ("Change day"), or cleared with null. */
+export function setParkedWhen(state: AppState, id: string, when: TaskWhen | null): AppState {
+  const item = state.parkedTasks.find((p) => p.id === id);
+  if (!item) return state;
+  const next = when ? normalizeWhen(when) : null;
+  if ((next?.date ?? null) === (item.when?.date ?? null) && (next?.kind ?? null) === (item.when?.kind ?? null)) return state;
+  const parkedTasks = state.parkedTasks.map((p) => {
+    if (p.id !== id) return p;
+    const { when: _old, ...rest } = p;
+    return next ? { ...rest, when: next } : rest;
+  });
+  return { ...state, parkedTasks };
 }
 
 /** Whether a parked item can move onto today's list right now. */

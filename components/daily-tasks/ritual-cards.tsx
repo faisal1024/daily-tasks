@@ -330,10 +330,12 @@ export function EveningResult({
             </Text>
           ))}
         </View>
-      ) : onRetry ? (
+      ) : null}
+      {onRetry ? (
         <View className="gap-2 mt-1" testID="evening-retry">
           <Text className="text-sm" style={{ color: colors.muted }}>
-            Couldn&apos;t draft tomorrow.
+            {/* 1.6 F: a draft of only saved items can stand while the coach failed. */}
+            {draft ? "The coach couldn't add to it." : "Couldn't draft tomorrow."}
           </Text>
           <Pressable
             onPress={onRetry}
@@ -346,7 +348,7 @@ export function EveningResult({
             <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 16 }}>Try again</Text>
           </Pressable>
         </View>
-      ) : teaser ? (
+      ) : !draft && teaser ? (
         <View className="gap-2 mt-1" testID="evening-teaser">
           <Text className="text-sm font-semibold" style={{ color: colors.primary }} accessibilityRole="header">
             {EVENING_TEASER_COPY.title}

@@ -4,7 +4,7 @@
 // addDays), so these hold in any timezone and across DST, month and year ends.
 import { describe, expect, it } from "vitest";
 
-import { dueReason, normalizeWhen, parseLocalWhen, savedItemsView, whenLabel } from "../lib/daily-tasks/resurface";
+import { dueReason, normalizeWhen, parseLocalWhen, savedItemsView, whenChoices, whenLabel } from "../lib/daily-tasks/resurface";
 import type { ParkedTask, TaskWhen } from "../lib/daily-tasks/types";
 
 /** `key` plus `n` days, by UTC arithmetic. */
@@ -99,9 +99,12 @@ describe("parseLocalWhen: next week", () => {
 });
 
 describe("parseLocalWhen: deadlines", () => {
-  it('"by", "until", "till" and "due" are deadlines on that day', () => {
-    for (const cue of ["by", "until", "till", "due"]) {
+  it('"by" and "due" are deadlines on that day; "until" and "till" are just the day', () => {
+    for (const cue of ["by", "due"]) {
       expect(parseLocalWhen(`Passport ${cue} Friday`, "2026-10-26"), cue).toEqual(by("2026-10-30"));
+    }
+    for (const cue of ["until", "till"]) {
+      expect(parseLocalWhen(`Wait ${cue} Friday`, "2026-10-26"), cue).toEqual(on("2026-10-30"));
     }
     expect(parseLocalWhen("Taxes due tomorrow", "2026-10-26")).toEqual(by("2026-10-27"));
     expect(parseLocalWhen("Taxes by today", "2026-10-26")).toEqual(by("2026-10-26"));
@@ -153,6 +156,38 @@ describe("parseLocalWhen: never guesses", () => {
     expect(parseLocalWhen(text, "2026-10-26")).toBeNull();
   });
 
+  // Review fixes: words that look like days but aren't.
+  it.each([
+    ["an exam name in capitals", "Prep for SAT"],
+    ["a short form after for", "Wear sunscreen for sun"],
+    ["a capital short form after a cue", "Revise by SAT"],
+    ["a possessive", "Reply to Tuesday's email"],
+    ["a curly possessive", "Reply to Tuesday’s email"],
+    ["a named day", "Black Friday deals"],
+    ["another named day", "Cyber Monday sale"],
+    ["a domain", "Monday.com setup"],
+    ["a title", "Read Thursday Murder Club"],
+    ["from a past day", "Answer the email from Monday"],
+    ["since a past day", "Sore since Tuesday"],
+    ["last weekday", "Follow up on last Friday's call"],
+    ["last weekday, no possessive", "Notes from the meeting last Friday"],
+  ])("gives no date for %s", (_label, text) => {
+    expect(parseLocalWhen(text, "2026-10-26")).toBeNull();
+  });
+
+  it('"Wait until Friday" is Friday, not a deadline', () => {
+    expect(parseLocalWhen("Wait until Friday", "2026-10-26")).toEqual(on("2026-10-30"));
+  });
+
+  it("a past day is skipped but a later one in the same item still counts", () => {
+    expect(parseLocalWhen("Since Monday's call, send notes by Friday", "2026-10-26")).toEqual(by("2026-10-30"));
+  });
+
+  it("short forms still work after a day cue, lowercase or capitalised", () => {
+    expect(parseLocalWhen("Rent by Fri", "2026-10-26")).toEqual(by("2026-10-30"));
+    expect(parseLocalWhen("Gym on sat", "2026-10-26")).toEqual(on("2026-10-31"));
+  });
+
   it("gives no date for a bad today or a non-string", () => {
     expect(parseLocalWhen("Call tomorrow", "2026-02-30")).toBeNull();
     expect(parseLocalWhen("Call tomorrow", "tomorrow")).toBeNull();
@@ -202,7 +237,9 @@ describe("how a date is shown", () => {
     expect(whenLabel(on("2026-11-01"), T)).toBe("Sun");
     // Seven days on would read as today's weekday: a date instead.
     expect(whenLabel(on("2026-11-02"), T)).toBe("Nov 2");
-    expect(whenLabel(on("2027-03-01"), T)).toBe("Mar 1");
+    // Another year says so.
+    expect(whenLabel(on("2027-03-01"), T)).toBe("Mar 1, 2027");
+    expect(whenLabel(on("2026-12-31"), T)).toBe("Dec 31");
   });
 
   it("marks a deadline with By", () => {
@@ -211,17 +248,37 @@ describe("how a date is shown", () => {
     expect(whenLabel(by("2026-10-27"), T)).toBe("By tomorrow");
   });
 
-  it("keeps a day that has passed as a date, never a bare weekday", () => {
-    expect(whenLabel(on("2026-10-20"), T)).toBe("Oct 20");
-    expect(whenLabel(by("2026-10-25"), T)).toBe("By Oct 25");
+  it("once the day has passed: no label for a plan; Overdue for a deadline for a week, then none", () => {
+    expect(whenLabel(on("2026-10-25"), T)).toBeNull();
+    expect(whenLabel(on("2026-10-20"), T)).toBeNull();
+    expect(whenLabel(by("2026-10-25"), T)).toBe("Overdue");
+    expect(whenLabel(by("2026-10-19"), T)).toBe("Overdue"); // 7 days
+    expect(whenLabel(by("2026-10-18"), T)).toBeNull(); // 8 days
   });
 
-  it("gives the Due line only for today, tomorrow and the next five days", () => {
-    expect(dueReason(on(T), T)).toBe("Due today");
-    expect(dueReason(on("2026-10-27"), T)).toBe("Due tomorrow");
-    expect(dueReason(on("2026-10-30"), T)).toBe("Due Friday");
+  it("a plan reads For …, a deadline Due … (or Overdue), for today, tomorrow and the next five days", () => {
+    expect(dueReason(on(T), T)).toBe("For today");
+    expect(dueReason(on("2026-10-27"), T)).toBe("For tomorrow");
+    expect(dueReason(on("2026-10-30"), T)).toBe("For Friday");
+    expect(dueReason(by(T), T)).toBe("Due today");
+    expect(dueReason(by("2026-10-27"), T)).toBe("Due tomorrow");
+    expect(dueReason(by("2026-10-30"), T)).toBe("Due Friday");
+    expect(dueReason(by("2026-10-22"), T)).toBe("Overdue");
     expect(dueReason(on("2026-11-02"), T)).toBeNull();
     expect(dueReason(on("2026-10-25"), T)).toBeNull();
+    expect(dueReason(by("2026-10-10"), T)).toBeNull();
+  });
+
+  it("Change day offers today, tomorrow and the next five weekdays", () => {
+    expect(whenChoices(T)).toEqual([
+      { label: "Today", date: T },
+      { label: "Tomorrow", date: "2026-10-27" },
+      { label: "Wednesday", date: "2026-10-28" },
+      { label: "Thursday", date: "2026-10-29" },
+      { label: "Friday", date: "2026-10-30" },
+      { label: "Saturday", date: "2026-10-31" },
+      { label: "Sunday", date: "2026-11-01" },
+    ]);
   });
 });
 
@@ -241,19 +298,27 @@ describe("savedItemsView (the Ideas order)", () => {
     );
     expect(view.map((v) => v.id)).toEqual(["c", "e", "a", "b", "d"]);
     expect(view.map((v) => v.dueToday)).toEqual([true, true, false, false, false]);
-    expect(view[0]).toMatchObject({ reason: "Due today", label: "Today" });
+    expect(view[0]).toMatchObject({ reason: "For today", label: "Today" });
     expect(view[1]).toMatchObject({ reason: "Due today", label: "By today" });
     expect(view[3]).toMatchObject({ label: "Wed" });
     expect(view[3].reason).toBeUndefined();
     // Undated: neither a label nor a reason.
     expect(view[2]).toEqual({ id: "a", text: "Item a", dueToday: false });
+    // The stored date comes along, for Change day.
+    expect(view[3].when).toEqual(on("2026-10-28"));
   });
 
-  it("does not put an overdue item first, but keeps its date", () => {
-    const view = savedItemsView([item("a"), item("o", on("2026-10-20")), item("t", on(T))], T);
-    expect(view.map((v) => v.id)).toEqual(["t", "a", "o"]);
-    expect(view[2]).toMatchObject({ label: "Oct 20", dueToday: false });
-    expect(view[2].reason).toBeUndefined();
+  it("a plan whose day passed drops back quietly (no label); a deadline missed this week leads as Overdue", () => {
+    const view = savedItemsView(
+      [item("a"), item("o", on("2026-10-20")), item("t", on(T)), item("d", by("2026-10-23")), item("x", by("2026-10-01"))],
+      T,
+    );
+    expect(view.map((v) => v.id)).toEqual(["t", "d", "a", "o", "x"]);
+    expect(view[1]).toMatchObject({ label: "Overdue", reason: "Overdue", dueToday: true });
+    expect(view[3]).toMatchObject({ id: "o", dueToday: false });
+    expect(view[3].label).toBeUndefined();
+    expect(view[3].reason).toBeUndefined();
+    expect(view[4].label).toBeUndefined();
   });
 
   it("keeps the order when nothing is due today", () => {

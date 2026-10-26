@@ -69,11 +69,11 @@ describe("withDueTomorrow", () => {
 
   it("with nothing else drafted, the because line says why (one item or several)", () => {
     expect(withDueTomorrow(close([], "Nothing to carry."), [item("Send deck", on(TOMORROW))], DAY).because).toBe(
-      "Something you saved is due tomorrow.",
+      "Something you saved is for tomorrow.",
     );
     expect(
       withDueTomorrow(close([], "Nothing to carry."), [item("A", on(TOMORROW)), item("B", on(TOMORROW))], DAY).because,
-    ).toBe("A few things you saved are due tomorrow.");
+    ).toBe("A few things you saved are for tomorrow.");
   });
 
   it("keeps the coach's because line when the coach drafted something", () => {
@@ -106,10 +106,10 @@ describe("savedDueOn and draftDueReasons", () => {
     ).toEqual(["B", "a"]);
   });
 
-  it("says Due today under a drafted task whose saved date is today, matched loosely", () => {
+  it("says For today (a plan) or Due … (a deadline) under a drafted task with a saved date, matched loosely", () => {
     const parked = [item("Send deck", on(DAY)), item("Passport", by("2026-10-30")), item("Call mum")];
     expect(draftDueReasons(["send  DECK", "Passport", "Call mum", "Stretch"], parked, DAY)).toEqual({
-      "send  DECK": "Due today",
+      "send  DECK": "For today",
       Passport: "Due Friday",
     });
   });
@@ -117,5 +117,13 @@ describe("savedDueOn and draftDueReasons", () => {
   it("gives nothing for a date far off, past, or none", () => {
     const parked = [item("Far", on("2026-12-01")), item("Past", on("2026-10-20"))];
     expect(draftDueReasons(["Far", "Past", "Nope"], parked, DAY)).toEqual({});
+  });
+});
+
+describe("withDueTomorrow: the because line speaks only for the draft (review fix)", () => {
+  it("swaps the coach's line when the saved items pushed one of its picks out", () => {
+    const result = withDueTomorrow(close(["Stretch", "Read", "Walk"], "Picking up where today left off."), [item("Send deck", on(TOMORROW))], DAY);
+    expect(result.tomorrow).toEqual(["Send deck", "Stretch", "Read"]);
+    expect(result.because).toBe("Something you saved is for tomorrow.");
   });
 });

@@ -108,7 +108,7 @@ import {
 } from "@/lib/daily-tasks/coach-note";
 import { addDays, fromDateKey, greetingFor, greetingText, storeDayFor, todayKey } from "@/lib/daily-tasks/date";
 import { recordPlusUse } from "@/lib/daily-tasks/trial-note";
-import { draftDueReasons, savedItemsView, withDueTomorrow } from "@/lib/daily-tasks/resurface";
+import { draftDueReasons, savedItemsView, whenChoices, withDueTomorrow } from "@/lib/daily-tasks/resurface";
 import { sessionEndedAnnouncement, STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
 import { durationWords, timerMenuLengths } from "@/lib/daily-tasks/focus-timer";
 import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-storage";
@@ -238,6 +238,7 @@ export default function HomeScreen() {
     focusDoneCount,
     parkTasks,
     removeParkedTask,
+    setParkedWhen,
     addParkedTask,
     swapParkedTask,
     updateMomentumProfile,
@@ -417,7 +418,7 @@ export default function HomeScreen() {
     // Yesterday: anything finished after the close, or dropped at rollover.
     sourceDay: state.tomorrowDraft ? state.history[addDays(state.tomorrowDraft.forDate, -1)] : null,
   });
-  // Saved for later as Ideas shows it: due today first (1.6 F).
+  // Saved for later as Ideas shows it: what's for today first (1.6 F).
   const savedItems = useMemo(() => savedItemsView(state.parkedTasks, today), [state.parkedTasks, today]);
   const savedDueToday = savedItems.filter((item) => item.dueToday).length;
   // An empty day opens on the morning ritual: last night's draft, or the prompt.
@@ -1474,12 +1475,13 @@ export default function HomeScreen() {
     // Saved items due tomorrow lead the draft (1.6 F, Plus like the coach's draft).
     const parked = state.parkedTasks;
     void closeDay(input, { useAi })
-      .then((closed) => (useAi ? withDueTomorrow(closed, parked, day) : closed))
-      .then((close) => {
-        setEveningClose(close, day, result, startedAt);
+      .then((closed) => {
         // Asked the coach, got the on-device close with nothing for tomorrow: offer a retry.
-        if (useAi && close.source === "local" && close.tomorrow.length === 0) setEveningAiFailedFor(day);
-        track("evening_closed", { source: close.source, count: close.tomorrow.length });
+        // Judged on the coach's answer, before saved items are added (1.6 F).
+        if (useAi && closed.source === "local" && closed.tomorrow.length === 0) setEveningAiFailedFor(day);
+        // Counts what the coach (or the on-device close) drafted, not the saved items added.
+        track("evening_closed", { source: closed.source, count: closed.tomorrow.length });
+        setEveningClose(useAi ? withDueTomorrow(closed, parked, day) : closed, day, result, startedAt);
       })
       .finally(() => {
         closingRef.current = false;
@@ -1910,7 +1912,7 @@ export default function HomeScreen() {
               {/* A full or locked day hides the ideas entry, but saved items
                   must stay reachable (to view or remove; on a locked day
                   nothing swaps in until it's unlocked). */}
-              {/* 1.6 F: also when a saved item is due today, so it's put forward. */}
+              {/* 1.6 F: also when a saved item is for today (or a deadline just missed), so it's put forward. */}
               {(state.todayLocked || remainingSlots === 0 || savedDueToday > 0) && state.parkedTasks.length > 0 && (
                 <Pressable
                   onPress={() => {
@@ -1920,14 +1922,14 @@ export default function HomeScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Saved for later, ${state.parkedTasks.length} ${
                     state.parkedTasks.length === 1 ? "item" : "items"
-                  }${savedDueToday > 0 ? `, ${savedDueToday} due today` : ""}`}
+                  }${savedDueToday > 0 ? `, ${savedDueToday} for today` : ""}`}
                   hitSlop={8}
                   className="self-start flex-row items-center gap-1.5"
                   testID="saved-ideas-link"
                 >
                   <Ionicons name="bookmark-outline" size={15} color={colors.primary} />
                   <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-                    Saved for later ({state.parkedTasks.length}){savedDueToday > 0 ? ` · ${savedDueToday} due today` : ""}
+                    Saved for later ({state.parkedTasks.length}){savedDueToday > 0 ? ` · ${savedDueToday} for today` : ""}
                   </Text>
                 </Pressable>
               )}
@@ -2222,6 +2224,9 @@ export default function HomeScreen() {
           addParkedTask(id);
         }}
         onRemoveParked={removeParkedTask}
+        // 1.6 F: a wrong date is fixed from its label ("Change day" / "No date").
+        dayChoices={whenChoices(today)}
+        onSetParkedWhen={setParkedWhen}
         // 1.5 D: on a full, unlocked day a saved item swaps in for an open task.
         swapTargets={state.tasks.filter((task) => !isCompleted(task.id)).map((task) => ({ id: task.id, text: task.text }))}
         onSwapParked={(parkedId, taskId) => {

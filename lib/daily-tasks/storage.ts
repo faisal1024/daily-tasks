@@ -84,6 +84,8 @@ function normalizeTasks(value: unknown): Task[] {
       carriedOver: item.carriedOver === true,
     };
     if (typeof item.routineId === "string" && item.routineId) task.routineId = item.routineId;
+    const when = normalizeWhen(item.when);
+    if (when) task.when = when;
     tasks.push({ ...task, ...normalizeStepsField(item.steps) });
   }
   return tasks;
