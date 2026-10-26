@@ -1,6 +1,6 @@
 # Privacy Policy — Three Today
 
-**Effective date: 26 October 2026 (last updated for the Sunday reset, dated saved items, the free Break it down try, completion stats sent with smart features, and "What your coach remembers")**
+**Effective date: 26 October 2026 (last updated for the Sunday reset, dated saved items, saving for later from the share sheet and Siri, the free Break it down try, completion stats sent with smart features, and "What your coach remembers")**
 
 <!-- Keep in sync with the published copy (gist a43d6373453761af70d495d640e38ffa,
      privacy-policy.html), which App Store Connect links to. The app links here. -->
@@ -18,7 +18,7 @@ The app stores the following data locally using the operating system's standard 
 - Your goal, onboarding answers (such as time per day, experience level, and main struggle), and the optional first name you enter for greetings
 - Your progress (XP, level, streaks, milestones) and your reminder preferences
 
-This data is not synced to any server or account. The Home Screen and Lock Screen widget reads today's tasks from storage shared between the app and its widget on your device; nothing is sent anywhere for the widget.
+This data is not synced to any server or account. The Home Screen and Lock Screen widget reads today's tasks from storage shared between the app and its widget on your device; nothing is sent anywhere for the widget. Text you save for later from the share sheet or with Siri and Shortcuts ("Save for later") is kept in that same on-device storage until the app brings it into your Saved for later list; nothing is sent anywhere when you save it.
 
 ## Smart features (AI)
 
@@ -30,7 +30,7 @@ Seven optional features use an AI model. When you use them, the app sends a requ
 - **Break it down:** the title of the task you ask to break down, and your goal.
 - **Evening check-in:** how your day felt (the option you tap), the titles of today's tasks and whether each was done, your optional note, your goal, and your coach memory (below).
 - **Coach's note (Plus):** once today's tasks are set, the titles of up to three of today's tasks, your goal, and the suggestion tone you picked in Settings, so the short note under your tasks can be written for them. It is sent at most twice a day; without Plus, or if the request fails, the note uses lines built into the app.
-- **Nag mode (optional, Plus):** if you turn on the Nag reminder style in Settings, once a day (at most twice) the app sends the titles of today's unfinished tasks (with how many times each was moved to another day, if it was), and the voice and level you picked, so the reminders can be written in that voice. Nothing is sent while "Hide task names in notifications" is on, or while it is paused for the day; the reminders then use lines built into the app. The reminders themselves are still local notifications scheduled on your device.
+- **Nag mode (optional, Plus):** if you turn on the Nag reminder style in Settings, once a day (at most twice) the app sends the titles of today's unfinished tasks (with how many times each was moved to another day, if it was), and the voice and level you picked, so the reminders can be written in that voice. Nothing is sent while "Hide task names in notifications" is on, or while it is paused for the day; the reminders then use lines built into the app. The reminders themselves are still local notifications scheduled on your device. Nag lines you write yourself stay on your device and are never sent.
 
 **Calendar and Reminders (optional, iPhone only).** If you turn on "Plan around my calendar" in Settings and allow access, the app reads the titles and times of today's calendar events and of reminders due by the end of today (including overdue ones), up to 12 items. They are sent with goal-based suggestion and brain dump requests so your three fit around your day. They are never stored on our server, and the app never changes your calendar or reminders. You can turn this off in Settings, or remove access in iOS Settings, at any time.
 
