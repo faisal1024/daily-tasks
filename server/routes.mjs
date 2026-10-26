@@ -97,8 +97,10 @@ export const ROUTES = {
   },
   [BREAK_DOWN_ROUTE]: {
     name: "break-down",
-    // Plus only (checked server-side when ENTITLEMENT_MODE is on).
+    // Plus only (checked server-side when ENTITLEMENT_MODE is on), except a
+    // free id's one try ever (config.freeBreakDownsPerClient, 1.5).
     plusOnly: true,
+    freeTries: "breakDown",
     system: BREAK_DOWN_SYSTEM_PROMPT,
     buildPrompt: buildBreakDownPrompt,
     schema: BREAK_DOWN_SCHEMA,

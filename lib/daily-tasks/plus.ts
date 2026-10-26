@@ -12,7 +12,7 @@ export const PLUS_ENTITLEMENT = "plus";
  */
 export const GRANDFATHER_BEFORE_VERSION = "1.1.0";
 
-export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "calendar" | "routines" | "nag_mode";
+export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "calendar" | "routines" | "nag_mode" | "evening_draft";
 
 export type PaywallSource =
   | "onboarding"
@@ -26,7 +26,9 @@ export type PaywallSource =
   | "aha"
   | "routines"
   // Choosing the Nag reminder style in Settings (1.4).
-  | "nag_mode";
+  | "nag_mode"
+  // The evening close's tomorrow teaser for a free user (1.5).
+  | "evening_draft";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -164,11 +166,23 @@ export function sortPackages(packages: PlusPackage[]): PlusPackage[] {
 }
 
 /**
- * What a paywall shows: lifetime only when opened from Settings (someone
- * looking for it), so the trial plans lead everywhere else.
+ * Lifetime shows on every paywall once someone has closed this many without
+ * buying (1.5): the subscriptions weren't it, so a one-time price may be.
  */
-export function visiblePackages(packages: PlusPackage[], source: PaywallSource | null): PlusPackage[] {
-  return source === "settings" ? packages : packages.filter((pkg) => pkg.kind !== "lifetime");
+export const LIFETIME_AFTER_DISMISSALS = 2;
+
+/**
+ * What a paywall shows: lifetime when opened from Settings (someone looking
+ * for it) or after LIFETIME_AFTER_DISMISSALS paywalls were closed without
+ * buying; otherwise the trial plans lead.
+ */
+export function visiblePackages(
+  packages: PlusPackage[],
+  source: PaywallSource | null,
+  dismissals = 0,
+): PlusPackage[] {
+  if (source === "settings" || dismissals >= LIFETIME_AFTER_DISMISSALS) return packages;
+  return packages.filter((pkg) => pkg.kind !== "lifetime");
 }
 
 /** The plan selected when the paywall opens: annual if offered. */
@@ -285,8 +299,21 @@ export function purchaseTerms(pkg: PlusPackage | null): string {
   return pkg.trialDays ? `Free for ${pkg.trialDays} days, then ${pkg.priceString}/${period}. ${renew}` : renew;
 }
 
-/** What Plus includes, in the order the paywall lists it. */
+/**
+ * What Plus includes, in the order the paywall lists it (1.5): Nag mode, the
+ * evening draft, the smart brain dump and Break it down lead.
+ */
 export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = [
+  {
+    icon: "megaphone-outline",
+    title: "Nag mode",
+    detail: "Reminders as Mom, Dad, Partner, Coach or Drill sergeant, as pushy as you pick.",
+  },
+  {
+    icon: "moon-outline",
+    title: "Your coach drafts tomorrow",
+    detail: "Close the day and your coach drafts tomorrow's three tonight.",
+  },
   {
     icon: "create-outline",
     title: "Smart brain dump",
@@ -317,16 +344,17 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
     title: "Tick off from your Home Screen",
     detail: "Check tasks off right from the widget, without opening the app.",
   },
-  {
-    icon: "megaphone-outline",
-    title: "Nag mode",
-    detail: "Reminders as Mom, Dad, Partner, Coach or Drill sergeant, as pushy as you pick.",
-  },
 ];
 
 /** The benefit a paywall source is about, by title: it leads the list on that paywall. */
 const LEADING_BENEFIT: Partial<Record<PaywallSource, string>> = {
   nag_mode: "Nag mode",
+  evening_draft: "Your coach drafts tomorrow",
+  break_down: "Break it down",
+  brain_dump: "Smart brain dump",
+  new_ideas: "AI ideas for your goal",
+  calendar: "Plan around your calendar",
+  routines: "Unlimited routines",
 };
 
 /** The benefits in the order to show them: the one the paywall opened for comes first. */
@@ -364,6 +392,8 @@ export function paywallHeadline(source: PaywallSource, options: { taskCount?: nu
       return "Keep all your routines";
     case "nag_mode":
       return "Reminders in a voice you pick";
+    case "evening_draft":
+      return "Wake up to tomorrow's three";
     default:
       return "A little extra help, when you want it";
   }
@@ -384,6 +414,8 @@ export function paywallSubhead(source: PaywallSource, options: { taskCount?: num
       return "Two routines are free, and they keep working. Plus keeps as many as you like, with the AI helpers too.";
     case "nag_mode":
       return "Nag mode reminds you as Mom, Dad, Partner, Coach or Drill sergeant. Calm reminders and your three stay free either way.";
+    case "evening_draft":
+      return "Plus drafts a full three each night, from how today went. Your three stay free either way.";
     default:
       return "Your three tasks stay free forever. Plus adds the AI helpers.";
   }
@@ -453,5 +485,5 @@ export function plusStatusLabel(input: {
   if (input.entitlementActive) return "Plus is active. Thank you!";
   if (input.grandfathered) return "Included free for early supporters.";
   if (!input.paywallEnabled) return "All features are included.";
-  return "Plus adds AI help: smart brain dump, break it down and fresh goal ideas.";
+  return "Plus adds Nag mode, a coach who drafts tomorrow, smart brain dump and break it down.";
 }

@@ -69,9 +69,14 @@ import { readTodayAgenda } from "@/lib/daily-tasks/agenda";
 import { claimFirstAiSort } from "@/lib/daily-tasks/storage";
 import {
   claimFreeAiDump,
+  claimFreeBreakDown,
   freeAiDumpNotice,
   freeAiDumpsLeft,
+  freeBreakDownBadge,
+  freeBreakDownsLeft,
   refundFreeAiDump,
+  refundFreeBreakDown,
+  spendFreeBreakDowns,
 } from "@/lib/daily-tasks/free-uses";
 import {
   FREE_LIMIT_NOTICE,
@@ -151,6 +156,7 @@ import {
   isDayClosed,
   showEveningCheckIn,
 } from "@/lib/daily-tasks/evening";
+import { eveningTeaserLine, showsEveningTeaser } from "@/lib/daily-tasks/evening-teaser";
 import type { ReflectionResult, Task } from "@/lib/daily-tasks/types";
 
 /** Wait this long after the app becomes active before asking. */
@@ -163,7 +169,9 @@ type Unlock =
   // `starter`: from the timer's check-in, so a 5-minute starter is offered after.
   | { kind: "break_down"; taskId: string; text: string; starter?: boolean }
   | { kind: "brain_dump" }
-  | { kind: "new_ideas" };
+  | { kind: "new_ideas" }
+  // The evening teaser (1.5): once Plus, the coach drafts that day's close again.
+  | { kind: "evening_draft"; day: string };
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -277,6 +285,8 @@ export default function HomeScreen() {
   // Evening close in flight.
   const [closingDay, setClosingDay] = useState(false);
   const closingRef = useRef(false);
+  // The day whose AI close fell back with nothing drafted (offers "Try again").
+  const [eveningAiFailedFor, setEveningAiFailedFor] = useState<string | null>(null);
   // Opened from "Saved for later" (full day): show just the saved items.
   const [ideasSavedOnly, setIdeasSavedOnly] = useState(false);
   // However the sheet closes (its button, a lock, rollover, the paywall), the
@@ -344,6 +354,20 @@ export default function HomeScreen() {
   // A ref, not just state: two quick taps in one render must not both start.
   const breakingRef = useRef<string | null>(null);
   const breakDownAvailable = proxyRouteUrl(getMomentumAiProxyUrl(), "break-down") != null;
+  // Read when a free try returns: Plus may have been confirmed while it ran.
+  const plusConfirmedRef = useRef(plusConfirmed);
+  plusConfirmedRef.current = plusConfirmed;
+  // 1.5: a free user's one Break it down try (free-uses.ts); null while it loads.
+  const [freeBreakDowns, setFreeBreakDowns] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void freeBreakDownsLeft().then((left) => {
+      if (!cancelled) setFreeBreakDowns(left);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const total = state.tasks.length;
   const progress = todayProgress(completedCount, total, { locked: state.todayLocked });
@@ -378,6 +402,32 @@ export default function HomeScreen() {
     hour,
     enabled: state.momentumSettings.eveningReflection,
   });
+  // The AI coach closes the day (Plus with the proxy): the evening copy only
+  // promises a draft when one will come (1.5).
+  // Confirmed Plus only, so a free user never sees "drafts tomorrow" while Plus is checked.
+  const eveningAiAvailable = proxyRouteUrl(getMomentumAiProxyUrl(), "evening") != null;
+  const coachDrafts = plusConfirmed && eveningAiAvailable;
+  const dayClosed = isDayClosed(state.eveningClose, today);
+  const closedDraft =
+    dayClosed && state.tomorrowDraft?.forDate === addDays(today, 1) ? state.tomorrowDraft : null;
+  // A free user's good day: a teaser of tomorrow with one real line (1.5).
+  const eveningTeaser = showsEveningTeaser({
+    paywallEnabled,
+    hasPlus,
+    eveningAiAvailable,
+    dayClosed,
+    hasDraft: closedDraft !== null,
+    taskCount: total,
+    completedCount: progress.completed,
+  })
+    ? eveningTeaserLine({
+        tasks: state.tasks,
+        parkedTasks: state.parkedTasks,
+        plan: state.momentumPlan,
+        completedMilestoneIds: state.completedMilestoneIds,
+        today,
+      })
+    : null;
   // What the lower section shows at this time of day (1.2).
   const phase = todayPhase({
     taskCount: total,
@@ -1158,15 +1208,30 @@ export default function HomeScreen() {
     options: { starter?: boolean; afterSheet?: boolean } = {},
   ) => {
     if (breakingRef.current) return;
+    if (!plusConfirmed && freeBreakDowns !== 0) {
+      // Free, or Plus still being checked: the free try first (once per
+      // install; the claim has the final say). A subscriber whose Plus is
+      // confirmed meanwhile gets it back (see runBreakDown).
+      void runBreakDown(taskId, text, options.starter, { freeTry: true, afterSheet: options.afterSheet });
+      return;
+    }
     if (!hasPlus) {
-      showPaywall("break_down", {
-        feature: "break_down",
-        afterSheet: options.afterSheet,
-        resume: { kind: "break_down", taskId, text, starter: options.starter },
-      });
+      showBreakDownPaywall(taskId, text, options);
       return;
     }
     void runBreakDown(taskId, text, options.starter);
+  };
+
+  const showBreakDownPaywall = (
+    taskId: string,
+    text: string,
+    options: { starter?: boolean; afterSheet?: boolean } = {},
+  ) => {
+    showPaywall("break_down", {
+      feature: "break_down",
+      afterSheet: options.afterSheet,
+      resume: { kind: "break_down", taskId, text, starter: options.starter },
+    });
   };
 
   const offerStarter = (taskId: string, step: string) => {
@@ -1176,10 +1241,28 @@ export default function HomeScreen() {
     ]);
   };
 
-  const runBreakDown = async (taskId: string, text: string, starter = false) => {
+  // `freeTry`: a free user's one try (1.5), claimed here before the request,
+  // given back if the AI can't be reached, and matched to the server on a 402.
+  const runBreakDown = async (
+    taskId: string,
+    text: string,
+    starter = false,
+    free: { freeTry?: boolean; afterSheet?: boolean } = {},
+  ) => {
     if (breakingRef.current) return;
     breakingRef.current = taskId;
     setBreakingTaskId(taskId);
+    if (free.freeTry) {
+      const left = await claimFreeBreakDown();
+      if (left === null) {
+        breakingRef.current = null;
+        setBreakingTaskId(null);
+        setFreeBreakDowns(0);
+        showBreakDownPaywall(taskId, text, { starter, afterSheet: free.afterSheet });
+        return;
+      }
+      setFreeBreakDowns(left);
+    }
     // From the check-in: the timer on this task makes way for the steps.
     if (starter && focusSessionRef.current?.taskId === taskId) stopFocusSession("broken_down");
     try {
@@ -1187,14 +1270,37 @@ export default function HomeScreen() {
       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
       // Only if the task still reads the same (it may have been edited meanwhile).
       setTaskSteps(taskId, steps, text);
-      track("break_down_used", { count: steps.length });
+      // Plus confirmed while it ran (it was still being checked): not a free try after all.
+      const wasFreeTry = free.freeTry === true && !plusConfirmedRef.current;
+      if (free.freeTry && !wasFreeTry) {
+        void refundFreeBreakDown()
+          .then(() => freeBreakDownsLeft())
+          .then(setFreeBreakDowns);
+      }
+      track("break_down_used", wasFreeTry ? { count: steps.length, source: "free_try" } : { count: steps.length });
       // Break it down is Plus-only and AI-only: steps back means Plus was used.
-      if (steps.length > 0) void recordPlusUse("break_down");
+      if (steps.length > 0 && !free.freeTry) void recordPlusUse("break_down");
+      if (wasFreeTry) showToast("Steps added. That was your one free try.");
       // The store keeps steps trimmed: match it, so the starter names the step.
       const first = steps.map((step) => step.trim()).find(Boolean);
       if (starter && first) offerStarter(taskId, first);
     } catch (error) {
-      Alert.alert("Couldn't break it down", breakDownFailureMessage(classifyAiFailure(error)));
+      const kind = classifyAiFailure(error);
+      if (free.freeTry && kind === "needs_plus") {
+        // The server has no free try left for this install's id (the badge
+        // offered one): say so, then the paywall, as before.
+        void spendFreeBreakDowns();
+        setFreeBreakDowns(0);
+        showToast("Your free try was already used.");
+        showBreakDownPaywall(taskId, text, { starter });
+        return;
+      }
+      if (free.freeTry) {
+        void refundFreeBreakDown()
+          .then(() => freeBreakDownsLeft())
+          .then(setFreeBreakDowns);
+      }
+      Alert.alert("Couldn't break it down", breakDownFailureMessage(kind));
     } finally {
       breakingRef.current = null;
       setBreakingTaskId(null);
@@ -1204,6 +1310,14 @@ export default function HomeScreen() {
   // When the paywall closes, pick up where the user was: run the break-down
   // they asked for (if they now have Plus), or reopen the sheet they were in.
   resume.current = (unlock) => {
+    if (unlock.kind === "evening_draft") {
+      // Bought Plus from the teaser: the coach drafts the same day's close now.
+      const closed = state.eveningClose;
+      if (plusConfirmed && unlock.day === today && closed && isDayClosed(closed, today)) {
+        runEveningClose(closed.result);
+      }
+      return;
+    }
     if (unlock.kind === "break_down") {
       const task = state.tasks.find((t) => t.id === unlock.taskId);
       if (hasPlus && task && task.text === unlock.text && !isCompleted(task.id)) {
@@ -1236,15 +1350,24 @@ export default function HomeScreen() {
     // Closed once per answer: picking a different answer re-closes the day
     // (the note and draft should match it); the same answer doesn't.
     if (closingRef.current || isDayClosed(state.eveningClose, today, result)) return;
+    runEveningClose(result, typedNote);
+  };
+
+  const runEveningClose = (result: ReflectionResult, typedNote?: string | null) => {
+    if (closingRef.current) return;
     closingRef.current = true;
     setClosingDay(true);
+    setEveningAiFailedFor(null);
     // The day being closed is the one on screen now, whenever the reply lands.
     const day = today;
     const input = buildEveningInput(state, result, typedNote);
     // Confirmed Plus only: "still checking" must not spend an AI call on a free user.
-    void closeDay(input, { useAi: plusConfirmed && getMomentumAiProxyUrl() != null })
+    const useAi = plusConfirmed && getMomentumAiProxyUrl() != null;
+    void closeDay(input, { useAi })
       .then((close) => {
         setEveningClose(close, day, result);
+        // Asked the coach, got the on-device close with nothing for tomorrow: offer a retry.
+        if (useAi && close.source === "local" && close.tomorrow.length === 0) setEveningAiFailedFor(day);
         track("evening_closed", { source: close.source, count: close.tomorrow.length });
       })
       .finally(() => {
@@ -1442,6 +1565,7 @@ export default function HomeScreen() {
         }
         breakingDown={breakingTaskId === task.id}
         breakDownNeedsPlus={!hasPlus}
+        breakDownFreeTry={hasPlus ? null : freeBreakDownBadge(freeBreakDowns ?? 0)}
         breakDownDisabled={breakingTaskId !== null && breakingTaskId !== task.id}
         onToggleStep={(stepId) => toggleTaskStep(task.id, stepId)}
         // Steps are a finishing aid, so clearing them is fine on a set day.
@@ -1828,7 +1952,9 @@ export default function HomeScreen() {
                           importantForAccessibility="no-hide-descendants"
                         />
                         <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
-                          Tonight, one tap closes the day and drafts tomorrow.
+                          {coachDrafts
+                            ? "Tonight, one tap closes the day and drafts tomorrow."
+                            : "Tonight, one tap closes the day."}
                         </Text>
                       </View>
                     )}
@@ -1842,6 +1968,7 @@ export default function HomeScreen() {
                     total={total}
                     week={week}
                     eveningCheckIn={eveningCheckIn}
+                    coachDrafts={coachDrafts}
                     onPullOneMore={ideasVisible ? () => setIdeasOpen(true) : undefined}
                   />
                 )}
@@ -1851,16 +1978,33 @@ export default function HomeScreen() {
                       value={state.todayReflection}
                       result={state.todayReflectionResult}
                       allowMissed={!progress.isPerfect}
+                      coachDrafts={coachDrafts}
                       onSelectResult={handleEveningResult}
                       onSave={setTodayReflection}
                     />
                     <EveningResult
                       closing={closingDay}
-                      note={isDayClosed(state.eveningClose, today) ? state.eveningClose?.note ?? null : null}
-                      draft={
-                        isDayClosed(state.eveningClose, today) &&
-                        state.tomorrowDraft?.forDate === addDays(today, 1)
-                          ? state.tomorrowDraft
+                      note={dayClosed ? state.eveningClose?.note ?? null : null}
+                      draft={closedDraft}
+                      coachDrafts={plusConfirmed && getMomentumAiProxyUrl() != null}
+                      onRetry={
+                        eveningAiFailedFor === today && dayClosed && plusConfirmed && state.eveningClose
+                          ? () => {
+                              const closed = state.eveningClose;
+                              if (closed) runEveningClose(closed.result);
+                            }
+                          : undefined
+                      }
+                      teaser={
+                        eveningTeaser
+                          ? {
+                              line: eveningTeaser,
+                              onSeePlus: () =>
+                                showPaywall("evening_draft", {
+                                  feature: "evening_draft",
+                                  resume: { kind: "evening_draft", day: today },
+                                }),
+                            }
                           : null
                       }
                     />

@@ -6,6 +6,7 @@ import {
   defaultPackageId,
   freeTrialDays,
   hasPlusAccess,
+  LIFETIME_AFTER_DISMISSALS,
   PLUS_BENEFITS,
   plusBenefitsFor,
   paywallHeadline,
@@ -110,6 +111,42 @@ describe("which plans a paywall shows (Phase 11a)", () => {
     const elsewhere: (PaywallSource | null)[] = ["win_back", "brain_dump", "onboarding", "break_down", null];
     for (const source of elsewhere) {
       expect(visiblePackages(all, source)).toEqual([annual, monthly]);
+    }
+  });
+
+  it("shows lifetime on every paywall once two were closed without buying (1.5)", () => {
+    expect(LIFETIME_AFTER_DISMISSALS).toBe(2);
+    expect(visiblePackages(all, "break_down", 1)).toEqual([annual, monthly]);
+    expect(visiblePackages(all, "break_down", 2)).toEqual(all);
+    expect(visiblePackages(all, "evening_draft", 5)).toEqual(all);
+  });
+
+  it("leads with Nag mode, the evening draft, the brain dump and Break it down (1.5)", () => {
+    expect(PLUS_BENEFITS.slice(0, 4).map((b) => b.title)).toEqual([
+      "Nag mode",
+      "Your coach drafts tomorrow",
+      "Smart brain dump",
+      "Break it down",
+    ]);
+    expect(plusBenefitsFor("evening_draft")[0].title).toBe("Your coach drafts tomorrow");
+    expect(plusBenefitsFor("evening_draft")).toHaveLength(PLUS_BENEFITS.length);
+  });
+
+  it("a feature's paywall leads with that feature; generic and onboarding keep Nag mode first", () => {
+    const leads: [PaywallSource, string][] = [
+      ["break_down", "Break it down"],
+      ["brain_dump", "Smart brain dump"],
+      ["new_ideas", "AI ideas for your goal"],
+      ["calendar", "Plan around your calendar"],
+      ["routines", "Unlimited routines"],
+    ];
+    for (const [source, title] of leads) {
+      const list = plusBenefitsFor(source);
+      expect(list[0].title).toBe(title);
+      expect(new Set(list.map((b) => b.title)).size).toBe(PLUS_BENEFITS.length);
+    }
+    for (const source of ["onboarding", "settings", "aha", "win_back", null] as const) {
+      expect(plusBenefitsFor(source)[0].title).toBe("Nag mode");
     }
   });
 

@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { morningPerspective } from "@/lib/daily-tasks/evening";
+import { EVENING_TEASER_COPY, EVENING_TEASER_PLACEHOLDER_LINES } from "@/lib/daily-tasks/evening-teaser";
 import { numberWord } from "@/lib/daily-tasks/number-word";
 import type { TomorrowDraft } from "@/lib/daily-tasks/types";
 
@@ -268,15 +269,30 @@ export function TomorrowDraftCard({
   );
 }
 
+/** Widths of the placeholder lines under the teaser's real one (shapes only). */
+const TEASER_BAR_WIDTHS = ["78%", "62%", "70%"] as const;
+
 /** After the evening check-in: the coach's note and tomorrow's draft. */
 export function EveningResult({
   closing,
   note,
   draft,
+  coachDrafts = true,
+  teaser = null,
+  onRetry,
 }: {
   closing: boolean;
   note: string | null;
   draft: TomorrowDraft | null;
+  /** The AI coach is closing the day (else the close is on the device: no "Drafting"). */
+  coachDrafts?: boolean;
+  /**
+   * A free user's good day (1.5): one real line from their own data and
+   * placeholder shapes, with the way to Plus. Only without a draft.
+   */
+  teaser?: { line: string; onSeePlus: () => void } | null;
+  /** The AI coach was asked but couldn't draft tomorrow: offer to try again. */
+  onRetry?: () => void;
 }) {
   const colors = useColors();
   if (closing) {
@@ -284,7 +300,7 @@ export function EveningResult({
       <View className="flex-row items-center gap-2 py-2" accessibilityLiveRegion="polite" testID="evening-closing">
         <ActivityIndicator color={colors.primary} />
         <Text className="text-sm" style={{ color: colors.muted }}>
-          Drafting tomorrow…
+          {coachDrafts ? "Drafting tomorrow…" : "Closing the day…"}
         </Text>
       </View>
     );
@@ -303,6 +319,72 @@ export function EveningResult({
               · {text}
             </Text>
           ))}
+        </View>
+      ) : onRetry ? (
+        <View className="gap-2 mt-1" testID="evening-retry">
+          <Text className="text-sm" style={{ color: colors.muted }}>
+            Couldn&apos;t draft tomorrow.
+          </Text>
+          <Pressable
+            onPress={onRetry}
+            accessibilityRole="button"
+            accessibilityLabel="Try drafting tomorrow again"
+            className="rounded-2xl py-3 items-center border"
+            style={{ borderColor: colors.primary }}
+            testID="evening-retry-button"
+          >
+            <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 16 }}>Try again</Text>
+          </Pressable>
+        </View>
+      ) : teaser ? (
+        <View className="gap-2 mt-1" testID="evening-teaser">
+          <Text className="text-sm font-semibold" style={{ color: colors.primary }} accessibilityRole="header">
+            {EVENING_TEASER_COPY.title}
+          </Text>
+          <View className="flex-row gap-1">
+            <Text
+              className="text-sm"
+              style={{ color: colors.foreground }}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              ·
+            </Text>
+            <Text className="text-sm flex-1" style={{ color: colors.foreground }} testID="evening-teaser-line">
+              {teaser.line}
+            </Text>
+          </View>
+          {/* Empty placeholder shapes: nothing was drafted for a free user, and the body says what Plus does. */}
+          <View
+            className="gap-2"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            testID="evening-teaser-placeholders"
+          >
+            {TEASER_BAR_WIDTHS.slice(0, EVENING_TEASER_PLACEHOLDER_LINES).map((width) => (
+              <View
+                key={width}
+                style={{ width, height: 12, borderRadius: 6, backgroundColor: colors.border, opacity: 0.8 }}
+              />
+            ))}
+          </View>
+          <Text className="text-sm" style={{ color: colors.muted }}>
+            {EVENING_TEASER_COPY.body}
+          </Text>
+          {/* Secondary, not a solid primary: a quiet offer right after a good day. */}
+          <Pressable
+            onPress={teaser.onSeePlus}
+            accessibilityRole="button"
+            accessibilityLabel={EVENING_TEASER_COPY.button}
+            accessibilityHint="Shows Plus plans"
+            className="rounded-2xl py-3 items-center mt-1 border"
+            style={{ borderColor: colors.primary }}
+            testID="evening-teaser-plus"
+          >
+            <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 16 }}>
+              {EVENING_TEASER_COPY.button}
+            </Text>
+          </Pressable>
         </View>
       ) : (
         <Text className="text-sm" style={{ color: colors.muted }}>

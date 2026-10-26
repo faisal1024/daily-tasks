@@ -29,6 +29,9 @@ export class Limits extends DurableObject {
     this.config = readConfig(env);
     this.sql = ctx.storage.sql;
     this.sql.exec("CREATE TABLE IF NOT EXISTS day_counts (day INTEGER NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, key))");
+    // Lifetime allowances (1.5: one free break-down per app user id): never
+    // cleaned up, so they survive days, eviction and deploys.
+    this.sql.exec("CREATE TABLE IF NOT EXISTS once_counts (key TEXT NOT NULL PRIMARY KEY, n INTEGER NOT NULL)");
     this.minute = { start: -1, counts: new Map() };
     this.lastCleanDay = -1;
   }
@@ -54,6 +57,16 @@ export class Limits extends DurableObject {
       day,
       key,
     );
+  }
+
+  onceCount(key) {
+    const row = this.sql.exec("SELECT n FROM once_counts WHERE key = ?", key).toArray()[0];
+    return row ? Number(row.n) : 0;
+  }
+
+  /** A free allowance's use so far: today's, or ever for a lifetime one. */
+  freeUsed(day, { key, lifetime }) {
+    return lifetime ? this.onceCount(key) : this.count(day, key);
   }
 
   /** Count this minute and check (without spending) the daily caps. */
@@ -82,13 +95,37 @@ export class Limits extends DurableObject {
     for (const key of keys) {
       if (dailyLimitPerClient > 0 && this.count(day, key) >= dailyLimitPerClient) return "day";
     }
-    for (const { key, cap } of free) {
+    // The user's own allowance being used up ("free") wins over a full shared
+    // ceiling ("shared", e.g. per network): only the first is final.
+    let sharedFull = false;
+    for (const allowance of free) {
       // 0 means "no free AI", never "unlimited".
-      if (this.count(day, key) >= cap) return "free";
+      const full = this.freeUsed(day, allowance) >= allowance.cap;
+      if (full && !allowance.shared) return "free";
+      if (full) sharedFull = true;
     }
+    if (sharedFull) return "shared";
     if (countsGlobal) this.add(day, GLOBAL_KEY);
     for (const key of keys) this.add(day, key);
-    for (const { key } of free) this.add(day, key);
+    for (const { key, lifetime } of free) {
+      if (lifetime) {
+        this.sql.exec(
+          "INSERT INTO once_counts (key, n) VALUES (?, 1) ON CONFLICT (key) DO UPDATE SET n = n + 1",
+          key,
+        );
+      } else this.add(day, key);
+    }
+    return "ok";
+  }
+
+  /**
+   * Give back the lifetime allowances of a request whose AI call failed (a
+   * free try isn't lost to an outage). Daily and global units stay spent.
+   */
+  refund({ free }) {
+    for (const { key, lifetime } of free) {
+      if (lifetime) this.sql.exec("UPDATE once_counts SET n = n - 1 WHERE key = ? AND n > 0", key);
+    }
     return "ok";
   }
 }
@@ -113,6 +150,7 @@ function setup(env) {
     budget: {
       admit: (keys) => limits().admit(keys),
       spend: (req) => limits().spend(req),
+      refund: (req) => limits().refund(req),
     },
     entitlements,
     secretsMatch,
