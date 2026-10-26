@@ -748,3 +748,151 @@ describe("1.5 review fixes", () => {
     alert.mockRestore();
   });
 });
+
+// --- 1.6 F: saved items due tomorrow lead tomorrow's draft (Plus) ------------
+
+describe("1.6 F: the evening draft puts what is due tomorrow first", () => {
+  const parkedAt = "2026-09-20T08:00:00.000Z";
+  const due = (id: string, text: string, date = TOMORROW, kind: "on" | "by" = "on") => ({
+    id,
+    text,
+    parkedAt,
+    when: { date, kind },
+  });
+  const AI_CLOSE = {
+    note: "A good day.",
+    because: "Lighter tomorrow.",
+    tomorrow: ["Stretch", "send  DECK", "Read"],
+    memory: null,
+    source: "ai" as const,
+  };
+
+  async function closeEvening(parkedTasks: AppState["parkedTasks"], who: Record<string, unknown>, close: unknown) {
+    jest.useFakeTimers(at(20));
+    mockProxyUrl = PROXY;
+    (closeDay as jest.Mock).mockResolvedValue(close);
+    mockStore = storeFor({ ...OPEN_EVENING, parkedTasks }, who);
+    const view = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Today felt good" }));
+    await act(async () => {});
+    return view;
+  }
+  const closed = () => (mockStore.setEveningClose as jest.Mock).mock.calls[0][0];
+
+  it("due tomorrow first, each wording once, at most three, the coach's reason kept", async () => {
+    await closeEvening(
+      [
+        due("p1", "Send deck"),
+        due("p2", "Call mum", TOMORROW, "by"),
+        due("p3", "Sign form"),
+        due("p4", "Fourth one"),
+        due("p5", "Not tomorrow", addDays(TODAY, 2)),
+        due("p6", "Overdue", addDays(TODAY, -3)),
+        { id: "p7", text: "Undated", parkedAt },
+      ],
+      PLUS,
+      AI_CLOSE,
+    );
+    expect(closeDay).toHaveBeenCalledWith(expect.anything(), { useAi: true });
+    expect(closed().tomorrow).toEqual(["Send deck", "Call mum", "Sign form"]);
+    // The coach's picks were pushed out, so its line would describe a draft that isn't there (review fix).
+    expect(closed().because).toBe("A few things you saved are for tomorrow.");
+    expect(closed()).toMatchObject({ note: "A good day.", source: "ai" });
+    expect(mockTrack).toHaveBeenCalledWith("evening_closed", { source: "ai", count: 3 });
+  });
+
+  it("the coach's own picks follow when there is room, without repeating a due one", async () => {
+    await closeEvening([due("p1", "Send deck")], PLUS, AI_CLOSE);
+    expect(closed().tomorrow).toEqual(["Send deck", "Stretch", "Read"]);
+    // All of the coach's picks made it: its line stays.
+    expect(closed().because).toBe("Lighter tomorrow.");
+  });
+
+  it("leaves the close untouched when nothing is due tomorrow", async () => {
+    await closeEvening([due("p1", "Later", addDays(TODAY, 2)), due("p2", "Today's", TODAY)], PLUS, AI_CLOSE);
+    expect(closed()).toBe(AI_CLOSE);
+  });
+
+  it("a failed AI close still gets the due items and a reason line, and still offers Try again (review fix)", async () => {
+    const local = { note: "A good day.", because: "", tomorrow: [], memory: null, source: "local" as const };
+    const { rerender } = await closeEvening([due("p1", "Send deck")], PLUS, local);
+    expect(closed().tomorrow).toEqual(["Send deck"]);
+    expect(closed().because).toBe("Something you saved is for tomorrow.");
+    // evening_closed counts what the coach (here the on-device close) drafted, not the saved items.
+    expect(mockTrack).toHaveBeenCalledWith("evening_closed", { source: "local", count: 0 });
+    const { setEveningClose } = mockStore;
+    mockStore = {
+      ...storeFor(
+        { ...PERFECT_CLOSED, parkedTasks: [due("p1", "Send deck")], tomorrowDraft: undefined },
+        PLUS,
+      ),
+      setEveningClose,
+    } as MockStore;
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("evening-retry")).toBeOnTheScreen();
+  });
+
+  it("with a draft of saved items, Try again says the coach couldn't add to it", async () => {
+    const local = { note: "A good day.", because: "", tomorrow: [], memory: null, source: "local" as const };
+    const { rerender } = await closeEvening([due("p1", "Send deck")], PLUS, local);
+    const { setEveningClose } = mockStore;
+    mockStore = {
+      ...storeFor(
+        {
+          ...PERFECT_CLOSED,
+          parkedTasks: [due("p1", "Send deck")],
+          tomorrowDraft: { forDate: TOMORROW, tasks: ["Send deck"], note: "", because: "Something you saved is for tomorrow.", source: "local" },
+        },
+        PLUS,
+      ),
+      setEveningClose,
+    } as MockStore;
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("evening-retry")).toHaveTextContent(/The coach couldn't add to it\./);
+  });
+
+  it("with two or more due and nothing else drafted, the reason line is plural", async () => {
+    const local = { note: "A good day.", because: "", tomorrow: [], memory: null, source: "local" as const };
+    await closeEvening([due("p1", "Send deck"), due("p2", "Call mum")], PLUS, local);
+    expect(closed().tomorrow).toEqual(["Send deck", "Call mum"]);
+    expect(closed().because).toBe("A few things you saved are for tomorrow.");
+  });
+
+  it("control: the same fallback with nothing due still offers Try again", async () => {
+    const local = { note: "A good day.", because: "", tomorrow: [], memory: null, source: "local" as const };
+    const { rerender } = await closeEvening([due("p1", "Later", addDays(TODAY, 2))], PLUS, local);
+    const { setEveningClose } = mockStore;
+    mockStore = { ...storeFor(PERFECT_CLOSED, PLUS), setEveningClose } as MockStore;
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("evening-retry")).toBeOnTheScreen();
+  });
+
+  it("a free user's close is the on-device one: no AI, and nothing put in the draft", async () => {
+    await closeEvening([due("p1", "Send deck")], FREE, TOMORROW_CLOSE);
+    expect(closeDay).toHaveBeenCalledWith(expect.anything(), { useAi: false });
+    expect(closed()).toBe(TOMORROW_CLOSE);
+  });
+
+  it("the morning card says 'For today' (a plan) or 'Due today' (a deadline) under a drafted saved item, and only there", async () => {
+    mockStore = storeFor(
+      {
+        tasks: [],
+        tomorrowDraft: { forDate: TODAY, tasks: ["Send deck", "Stretch", "Pay rent"], note: "", because: "", source: "ai" },
+        parkedTasks: [
+          due("p1", "send deck", TODAY),
+          due("p2", "Stretch", addDays(TODAY, 10)),
+          due("p3", "Pay rent", TODAY, "by"),
+        ],
+      },
+      PLUS,
+    );
+    await render(<HomeScreen />);
+    const reasons = screen.getAllByTestId("tomorrow-draft-reason");
+    expect(reasons).toHaveLength(2);
+    expect(reasons[0]).toHaveTextContent("For today");
+    expect(reasons[1]).toHaveTextContent("Due today");
+    expect(screen.getByRole("checkbox", { name: "Send deck, For today" })).toBeOnTheScreen();
+    expect(screen.getByRole("checkbox", { name: "Pay rent, Due today" })).toBeOnTheScreen();
+    expect(screen.getByRole("checkbox", { name: "Stretch" })).toBeOnTheScreen();
+  });
+});

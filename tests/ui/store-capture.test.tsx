@@ -531,6 +531,20 @@ describe("the capture inbox", () => {
     expect(result.current.captureNotice).toMatchObject({ count: 1, text: "Second", full: true });
   });
 
+  // 1.6 F with 1.6 E: a capture's dates are read from the day it was written.
+  it("a capture made yesterday that says \"tomorrow\" lands as today; one made today saying \"tomorrow\" is tomorrow", async () => {
+    const yesterdayEvening = new Date(2026, 8, 25, 20, 0).getTime();
+    capture("a.json", "Call mum tomorrow", yesterdayEvening);
+    capture("b.json", "Book the vet tomorrow", START.getTime());
+    const { result } = await renderStore({ lastOpenedDate: "2026-09-26" });
+    await flush();
+    const byText = Object.fromEntries(result.current.state.parkedTasks.map((p) => [p.text, p.when ?? null]));
+    expect(byText["Call mum tomorrow"]).toEqual({ kind: "on", date: "2026-09-26" });
+    expect(byText["Book the vet tomorrow"]).toEqual({ kind: "on", date: "2026-09-27" });
+    // Still only Saved for later: today's three are untouched.
+    expect(result.current.state.tasks.map((t) => t.id)).toEqual(["t0", "t1", "t2"]);
+  });
+
   it("Saved for later full: nothing is saved, nothing is dropped, it says so", async () => {
     capture("a.json", "Waiting");
     const existing = parked(MAX_PARKED_TASKS);
