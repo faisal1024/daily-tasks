@@ -4641,3 +4641,168 @@ describe("Today on a set day (1.4)", () => {
     expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. 3 saved for later in Ideas\./);
   });
 });
+
+// --- 1.6 F: smart resurfacing of dated saved items ---------------------------
+// TODAY is Saturday 2026-09-26.
+
+describe("1.6 F: saved items with a date", () => {
+  const parkedAt = "2026-09-20T08:00:00.000Z";
+  const dated = [
+    { id: "p1", text: "Buy shoes", parkedAt, when: { date: "2026-09-29", kind: "on" as const } },
+    { id: "p2", text: "Plain thing", parkedAt },
+    { id: "p3", text: "Call mum", parkedAt, when: { date: TODAY, kind: "on" as const } },
+    { id: "p4", text: "Old thing", parkedAt, when: { date: "2026-09-20", kind: "on" as const } },
+    { id: "p5", text: "Passport", parkedAt, when: { date: "2027-03-01", kind: "by" as const } },
+  ];
+  const order = (container: ReturnType<typeof within>) =>
+    container.getAllByRole("button", { name: /^Add / }).map((b) => String(b.props.accessibilityLabel).replace(/^Add /, "").split(",")[0]);
+
+  it("Ideas on a full day: due today first with 'Due today', the rest in saved order with a quiet date", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read", "Stretch"), parkedTasks: dated });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("saved-ideas-link"));
+    const sheet = within(screen.getByTestId("ideas-sheet"));
+    expect(order(sheet)).toEqual(["Call mum", "Buy shoes", "Plain thing", "Old thing", "Passport"]);
+    expect(sheet.getByTestId("parked-when-p3")).toHaveTextContent("Due today");
+    expect(sheet.getByTestId("parked-when-p1")).toHaveTextContent("Tue");
+    expect(sheet.getByTestId("parked-when-p4")).toHaveTextContent("Sep 20");
+    expect(sheet.getByTestId("parked-when-p5")).toHaveTextContent("By Mar 1");
+    expect(sheet.queryByTestId("parked-when-p2")).toBeNull();
+    // Voiced with the date too.
+    expect(sheet.getByRole("button", { name: "Add Call mum, Due today" })).toBeOnTheScreen();
+  });
+
+  it("Ideas with room: what is due today leads, above the ideas and the rest of Saved for later", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk"), parkedTasks: dated });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("need-ideas"));
+    const sheet = within(screen.getByTestId("ideas-sheet"));
+    const lead = within(sheet.getByTestId("due-today-ideas"));
+    expect(order(lead)).toEqual(["Call mum"]);
+    expect(lead.getByTestId("parked-when-p3")).toHaveTextContent("Due today");
+    // Not listed a second time below.
+    expect(order(within(sheet.getByTestId("parked-ideas")))).toEqual(["Buy shoes", "Plain thing", "Old thing", "Passport"]);
+  });
+
+  it("nothing due today: no lead group, and an overdue item is labelled but not first", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk"), parkedTasks: dated.filter((p) => p.id !== "p3") });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("need-ideas"));
+    const sheet = within(screen.getByTestId("ideas-sheet"));
+    expect(sheet.queryByTestId("due-today-ideas")).toBeNull();
+    expect(order(within(sheet.getByTestId("parked-ideas")))).toEqual(["Buy shoes", "Plain thing", "Old thing", "Passport"]);
+  });
+
+  it("the Today link shows with room when something is due today, and says so", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk"), parkedTasks: dated });
+    await render(<HomeScreen />);
+    const link = screen.getByTestId("saved-ideas-link");
+    expect(link).toHaveTextContent(/Saved for later \(5\) · 1 due today$/);
+    expect(link.props.accessibilityLabel).toBe("Saved for later, 5 items, 1 due today");
+  });
+
+  it("the Today link stays hidden with room when nothing is due today (overdue and future don't count)", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk"), parkedTasks: dated.filter((p) => p.id !== "p3") });
+    await render(<HomeScreen />);
+    expect(screen.queryByTestId("saved-ideas-link")).toBeNull();
+  });
+
+  it("on a full day the link names how many are due, and a plain full-day link stays as it was", async () => {
+    mockStore = makeStore({
+      tasks: tasks("Walk", "Read", "Stretch"),
+      parkedTasks: [dated[2], { id: "p6", text: "Call dad", parkedAt, when: { date: TODAY, kind: "by" as const } }, dated[1]],
+    });
+    const { rerender } = await render(<HomeScreen />);
+    expect(screen.getByTestId("saved-ideas-link")).toHaveTextContent(/Saved for later \(3\) · 2 due today$/);
+    mockStore = makeStore({ tasks: tasks("Walk", "Read", "Stretch"), parkedTasks: [dated[1]] });
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("saved-ideas-link")).toHaveTextContent(/Saved for later \(1\)$/);
+    expect(screen.getByTestId("saved-ideas-link").props.accessibilityLabel).toBe("Saved for later, 1 item");
+  });
+
+  it("opened from that link with room left, the hint doesn't say the day is full", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk"), parkedTasks: dated });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("saved-ideas-link"));
+    const hint = within(screen.getByTestId("ideas-sheet")).getByTestId("ideas-hint");
+    expect(hint).toHaveTextContent("Room for two more today.");
+    expect(hint).not.toHaveTextContent(/full/i);
+    // And the item can be added (a free slot).
+    expect(screen.getByRole("button", { name: "Add Call mum, Due today" })).toBeEnabled();
+  });
+
+  it("opened from the link on a full day, the hint still says so", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk", "Read", "Stretch"), parkedTasks: dated });
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("saved-ideas-link"));
+    expect(within(screen.getByTestId("ideas-sheet")).getByTestId("ideas-hint")).toHaveTextContent(/Your day is full\./);
+  });
+});
+
+describe("1.6 F: brain dump dates", () => {
+  const AI = {
+    picks: ["Finish report"],
+    parked: ["Deck for Tuesday", "Buy shoes"],
+    source: "ai" as const,
+    dates: { "deck for tuesday": { date: "2026-09-29", kind: "on" as const } },
+  };
+
+  async function sortAndSave(text = "report, deck for Tuesday, shoes") {
+    await openBrainDump();
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), text);
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+    await fireEvent.press(screen.getByRole("button", { name: /to today$/ }));
+  }
+
+  it("Plus sends the local day and saves the sort's dates with what it parks", async () => {
+    (sortBrainDump as jest.Mock).mockResolvedValue({ result: AI, notice: null });
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    await sortAndSave();
+    expect((sortBrainDump as jest.Mock).mock.calls[0][0]).toMatchObject({ today: TODAY });
+    expect(mockStore.parkTasks).toHaveBeenCalledWith(["Deck for Tuesday", "Buy shoes"], AI.dates);
+  });
+
+  it("a free sort sends no day, and saves nothing dated even if the answer carried dates", async () => {
+    (sortBrainDump as jest.Mock).mockResolvedValue({ result: AI, notice: null });
+    mockStore = { ...makeStore({ tasks: tasks("Walk") }), hasPlus: false, plusConfirmed: false };
+    await render(<HomeScreen />);
+    await sortAndSave();
+    expect(sortBrainDump).toHaveBeenCalledTimes(1);
+    expect(sortBrainDump).toHaveBeenCalledWith(expect.not.objectContaining({ today: expect.anything() }));
+    expect(mockStore.parkTasks).toHaveBeenCalledWith(["Deck for Tuesday", "Buy shoes"]);
+  });
+
+  it("an older Worker's answer (no dates) parks exactly as before", async () => {
+    (sortBrainDump as jest.Mock).mockResolvedValue({
+      result: { picks: ["Finish report"], parked: ["Deck for Tuesday", "Buy shoes"], source: "ai" },
+      notice: null,
+    });
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    await sortAndSave();
+    expect(mockStore.parkTasks.mock.calls).toEqual([[["Deck for Tuesday", "Buy shoes"]]]);
+  });
+
+  it("dates from one sort are not carried into the next dump", async () => {
+    (sortBrainDump as jest.Mock).mockResolvedValueOnce({ result: AI, notice: null });
+    mockStore = makeStore({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    await openBrainDump();
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "first");
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Close and save everything for later" }));
+    mockStore.parkTasks.mockClear();
+
+    // The second sort falls back to the on-device split (no dates).
+    (sortBrainDump as jest.Mock).mockResolvedValueOnce({
+      result: { picks: ["Finish report"], parked: ["Deck for Tuesday"], source: "local" },
+      notice: "Couldn't reach smart sorting, so here's a simple split you can adjust.",
+    });
+    await openBrainDump();
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "second");
+    await fireEvent.press(screen.getByRole("button", { name: "Sort it for me" }));
+    await fireEvent.press(screen.getByRole("button", { name: /to today$/ }));
+    expect(mockStore.parkTasks.mock.calls).toEqual([[["Deck for Tuesday"]]]);
+  });
+});
