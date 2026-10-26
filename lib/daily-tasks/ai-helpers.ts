@@ -4,6 +4,7 @@
 
 import { getMomentumAiProxyUrl, postToProxy, proxyRouteUrl } from "./ai-client";
 import { MomentumAiError } from "./ai-status";
+import type { MemoryStatsPayload } from "./coach-memory";
 import { MAX_TASKS } from "./types";
 
 export const MAX_BRAIN_DUMP_CHARS = 2000;
@@ -17,6 +18,12 @@ export interface BrainDumpResult {
   parked: string[];
   /** "ai" when the proxy sorted it, "local" for the simple offline split. */
   source: "ai" | "local";
+  /**
+   * A short reason per pick, same order as `picks` ("" where there is none),
+   * e.g. "Quick win" (1.5). Absent when no pick has one (an older proxy, the
+   * on-device split): see pickReason for what is shown then.
+   */
+  reasons?: string[];
 }
 
 // Bullets may hug the text ("-walk"); numbered markers need a space so
@@ -43,7 +50,11 @@ export function cleanTaskText(value: unknown, max = MAX_TASK_TEXT): string | nul
   return chars.length > max ? `${chars.slice(0, max - 1).join("").trimEnd()}…` : capitalized;
 }
 
-function uniqueTexts(items: unknown[], limit: number, seen = new Set<string>()): string[] {
+/**
+ * Cleaned, de-duplicated texts. With `reasons`, each kept item's reason
+ * (cleanReason; "" for none) is pushed there, in the same order.
+ */
+function uniqueTexts(items: unknown[], limit: number, seen = new Set<string>(), reasons?: string[]): string[] {
   const out: string[] = [];
   for (const item of items) {
     if (out.length >= limit) break;
@@ -54,8 +65,46 @@ function uniqueTexts(items: unknown[], limit: number, seen = new Set<string>()):
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(text);
+    reasons?.push(item && typeof item === "object" ? cleanReason((item as { reason?: unknown }).reason, text) : "");
   }
   return out;
+}
+
+export const MAX_REASON_WORDS = 5;
+export const MAX_REASON_CHARS = 40;
+// C0/C1 control characters and the Unicode line/paragraph separators.
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
+const LINK = /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
+
+/**
+ * A pick's reason as shown under it (1.5), or "": one line, at most five
+ * words and 40 characters (a longer one is dropped, never cut), no link or
+ * email, not the task's own words again. Starts with a capital.
+ */
+export function cleanReason(value: unknown, taskText = ""): string {
+  if (typeof value !== "string") return "";
+  const text = value.replace(CONTROL, " ").replace(/\s+/g, " ").trim().replace(/[.!]+$/u, "").trim();
+  if (!text || Array.from(text).length > MAX_REASON_CHARS) return "";
+  if (text.split(" ").length > MAX_REASON_WORDS || LINK.test(text)) return "";
+  if (text.toLowerCase() === taskText.trim().toLowerCase()) return "";
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Shown under the first pick of the on-device split, and "Next on your list" under the others. */
+export const LOCAL_FIRST_REASON = "First on your list";
+export const LOCAL_NEXT_REASON = "Next on your list";
+
+/**
+ * The muted line under pick `index` (1.5): the AI's reason (or one from the
+ * memory, see withMovedReasons); for the on-device split, where it was on
+ * the list. Null for an AI pick without one (an older proxy).
+ */
+export function pickReason(result: BrainDumpResult, index: number): string | null {
+  if (index < 0 || index >= result.picks.length) return null;
+  const reason = result.reasons?.[index];
+  if (reason) return reason;
+  if (result.source !== "local") return null;
+  return index === 0 ? LOCAL_FIRST_REASON : LOCAL_NEXT_REASON;
 }
 
 function clampSlots(openSlots: number): number {
@@ -128,12 +177,14 @@ export function tidyDumpLine(line: string): string {
 export function parseBrainDumpResponse(data: unknown, openSlots: number): BrainDumpResult {
   const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
   const seen = new Set<string>();
-  const picks = uniqueTexts(Array.isArray(record.picks) ? record.picks : [], clampSlots(openSlots), seen);
+  const reasons: string[] = [];
+  const picks = uniqueTexts(Array.isArray(record.picks) ? record.picks : [], clampSlots(openSlots), seen, reasons);
   if (picks.length === 0) {
     throw new MomentumAiError("invalid_response", "Brain dump returned no picks.");
   }
   const parked = uniqueTexts(Array.isArray(record.parked) ? record.parked : [], MAX_PARKED, seen);
-  return { picks, parked, source: "ai" };
+  // An older proxy sends no usable reasons: then there is no field at all.
+  return { picks, parked, source: "ai", ...(reasons.some(Boolean) ? { reasons } : {}) };
 }
 
 export async function requestBrainDump({
@@ -141,6 +192,7 @@ export async function requestBrainDump({
   openSlots,
   goalTitle,
   agenda = [],
+  stats = null,
   planUrl = getMomentumAiProxyUrl(),
   fetchImpl,
 }: {
@@ -149,6 +201,8 @@ export async function requestBrainDump({
   goalTitle: string | null;
   /** Today's events and reminders, pre-formatted (see agenda.ts). */
   agenda?: string[];
+  /** The last 30 days in numbers and a few titles (memoryStatsPayload), or null. */
+  stats?: MemoryStatsPayload | null;
   planUrl?: string | null;
   fetchImpl?: typeof fetch;
 }): Promise<BrainDumpResult> {
@@ -163,6 +217,7 @@ export async function requestBrainDump({
       openSlots: clampSlots(openSlots),
       goalTitle,
       ...(agenda.length > 0 ? { agenda } : {}),
+      ...(stats ? { stats } : {}),
     },
     fetchImpl,
   });
@@ -230,7 +285,7 @@ export const FREE_LIMIT_NOTICE =
  * friendly notice) if the request fails, so the user never loses what they typed.
  */
 export async function sortBrainDump(
-  params: { text: string; openSlots: number; goalTitle: string | null; agenda?: string[] },
+  params: { text: string; openSlots: number; goalTitle: string | null; agenda?: string[]; stats?: MemoryStatsPayload | null },
   request: typeof requestBrainDump = requestBrainDump,
 ): Promise<SortedBrainDump> {
   try {

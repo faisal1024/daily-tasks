@@ -5,6 +5,19 @@
 // buildPrompt(), and RESPONSE_SCHEMA and return an object matching the schema.
 
 import { agendaPromptLines, isValidAgenda } from "./agenda.mjs";
+import { cleanStats, statsPromptLines } from "./stats.mjs";
+
+/**
+ * The last 30 days (1.5, optional `stats`; see stats.mjs) next to the last
+ * five days above. Nothing when absent or malformed.
+ */
+function monthStatsLines(stats) {
+  const lines = statsPromptLines(stats);
+  if (lines.length === 0) return [];
+  return (cleanStats(stats)?.moved.length ?? 0) > 0
+    ? [...lines, "For a task they keep moving, suggest a smaller first step of it rather than the same task again."]
+    : lines;
+}
 export const SYSTEM_PROMPT =
   "You generate calm, concrete daily momentum plans. Never create a backlog. " +
   "Never use shame, guilt, urgency, streak pressure, medical advice, financial " +
@@ -109,6 +122,7 @@ export function buildPrompt(payload) {
     `Adaptive planning enabled: ${payload.settings.adaptivePlanning}`,
     `Recent completion: ${payload.recentPerformance.completed}/${payload.recentPerformance.total} tasks across ${payload.recentPerformance.daysReviewed} active days`,
     `Recent missed tasks: ${payload.recentPerformance.missed}`,
+    ...monthStatsLines(payload.stats),
     `Recent reflection: ${payload.recentReflection ?? "none"}`,
     `Recent reflection result: ${payload.recentReflectionResult ?? "none"}`,
     formatRecentTasks(payload.recentTasks),

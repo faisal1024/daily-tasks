@@ -11,6 +11,9 @@
 //   only the words change. Another level or window draws the rest of the day
 //   again, still 60 minutes after the last one that went off.
 // - Later nags take the later (pushier) lines.
+// - 1.5: a task moved to another day more often is named in more of the
+//   day's built-in lines (weight 1 + times moved, at most 3; see
+//   nagTaskWeights). Times and counts don't change.
 
 import { fromDateKey, toDateKey } from "./date";
 import {
@@ -515,6 +518,20 @@ export interface NagDayPlanInput {
   open: NagOpenTask[];
   /** Used when there is no earlier record to take the salt from. */
   salt: string;
+  /** 1.5: how many times each open task (by id) was moved to another day (coach-memory.ts). */
+  moved?: Readonly<Record<string, number>>;
+}
+
+/**
+ * Turns per task when the built-in lines that name a task are shared out:
+ * 1, plus 1 for each time it was moved, at most 3. A task moved twice is
+ * named about three times as often as one never moved.
+ */
+export function nagTaskWeights(tasks: readonly NagOpenTask[], moved: Readonly<Record<string, number>> = {}): number[] {
+  return tasks.map((task) => {
+    const times = moved[task.id];
+    return 1 + (typeof times === "number" && Number.isFinite(times) ? Math.min(2, Math.max(0, Math.floor(times))) : 0);
+  });
 }
 
 /**
@@ -530,7 +547,7 @@ export interface NagDayPlanInput {
  * sensitive task, and with one among the open tasks (names hidden or not)
  * the Drill sergeant has no rude line (builtInNagLines).
  */
-export function planNagDay({ previous, now, dayKey, settings, open, salt: freshSalt }: NagDayPlanInput): NagDayRecord {
+export function planNagDay({ previous, now, dayKey, settings, open, salt: freshSalt, moved }: NagDayPlanInput): NagDayRecord {
   const { nagPersona: persona, nagLevel: level, nagWindow: window } = settings;
   const hideNames = settings.hideTaskNames === true;
   const nowMs = now.getTime();
@@ -575,7 +592,15 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
 
   const tasks = hideNames ? [] : open;
   const sensitiveDay = open.some((task) => nagTaskIsSensitive(task.text));
-  const lines = builtInNagLines({ persona, level, tasks, count: total, seed: `${dayKey}|${salt}`, sensitiveDay });
+  const lines = builtInNagLines({
+    persona,
+    level,
+    tasks,
+    count: total,
+    seed: `${dayKey}|${salt}`,
+    sensitiveDay,
+    weights: nagTaskWeights(tasks, moved),
+  });
   // What the nags that went off said: the words they were scheduled with.
   const said = new Set(past.filter((slot) => saidText(slot)).map(saidText));
   let slots = future.map((slot) => {

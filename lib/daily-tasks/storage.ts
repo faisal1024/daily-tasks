@@ -572,6 +572,11 @@ export function normalizeState(value: unknown): AppState | null {
       typeof value.coachMemory === "string" && value.coachMemory.trim()
         ? capChars(value.coachMemory, 500)
         : null,
+    // A day key, or null (older saves have none: nothing was cleared).
+    memoryClearedAt:
+      typeof value.memoryClearedAt === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.memoryClearedAt)
+        ? value.memoryClearedAt
+        : null,
     tomorrowDraft: normalizeTomorrowDraft(value.tomorrowDraft),
     eveningClose: normalizeEveningClose(value.eveningClose),
     agendaEnabled: value.agendaEnabled === true,
@@ -746,6 +751,7 @@ export function buildInitialState(now: Date = new Date()): AppState {
     plusGrandfathered: false,
     analyticsEnabled: true,
     coachMemory: null,
+    memoryClearedAt: null,
     tomorrowDraft: null,
     eveningClose: null,
     agendaEnabled: false,

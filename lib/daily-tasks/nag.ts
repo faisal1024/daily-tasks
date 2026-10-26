@@ -50,6 +50,8 @@ export interface NagLine {
 /** A task as nag lines see it (a store Task fits). */
 export interface NagTask {
   text: string;
+  /** 1.5: times it was moved to another day (coach-memory.ts); sent so the AI names it more often. */
+  moved?: number;
 }
 
 // The proxy's limits (server/providers/nag-contract.mjs); a test keeps them equal.
@@ -267,10 +269,11 @@ export async function requestNagLines({
   const url = proxyRouteUrl(planUrl, "nag-lines");
   if (!url) throw new MomentumAiError("unavailable", "Nag lines aren't available.");
   // Tasks with no text are left out, so remember where each sent one came from.
-  const sent: { text: string; from: number }[] = [];
+  const sent: { text: string; from: number; moved: number }[] = [];
   tasks.forEach((task, from) => {
     const text = cut(oneLine(typeof task?.text === "string" ? task.text : ""), MAX_NAG_TASK_CHARS);
-    if (text && sent.length < MAX_NAG_TASKS) sent.push({ text, from });
+    const moved = typeof task?.moved === "number" && Number.isFinite(task.moved) ? Math.min(99, Math.max(0, Math.floor(task.moved))) : 0;
+    if (text && sent.length < MAX_NAG_TASKS) sent.push({ text, from, moved });
   });
   if (sent.length === 0) throw new MomentumAiError("unavailable", "No open tasks to remind about.");
   const wanted = clampCount(count);
@@ -280,7 +283,8 @@ export async function requestNagLines({
     payload: {
       persona,
       level,
-      tasks: sent.map(({ text }) => ({ text })),
+      // `moved` only when it was (1.5); an older proxy ignores it.
+      tasks: sent.map(({ text, moved }) => ({ text, ...(moved > 0 ? { moved } : {}) })),
       count: wanted,
       ...(name ? { firstName: name } : {}),
     },
@@ -728,6 +732,29 @@ export function nagTaskName(text: string): string {
  * Drill sergeant has at least one rude line: when the draw gave none, a line
  * of the last third is exchanged for a rude one of the same kind.
  */
+/**
+ * The order tasks take turns in (indexes), each appearing `weights[i]` times
+ * (a whole number from 1 to 3), spread out (smooth weighted round robin):
+ * [3, 1, 1] gives 0, 1, 0, 2, 0. Equal weights give 0, 1, 2…, the plain
+ * rotation.
+ */
+export function weightedTurns(weights: readonly number[]): number[] {
+  const turns = weights.map((weight) => (Number.isFinite(weight) ? Math.min(3, Math.max(1, Math.round(weight))) : 1));
+  const total = turns.reduce((sum, weight) => sum + weight, 0);
+  const current = turns.map(() => 0);
+  const order: number[] = [];
+  for (let step = 0; step < total; step += 1) {
+    let best = 0;
+    turns.forEach((weight, index) => {
+      current[index] += weight;
+      if (current[index] > current[best]) best = index;
+    });
+    current[best] -= total;
+    order.push(best);
+  }
+  return order;
+}
+
 export function builtInNagLines({
   persona,
   level,
@@ -735,6 +762,7 @@ export function builtInNagLines({
   count,
   seed,
   sensitiveDay = false,
+  weights,
 }: {
   persona: NagPersona;
   level: NagLevel;
@@ -743,6 +771,12 @@ export function builtInNagLines({
   seed: string | number;
   /** One of the day's open tasks is sensitive, also when it isn't among `tasks`. */
   sensitiveDay?: boolean;
+  /**
+   * 1.5: how many turns each of `tasks` gets (same order; 1 when absent) when
+   * the lines that name a task are shared out, so a task moved more often is
+   * named more often. All 1 (or none): the plain rotation, as before.
+   */
+  weights?: readonly number[];
 }): NagLine[] {
   const wanted = clampCount(count);
   const random = seededRandom(`${seed}|${persona}|${level}`);
@@ -811,9 +845,10 @@ export function builtInNagLines({
   });
 
   let turn = open.length > 0 ? Math.floor(random() * open.length) : 0;
+  const order = weightedTurns(open.map((task) => weights?.[task.from] ?? 1));
   return picked.map((template, index) => {
     if (!template.includes("{task}")) return { step: index + 1, taskIndex: null, text: template };
-    const task = open[turn % open.length];
+    const task = open[order[turn % order.length]];
     turn += 1;
     return { step: index + 1, taskIndex: task.from, text: template.replace("{task}", () => task.name) };
   });

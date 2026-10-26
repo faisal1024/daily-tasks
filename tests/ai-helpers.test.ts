@@ -314,6 +314,8 @@ describe("parseBrainDumpResponse", () => {
       picks: ["Finish report", "Call mum"],
       parked: ["Buy shoes", "Water plants"],
       source: "ai",
+      // 1.5: each pick's reason, in order ("" where there is none).
+      reasons: ["Due", ""],
     });
   });
 

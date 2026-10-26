@@ -1,6 +1,6 @@
 # Privacy Policy — Three Today
 
-**Effective date: 25 October 2026 (last updated for Apple Ads attribution and the coach's note)**
+**Effective date: 26 October 2026 (last updated for completion stats sent with smart features, and "What your coach remembers")**
 
 <!-- Keep in sync with the published copy (gist a43d6373453761af70d495d640e38ffa,
      privacy-policy.html), which App Store Connect links to. The app links here. -->
@@ -24,16 +24,18 @@ This data is not synced to any server or account. The Home Screen and Lock Scree
 
 Six optional features use an AI model. When you use them, the app sends a request to our own server, which asks an AI model (currently provided by Anthropic) to respond. Each request contains only what that feature needs:
 
-- **Goal-based suggestions:** your goal and onboarding answers, a summary of recent completion counts, the titles of up to 12 of your recent tasks and whether each was completed, and your most recent optional reflection.
-- **Brain dump:** the text you type or dictate into the brain dump (up to 2,000 characters), how many open slots you have today, and your goal. When you first open the app, what you type on the first screen is sorted this way, and free users also get a few more AI-sorted brain dumps to try (the app shows how many are left); after that, brain dumps are sorted on your device unless you have Plus.
+- **Goal-based suggestions:** your goal and onboarding answers, a summary of recent completion counts, the titles of up to 12 of your recent tasks and whether each was completed, your most recent optional reflection, and simple completion stats from the last 30 days (see "What your coach remembers" below).
+- **Brain dump:** the text you type or dictate into the brain dump (up to 2,000 characters), how many open slots you have today, your goal, and simple completion stats from the last 30 days: how many tasks you finished on how many days, your best weekdays, and the titles of up to three tasks you moved to another day more than once (see "What your coach remembers" below), so the picks and the short reason under each can take them into account. When you first open the app, what you type on the first screen is sorted this way, and free users also get a few more AI-sorted brain dumps to try (the app shows how many are left); after that, brain dumps are sorted on your device unless you have Plus.
 - **Break it down:** the title of the task you ask to break down, and your goal.
 - **Evening check-in:** how your day felt (the option you tap), the titles of today's tasks and whether each was done, your optional note, your goal, and your coach memory (below).
 - **Coach's note (Plus):** once today's tasks are set, the titles of up to three of today's tasks, your goal, and the suggestion tone you picked in Settings, so the short note under your tasks can be written for them. It is sent at most twice a day; without Plus, or if the request fails, the note uses lines built into the app.
-- **Nag mode (optional, Plus):** if you turn on the Nag reminder style in Settings, once a day (at most twice) the app sends the titles of today's unfinished tasks, and the voice and level you picked, so the reminders can be written in that voice. Nothing is sent while "Hide task names in notifications" is on, or while it is paused for the day; the reminders then use lines built into the app. The reminders themselves are still local notifications scheduled on your device.
+- **Nag mode (optional, Plus):** if you turn on the Nag reminder style in Settings, once a day (at most twice) the app sends the titles of today's unfinished tasks (with how many times each was moved to another day, if it was), and the voice and level you picked, so the reminders can be written in that voice. Nothing is sent while "Hide task names in notifications" is on, or while it is paused for the day; the reminders then use lines built into the app. The reminders themselves are still local notifications scheduled on your device.
 
 **Calendar and Reminders (optional, iPhone only).** If you turn on "Plan around my calendar" in Settings and allow access, the app reads the titles and times of today's calendar events and of reminders due by the end of today (including overdue ones), up to 12 items. They are sent with goal-based suggestion and brain dump requests so your three fit around your day. They are never stored on our server, and the app never changes your calendar or reminders. You can turn this off in Settings, or remove access in iOS Settings, at any time.
 
 **Coach memory.** After an evening check-in, the AI writes a short summary of patterns worth remembering (for example which kinds of tasks you tend to finish). It is stored on your device, is sent with goal-based suggestion and evening check-in requests so the coach can build on it, and is never stored on our server. "Reset all data" in Settings deletes it.
+
+**What your coach remembers.** For everyone, the app works out simple patterns from the last 30 days of your history, on your device: how many tasks you finished, your best weekdays, tasks you moved to another day more than once, and kinds of tasks you usually finish or that tend to slip. Only the counts, weekdays and up to three of those task titles are sent, with the requests above; nothing new goes to analytics. Settings → What your coach remembers shows them in plain sentences (with the coach memory for Plus, which you can edit). "Clear memory" there deletes the coach memory and starts the patterns again from the next day; your history and streaks stay.
 
 These requests do **not** include your name, an account, an advertising identifier, contact details, or location.
 

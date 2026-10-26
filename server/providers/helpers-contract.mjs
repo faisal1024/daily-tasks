@@ -6,6 +6,7 @@
 // server/routes.mjs wires them to URLs.
 
 import { agendaPromptLines, isValidAgenda } from "./agenda.mjs";
+import { cleanStats, statsPromptLines } from "./stats.mjs";
 const SAFETY =
   "Never use shame, guilt, urgency, medical advice, financial advice, or unsafe " +
   "instructions. Keep wording short, concrete and kind.";
@@ -20,6 +21,10 @@ export const MAX_STEP_TEXT = 60;
 // Items this long aren't a verbose task, they're the model echoing the input:
 // reject so the client falls back (the on-device split) instead of shortening.
 export const MAX_ECHO_TEXT = 200;
+// A pick's reason (1.5) is a few words shown under it ("Quick win"): longer
+// ones are dropped (the app shows its own), never shortened.
+export const MAX_REASON_WORDS = 5;
+export const MAX_REASON_CHARS = 40;
 
 function nonEmptyString(value, max) {
   return typeof value === "string" && value.trim().length > 0 && value.length <= max;
@@ -42,7 +47,7 @@ export const BRAIN_DUMP_SYSTEM_PROMPT =
 
 export const BRAIN_DUMP_TOOL_NAME = "emit_brain_dump";
 export const BRAIN_DUMP_TOOL_DESCRIPTION =
-  "Return today's picks (at most openSlots) and the parked items. Call this tool.";
+  "Return today's picks (at most openSlots), each with a reason of at most five words, and the parked items. Call this tool.";
 
 export const BRAIN_DUMP_SCHEMA = {
   type: "object",
@@ -84,6 +89,8 @@ export function validateBrainDumpPayload(payload) {
   }
   if (!optionalGoal(payload.goalTitle)) return "Invalid goalTitle";
   if (!isValidAgenda(payload.agenda)) return "Invalid agenda";
+  // `stats` (1.5) isn't checked here: a malformed one is ignored
+  // (statsPromptLines), so a brain dump is never refused over it.
   return null;
 }
 
@@ -92,10 +99,15 @@ export function buildBrainDumpPrompt(payload) {
     payload.goalTitle ? `The person's bigger goal: ${payload.goalTitle}` : "No specific goal set.",
     `Pick at most ${payload.openSlots} item(s) for today.`,
     ...agendaPromptLines(payload.agenda),
+    ...statsPromptLines(payload.stats),
     "Brain dump (their words):",
     '"""',
     payload.text.trim(),
     '"""',
+    "Give each pick a reason of at most five words saying why it's for today, " +
+      'like "Quick win", "Due Friday", "Moved 3 times" or "Unblocks the rest". ' +
+      "Name a deadline only if they wrote one, and a move count only if it's listed above. " +
+      "Don't repeat the task's words.",
   ].join("\n");
 }
 
@@ -115,10 +127,30 @@ function textItems(list, max, limit) {
     // An echo of the input isn't a task: drop it rather than shortening it.
     .filter((item) => item.text.length <= MAX_ECHO_TEXT)
     .slice(0, limit)
-    .map((item) => ({
-      text: shorten(item.text, max),
-      ...(typeof item.reason === "string" ? { reason: item.reason.slice(0, 200) } : {}),
-    }));
+    .map((item) => {
+      const text = shorten(item.text, max);
+      const reason = cleanReason(item.reason, text);
+      return { text, ...(reason ? { reason } : {}) };
+    });
+}
+
+// C0/C1 control characters and the Unicode line/paragraph separators.
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
+const LINK_PATTERN = /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}/i;
+
+/**
+ * A pick's reason as shown under it (1.5), or "" when there is none to show:
+ * one line, at most five words and 40 characters (a longer one is dropped,
+ * never cut), no link or email, and not just the task's own words again.
+ * Older apps never read it.
+ */
+export function cleanReason(value, taskText = "") {
+  if (typeof value !== "string") return "";
+  const text = value.replace(CONTROL, " ").replace(/\s+/g, " ").trim().replace(/[.!]+$/u, "").trim();
+  if (!text || Array.from(text).length > MAX_REASON_CHARS) return "";
+  if (text.split(" ").length > MAX_REASON_WORDS || LINK_PATTERN.test(text)) return "";
+  if (text.toLowerCase() === String(taskText).trim().toLowerCase()) return "";
+  return text;
 }
 
 // Words too common to show an item came from the dump.
@@ -151,9 +183,19 @@ export function fromDump(itemText, dumpText) {
 }
 
 /** Rebuild the brain-dump response from validated fields only. */
-export function sanitizeBrainDump(result) {
+// "Moved 3 times", "Put off twice", "Pushed back again".
+const MOVED_REASON = /\b(?:moved|put off|pushed)\b/i;
+
+export function sanitizeBrainDump(result, payload) {
+  // A move count the app didn't send is made up: that reason is dropped
+  // (one without a number too, since it can't be checked).
+  const sentCounts = new Set((cleanStats(payload?.stats)?.moved ?? []).map((item) => item.times));
+  const honest = (item) => {
+    if (!item.reason || !MOVED_REASON.test(item.reason)) return item;
+    return sentCounts.has(Number(item.reason.match(/\d+/)?.[0])) ? item : { text: item.text };
+  };
   return {
-    picks: textItems(result.picks, MAX_TASK_TEXT, 3),
+    picks: textItems(result.picks, MAX_TASK_TEXT, 3).map(honest),
     parked: textItems(result.parked, MAX_TASK_TEXT, MAX_PARKED).map(({ text }) => ({ text })),
   };
 }

@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Fonts } from "@/constants/theme";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
-import { MAX_BRAIN_DUMP_CHARS, type SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import { MAX_BRAIN_DUMP_CHARS, pickReason, type SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
 
 type Stage = "write" | "sorting" | "review";
 
@@ -277,7 +277,7 @@ export function BrainDumpSheet({
                   ? "Today is set, so these are saved in Ideas for another day."
                   : `Tick ${openSlots === 1 ? "1" : `up to ${openSlots}`} for today. Everything else is saved in Ideas for another day.`}
               </Text>
-              {items.map((item) => {
+              {items.map((item, index) => {
                 // On a set day the rows only list what is being saved: nothing to tick.
                 if (locked) {
                   return (
@@ -298,6 +298,8 @@ export function BrainDumpSheet({
                 }
                 const on = chosen.has(item);
                 const blocked = !on && full;
+                // Why it was suggested (1.5), muted under a suggested one.
+                const reason = pickReason(sorted.result, index);
                 return (
                   <Pressable
                     key={item}
@@ -306,6 +308,7 @@ export function BrainDumpSheet({
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: on, disabled: blocked }}
                     accessibilityLabel={item}
+                    accessibilityValue={reason ? { text: reason } : undefined}
                     accessibilityHint={on ? "Double-tap to save for later instead" : "Double-tap to add to today"}
                     className="rounded-2xl border p-4 flex-row items-center gap-3"
                     style={{
@@ -319,9 +322,16 @@ export function BrainDumpSheet({
                       size={24}
                       color={on ? colors.primary : colors.muted}
                     />
-                    <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "700" }}>
-                      {item}
-                    </Text>
+                    <View className="flex-1">
+                      <Text className="text-base text-foreground" style={{ fontWeight: "700" }}>
+                        {item}
+                      </Text>
+                      {reason ? (
+                        <Text className="text-sm mt-0.5" style={{ color: colors.muted }} testID="brain-dump-reason">
+                          {reason}
+                        </Text>
+                      ) : null}
+                    </View>
                     {!on && (
                       <Text className="text-xs" style={{ color: colors.muted }}>
                         Later
