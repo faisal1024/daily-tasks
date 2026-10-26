@@ -13,6 +13,22 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { NotificationPermissionState } from "./types";
 
 export const FIRST_DAYS_KEY = "daily-tasks/first-days";
+/** Which day each card's "shown" event last went out: once a day, across launches and remounts. */
+export const FIRST_DAYS_SHOWN_KEY = "daily-tasks/first-days-shown";
+
+/**
+ * This process's launch. An earned widget tip becomes due on a later launch
+ * (or a later day), never in the session that earned it, however often Today
+ * re-renders, remounts or reloads the record.
+ */
+let launchId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+export function currentLaunch(): string {
+  return launchId;
+}
+/** Test-only: act as if the app was launched again. */
+export function __newLaunchForTests(): void {
+  launchId = `${launchId}+`;
+}
 
 /** "Not now" on the nudge card hides it for this many days... */
 export const NUDGE_SNOOZE_DAYS = 3;
@@ -36,6 +52,9 @@ export interface FirstDaysRecord {
   nudgeDeclines: number;
   /** See WidgetTipState. */
   widgetTip: WidgetTipState;
+  /** While "earned": the launch and day that earned it. */
+  earnedLaunch?: string;
+  earnedOn?: string;
 }
 
 /**
@@ -71,9 +90,11 @@ export function shouldShowNudgeCard(input: {
   record: FirstDaysRecord | null;
   today: string;
   permission: NotificationPermissionState | null | undefined;
+  /** A finished day: not then (it would sit on the done card); it waits for another day. */
+  dayFinished?: boolean;
 }): boolean {
   const { record, today, permission } = input;
-  if (!record || record.nudgeFrom === null) return false;
+  if (!record || record.nudgeFrom === null || input.dayFinished) return false;
   if (permission !== "undetermined") return false;
   // Date keys compare in order as strings.
   return today >= record.nudgeFrom;
@@ -95,16 +116,38 @@ export function answerNudge(record: FirstDaysRecord): FirstDaysRecord {
 }
 
 /**
- * A finished day (every planned task done, at least one) earns the tip. It
- * isn't shown in that session: openFirstDays makes it due on the next load.
+ * A finished day (every planned task done, at least one) earns the tip,
+ * stamped with this launch and day. It isn't shown in that session:
+ * openFirstDays makes it due on a later launch or day.
  */
-export function noteFinishedDay(record: FirstDaysRecord, dayFinished: boolean): FirstDaysRecord {
-  return dayFinished && record.widgetTip === "waiting" ? { ...record, widgetTip: "earned" } : record;
+export function noteFinishedDay(
+  record: FirstDaysRecord,
+  dayFinished: boolean,
+  at: { launch?: string; today?: string } = {},
+): FirstDaysRecord {
+  if (!dayFinished || record.widgetTip !== "waiting") return record;
+  return {
+    ...record,
+    widgetTip: "earned",
+    earnedLaunch: at.launch ?? currentLaunch(),
+    ...(at.today ? { earnedOn: at.today } : {}),
+  };
 }
 
-/** On a load (the next app open, a new day): an earned tip becomes due. */
-export function openFirstDays(record: FirstDaysRecord): FirstDaysRecord {
-  return record.widgetTip === "earned" ? { ...record, widgetTip: "due" } : record;
+/**
+ * An earned tip becomes due once the app has been launched again (another
+ * launch id) or it's a later day. The same launch, same day: still earned.
+ */
+export function openFirstDays(
+  record: FirstDaysRecord,
+  at: { launch?: string; today?: string } = {},
+): FirstDaysRecord {
+  if (record.widgetTip !== "earned") return record;
+  const launch = at.launch ?? currentLaunch();
+  const laterDay = Boolean(at.today && record.earnedOn && at.today > record.earnedOn);
+  if (record.earnedLaunch === launch && !laterDay) return record;
+  const { earnedLaunch, earnedOn, ...rest } = record;
+  return { ...rest, widgetTip: "due" };
 }
 
 /** The widget tip: iOS only (the widget is), once due, and one card at a time (the nudge first). */
@@ -142,7 +185,32 @@ function normalizeRecord(value: unknown): FirstDaysRecord | null {
     v.widgetTip === "waiting" || v.widgetTip === "earned" || v.widgetTip === "due" || v.widgetTip === "done"
       ? v.widgetTip
       : "done";
-  return { nudgeFrom, nudgeDeclines: declines, widgetTip };
+  const record: FirstDaysRecord = { nudgeFrom, nudgeDeclines: declines, widgetTip };
+  if (widgetTip === "earned") {
+    if (typeof v.earnedLaunch === "string") record.earnedLaunch = v.earnedLaunch;
+    if (typeof v.earnedOn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.earnedOn)) record.earnedOn = v.earnedOn;
+  }
+  return record;
+}
+
+type ShownDays = Partial<Record<"nudge" | "widget", string>>;
+
+/**
+ * True the first time `kind` is shown on `today` (and records it), so the
+ * "shown" event goes out once a day whatever remounts or relaunches. False
+ * when already logged today, or storage can't be read (stay quiet).
+ */
+export async function claimShownToday(kind: "nudge" | "widget", today: string): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(FIRST_DAYS_SHOWN_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    const days: ShownDays = parsed && typeof parsed === "object" ? (parsed as ShownDays) : {};
+    if (days[kind] === today) return false;
+    await AsyncStorage.setItem(FIRST_DAYS_SHOWN_KEY, JSON.stringify({ ...days, [kind]: today }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The saved record, or null: no record (an install from before 1.5) or unreadable (stay quiet). */

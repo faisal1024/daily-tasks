@@ -39,7 +39,7 @@ import { NagIntro } from "@/components/daily-tasks/nag-intro";
 import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
 import { NextPathLink } from "@/components/daily-tasks/next-path-link";
 import { FirstRun } from "@/components/daily-tasks/first-run";
-import { FirstDaysCards } from "@/components/daily-tasks/first-days-cards";
+import { FirstDaysCardsView, useFirstDays } from "@/components/daily-tasks/first-days-cards";
 import { pickedNote, saveFirstDays, startFirstDays } from "@/lib/daily-tasks/first-days";
 import type { FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
@@ -775,34 +775,33 @@ export default function HomeScreen() {
   // The right column (iPad) / lower section (phone) only exists when it has
   // content. Every phase past "plan" has some: the week row (morning, midday),
   // the check-in (evening) or the done card.
+  // First run's old last screens as Today cards (1.5): the morning nudge from
+  // the first check-off (or the next day), the widget tip from a later launch
+  // or day after the first finished day. Never with first run or the rollover
+  // card up. The state lives here, so where the cards sit never reloads it.
+  const firstDays = useFirstDays({
+    today,
+    active: ready && state.hasSeenOnboarding && !firstRunActive && !state.pendingRollover && appActive,
+    version: firstDaysVersion,
+    checkedOff: completedCount > 0,
+    dayFinished: progress.isPerfect,
+    permission: notificationPermission,
+    onAskNudge: async () => {
+      const status = await requestNotificationPermission();
+      if (status === "granted") {
+        // "Yes" means the reminders it names: make sure they're on.
+        setNotificationsEnabled(true);
+        setNotificationEnabled("morning", true);
+      }
+      return status;
+    },
+  });
   const rightHasContent =
     (Boolean(state.pendingRollover) && (wide || Boolean(draft))) ||
     ideasVisible ||
     Boolean(draft) ||
     phase !== "plan";
   const twoColumn = wide && rightHasContent;
-  // First run's old last screens as Today cards (1.5): the morning nudge from
-  // the first check-off (or the next day), the widget tip from the open after
-  // the first finished day. Never with first run or the rollover card up.
-  const firstDaysCards = (
-    <FirstDaysCards
-      today={today}
-      active={ready && state.hasSeenOnboarding && !firstRunActive && !state.pendingRollover && appActive}
-      version={firstDaysVersion}
-      checkedOff={completedCount > 0}
-      dayFinished={progress.isPerfect}
-      permission={notificationPermission}
-      onAskNudge={async () => {
-        const status = await requestNotificationPermission();
-        if (status === "granted") {
-          // "Yes" means the reminders it names: make sure they're on.
-          setNotificationsEnabled(true);
-          setNotificationEnabled("morning", true);
-        }
-        return status;
-      }}
-    />
-  );
   const dateLabel = fromDateKey(today).toLocaleDateString(undefined, {
     weekday: "long",
     day: "numeric",
@@ -1707,11 +1706,10 @@ export default function HomeScreen() {
               )}
               {/* The day-5 trial note: under the day's card and status, away from the rollover. */}
               {ready && !firstRunActive && <TrialNote today={today} active={appActive} />}
-              {/* Only without a right column; otherwise under the coach's note. */}
-              {!rightHasContent && firstDaysCards}
             </View>
 
-            {rightHasContent && (
+            {/* Also there for a first-days card alone, so the card has one place under the coach's note. */}
+            {(rightHasContent || firstDays.showing !== null) && (
               <View style={twoColumn ? { flex: 1, gap: 14 } : { gap: 14 }}>
 
                 {draft && (
@@ -1773,7 +1771,7 @@ export default function HomeScreen() {
                   />
                 )}
                 {/* First run's old last screens, as Today cards (1.5), under the coach's note. */}
-                {firstDaysCards}
+                <FirstDaysCardsView cards={firstDays} />
                 {/* A finished day swaps these for the done card's quiet "Pull one more".
                     Under the coach's note they shrink to one quiet line of links. */}
                 {ideasVisible && !emptyMorning && !draft && phase !== "done" && quietEntries && (

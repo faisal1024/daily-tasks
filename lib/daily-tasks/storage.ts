@@ -11,7 +11,7 @@ import { normalizeRoutines } from "./routines";
 import { isReviewTrigger } from "./review-prompt";
 import { normalizeWhatsNewSeen } from "./whats-new";
 import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
-import { FIRST_DAYS_KEY } from "./first-days";
+import { FIRST_DAYS_KEY, FIRST_DAYS_SHOWN_KEY } from "./first-days";
 import type {
   AppState,
   AutoLockConfig,
@@ -865,6 +865,7 @@ export async function clearState(): Promise<void> {
       TRIAL_NOTE_KEY,
       NAG_STORAGE_KEY,
       FIRST_DAYS_KEY,
+      FIRST_DAYS_SHOWN_KEY,
     ]);
   } catch (err) {
     console.warn("[daily-tasks] failed to clear state", err);

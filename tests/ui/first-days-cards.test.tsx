@@ -8,7 +8,9 @@ import { Platform } from "react-native";
 import { FirstDaysCards } from "@/components/daily-tasks/first-days-cards";
 import { track } from "@/lib/daily-tasks/analytics";
 import {
+  __newLaunchForTests,
   FIRST_DAYS_KEY,
+  FIRST_DAYS_SHOWN_KEY,
   loadFirstDays,
   saveFirstDays,
   startFirstDays,
@@ -185,13 +187,23 @@ describe("widget tip", () => {
     for (let i = 0; i < 3; i++) await act(async () => {});
     // Not on the finished-day moment.
     expect(tip()).toBeNull();
-    // Back from the background (active off, then on): due now.
+    // Back from the background, or remounted elsewhere on Today: same launch, still not shown.
     await rerender(<FirstDaysCards {...props({ permission: "granted", dayFinished: true, active: false })} />);
     await rerender(<FirstDaysCards {...props({ permission: "granted", dayFinished: true })} />);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(tip()).toBeNull();
+    await unmount();
+    const again = await render(<FirstDaysCards {...props({ permission: "granted", dayFinished: true })} />);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(tip()).toBeNull();
+    expect((await stored()).widgetTip).toBe("earned");
+    await again.unmount();
+    // A new launch: due now.
+    __newLaunchForTests();
+    await render(<FirstDaysCards {...props({ permission: "granted", dayFinished: true })} />);
     await waitFor(() => expect(tip()).toBeOnTheScreen());
     expect(screen.getByText("Keep your three on your Home Screen")).toBeOnTheScreen();
     expect((await stored()).widgetTip).toBe("due");
-    await unmount();
   });
 
   it("an earned tip is due on the next launch, or the next day", async () => {
@@ -235,7 +247,7 @@ describe("widget tip", () => {
 
   it("never shows alongside the nudge: the nudge goes first, the tip follows once it's answered", async () => {
     await seed({ ...nudgeDue(), widgetTip: "due" });
-    await render(<FirstDaysCards {...props({ dayFinished: true })} />);
+    await render(<FirstDaysCards {...props()} />);
     await waitFor(() => expect(nudge()).toBeOnTheScreen());
     expect(tip()).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "Not now" }));
@@ -254,10 +266,10 @@ describe("first_days_card analytics: ids only", () => {
 
   it("every event carries only kind/action/outcome drawn from the fixed ids (no text, dates or counts)", async () => {
     await seed({ ...nudgeDue(), widgetTip: "due" });
-    const { rerender } = await render(<FirstDaysCards {...props({ dayFinished: true })} />);
+    const { rerender } = await render(<FirstDaysCards {...props()} />);
     await fireEvent.press(await screen.findByRole("button", { name: "Yes, remind me" }));
     await waitFor(() => expect(nudge()).toBeNull());
-    await rerender(<FirstDaysCards {...props({ dayFinished: true, permission: "granted" })} />);
+    await rerender(<FirstDaysCards {...props({ permission: "granted" })} />);
     await fireEvent.press(await screen.findByRole("button", { name: "Dismiss widget tip" }));
 
     const events = cardEvents();
@@ -330,7 +342,33 @@ describe("Reset all data", () => {
   it("removes the first-days record too, so the next first run starts it fresh", async () => {
     await seed({ ...nudgeDue(), nudgeDeclines: 2, nudgeFrom: null, widgetTip: "done" });
     expect(await AsyncStorage.getItem(FIRST_DAYS_KEY)).not.toBeNull();
+    await AsyncStorage.setItem(FIRST_DAYS_SHOWN_KEY, JSON.stringify({ nudge: D1 }));
     await clearState();
     expect(await AsyncStorage.getItem(FIRST_DAYS_KEY)).toBeNull();
+    expect(await AsyncStorage.getItem(FIRST_DAYS_SHOWN_KEY)).toBeNull();
+  });
+});
+
+describe("review fixes: finished day, remounts", () => {
+  it("no nudge on a finished day (it would sit on the done card); it's back once the day isn't finished", async () => {
+    await seed(nudgeDue());
+    const { rerender } = await render(<FirstDaysCards {...props({ dayFinished: true, checkedOff: true })} />);
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect(nudge()).toBeNull();
+    await rerender(<FirstDaysCards {...props({ today: "2026-10-02" })} />);
+    await waitFor(() => expect(nudge()).toBeOnTheScreen());
+  });
+
+  it("'shown' goes out once a day even when the card remounts or the app relaunches", async () => {
+    await seed(nudgeDue());
+    const first = await render(<FirstDaysCards {...props()} />);
+    await waitFor(() => expect(nudge()).toBeOnTheScreen());
+    await waitFor(() => expect(cardEvents().filter((e) => e.action === "shown")).toHaveLength(1));
+    await first.unmount();
+    __newLaunchForTests();
+    await render(<FirstDaysCards {...props()} />);
+    await waitFor(() => expect(nudge()).toBeOnTheScreen());
+    for (let i = 0; i < 4; i++) await act(async () => {});
+    expect(cardEvents().filter((e) => e.action === "shown")).toHaveLength(1);
   });
 });

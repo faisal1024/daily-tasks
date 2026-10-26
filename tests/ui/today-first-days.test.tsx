@@ -9,7 +9,7 @@ import HomeScreen from "@/app/(tabs)/index";
 import { sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
 import { announcePolitely } from "@/lib/daily-tasks/announce";
-import { FIRST_DAYS_KEY, saveFirstDays, startFirstDays } from "@/lib/daily-tasks/first-days";
+import { __newLaunchForTests, FIRST_DAYS_KEY, saveFirstDays, startFirstDays } from "@/lib/daily-tasks/first-days";
 import { buildInitialState } from "@/lib/daily-tasks/storage";
 import type { AppState, NotificationPermissionState, Task } from "@/lib/daily-tasks/types";
 
@@ -343,11 +343,13 @@ describe("Today cards", () => {
     await record();
     mockStore = makeStore(finished);
     const { rerender, unmount } = await render(<HomeScreen />);
-    await waitFor(() => expect(screen.getByTestId("nudge-card")).toBeOnTheScreen());
-    expect(screen.queryByTestId("widget-tip")).toBeNull();
     await waitFor(async () => expect((await storedRecord()).widgetTip).toBe("earned"));
+    await flush();
+    // Neither card on the finished day: no nudge on the done card, no tip on that moment.
+    expect(screen.queryByTestId("nudge-card")).toBeNull();
+    expect(screen.queryByTestId("widget-tip")).toBeNull();
 
-    // Nudge answered in the same session: still no tip on the finished day.
+    // Permission granted and the layout changes in the same session: still no tip.
     mockStore = makeStore(finished, { notificationPermission: "granted" });
     await rerender(<HomeScreen />);
     await flush();
@@ -355,6 +357,7 @@ describe("Today cards", () => {
     await unmount();
 
     // The next launch.
+    __newLaunchForTests();
     await render(<HomeScreen />);
     await waitFor(() => expect(screen.getByTestId("widget-tip")).toBeOnTheScreen());
     expect(screen.queryByTestId("nudge-card")).toBeNull();

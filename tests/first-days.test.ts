@@ -47,7 +47,8 @@ const D1 = "2026-10-01";
 /** A record whose nudge is due on D1. */
 const fresh = (): FirstDaysRecord => ({ ...startFirstDays(D1), nudgeFrom: D1 });
 /** A tip that's due: earned on a finished day, then the next open. */
-const dueTip = (record: FirstDaysRecord) => openFirstDays(noteFinishedDay(record, true));
+const dueTip = (record: FirstDaysRecord) =>
+  openFirstDays(noteFinishedDay(record, true, { launch: "L1", today: D1 }), { launch: "L2", today: D1 });
 
 describe("nudge card: when it shows", () => {
   it("first run's record waits for tomorrow, or the first check-off today (review fix)", () => {
@@ -82,6 +83,12 @@ describe("nudge card: when it shows", () => {
 
   it("never shows without a record (an install that updated from 1.4 or older)", () => {
     expect(shouldShowNudgeCard({ record: null, today: D1, permission: "undetermined" })).toBe(false);
+  });
+
+  it("never shows on a finished day (it would sit on the done card)", () => {
+    const input = { record: fresh(), today: D1, permission: "undetermined" as const };
+    expect(shouldShowNudgeCard({ ...input, dayFinished: true })).toBe(false);
+    expect(shouldShowNudgeCard({ ...input, dayFinished: false })).toBe(true);
   });
 
   it("never shows before nudgeFrom (clock set back)", () => {
@@ -141,14 +148,22 @@ describe("widget tip", () => {
     expect(fresh().widgetTip).toBe("waiting");
     expect(shouldShowWidgetTip(input(fresh()))).toBe(false);
     expect(noteFinishedDay(fresh(), false).widgetTip).toBe("waiting");
-    const earned = noteFinishedDay(fresh(), true);
-    expect(earned.widgetTip).toBe("earned");
+    const earned = noteFinishedDay(fresh(), true, { launch: "L1", today: D1 });
+    expect(earned).toMatchObject({ widgetTip: "earned", earnedLaunch: "L1", earnedOn: D1 });
     expect(shouldShowWidgetTip(input(earned))).toBe(false);
     // A load of a waiting record changes nothing.
     expect(openFirstDays(fresh())).toEqual(fresh());
-    const due = openFirstDays(earned);
-    expect(due.widgetTip).toBe("due");
+    // The same launch, same day (a remount, a reload, back from the background): still earned.
+    expect(openFirstDays(earned, { launch: "L1", today: D1 })).toBe(earned);
+    // A later launch, or a later day: due, and the stamps go.
+    const due = openFirstDays(earned, { launch: "L2", today: D1 });
+    expect(due).toEqual({ ...fresh(), widgetTip: "due" });
+    expect(openFirstDays(earned, { launch: "L1", today: "2026-10-02" }).widgetTip).toBe("due");
     expect(shouldShowWidgetTip(input(due))).toBe(true);
+  });
+
+  it("an earned tip without stamps (unknown launch) is due on load", () => {
+    expect(openFirstDays({ ...fresh(), widgetTip: "earned" }, { launch: "L1", today: D1 }).widgetTip).toBe("due");
   });
 
   it("stays due on later days until dismissed, and once dismissed never comes back", () => {

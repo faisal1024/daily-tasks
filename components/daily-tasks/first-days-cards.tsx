@@ -7,6 +7,7 @@ import { useColors } from "@/hooks/use-colors";
 import { track } from "@/lib/daily-tasks/analytics";
 import {
   answerNudge,
+  claimShownToday,
   declineNudge,
   dismissWidgetTip,
   loadFirstDays,
@@ -20,7 +21,7 @@ import {
 } from "@/lib/daily-tasks/first-days";
 import type { NotificationPermissionState } from "@/lib/daily-tasks/types";
 
-interface FirstDaysCardsProps {
+export interface FirstDaysInput {
   today: string;
   /** Off while first run, the rollover card or a background launch is up: nothing loads or shows. */
   active: boolean;
@@ -28,20 +29,31 @@ interface FirstDaysCardsProps {
   version: number;
   /** A task is checked off today: the first nudge may come forward to today. */
   checkedOff: boolean;
-  /** Every planned task done today (at least one): earns the widget tip for the next open. */
+  /** Every planned task done today (at least one): earns the widget tip for a later launch. */
   dayFinished: boolean;
   permission: NotificationPermissionState | undefined;
   /** "Yes": ask iOS, and turn morning reminders on when allowed. */
   onAskNudge: () => Promise<NotificationPermissionState>;
 }
 
+export interface FirstDaysCardsState {
+  showing: "nudge" | "widget" | null;
+  asking: boolean;
+  yes: () => Promise<void>;
+  notNow: () => void;
+  dismissTip: () => void;
+}
+
 /**
- * The cards that replaced first run's last two screens (1.5; rules in
- * lib/daily-tasks/first-days.ts): "Want a nudge in the morning?" from the
- * first check-off (or the next day), then, from the app open after the first
- * finished day, the widget tip. One card at a time, the nudge first.
+ * The state behind the cards that replaced first run's last two screens
+ * (1.5; rules in lib/daily-tasks/first-days.ts). A hook, so Today can keep
+ * it above any layout change: moving the cards never reloads the record or
+ * re-logs "shown". "Want a nudge in the morning?" from the first check-off
+ * (or the next day), never on a finished day; the widget tip from a later
+ * launch or day after the first finished day. One card at a time, the nudge
+ * first.
  */
-export function FirstDaysCards({
+export function useFirstDays({
   today,
   active,
   version,
@@ -49,8 +61,7 @@ export function FirstDaysCards({
   dayFinished,
   permission,
   onAskNudge,
-}: FirstDaysCardsProps) {
-  const colors = useColors();
+}: FirstDaysInput): FirstDaysCardsState {
   const [record, setRecord] = useState<FirstDaysRecord | null>(null);
   // The latest record, for answers that land after an await (the permission prompt).
   const recordRef = useRef<FirstDaysRecord | null>(null);
@@ -58,15 +69,14 @@ export function FirstDaysCards({
   const [asking, setAsking] = useState(false);
   // A ref too: two taps in one frame both see `asking` false (state lags a render).
   const askingRef = useRef(false);
-  const shownLogged = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
     void loadFirstDays().then((loaded) => {
       if (cancelled) return;
-      // A load is a new app open or a new day: an earned widget tip is due now.
-      const opened = loaded ? openFirstDays(loaded) : null;
+      // An earned tip is due only on a later launch or day (never this session).
+      const opened = loaded ? openFirstDays(loaded, { today }) : null;
       recordRef.current = opened;
       setRecord(opened);
       if (opened && opened !== loaded) void saveFirstDays(opened);
@@ -87,46 +97,74 @@ export function FirstDaysCards({
     void saveFirstDays(next);
   };
 
-  // The first finished day earns the tip (shown from the next open, never on
-  // the finished-day moment); the first check-off brings the nudge to today.
+  // The first finished day earns the tip (shown from a later launch or day,
+  // never on the finished-day moment); the first check-off brings the nudge
+  // to today.
   useEffect(() => {
-    if (record && dayFinished) update((current) => noteFinishedDay(current, true));
+    if (record && dayFinished) update((current) => noteFinishedDay(current, true, { today }));
     if (record && checkedOff) update((current) => noteCheckOff(current, today, true));
   }, [record, dayFinished, checkedOff, today]);
 
-  const showNudge = active && shouldShowNudgeCard({ record, today, permission });
+  const showNudge = active && shouldShowNudgeCard({ record, today, permission, dayFinished });
   const showWidget =
     active && shouldShowWidgetTip({ record, widgetsSupported: Platform.OS === "ios", nudgeShowing: showNudge });
-  const showing = showNudge ? "nudge" : showWidget ? "widget" : null;
+  const showing = !record ? null : showNudge ? "nudge" : showWidget ? "widget" : null;
 
-  // card_shown once per card per day while the app runs (it can stay up across opens).
+  // "shown" once per card per day, deduped in storage (survives remounts and relaunches).
   useEffect(() => {
     if (!showing) return;
-    const key = `${showing}:${today}`;
-    if (shownLogged.current.has(key)) return;
-    shownLogged.current.add(key);
-    track("first_days_card", { kind: showing, action: "shown" });
+    let cancelled = false;
+    void claimShownToday(showing, today).then((first) => {
+      if (first && !cancelled) track("first_days_card", { kind: showing, action: "shown" });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [showing, today]);
 
-  if (!record || !showing) return null;
+  const yes = async () => {
+    if (askingRef.current) return;
+    askingRef.current = true;
+    setAsking(true);
+    let status: NotificationPermissionState = "undetermined";
+    try {
+      status = await onAskNudge();
+    } catch {
+      // Treated as not allowed; the card still goes (Settings › Reminders has it).
+    } finally {
+      askingRef.current = false;
+      setAsking(false);
+    }
+    update(answerNudge);
+    track("first_days_card", { kind: "nudge", action: "yes", outcome: status });
+  };
+
+  const notNow = () => {
+    if (askingRef.current) return;
+    update((current) => declineNudge(current, today));
+    track("first_days_card", { kind: "nudge", action: "not_now" });
+  };
+
+  const dismissTip = () => {
+    update(dismissWidgetTip);
+    track("first_days_card", { kind: "widget", action: "dismissed" });
+  };
+
+  return { showing, asking, yes, notNow, dismissTip };
+}
+
+/** The cards with their own state (one place on screen; Today uses the hook + view). */
+export function FirstDaysCards(props: FirstDaysInput) {
+  return <FirstDaysCardsView cards={useFirstDays(props)} />;
+}
+
+/** What useFirstDays says to show. */
+export function FirstDaysCardsView({ cards }: { cards: FirstDaysCardsState }) {
+  const colors = useColors();
+  const { showing, asking, yes, notNow, dismissTip } = cards;
+  if (!showing) return null;
 
   if (showing === "nudge") {
-    const yes = async () => {
-      if (askingRef.current) return;
-      askingRef.current = true;
-      setAsking(true);
-      let status: NotificationPermissionState = "undetermined";
-      try {
-        status = await onAskNudge();
-      } catch {
-        // Treated as not allowed; the card still goes (Settings › Reminders has it).
-      } finally {
-        askingRef.current = false;
-        setAsking(false);
-      }
-      update(answerNudge);
-      track("first_days_card", { kind: "nudge", action: "yes", outcome: status });
-    };
     return (
       <Card icon="notifications-outline" testID="nudge-card">
         <Text className="text-sm font-semibold text-foreground" accessibilityRole="header">
@@ -153,10 +191,7 @@ export function FirstDaysCards({
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => {
-              update((current) => declineNudge(current, today));
-              track("first_days_card", { kind: "nudge", action: "not_now" });
-            }}
+            onPress={notNow}
             disabled={asking}
             accessibilityRole="button"
             accessibilityLabel="Not now"
@@ -180,10 +215,7 @@ export function FirstDaysCards({
       icon="apps-outline"
       testID="widget-tip"
       dismissLabel="Dismiss widget tip"
-      onDismiss={() => {
-        update(dismissWidgetTip);
-        track("first_days_card", { kind: "widget", action: "dismissed" });
-      }}
+      onDismiss={dismissTip}
     >
       <Text className="text-sm font-semibold text-foreground" accessibilityRole="header">
         Keep your three on your Home Screen
