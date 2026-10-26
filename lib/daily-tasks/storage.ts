@@ -14,6 +14,7 @@ import { isReviewTrigger } from "./review-prompt";
 import { normalizeWhatsNewSeen } from "./whats-new";
 import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
 import { FIRST_DAYS_KEY, FIRST_DAYS_SHOWN_KEY } from "./first-days";
+import { normalizeSundayReset } from "./sunday-reset";
 import { FIRST_TICK_KEY } from "./first-tick";
 import { WELCOME_BACK_SHOWN_KEY } from "./welcome-back";
 import type {
@@ -609,6 +610,8 @@ export function normalizeState(value: unknown): AppState | null {
         ? value.memoryClearedAt
         : null,
     tomorrowDraft: normalizeTomorrowDraft(value.tomorrowDraft),
+    // 1.6: only when saved (older saves read as the defaults).
+    ...(isRecord(value.sundayReset) ? { sundayReset: normalizeSundayReset(value.sundayReset) } : {}),
     eveningClose: normalizeEveningClose(value.eveningClose),
     agendaEnabled: value.agendaEnabled === true,
     coachNotes: normalizeCoachNotes(value.coachNotes),
@@ -726,6 +729,8 @@ function normalizeTomorrowDraft(value: unknown): TomorrowDraft | null {
     note: typeof value.note === "string" ? capChars(value.note, 160) : "",
     because: typeof value.because === "string" ? capChars(value.because, 100) : "",
     source: value.source === "ai" ? "ai" : "local",
+    // The Sunday reset's draft (1.6) keeps its mark.
+    ...(value.from === "reset" ? { from: "reset" as const } : {}),
   };
 }
 

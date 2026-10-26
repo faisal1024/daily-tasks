@@ -53,6 +53,10 @@ export type AnalyticsEvent =
   // Three Today" shortcut saved for later (count). Never their text.
   | "capture_opened"
   | "capture_imported"
+  // 1.6: the Sunday reset. step "card" | "intro" | "wins" | "dump" | "three" | "done";
+  // action "shown" | "start" | "next" | "skip" | "saved" | "close" | "dismissed" | "plus" | "set";
+  // source "today" | "progress" | "notification"; count = items saved (dump) or tasks set (three).
+  | "sunday_reset"
   | "agenda_toggled"
   | "goal_set"
   | "task_not_today"

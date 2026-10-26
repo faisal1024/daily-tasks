@@ -531,6 +531,19 @@ describe("the capture inbox", () => {
     expect(result.current.captureNotice).toMatchObject({ count: 1, text: "Second", full: true });
   });
 
+  // PR #110 (with 1.6 E): room made while captures wait brings them in at once.
+  it("room made in Saved for later brings a waiting capture in without a foreground", async () => {
+    capture("a.json", "Waiting one");
+    const existing = parked(MAX_PARKED_TASKS);
+    const { result } = await renderStore({ parkedTasks: existing });
+    await flush();
+    expect([...mockFiles.keys()]).toEqual(["a.json"]);
+    await act(async () => result.current.removeParkedTask("p0"));
+    await flush();
+    expect(savedTexts(result.current.state).at(-1)).toBe("Waiting one");
+    expect([...mockFiles.keys()]).toEqual([]);
+  });
+
   // 1.6 F with 1.6 E: a capture's dates are read from the day it was written.
   it("a capture made yesterday that says \"tomorrow\" lands as today; one made today saying \"tomorrow\" is tomorrow", async () => {
     const yesterdayEvening = new Date(2026, 8, 25, 20, 0).getTime();

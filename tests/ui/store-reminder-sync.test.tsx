@@ -253,8 +253,9 @@ describe("store: a rewrite that fails", () => {
   it("what is handed to the scheduler carries no pending list of its own (the scheduler adds it)", async () => {
     await renderOnDay({ tasks: THREE }, new Date(2026, 8, 25, 8));
     expect(Object.keys(lastSync()).sort()).toEqual(
-      // `plus` and `strategy` are for nag mode (Plus-only; see nag-mode-store.test.tsx).
-      ["draft", "locked", "now", "permissionState", "plus", "settings", "strategy", "tasks", "today", "yesterdayOpen"].sort(),
+      // `plus` and `strategy` are for nag mode (Plus-only; see nag-mode-store.test.tsx);
+      // `sundayReset` for the Sunday reset's notification (1.6).
+      ["draft", "locked", "now", "permissionState", "plus", "settings", "strategy", "sundayReset", "tasks", "today", "yesterdayOpen"].sort(),
     );
   });
 });
@@ -308,5 +309,65 @@ describe("store: the reminders over a day change", () => {
     expect(result.current.today).toBe(NEXT);
     expect(lastSync()).toMatchObject({ today: NEXT, tasks: [{ id: "t0", text: "Walk", done: false }], yesterdayOpen: [] });
     expect(toDateKey(lastSync().now!)).toBe(D);
+  });
+});
+
+describe("store: the Sunday reset's reminder (1.6)", () => {
+  /** What the scheduler makes of the last rewrite, with the strategy the store handed it. */
+  const sundayItem = async (plus = true) => {
+    const { strategy, ...context } = lastSync();
+    const plan = await strategy!({ ...context, now: context.now!, draft: context.draft ?? null, plus, pending: [], lastDeliveredAt: null });
+    return plan.find((item) => item.kind === "sunday_reset");
+  };
+  // PR #110: the reminder has the card's gate, so these have a planned day before today.
+  const EARLIER = {
+    "2026-09-24": {
+      date: "2026-09-24",
+      total: 3,
+      completed: 2,
+      locked: false,
+      lockSource: null,
+      tasks: [],
+      reflection: null,
+      reflectionResult: null,
+    },
+  };
+
+  it("is planned for the next Sunday at 6 PM, and the Settings switch off rewrites the reminders without it", async () => {
+    const { result } = await renderOnDay({ tasks: THREE, history: EARLIER }, new Date(2026, 8, 25, 8));
+    // Friday 25 Sep 2026: the next Sunday is the 27th.
+    expect(lastSync().sundayReset).toEqual({ reminder: true, doneWeek: null, dismissedWeek: null, freeIntroWeek: null });
+    expect((await sundayItem())?.fireAt).toEqual(new Date(2026, 8, 27, 18, 0));
+    // Plus only.
+    expect(await sundayItem(false)).toBeUndefined();
+
+    sync.mockClear();
+    await act(async () => result.current.updateSundayReset({ reminder: false }));
+    await settle();
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(lastSync().sundayReset?.reminder).toBe(false);
+    expect(await sundayItem()).toBeUndefined();
+
+    // Back on: planned again.
+    sync.mockClear();
+    await act(async () => result.current.updateSundayReset({ reminder: true }));
+    await settle();
+    expect((await sundayItem())?.fireAt).toEqual(new Date(2026, 8, 27, 18, 0));
+  });
+
+  // PR #110: that Sunday's reminder moves to the Sunday after (not none).
+  it("finishing or closing the week's card rewrites them with the Sunday after instead", async () => {
+    const { result } = await renderOnDay({ tasks: THREE, history: EARLIER }, new Date(2026, 8, 25, 8));
+    sync.mockClear();
+    await act(async () => result.current.updateSundayReset({ dismissedWeek: "2026-09-27" }));
+    await settle();
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect((await sundayItem())?.fireAt).toEqual(new Date(2026, 9, 4, 18, 0));
+  });
+
+  it("none before a planned day: the first-run day has no Sunday reminder", async () => {
+    await renderOnDay({ tasks: THREE }, new Date(2026, 8, 25, 8));
+    expect(lastSync().sundayReset).toBeUndefined();
+    expect(await sundayItem()).toBeUndefined();
   });
 });

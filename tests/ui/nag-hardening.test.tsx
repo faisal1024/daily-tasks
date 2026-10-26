@@ -304,7 +304,8 @@ describe("privacy: when nothing may be sent", () => {
       expect(await loadNagRecord()).toBeNull();
     } else if (expected === "mornings") {
       await eventually(() => expect(owned().length).toBeGreaterThan(0));
-      expect(owned().every((item) => kindOf(item) === "morning")).toBe(true);
+      // Mornings, and the Sunday reset's notification (1.6, Plus).
+      expect(owned().every((item) => ["morning", "sunday_reset"].includes(kindOf(item)))).toBe(true);
       expect(await loadNagRecord()).toBeNull();
     } else if (expected === "nags") {
       await eventually(() => expect(ofKind("nag").length).toBeGreaterThanOrEqual(3));

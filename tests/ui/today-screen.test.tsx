@@ -118,6 +118,17 @@ jest.mock("@/components/daily-tasks/rollover-modal", () => {
   };
 });
 const mockNavigate = jest.fn();
+// The Sunday reset's shared sheet (1.6 H) lives at the tabs layout; Today only
+// reads it and asks it to step aside.
+const mockSundayReset = {
+  isOpen: false,
+  start: jest.fn(),
+  stepAside: jest.fn(() => false),
+  registerOthers: jest.fn((_stepAside: () => boolean) => () => {}),
+};
+jest.mock("@/components/daily-tasks/sunday-reset-provider", () => ({
+  useSundayReset: () => mockSundayReset,
+}));
 jest.mock("expo-router", () => ({
   router: { navigate: (...args: unknown[]) => mockNavigate(...args) },
 }));
@@ -4727,6 +4738,49 @@ describe("capture from anywhere: Today", () => {
       jest.advanceTimersByTime(SHEET_SWAP_DELAY_MS);
     });
     expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+  });
+
+  it("the Sunday reset's sheet steps aside first (it saves a typed dump itself), then the brain dump follows", async () => {
+    mockSundayReset.isOpen = true;
+    mockSundayReset.stepAside.mockImplementation(() => {
+      mockSundayReset.isOpen = false;
+      return true;
+    });
+    try {
+      jest.useFakeTimers();
+      mockStore = withDump({ tasks: tasks("Walk") });
+      await render(<HomeScreen />);
+      expect(mockSundayReset.stepAside).toHaveBeenCalled();
+      expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+      await act(async () => {
+        jest.advanceTimersByTime(SHEET_SWAP_DELAY_MS);
+      });
+      expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+    } finally {
+      mockSundayReset.isOpen = false;
+      mockSundayReset.stepAside.mockImplementation(() => false);
+    }
+  });
+
+  it("registers its sheets with the Sunday reset: a notification tap closes the brain dump (keeping what's typed) and Ideas first", async () => {
+    mockStore = withDump({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "half a thought");
+    const register = mockSundayReset.registerOthers;
+    expect(register).toHaveBeenCalled();
+    const stepAsideOthers = register.mock.calls.at(-1)![0];
+    let stepped = false;
+    await act(async () => {
+      stepped = stepAsideOthers();
+    });
+    expect(stepped).toBe(true);
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    // Nothing up: nothing to step aside, the reset opens at once.
+    let again = true;
+    await act(async () => {
+      again = stepAsideOthers();
+    });
+    expect(again).toBe(false);
   });
 
   it("a second request while the brain dump is open leaves it (and what's typed in it) alone", async () => {

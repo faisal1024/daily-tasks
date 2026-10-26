@@ -7,6 +7,7 @@ import { MonthHistory } from "@/components/daily-tasks/month-history";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { PathEditor } from "@/components/daily-tasks/path-editor";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
+import { SundayResetRow } from "@/components/daily-tasks/sunday-reset-card";
 import { WeeklyReviewCard } from "@/components/daily-tasks/weekly-review-card";
 import { ScreenContainer } from "@/components/screen-container";
 import { Fonts } from "@/constants/theme";
@@ -173,6 +174,8 @@ export default function JourneyScreen() {
           {/* Free for everyone: seeing your own patterns builds the habit
               (the review's value is retention, not a paywall). */}
           <WeeklyReviewCard review={weeklyReview} plus canUnlock={false} onUnlock={() => {}} />
+          {/* The Sunday reset (1.6), any day: it plans tomorrow. */}
+          <SundayResetRow />
         </View>
 
         {/* Milestones toward the goal: ticked off by hand */}

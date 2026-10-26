@@ -27,7 +27,8 @@ enum CaptureGroup {
   static let group = "group.com.faisalislam.dailytasks"
   static let inboxFolder = "capture-inbox"
   static let openRequestKey = "capture.openRequest"
-  /// The most captures waiting for the app (the app's Saved for later holds 50 too).
+  /// The most captures waiting for the app. The inbox's own cap: separate from
+  /// Saved for later's (MAX_PARKED_TASKS in the app, 100 from 1.6).
   static let maxQueue = 50
   /// The app cuts saved items shorter; this only keeps the files small.
   static let maxChars = 1000

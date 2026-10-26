@@ -16,6 +16,7 @@ import { __resetAnalyticsForTests, __setAnalyticsFetchForTests, flush } from "@/
 import { NAME_FREE_REMINDER_BODIES } from "@/lib/daily-tasks/reminder-copy";
 import { REMINDER_SYNC_DEBOUNCE_MS } from "@/lib/daily-tasks/reminder-plan";
 import { LAPSED_MORNING_COPY } from "@/lib/daily-tasks/reminders";
+import { SUNDAY_RESET_REMINDER_COPY } from "@/lib/daily-tasks/sunday-reset";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
@@ -190,7 +191,7 @@ describe("Hide task names on: a morning's use of the app", () => {
     }
     for (const call of calls.filter((each) => each.identifier.startsWith("daily-tasks:"))) {
       // A general title over a fixed line that names no task.
-      expect(["A calm start", "A small nudge", "Still time today"]).toContain(call.content.title);
+      expect(["A calm start", "A small nudge", "Still time today", SUNDAY_RESET_REMINDER_COPY.title]).toContain(call.content.title);
       expect([
         "Choose Today's Three.",
         "Today's Three still need a little attention.",
@@ -202,6 +203,8 @@ describe("Hide task names on: a morning's use of the app", () => {
         "Nothing picked yet. One is enough to begin.",
         // The morning a week on (1.5 D).
         LAPSED_MORNING_COPY.body,
+        // The Sunday reset's notification (1.6, Plus): no task words.
+        SUNDAY_RESET_REMINDER_COPY.body,
       ]).toContain(call.content.body);
     }
     expect(everythingLogged()).not.toMatch(TASK_WORDS);

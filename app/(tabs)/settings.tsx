@@ -50,6 +50,7 @@ import {
 } from "@/lib/daily-tasks/nag";
 import { NAG_LEVEL_COUNT_NOTE, nagLevelRudeNote } from "@/lib/daily-tasks/nag-copy";
 import { loadFirstDays } from "@/lib/daily-tasks/first-days";
+import { sundayResetOf } from "@/lib/daily-tasks/sunday-reset";
 import { NAG_ANNOUNCEMENT_ID, NAG_FIRST_DAYS_ID, NAG_INTRO_SETTINGS_ROW } from "@/lib/daily-tasks/whats-new";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -84,6 +85,9 @@ const NOTIFICATION_LABELS: Record<
     subtitle: "A nudge each hour (8am–9pm) until Today's Three are done.",
   },
 };
+
+/** Under the "Sunday reset" switch (1.6, Plus). */
+const SUNDAY_RESET_HELP = "Sunday at 6 PM: two minutes to set up your week.";
 
 /** Under the "Hide task names in notifications" switch (and its VoiceOver hint). */
 const HIDE_TASK_NAMES_HELP =
@@ -175,6 +179,7 @@ export default function SettingsScreen() {
     setNotificationsEnabled,
     setNotificationEnabled,
     setHideTaskNamesInNotifications,
+    updateSundayReset,
     setReminderStyle,
     setNagPersona,
     setNagLevel,
@@ -1129,6 +1134,17 @@ export default function SettingsScreen() {
                 );
               },
             )}
+            {/* The Sunday reset's notification (1.6, Plus): on unless turned off here. */}
+            {hasPlus ? (
+              <ReminderSwitchRow
+                title="Sunday reset"
+                subtitle={SUNDAY_RESET_HELP}
+                value={sundayResetOf(state).reminder}
+                onValueChange={(value) => updateSundayReset({ reminder: value })}
+                mutedColor={colors.muted}
+                trackColor={colors.primary}
+              />
+            ) : null}
             {nagActive ? (
               <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-calm-note">
                 {NAG_CALM_SWITCHES_NOTE}

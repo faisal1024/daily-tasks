@@ -45,6 +45,8 @@ import type { FocusSessionControls } from "@/components/daily-tasks/focus-check-
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { ShareDaySheet } from "@/components/daily-tasks/share-day-sheet";
+import { SundayResetCard } from "@/components/daily-tasks/sunday-reset-card";
+import { useSundayReset } from "@/components/daily-tasks/sunday-reset-provider";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { ReorderGhost, ReorderRow, reorderRowKey, useTaskReorder } from "@/components/daily-tasks/task-reorder";
@@ -282,6 +284,8 @@ export default function HomeScreen() {
     checkWinBackOffer,
     ahaPaywallState,
   } = usePlus();
+  // The Sunday reset's sheet (1.6), shared with Progress (sunday-reset-provider.tsx).
+  const sundayReset = useSundayReset();
   const winBackDueRef = useRef(winBackDue);
   winBackDueRef.current = winBackDue;
 
@@ -741,7 +745,9 @@ export default function HomeScreen() {
     if (!state.tasks.some((task) => task.id === focusPrompt.taskId && !isCompleted(task.id))) return;
     if (focusPromptTimer.current) clearTimeout(focusPromptTimer.current);
     focusPromptTimer.current = null;
-    if (!whatsNewStepAside.current()) {
+    // The Sunday reset (1.6) closes as its × does (a typed dump is saved).
+    const resetStepped = sundayReset.stepAside();
+    if (!whatsNewStepAside.current() && !resetStepped) {
       openFocus(focusPrompt.taskId, focusPrompt.source);
       return;
     }
@@ -1097,7 +1103,9 @@ export default function HomeScreen() {
     showCelebration ||
     // 1.5 D: "Meet Nag mode" from its Today card, and the share preview.
     nagCardOpen ||
-    shareOpen;
+    shareOpen ||
+    // 1.6 H: the Sunday reset's sheet.
+    sundayReset.isOpen;
 
   // What's new (1.4): once, for someone who updated, in the quiet window
   // right after a launch or a return to the foreground: Today in front with
@@ -1233,7 +1241,25 @@ export default function HomeScreen() {
       dismissCelebration();
       return true;
     },
+    // The Sunday reset (1.6 H): closed as its × does, so a typed dump is saved.
+    sundayReset: () => sundayReset.stepAside(),
   };
+  // A tap on the Sunday reset's notification (1.6 H): Today's own sheets step
+  // aside first (the brain dump too: what's typed in it stays), and the
+  // provider opens the reset once they've gone.
+  const stepAsideForReset = useRef<() => boolean>(() => false);
+  stepAsideForReset.current = () => {
+    // Every entry runs (no short-circuit): all of them close.
+    const stepped = Object.entries(stepAsideForDump.current)
+      .filter(([key]) => key !== "sundayReset")
+      .map(([, stepAside]) => stepAside())
+      .some(Boolean);
+    if (!brainDumpOpen) return stepped;
+    setBrainDumpOpen(false);
+    return true;
+  };
+  const registerResetOthers = sundayReset.registerOthers;
+  useEffect(() => registerResetOthers(() => stepAsideForReset.current()), [registerResetOthers]);
   const dumpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -2027,6 +2053,8 @@ export default function HomeScreen() {
                   </Text>
                 </Pressable>
               )}
+              {/* The Sunday reset (1.6): Sunday evenings, under the day's card. */}
+              <SundayResetCard firstRunActive={firstRunActive} />
               {/* The day-5 trial note: under the day's card and status, away from the rollover. */}
               {ready && !firstRunActive && <TrialNote today={today} active={appActive} />}
             </View>

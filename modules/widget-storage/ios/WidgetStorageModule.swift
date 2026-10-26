@@ -30,10 +30,13 @@ public class WidgetStorageModule: Module {
     Function("listInboxFiles") { (group: String, folder: String) -> [[String: String]] in
       guard let dir = Self.inboxFolder(group: group, folder: folder) else { return [] }
       let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+      // A file that can't be read right now (still being written, or locked)
+      // is skipped, not handed over empty: the app deletes only files whose
+      // JSON is invalid, so it is read again on a later import.
       return names.filter(Self.isInboxFileName).sorted().compactMap { name in
         guard let data = FileManager.default.contents(atPath: dir.appendingPathComponent(name).path),
           let contents = String(data: data, encoding: .utf8)
-        else { return ["name": name, "contents": ""] }
+        else { return nil }
         return ["name": name, "contents": contents]
       }
     }
