@@ -311,3 +311,43 @@ describe("store: the reminders over a day change", () => {
     expect(toDateKey(lastSync().now!)).toBe(D);
   });
 });
+
+describe("store: the Sunday reset's reminder (1.6)", () => {
+  /** What the scheduler makes of the last rewrite, with the strategy the store handed it. */
+  const sundayItem = async (plus = true) => {
+    const { strategy, ...context } = lastSync();
+    const plan = await strategy!({ ...context, now: context.now!, draft: context.draft ?? null, plus, pending: [], lastDeliveredAt: null });
+    return plan.find((item) => item.kind === "sunday_reset");
+  };
+
+  it("is planned for the next Sunday at 6 PM, and the Settings switch off rewrites the reminders without it", async () => {
+    const { result } = await renderOnDay({ tasks: THREE }, new Date(2026, 8, 25, 8));
+    // Friday 25 Sep 2026: the next Sunday is the 27th.
+    expect(lastSync().sundayReset).toEqual({ reminder: true, doneWeek: null, dismissedWeek: null, freeIntroWeek: null });
+    expect((await sundayItem())?.fireAt).toEqual(new Date(2026, 8, 27, 18, 0));
+    // Plus only.
+    expect(await sundayItem(false)).toBeUndefined();
+
+    sync.mockClear();
+    await act(async () => result.current.updateSundayReset({ reminder: false }));
+    await settle();
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(lastSync().sundayReset?.reminder).toBe(false);
+    expect(await sundayItem()).toBeUndefined();
+
+    // Back on: planned again.
+    sync.mockClear();
+    await act(async () => result.current.updateSundayReset({ reminder: true }));
+    await settle();
+    expect((await sundayItem())?.fireAt).toEqual(new Date(2026, 8, 27, 18, 0));
+  });
+
+  it("finishing or closing the week's card rewrites them without that Sunday's reminder", async () => {
+    const { result } = await renderOnDay({ tasks: THREE }, new Date(2026, 8, 25, 8));
+    sync.mockClear();
+    await act(async () => result.current.updateSundayReset({ dismissedWeek: "2026-09-27" }));
+    await settle();
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(await sundayItem()).toBeUndefined();
+  });
+});
