@@ -869,6 +869,22 @@ export async function refreshBackup(): Promise<void> {
   }
 }
 
+/**
+ * Save and say whether it stuck (false when writes are blocked or the write
+ * failed). For data that must be stored before its source is deleted: the
+ * capture inbox's files (1.6 E).
+ */
+export async function persistState(state: AppState): Promise<boolean> {
+  if (writesBlocked) return false;
+  try {
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return true;
+  } catch (err) {
+    console.warn("[daily-tasks] failed to save state", err);
+    return false;
+  }
+}
+
 export async function saveState(state: AppState): Promise<void> {
   if (writesBlocked) return;
   try {

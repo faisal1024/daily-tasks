@@ -11,6 +11,8 @@
 // Sources:
 // - targets/widget/FocusIntents.swift: shared with the widget extension (one
 //   source; the Live Activity's buttons need the same intent types in both);
+// - targets/widget/CaptureIntents.swift and targets/share/CaptureInbox.swift
+//   (1.6 E): capture from anywhere, shared with the widget and share extensions;
 // - native/app/*.swift: app only (FocusShortcuts, the AppShortcutsProvider).
 // ios/ is generated (CNG), so the copies are rewritten on every prebuild.
 const fs = require("fs");
@@ -26,7 +28,14 @@ function sourceFiles(projectRoot) {
         .sort()
         .map((name) => path.join(appDir, name))
     : [];
-  return [path.join(projectRoot, "targets", "widget", "FocusIntents.swift"), ...appOnly];
+  return [
+    path.join(projectRoot, "targets", "widget", "FocusIntents.swift"),
+    // 1.6 E: capture from anywhere (the Dump control's intent and the
+    // Siri / Shortcuts ones), and the App Group inbox they write.
+    path.join(projectRoot, "targets", "widget", "CaptureIntents.swift"),
+    path.join(projectRoot, "targets", "share", "CaptureInbox.swift"),
+    ...appOnly,
+  ];
 }
 
 const withCopiedSources = (config) =>
