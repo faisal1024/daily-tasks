@@ -154,6 +154,7 @@ import type { EveningClose } from "./evening";
 import { claimCoachRequest, markCoachNoteLogged, mergeCoachNotes } from "./coach-note";
 import { draftForNotification, draftForTomorrow } from "./evening";
 import { readTodayAgenda } from "./agenda";
+import { cleanCoachMemory, movedTimesById } from "./coach-memory";
 import { readSupporterGrant, writeSupporterGrant } from "./supporter-grant";
 import { navigateToToday } from "./navigation";
 import { allAnnouncementIds, withWhatsNewSeen } from "./whats-new";
@@ -223,6 +224,7 @@ type Action =
   | { type: "updateMomentumProfile"; profile: MomentumProfile }
   | { type: "regenerateMomentumPlan"; now: Date }
   | { type: "requestMomentumPlanStarted" }
+  | { type: "requestMomentumPlanDropped" }
   | { type: "requestMomentumPlanSucceeded"; plan: NonNullable<AppState["momentumPlan"]> }
   | { type: "requestMomentumPlanFailed"; kind: AiFailureKind; goalTitle: string | null; now: Date }
   | {
@@ -262,6 +264,8 @@ type Action =
   | { type: "applyTomorrowDraft"; tasks: string[]; shown: string[]; today: string; at: string }
   | { type: "dismissTomorrowDraft" }
   | { type: "setAgendaEnabled"; enabled: boolean }
+  | { type: "setCoachMemory"; text: string }
+  | { type: "clearCoachMemory"; today: string }
   | { type: "claimCoachRequest"; day: string; taskTexts: string[] }
   | { type: "setCoachNotes"; day: string; notes: Record<string, CoachNoteLines>; today: string }
   | { type: "markCoachNoteLogged"; day: string; today: string }
@@ -360,7 +364,7 @@ function resetMilestonesIfGoalChanged(
   return { completedMilestoneIds: [], pendingMilestoneCelebration: null };
 }
 
-function reducer(state: AppState, action: Action): AppState {
+export function reducer(state: AppState, action: Action): AppState {
   const next = keepGoalPath(state, action, reduce(state, action));
   // Today changed under yesterday's card (a draft, a brain dump, setting the
   // day): drop what's now covered or has no room. See settlePendingRollover.
@@ -528,6 +532,18 @@ function reduce(state: AppState, action: Action): AppState {
     }
     case "setAgendaEnabled":
       return state.agendaEnabled === action.enabled ? state : { ...state, agendaEnabled: action.enabled };
+    // "What your coach remembers" (1.5): the AI memory, edited by hand (Plus).
+    case "setCoachMemory": {
+      const text = cleanCoachMemory(action.text);
+      return text === state.coachMemory ? state : { ...state, coachMemory: text };
+    }
+    // Forget it all: the AI memory, and what the basic memory noticed up to
+    // today (coach-memory.ts looks only at the days after this one). The
+    // history itself (calendar, streaks) stays.
+    case "clearCoachMemory":
+      return state.coachMemory === null && state.memoryClearedAt === action.today
+        ? state
+        : { ...state, coachMemory: null, memoryClearedAt: action.today };
     // The Coach's note cache (see coach-note.ts): `day` is the day the call
     // was made for; a reply (or mark) for any day but today is dropped, so one
     // that lands after midnight can't recreate yesterday's cache.
@@ -670,11 +686,19 @@ function reduce(state: AppState, action: Action): AppState {
       const next = clearTaskSteps(state, action.taskId);
       return next === state ? state : syncTodayHistory(next, action.today);
     }
-    case "hydrate":
+    case "hydrate": {
+      // A "Clear memory" dated after today (the clock was ahead) counts as
+      // today, so the memory isn't empty until that date comes (1.5).
+      const clock = todayKey();
+      const loaded =
+        action.state.memoryClearedAt && action.state.memoryClearedAt > clock
+          ? { ...action.state, memoryClearedAt: clock }
+          : action.state;
       // The live list is the saved day's list: if its history record ever
       // drifted (an old build, a bad save), repair it now, before a rollover
       // archives the stale copy as that day's history.
-      return syncTodayHistory(action.state, action.state.lastOpenedDate);
+      return syncTodayHistory(loaded, loaded.lastOpenedDate);
+    }
     case "rollover": {
       const rolled = applyRollover(state, action.today);
       // A draft for a day that has already passed is no longer useful.
@@ -1053,6 +1077,14 @@ function reduce(state: AppState, action: Action): AppState {
         momentumPlanStatus: "loading",
         momentumPlanError: null,
       };
+    // An answer built on memory that was cleared meanwhile (1.5): the ideas
+    // already shown stay.
+    case "requestMomentumPlanDropped":
+      return {
+        ...state,
+        momentumPlanStatus: state.momentumPlan ? "ready" : "idle",
+        momentumPlanError: null,
+      };
     case "requestMomentumPlanSucceeded":
       // The goal changed while this request was in flight: drop the stale plan.
       // Going back to "ready" lets the auto-fetch run for the new goal.
@@ -1253,11 +1285,16 @@ interface StoreContextValue {
    * moment as focus_session_ended {outcome: "done"}) while the app runs.
    */
   focusDoneCount: number;
-  setEveningClose: (close: EveningClose, day: string, result: ReflectionResult) => void;
+  /** `startedAt` (ms): when the close was asked for; a "Clear memory" since then drops its memory. */
+  setEveningClose: (close: EveningClose, day: string, result: ReflectionResult, startedAt?: number) => void;
   /** `shown` is what the card offered; the unused rest is saved for later. */
   applyTomorrowDraft: (tasks: string[], shown: string[]) => void;
   dismissTomorrowDraft: () => void;
   setAgendaEnabled: (enabled: boolean) => void;
+  /** Replace the AI coach memory (Plus); blank clears it. */
+  setCoachMemory: (text: string) => void;
+  /** "Clear memory": the AI memory and what the basic memory noticed until today. */
+  clearCoachMemory: () => void;
   /** Count a Coach's note AI call (made now, on the store's day) and the task texts it asks about. */
   claimCoachRequest: (taskTexts: string[]) => void;
   /** Keep the Coach's note AI lines for `day`, keyed by task text. */
@@ -1870,6 +1907,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         // Like the other automatic AI calls: only once Plus is confirmed.
         aiAllowed: plusConfirmed,
         tasks: state.tasks.map((task) => ({ id: task.id, text: task.text, done: done.has(task.id) })),
+        // 1.5: tasks moved more often get more of the day's nags.
+        moved: movedTimesById(state.tasks, state.history, today, state.memoryClearedAt ?? null),
       },
       { onChange: setNagVersion },
     );
@@ -1880,6 +1919,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     notificationPermission,
     plusConfirmed,
     ready,
+    state.history,
+    state.memoryClearedAt,
     state.notifications,
     state.tasks,
     state.todayCompletions,
@@ -2095,12 +2136,21 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // late (e.g. started before a goal edit) must not overwrite a newer result
   // or flip "loading" off while the newer request is still in flight.
   const latestAiRequest = useRef(0);
+  // When "Clear memory" was last used (ms, this session). A request already
+  // on its way then carried the old memory: its answer is dropped (a plan)
+  // or its new memory ignored (an evening close).
+  const lastMemoryClearAt = useRef(0);
+  // How many times it was used (this session): a plan request compares it.
+  const memoryClears = useRef(0);
+  // The day + goal the AI plan was last fetched for (see the auto-fetch below).
+  const lastAiPlanFetch = useRef<string | null>(null);
   const requestMomentumPlan = useCallback(async (options: { newPath?: boolean } = {}) => {
     // AI ideas are a Plus feature; free users keep the on-device template plan.
     if (!hasPlus) return;
     const requestId = ++latestAiRequest.current;
     dispatch({ type: "requestMomentumPlanStarted" });
     const now = new Date();
+    const clearsAtStart = memoryClears.current;
     try {
       // Read fresh each time (events change); never blocks the plan on failure.
       const agenda = state.agendaEnabled ? await readTodayAgenda(now) : [];
@@ -2110,6 +2160,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         settings: state.momentumSettings,
         coachMemory: state.coachMemory,
         agenda,
+        memoryClearedAt: state.memoryClearedAt ?? null,
         // The kept path, so the day's ideas aim at its next step.
         currentPath: milestonesWithCompletion(state.momentumPlan?.milestones ?? [], state.completedMilestoneIds).map(
           (m) => ({ title: m.title, done: m.done }),
@@ -2121,6 +2172,12 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
         now,
       });
       if (!isLatestRequest(requestId, latestAiRequest.current)) return;
+      if (memoryClears.current !== clearsAtStart) {
+        // Fetch today's plan again, without what was cleared.
+        lastAiPlanFetch.current = null;
+        dispatch({ type: "requestMomentumPlanDropped" });
+        return;
+      }
       dispatch({ type: "requestMomentumPlanSucceeded", plan });
     } catch (error) {
       if (!isLatestRequest(requestId, latestAiRequest.current)) return;
@@ -2138,6 +2195,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     state.momentumProfile,
     state.momentumSettings,
     state.coachMemory,
+    state.memoryClearedAt,
     state.agendaEnabled,
     state.momentumPlan,
     state.completedMilestoneIds,
@@ -2155,7 +2213,6 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   // Auto-generate the AI plan once per (day + goal) when a proxy URL is
   // configured. No URL → this is a no-op and the app stays on the local
   // template plan. Failures fall back to the template via requestMomentumPlan.
-  const lastAiPlanFetch = useRef<string | null>(null);
   useEffect(() => {
     const key = nextAiPlanFetchKey({
       ready,
@@ -2256,8 +2313,11 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "clearReviewDue" });
   }, []);
   const setEveningClose = useCallback(
-    (close: EveningClose, day: string, result: ReflectionResult) => {
-      dispatch({ type: "setEveningClose", close, day, result });
+    (close: EveningClose, day: string, result: ReflectionResult, startedAt?: number) => {
+      // Memory cleared while the close was on its way: its memory was built
+      // on what was cleared, so it isn't kept (the note and draft are).
+      const stale = startedAt !== undefined && lastMemoryClearAt.current >= startedAt;
+      dispatch({ type: "setEveningClose", close: stale ? { ...close, memory: null } : close, day, result });
     },
     [],
   );
@@ -2273,6 +2333,14 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setAgendaEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "setAgendaEnabled", enabled });
   }, []);
+  const setCoachMemory = useCallback((text: string) => {
+    dispatch({ type: "setCoachMemory", text });
+  }, []);
+  const clearCoachMemory = useCallback(() => {
+    lastMemoryClearAt.current = Date.now();
+    memoryClears.current += 1;
+    dispatch({ type: "clearCoachMemory", today: ensureDay() });
+  }, [ensureDay]);
   // Stamped with the store's day (like setCoachNotes), so a claim in the first
   // moments after midnight counts on the new day.
   const claimCoachRequestCb = useCallback(
@@ -2723,6 +2791,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       applyTomorrowDraft,
       dismissTomorrowDraft,
       setAgendaEnabled,
+      setCoachMemory,
+      clearCoachMemory,
       claimCoachRequest: claimCoachRequestCb,
       setCoachNotes,
       markCoachNoteLogged: markCoachNoteLoggedCb,
@@ -2816,6 +2886,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       applyTomorrowDraft,
       dismissTomorrowDraft,
       setAgendaEnabled,
+      setCoachMemory,
+      clearCoachMemory,
       claimCoachRequestCb,
       setCoachNotes,
       markCoachNoteLoggedCb,

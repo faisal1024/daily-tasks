@@ -2139,7 +2139,8 @@ describe("Today: morning draft and evening close", () => {
     mockStore = { ...makeStore(eveningDay), today: "2026-09-27", setEveningClose };
     await rerender(<HomeScreen />);
     await act(async () => finish(TOMORROW_CLOSE));
-    expect(setEveningClose).toHaveBeenCalledWith(TOMORROW_CLOSE, TODAY, "good");
+    // With when it was asked for (1.5): a "Clear memory" since then drops its memory.
+    expect(setEveningClose).toHaveBeenCalledWith(TOMORROW_CLOSE, TODAY, "good", expect.any(Number));
   });
 
   it("keeps a day closed even when nothing was drafted; the same answer doesn't re-close, a different one does", async () => {

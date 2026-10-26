@@ -443,7 +443,7 @@ describe("Evening teaser for a free user (1.5)", () => {
     const [input, options] = (closeDay as jest.Mock).mock.calls[0];
     expect(input).toMatchObject({ result: "good" });
     expect(options).toEqual({ useAi: true });
-    expect(mockStore.setEveningClose).toHaveBeenCalledWith(TOMORROW_CLOSE, TODAY, "good");
+    expect(mockStore.setEveningClose).toHaveBeenCalledWith(TOMORROW_CLOSE, TODAY, "good", expect.any(Number));
   });
 
   it.each([

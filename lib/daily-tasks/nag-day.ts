@@ -124,6 +124,8 @@ export type NagDayInput = Pick<ReminderContext, "today" | "settings" | "permissi
   plus: boolean;
   /** Plus is confirmed, so the proxy will answer: only then is the AI asked. */
   aiAllowed: boolean;
+  /** 1.5: times each task (by id) was moved to another day; more nags go to those. */
+  moved?: Readonly<Record<string, number>>;
 };
 
 export interface NagDayDeps {
@@ -172,7 +174,7 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
   let record = previous;
   let planned = false;
   if (!record || nagDayNeedsPlan(record, { dayKey: today, settings, open })) {
-    record = planNagDay({ previous, now, dayKey: today, settings, open, salt: newSalt() });
+    record = planNagDay({ previous, now, dayKey: today, settings, open, salt: newSalt(), moved: input.moved });
     planned = true;
     if (!(await saveNagRecord(record))) return;
     onChange?.(record.version);
@@ -190,7 +192,8 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
       const { lines } = await request({
         persona: record.persona,
         level: record.level,
-        tasks: open,
+        // With how often each was moved (1.5), so the AI names those more.
+        tasks: open.map((task) => ({ ...task, ...(input.moved?.[task.id] ? { moved: input.moved[task.id] } : {}) })),
         count: record.total,
         timeoutMs: NAG_REQUEST_TIMEOUT_MS,
       });

@@ -4,6 +4,7 @@
 
 import { getMomentumAiProxyUrl, postToProxy, proxyRouteUrl } from "./ai-client";
 import { MomentumAiError } from "./ai-status";
+import type { MemoryStatsPayload } from "./coach-memory";
 import { MAX_TASKS } from "./types";
 
 export const MAX_BRAIN_DUMP_CHARS = 2000;
@@ -17,6 +18,12 @@ export interface BrainDumpResult {
   parked: string[];
   /** "ai" when the proxy sorted it, "local" for the simple offline split. */
   source: "ai" | "local";
+  /**
+   * A short reason per pick, same order as `picks` ("" where there is none),
+   * e.g. "Quick win" (1.5). Absent when no pick has one (an older proxy, the
+   * on-device split): see pickReason for what is shown then.
+   */
+  reasons?: string[];
 }
 
 // Bullets may hug the text ("-walk"); numbered markers need a space so
@@ -43,7 +50,11 @@ export function cleanTaskText(value: unknown, max = MAX_TASK_TEXT): string | nul
   return chars.length > max ? `${chars.slice(0, max - 1).join("").trimEnd()}…` : capitalized;
 }
 
-function uniqueTexts(items: unknown[], limit: number, seen = new Set<string>()): string[] {
+/**
+ * Cleaned, de-duplicated texts. With `reasons`, each kept item's reason
+ * (cleanReason; "" for none) is pushed there, in the same order.
+ */
+function uniqueTexts(items: unknown[], limit: number, seen = new Set<string>(), reasons?: string[]): string[] {
   const out: string[] = [];
   for (const item of items) {
     if (out.length >= limit) break;
@@ -54,8 +65,83 @@ function uniqueTexts(items: unknown[], limit: number, seen = new Set<string>()):
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(text);
+    reasons?.push(item && typeof item === "object" ? cleanReason((item as { reason?: unknown }).reason, text) : "");
   }
   return out;
+}
+
+export const MAX_REASON_WORDS = 5;
+export const MAX_REASON_CHARS = 40;
+// C0/C1 control characters and the Unicode line/paragraph separators.
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
+// Bidi controls: a reason holding one is dropped (server/providers/nag-contract.mjs, HAS_BIDI).
+const HAS_BIDI = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
+// Invisible format characters: taken out of the reason (joiners stay: emoji),
+// and all of them out of the copy the checks read.
+const FORMAT_SHOWN = /[\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g;
+const FORMAT = /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g;
+// Links, emails and bare hosts on common endings (nag-contract.mjs, LINK_PATTERN).
+const LINK =
+  /\bhttps?:\/\/|\bwww\.|[^\s@]+@[^\s@]+\.[a-z]{2,}|\b[a-z0-9-]+\.(?:com|net|org|io|co|app|me|ly|info|biz|xyz)\b/i;
+// Keep these in step with server/providers/helpers-contract.mjs (a test compares them).
+// A count of times: "3 times", "moved twice", "put off four times". The move
+// words are past-tense claims (not "Moves the project forward").
+const ONCE_TWICE = /\b(?:once|twice|thrice)\b/i;
+const COUNT = /\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|many|multiple|countless|a few)\b/i;
+const MOVE_WORDS =
+  /\b(?:times?|moved|put off|pushed|postponed|slipped|carried|delayed|rescheduled|again)\b/i;
+// Blame or shame: never under a pick.
+const SHAME =
+  /\b(?:lazy|laziness|fail(?:ing|ed|ure)?|pathetic|useless|excuses?|shame(?:ful)?|guilt(?:y)?|slack(?:ing|er)|procrastinat\w*|still not done)\b|\bagain\s*[?!]/i;
+// "Been waiting a while" and the like: only for a task the memory says keeps moving.
+const WAITING =
+  /\b(?:been waiting|waiting (?:a while|for a while|a long time|for ages|ages)|for a while|a while now|still on (?:your|the) (?:plate|list)|keeps? coming back|(?:been|was|got|keeps? getting) (?:moved|put off|pushed|postponed|delayed|rescheduled|carried over)|put off|pushed back|postponed|rescheduled|carried over|dodged)\b/i;
+
+/** Accents, full-width letters and invisible characters folded away, for the checks only. */
+function foldForMatch(value: string): string {
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").replace(FORMAT, "").normalize("NFKC");
+}
+
+/** The fallback reason for a pick the memory says keeps moving (never a count). */
+export const WAITING_REASON = "Been waiting a while";
+
+/** A reason that says the task has been waiting or moving ("Been waiting a while"). */
+export function isWaitingReason(reason: string): boolean {
+  return WAITING.test(foldForMatch(reason));
+}
+
+/**
+ * A pick's reason as shown under it (1.5), or "": one line, at most five
+ * words and 40 characters (a longer one is dropped, never cut), no bidi
+ * controls, no link, email or bare domain (also behind accents or
+ * zero-width characters), never a count of moves, no blame or shame, not
+ * the task's own words again. Starts with a capital.
+ */
+export function cleanReason(value: unknown, taskText = ""): string {
+  if (typeof value !== "string" || HAS_BIDI.test(value)) return "";
+  const text = value
+    .replace(FORMAT_SHOWN, "")
+    .replace(CONTROL, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.!]+$/u, "")
+    .trim();
+  if (!text || Array.from(text).length > MAX_REASON_CHARS || text.split(" ").length > MAX_REASON_WORDS) return "";
+  const folded = foldForMatch(text);
+  if ([text, folded].some((form) => LINK.test(form))) return "";
+  if (ONCE_TWICE.test(folded) || (COUNT.test(folded) && MOVE_WORDS.test(folded)) || SHAME.test(folded)) return "";
+  if (folded.toLowerCase() === foldForMatch(taskText).trim().toLowerCase()) return "";
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * The muted line under pick `index` (1.5): the AI's reason, or one from the
+ * memory (withMovedReasons). Null when there is none: an older proxy, or
+ * the on-device split, which says nothing it can't know.
+ */
+export function pickReason(result: BrainDumpResult, index: number): string | null {
+  if (index < 0 || index >= result.picks.length) return null;
+  return result.reasons?.[index] || null;
 }
 
 function clampSlots(openSlots: number): number {
@@ -128,12 +214,14 @@ export function tidyDumpLine(line: string): string {
 export function parseBrainDumpResponse(data: unknown, openSlots: number): BrainDumpResult {
   const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
   const seen = new Set<string>();
-  const picks = uniqueTexts(Array.isArray(record.picks) ? record.picks : [], clampSlots(openSlots), seen);
+  const reasons: string[] = [];
+  const picks = uniqueTexts(Array.isArray(record.picks) ? record.picks : [], clampSlots(openSlots), seen, reasons);
   if (picks.length === 0) {
     throw new MomentumAiError("invalid_response", "Brain dump returned no picks.");
   }
   const parked = uniqueTexts(Array.isArray(record.parked) ? record.parked : [], MAX_PARKED, seen);
-  return { picks, parked, source: "ai" };
+  // An older proxy sends no usable reasons: then there is no field at all.
+  return { picks, parked, source: "ai", ...(reasons.some(Boolean) ? { reasons } : {}) };
 }
 
 export async function requestBrainDump({
@@ -141,6 +229,7 @@ export async function requestBrainDump({
   openSlots,
   goalTitle,
   agenda = [],
+  stats = null,
   planUrl = getMomentumAiProxyUrl(),
   fetchImpl,
 }: {
@@ -149,6 +238,8 @@ export async function requestBrainDump({
   goalTitle: string | null;
   /** Today's events and reminders, pre-formatted (see agenda.ts). */
   agenda?: string[];
+  /** The last 30 days in numbers and a few titles (memoryStatsPayload), or null. */
+  stats?: MemoryStatsPayload | null;
   planUrl?: string | null;
   fetchImpl?: typeof fetch;
 }): Promise<BrainDumpResult> {
@@ -163,6 +254,7 @@ export async function requestBrainDump({
       openSlots: clampSlots(openSlots),
       goalTitle,
       ...(agenda.length > 0 ? { agenda } : {}),
+      ...(stats ? { stats } : {}),
     },
     fetchImpl,
   });
@@ -230,7 +322,7 @@ export const FREE_LIMIT_NOTICE =
  * friendly notice) if the request fails, so the user never loses what they typed.
  */
 export async function sortBrainDump(
-  params: { text: string; openSlots: number; goalTitle: string | null; agenda?: string[] },
+  params: { text: string; openSlots: number; goalTitle: string | null; agenda?: string[]; stats?: MemoryStatsPayload | null },
   request: typeof requestBrainDump = requestBrainDump,
 ): Promise<SortedBrainDump> {
   try {

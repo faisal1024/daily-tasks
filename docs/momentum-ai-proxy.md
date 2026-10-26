@@ -216,12 +216,12 @@ payload validator, prompt, structured-output schema and response validator.
 
 | Route | Payload | Returns |
 |---|---|---|
-| `/api/momentum/plan` | goal profile, recent performance, recent task titles, reflection | milestones, today's suggestions, task pool |
-| `/api/momentum/brain-dump` | `text` (≤2000 chars), `openSlots` (1–3), `goalTitle?`, `agenda?` (≤12 strings ≤120 chars; also accepted by `/plan`) | `picks` (≤ openSlots), `parked` (≤10) |
+| `/api/momentum/plan` | goal profile, recent performance, recent task titles, reflection, `stats?` (1.5, see below) | milestones, today's suggestions, task pool |
+| `/api/momentum/brain-dump` | `text` (≤2000 chars), `openSlots` (1–3), `goalTitle?`, `agenda?` (≤12 strings ≤120 chars; also accepted by `/plan`), `stats?` (1.5, see below) | `picks` (≤ openSlots; each `{text, reason?}`, `reason` ≤5 words / 40 chars, 1.5), `parked` (≤10) |
 | `/api/momentum/break-down` | `task` (≤120 chars), `goalTitle?` | `steps` (3–5 tiny steps) |
 | `/api/momentum/evening` | `result` (easy/good/hard/missed), `tasks` (≤3 `{text, done}`), `note?`, `goalTitle?`, `memory?` (≤500) | `note` (≤160), `because` (≤100), `tomorrow` (1–3 tasks), `memory` (≤500, the coach's rolling summary) |
 | `/api/momentum/coach-note` | `tasks` (1–3 strings ≤120 chars), `goalTitle?`, `tone?` (calm/friendly/direct) | `notes`: one `{start, momentum}` per task, in order (control characters become spaces; `""` where a line was empty, over 140 chars, or held a real link (`http(s)://`, `www.`) or an email: dropped whole, never spliced; `README.md` / `Node.js` are kept) |
-| `/api/momentum/nag-lines` | `persona` (mom/dad/spouse/coach/drill; spouse is shown as Partner), `level` (gentle/firm/relentless), `tasks` (1–3 `{text}` ≤120 chars), `count` (4–16), `firstName?` (≤40) | `lines`: 3 to `count` of `{step, taskIndex, text}` (see "Nag lines" below) |
+| `/api/momentum/nag-lines` | `persona` (mom/dad/spouse/coach/drill; spouse is shown as Partner), `level` (gentle/firm/relentless), `tasks` (1–3 `{text, moved?}`, text ≤120 chars, `moved` 1–99 (1.5)), `count` (4–16), `firstName?` (≤40) | `lines`: 3 to `count` of `{step, taskIndex, text}` (see "Nag lines" below) |
 
 The app derives sibling route URLs from `EXPO_PUBLIC_MOMENTUM_AI_PROXY_URL`
 (which points at `/plan`). Brain dump falls back to a simple on-device split
@@ -272,6 +272,7 @@ The app sends only:
 - Latest reflection.
 - The user's own recent task texts (last ~12, with done/skipped) so suggestions
   build on what they actually chose.
+- From 1.5, 30-day stats (`stats`, below) next to the five-day summary.
 
 The app sends recent task text (last few days) but not the full history, and no
 account/PII. This is the minimum needed for the AI to tailor suggestions to the
@@ -301,6 +302,50 @@ and proxy keeps working.
   Ideas, as long as the path's first open milestone is still the one sent. No mark (an older proxy, or the model marked none): the
   app shows its built-in milestone suggestions there instead.
 
+### 30-day stats and pick reasons (1.5, plan and brain-dump routes, optional)
+
+Optional in both directions: an older app sends no `stats` and reads no
+`reason`; an older proxy ignores `stats`. Note that an older proxy **does**
+return a `reason` on picks (the schema has always required one) but never
+checked it, so it can be a long sentence or a count: the app's own check
+(below) drops what doesn't fit. Deploy the Worker before the app ships.
+
+- **Request:** `stats: { days, done, total, span?, bestDays?, moved? }`, worked out
+  on the phone from the last 30 days of history (`lib/daily-tasks/coach-memory.ts`,
+  `memoryStatsPayload`), from the day after "Clear memory" when that is more
+  recent. `days` 0–31 active days, `done` ≤ `total` ≤ 93 tasks, `bestDays` up
+  to 2 English weekday names, `moved` up to 3 `{ text (≤64 chars), times (2–99) }`:
+  tasks moved to another day more than once. `span` (1–30) is how many days
+  the window covers when that is under 30 (after "Clear memory"); the prompt
+  then says "over the last N days". Sent only when there is at least
+  one active day. A malformed `stats` is ignored, never a 400
+  (`server/providers/stats.mjs`, `cleanStats`); bad entries inside it are
+  dropped one by one. Titles are fenced in the prompt as data; in the
+  brain-dump prompt they carry no counts and are marked context only (never
+  added as picks or parked items).
+- **Brain-dump response:** each pick may carry `reason`: one line, at most
+  five words and 40 characters (longer ones are dropped, never cut), no bidi
+  controls, no link, email or bare domain (also behind accents or zero-width
+  characters: `foldForMatch`), not the pick's own words, and no blame or
+  shame from a short list (`cleanReason`). A reason never states a count of
+  moves: one with "once"/"twice", or a number (digit or word) together with
+  times/moved/put off/pushed/postponed/slipped/carried/delayed/rescheduled/
+  again, is dropped. A "waiting"-style reason ("Been waiting a while", "put
+  off", "keeps coming back") is kept only on a pick whose words match a
+  `stats.moved` title (case and spacing ignored). Parked items never carry
+  one. The app checks the same rules again (`cleanReason` in
+  `lib/daily-tasks/ai-helpers.ts`, and `withMovedReasons`).
+- **App:** the reason is shown muted under each pick (brain-dump review and
+  the first-run "Here are your three"). A pick with none gets "Been waiting
+  a while" when the 30-day memory has it moved twice or more
+  (`withMovedReasons`); the on-device split shows no reason.
+- **Plan prompt:** the stats are added next to the five-day lines; with moved
+  tasks it asks for a smaller first step of them rather than the same task.
+- **Nag lines:** a task may carry `moved` (1–99, times moved to another day);
+  the prompt then gives it more of the lines that name a task. Anything else
+  in `moved` is dropped. The built-in lines are weighted on the phone too
+  (`nagTaskWeights`: 1 + times moved, at most 3).
+
 ## Nag lines (1.4, `/api/momentum/nag-lines`)
 
 Nag mode is a Plus-only, opt-in reminder style. Once a day the app asks for a
@@ -314,7 +359,7 @@ persona's voice, and schedules them itself. Contract:
 {
   persona: "mom" | "dad" | "spouse" | "coach" | "drill";   // spouse = Partner, drill = Drill sergeant
   level: "gentle" | "firm" | "relentless";
-  tasks: { text: string }[];                        // 1-3 open tasks, each 1..120 chars
+  tasks: { text: string; moved?: number }[];       // 1-3 open tasks, each 1..120 chars; moved 1..99 (1.5, else dropped)
   count: number;                                    // integer, 4..16 lines wanted
   firstName?: string | null;                        // optional, at most 40 chars; reserved, the app sends none
 }
@@ -337,9 +382,10 @@ persona's voice, and schedules them itself. Contract:
   inside a task or a name.
 
 **What leaves the phone:** the text of today's open tasks (up to three), the
-persona and the level. The route accepts a first name, but that field is
-reserved: the app sends none. Nothing else: no history, no
-goal, no notification times. Like every route, the proxy stores none of it.
+persona and the level, and from 1.5 how many times each was moved to
+another day (a number, only when it was). The route accepts a first name,
+but that field is reserved: the app sends none. Nothing else: no other
+history, no goal, no notification times. Like every route, the proxy stores none of it.
 
 ### Response
 

@@ -326,6 +326,10 @@ export interface AppState {
   analyticsEnabled: boolean;
   // Rolling summary the coach keeps from evening closes (AI), or null.
   coachMemory: string | null;
+  // The day (yyyy-MM-dd) "Clear memory" was last used (1.5), or null: the
+  // basic memory (coach-memory.ts) only looks at the days after it. Optional
+  // so older saves (and hand-built states) without it mean "never cleared".
+  memoryClearedAt?: string | null;
   // Tomorrow's three from the last evening close, or null.
   tomorrowDraft: TomorrowDraft | null;
   // The last evening close: which day, the answer it was for, and the note.

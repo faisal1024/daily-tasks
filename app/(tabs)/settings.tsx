@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { ChoiceChips } from "@/components/daily-tasks/choice-chips";
+import { CoachMemorySection } from "@/components/daily-tasks/coach-memory-section";
 import { NagIntro } from "@/components/daily-tasks/nag-intro";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
@@ -644,6 +645,8 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
         </Section>
+
+        <CoachMemorySection />
 
         <Section
           icon="options-outline"

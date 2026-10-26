@@ -16,6 +16,7 @@ import {
   validateGeneratedTasks,
   type RecentTask,
 } from "./momentum";
+import { buildBasicMemory, memoryStatsPayload, type MemoryStatsPayload } from "./coach-memory";
 import { cutGraphemes, milestoneKey } from "./milestone-ideas";
 import type {
   GeneratedTask,
@@ -59,6 +60,12 @@ export interface AiPlanRequestPayload {
   recentTasks: RecentTask[];
   /** The coach's rolling summary from past evening closes, if any. */
   coachMemory?: string | null;
+  /**
+   * The last 30 days (1.5): counts, best weekdays and tasks moved again and
+   * again (coach-memory.ts), next to the last five days above. Absent when
+   * there is nothing to tell yet.
+   */
+  stats?: MemoryStatsPayload;
   /** Today's events and reminders, pre-formatted (see agenda.ts). */
   agenda?: string[];
   /** The user's kept path, so the day's ideas aim at its next step. */
@@ -157,6 +164,7 @@ export function buildAiPlanRequestPayload({
   settings,
   coachMemory = null,
   agenda = [],
+  memoryClearedAt = null,
   now = new Date(),
 }: {
   profile: MomentumProfile;
@@ -164,6 +172,8 @@ export function buildAiPlanRequestPayload({
   settings: MomentumSettings;
   coachMemory?: string | null;
   agenda?: string[];
+  /** "Clear memory" was used on this day: the 30-day stats start after it. */
+  memoryClearedAt?: string | null;
   now?: Date;
 }): AiPlanRequestPayload | null {
   if (
@@ -175,6 +185,7 @@ export function buildAiPlanRequestPayload({
     return null;
   }
 
+  const stats = memoryStatsPayload(buildBasicMemory(history, dateKey(now), memoryClearedAt));
   return {
     profile: {
       goalTitle: profile.goalTitle,
@@ -192,6 +203,7 @@ export function buildAiPlanRequestPayload({
     recentTasks: summarizeRecentTasks(history, now),
     ...(coachMemory ? { coachMemory } : {}),
     ...(agenda.length > 0 ? { agenda } : {}),
+    ...(stats ? { stats } : {}),
   };
 }
 
@@ -201,6 +213,7 @@ export async function requestMomentumAiPlan({
   settings,
   coachMemory = null,
   agenda = [],
+  memoryClearedAt = null,
   currentPath = [],
   newPath = false,
   nextMilestone = null,
@@ -215,6 +228,7 @@ export async function requestMomentumAiPlan({
   settings: MomentumSettings;
   coachMemory?: string | null;
   agenda?: string[];
+  memoryClearedAt?: string | null;
   currentPath?: { title: string; done: boolean }[];
   newPath?: boolean;
   /** The milestone to ask about (milestoneToAskAbout): the next open one on a kept path, if any. */
@@ -229,7 +243,7 @@ export async function requestMomentumAiPlan({
     throw new Error("AI proxy URL is not configured.");
   }
 
-  const base = buildAiPlanRequestPayload({ profile, history, settings, coachMemory, agenda, now });
+  const base = buildAiPlanRequestPayload({ profile, history, settings, coachMemory, agenda, memoryClearedAt, now });
   if (!base) {
     throw new Error("Profile is incomplete.");
   }

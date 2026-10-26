@@ -17,7 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Fonts } from "@/constants/theme";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
-import { MAX_BRAIN_DUMP_CHARS, type SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
+import { MAX_BRAIN_DUMP_CHARS, pickReason, type SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { PRIVACY_URL } from "@/lib/daily-tasks/links";
 
 const NUMBER_WORDS = ["zero", "one", "two", "three"];
@@ -72,6 +72,8 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
   const [step, setStep] = useState<FirstRunStep>("dump");
   const [text, setText] = useState("");
   const [picks, setPicks] = useState<string[]>([]);
+  // Why each pick was picked (1.5), same order as picks; null for none.
+  const [reasons, setReasons] = useState<(string | null)[]>([]);
   const [parked, setParked] = useState<string[]>([]);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
@@ -95,6 +97,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
     committing.current = false;
     setText("");
     setPicks([]);
+    setReasons([]);
     setParked([]);
     setChosen(new Set());
     setNotice(null);
@@ -127,6 +130,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
       return;
     }
     setPicks(nextPicks);
+    setReasons(nextPicks.map((_, index) => pickReason(sorted.result, index)));
     setParked(nextParked);
     setChosen(new Set(nextPicks));
     const nextNotice = sorted.freeLimit
@@ -283,8 +287,9 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
                 </Text>
               ) : null}
               <View className="gap-2">
-                {picks.map((pick) => {
+                {picks.map((pick, index) => {
                   const on = chosen.has(pick);
+                  const reason = reasons[index] ?? null;
                   return (
                     <Pressable
                       key={pick}
@@ -292,6 +297,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: on }}
                       accessibilityLabel={pick}
+                      accessibilityValue={reason ? { text: reason } : undefined}
                       accessibilityHint={on ? "Untick to save it for later" : "Tick to do it today"}
                       className="flex-row items-center gap-3 rounded-2xl border p-4"
                       style={{
@@ -305,9 +311,16 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
                         color={on ? colors.primary : colors.muted}
                         accessibilityElementsHidden
                       />
-                      <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "600" }}>
-                        {pick}
-                      </Text>
+                      <View className="flex-1">
+                        <Text className="text-base text-foreground" style={{ fontWeight: "600" }}>
+                          {pick}
+                        </Text>
+                        {reason ? (
+                          <Text className="text-sm mt-0.5" style={{ color: colors.muted }} testID="first-run-reason">
+                            {reason}
+                          </Text>
+                        ) : null}
+                      </View>
                     </Pressable>
                   );
                 })}

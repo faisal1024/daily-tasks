@@ -88,6 +88,7 @@ import {
   type SortedBrainDump,
 } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
+import { buildBasicMemory, memoryStatsPayload, withMovedReasons } from "@/lib/daily-tasks/coach-memory";
 import { announcePolitely } from "@/lib/daily-tasks/announce";
 import { actionSheetOpen, showActionSheet } from "@/lib/daily-tasks/action-sheet";
 import { AHA_PAYWALL_DELAY_MS, fillsDay, shouldOfferAhaPaywall } from "@/lib/daily-tasks/aha-paywall";
@@ -1393,11 +1394,13 @@ export default function HomeScreen() {
     // The day being closed is the one on screen now, whenever the reply lands.
     const day = today;
     const input = buildEveningInput(state, result, typedNote);
+    // A "Clear memory" while this is on its way drops the memory it brings back.
+    const startedAt = Date.now();
     // Confirmed Plus only: "still checking" must not spend an AI call on a free user.
     const useAi = plusConfirmed && getMomentumAiProxyUrl() != null;
     void closeDay(input, { useAi })
       .then((close) => {
-        setEveningClose(close, day, result);
+        setEveningClose(close, day, result, startedAt);
         // Asked the coach, got the on-device close with nothing for tomorrow: offer a retry.
         if (useAi && close.source === "local" && close.tomorrow.length === 0) setEveningAiFailedFor(day);
         track("evening_closed", { source: close.source, count: close.tomorrow.length });
@@ -2142,11 +2145,22 @@ export default function HomeScreen() {
         freeAiLeft={freeAiLeft}
         locked={state.todayLocked}
         onSort={async (text) => {
+          // What the coach has noticed over 30 days (1.5), worked out only
+          // when a dump is sorted: sent with it, and checks the reasons.
+          const basicMemory = buildBasicMemory(state.history, today, state.memoryClearedAt ?? null);
+          const stats = memoryStatsPayload(basicMemory);
           const params = {
             text,
             openSlots: Math.max(1, remainingSlots),
             goalTitle: state.momentumProfile.goalTitle,
+            // Only once there is something to tell (1.5).
+            ...(stats ? { stats } : {}),
           };
+          // A pick the AI gave no reason for gets one from the memory, if any.
+          const withReasons = (sorted: SortedBrainDump): SortedBrainDump => ({
+            ...sorted,
+            result: withMovedReasons(sorted.result, basicMemory),
+          });
           if (hasPlus) {
             const sorted = await sortBrainDump({
               ...params,
@@ -2154,7 +2168,7 @@ export default function HomeScreen() {
             });
             track("brain_dump_sorted", { source: sorted.result.source, count: sorted.result.picks.length });
             if (sorted.result.source === "ai") void recordPlusUse("brain_dump");
-            return sorted;
+            return withReasons(sorted);
           }
           // Free plan: a few AI sorts to try it, then the simple on-device split.
           const left = await claimFreeAiDump();
@@ -2162,11 +2176,11 @@ export default function HomeScreen() {
             // Not a tap on "Get Plus": the free sorts ran out (own source).
             track("plus_gate_hit", { feature: "brain_dump", source: "free_exhausted" });
             // Say so: a silent simple split looks like the AI got it wrong.
-            return {
+            return withReasons({
               result: localBrainDump(params.text, params.openSlots),
               notice: FREE_LIMIT_NOTICE,
               freeLimit: true,
-            };
+            });
           }
           const tried = await sortBrainDump(params);
           // The AI couldn't be reached: that one doesn't count.
@@ -2179,7 +2193,7 @@ export default function HomeScreen() {
             count: sorted.result.picks.length,
             plus: false,
           });
-          return sorted;
+          return withReasons(sorted);
         }}
         onUpgrade={
           hasPlus
