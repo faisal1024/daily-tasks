@@ -48,6 +48,11 @@ export type AnalyticsEvent =
   | "finish_card_shared"
   // 1.5 D: a saved item swapped in for an open task on a full day.
   | "saved_swapped_in"
+  // 1.6 E: the brain dump opened from outside the app (source "widget" |
+  // "intent" | "link"), and captures from the share sheet or the "Add to
+  // Three Today" shortcut saved for later (count). Never their text.
+  | "capture_opened"
+  | "capture_imported"
   | "agenda_toggled"
   | "goal_set"
   | "task_not_today"
