@@ -1437,7 +1437,7 @@ describe("Plus gates (free plan)", () => {
   it("1.5: the first Break it down is a free try (no paywall), then the paywall as before", async () => {
     mockProxyUrl = "https://proxy.test/api/momentum/plan";
     (requestBreakDown as jest.Mock).mockResolvedValue(["Clear counter", "Wipe it"]);
-    mockStore = { ...makeStore({ ...SET, tasks: tasks("Clean kitchen") }), hasPlus: false };
+    mockStore = { ...makeStore({ ...SET, tasks: tasks("Clean kitchen") }), hasPlus: false, plusConfirmed: false };
     const { rerender } = await render(<HomeScreen />);
     await waitFor(() => expect(screen.getByTestId("break-down-free-try")).toHaveTextContent("1 free try"));
     await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
@@ -1445,7 +1445,7 @@ describe("Plus gates (free plan)", () => {
     expect(mockOpenPaywall).not.toHaveBeenCalled();
     expect(await AsyncStorage.getItem("daily-tasks/free-break-downs-used")).toBe("1");
 
-    mockStore = { ...makeStore({ ...SET, tasks: tasks("Clean kitchen") }), hasPlus: false };
+    mockStore = { ...makeStore({ ...SET, tasks: tasks("Clean kitchen") }), hasPlus: false, plusConfirmed: false };
     await rerender(<HomeScreen />);
     expect(screen.getByTestId("break-down-plus")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
@@ -2174,13 +2174,16 @@ describe("Today: morning draft and evening close", () => {
       parkedTasks: [{ id: "p1", text: "Call the dentist", parkedAt: "2026-09-25T10:00:00.000Z" }],
     };
     mockStore = { ...makeStore(perfect), hasPlus: false, plusConfirmed: false };
+    // (The teaser needs the AI evening coach to be reachable: what Plus would add.)
     await render(<HomeScreen />);
     // The card promises only what the on-device close does.
     expect(screen.getByText("One tap closes the day. A note is optional.")).toBeOnTheScreen();
     const teaser = within(screen.getByTestId("evening-teaser"));
-    expect(teaser.getByTestId("evening-teaser-line")).toHaveTextContent("· Call the dentist");
-    expect(teaser.getByText("With Plus, your coach drafts tomorrow's three tonight.")).toBeOnTheScreen();
-    await fireEvent.press(teaser.getByRole("button", { name: "See all three with Plus" }));
+    expect(teaser.getByTestId("evening-teaser-line")).toHaveTextContent("Call the dentist");
+    expect(
+      teaser.getByText("Plus drafts a full three each night, from how today went. Your three stay free either way."),
+    ).toBeOnTheScreen();
+    await fireEvent.press(teaser.getByRole("button", { name: "Have my coach draft tomorrow" }));
     expect(mockOpenPaywall).toHaveBeenCalledWith("evening_draft");
     expect(closeDay).not.toHaveBeenCalled();
   });

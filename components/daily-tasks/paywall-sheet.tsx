@@ -556,7 +556,8 @@ export function PaywallHost() {
       taskCount={plus.paywallTaskCount}
       remindersAllowed={remindersAllowed}
       onMonthlyNudge={plus.trackMonthlyNudge}
-      dismissals={plus.paywallDismissals}
+      // A lapsed subscriber isn't offered lifetime for dismissals (a retried renewal could charge twice).
+      dismissals={plus.subscriptionLapsed ? 0 : plus.paywallDismissals}
     />
   );
 }

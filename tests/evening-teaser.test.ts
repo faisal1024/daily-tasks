@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { addDays } from "../lib/daily-tasks/date";
 import {
-  EVENING_TEASER_BLURRED_LINES,
+  EVENING_TEASER_PLACEHOLDER_LINES,
   EVENING_TEASER_MIN_DONE,
   eveningTeaserLine,
   showsEveningTeaser,
@@ -21,6 +21,7 @@ describe("showsEveningTeaser", () => {
   const perfectFreeDay: EveningTeaserInput = {
     paywallEnabled: true,
     hasPlus: false,
+    eveningAiAvailable: true,
     dayClosed: true,
     hasDraft: false,
     taskCount: 3,
@@ -29,13 +30,14 @@ describe("showsEveningTeaser", () => {
 
   it("shows on a closed, perfect day for a free user", () => {
     expect(EVENING_TEASER_MIN_DONE).toBe(3);
-    expect(EVENING_TEASER_BLURRED_LINES).toBe(2);
+    expect(EVENING_TEASER_PLACEHOLDER_LINES).toBe(2);
     expect(showsEveningTeaser(perfectFreeDay)).toBe(true);
   });
 
   it.each<[string, Partial<EveningTeaserInput>]>([
     ["Plus, a trial, grandfathered or still being checked", { hasPlus: true }],
     ["a build with no paywall", { paywallEnabled: false }],
+    ["a build that can't reach the AI evening coach (no proxy)", { eveningAiAvailable: false }],
     ["the day isn't closed yet", { dayClosed: false }],
     ["the close already drafted tomorrow", { hasDraft: true }],
     ["something is still open (2 of 3)", { completedCount: 2 }],
@@ -75,26 +77,7 @@ describe("eveningTeaserLine", () => {
     today: TODAY,
   };
 
-  it("leads with a task still open today, ahead of saved-for-later and the path", () => {
-    const line = eveningTeaserLine({
-      ...base,
-      tasks: [
-        { text: "Walk", done: true },
-        { text: "  Call the bank ", done: false },
-      ],
-      parkedTasks: [{ text: "Water plants" }],
-      plan: plan(),
-    });
-    expect(line).toBe("Call the bank");
-  });
-
-  it("skips a blank open task", () => {
-    expect(
-      eveningTeaserLine({ ...base, tasks: [{ text: "   ", done: false }], parkedTasks: [{ text: "Water plants" }] }),
-    ).toBe("Water plants");
-  });
-
-  it("then the oldest saved-for-later (the list is oldest first), ahead of the path", () => {
+  it("starts with the oldest saved-for-later (the list is oldest first), ahead of the path", () => {
     const line = eveningTeaserLine({
       ...base,
       parkedTasks: [{ text: "  " }, { text: "Call the dentist" }, { text: "Water plants" }],

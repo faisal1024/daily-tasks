@@ -95,10 +95,16 @@ export class Limits extends DurableObject {
     for (const key of keys) {
       if (dailyLimitPerClient > 0 && this.count(day, key) >= dailyLimitPerClient) return "day";
     }
+    // The user's own allowance being used up ("free") wins over a full shared
+    // ceiling ("shared", e.g. per network): only the first is final.
+    let sharedFull = false;
     for (const allowance of free) {
       // 0 means "no free AI", never "unlimited".
-      if (this.freeUsed(day, allowance) >= allowance.cap) return "free";
+      const full = this.freeUsed(day, allowance) >= allowance.cap;
+      if (full && !allowance.shared) return "free";
+      if (full) sharedFull = true;
     }
+    if (sharedFull) return "shared";
     if (countsGlobal) this.add(day, GLOBAL_KEY);
     for (const key of keys) this.add(day, key);
     for (const { key, lifetime } of free) {

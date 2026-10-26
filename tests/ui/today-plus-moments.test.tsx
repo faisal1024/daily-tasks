@@ -309,16 +309,21 @@ describe("Evening teaser for a free user (1.5)", () => {
     mockStore = storeFor(PERFECT_CLOSED, FREE);
     await render(<HomeScreen />);
     const card = within(screen.getByTestId("evening-teaser"));
-    expect(card.getByText("Tomorrow's three")).toBeOnTheScreen();
-    expect(card.getByTestId("evening-teaser-line")).toHaveTextContent(has("· Call the dentist"));
-    expect(card.getByText("With Plus, your coach drafts tomorrow's three tonight.")).toBeOnTheScreen();
-    expect(card.getByRole("button", { name: "See all three with Plus" })).toBeOnTheScreen();
+    // Review: the copy never suggests a draft already exists.
+    expect(card.getByRole("header", { name: "Tomorrow could start with" })).toBeOnTheScreen();
+    expect(card.getByTestId("evening-teaser-line")).toHaveTextContent("Call the dentist");
+    expect(
+      card.getByText("Plus drafts a full three each night, from how today went. Your three stay free either way."),
+    ).toBeOnTheScreen();
+    expect(card.getByRole("button", { name: "Have my coach draft tomorrow" })).toBeOnTheScreen();
+    expect(screen.queryByText(/See all three|Tomorrow's three/)).toBeNull();
 
-    // The blurred lines are two empty shapes: no text, so nothing real is hidden behind them.
-    const blurred = screen.getByTestId("evening-teaser-blurred");
-    expect(blurred.props.accessibilityLabel).toBe("Two more lines your coach would draft with Plus");
-    expect(blurred.children).toHaveLength(2);
-    expect(within(blurred).queryAllByText(/./)).toHaveLength(0);
+    // The placeholder lines are two empty shapes, hidden from VoiceOver (the body says what Plus does).
+    const shapes = screen.getByTestId("evening-teaser-placeholders", { includeHiddenElements: true });
+    expect(shapes.props.importantForAccessibility).toBe("no-hide-descendants");
+    expect(shapes.props.accessibilityElementsHidden).toBe(true);
+    expect(shapes.children).toHaveLength(2);
+    expect(within(shapes).queryAllByText(/./, { includeHiddenElements: true })).toHaveLength(0);
     // The second saved task is nowhere on the screen: it is not part of the teaser.
     expect(screen.queryByText(/Water the plants/)).toBeNull();
   });
@@ -370,7 +375,7 @@ describe("Evening teaser for a free user (1.5)", () => {
     mockStore = build();
     await render(<HomeScreen />);
     expect(teaser()).toBeNull();
-    expect(screen.queryByRole("button", { name: "See all three with Plus" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Have my coach draft tomorrow" })).toBeNull();
     expect(screen.getByTestId("evening-result")).toHaveTextContent(has(instead));
     // The saved-for-later task was never put on show.
     expect(screen.queryByText(/Call the dentist/)).toBeNull();
@@ -386,19 +391,19 @@ describe("Evening teaser for a free user (1.5)", () => {
   it("the line comes from the oldest saved task first, then the built-in idea for tomorrow's date", async () => {
     mockStore = storeFor({ ...PERFECT_CLOSED, momentumPlan: PATH_PLAN }, FREE);
     const { rerender } = await render(<HomeScreen />);
-    expect(screen.getByTestId("evening-teaser-line")).toHaveTextContent(has("· Call the dentist"));
+    expect(screen.getByTestId("evening-teaser-line")).toHaveTextContent(has("Call the dentist"));
 
     mockStore = storeFor({ ...PERFECT_CLOSED, parkedTasks: [], momentumPlan: PATH_PLAN }, FREE);
     await rerender(<HomeScreen />);
     const idea = buildMilestoneIdeaGroup({ milestones: PATH_PLAN.milestones, completedMilestoneIds: [], today: TOMORROW });
     expect(idea?.source).toBe("local");
-    expect(screen.getByTestId("evening-teaser-line")).toHaveTextContent(has(`· ${idea!.ideas[0].text}`));
+    expect(screen.getByTestId("evening-teaser-line")).toHaveTextContent(has(idea!.ideas[0].text));
   });
 
-  it("See all three with Plus opens the paywall as evening_draft, without calling the AI", async () => {
+  it("Have my coach draft tomorrow opens the paywall as evening_draft, without calling the AI", async () => {
     mockStore = storeFor(PERFECT_CLOSED, FREE);
     await render(<HomeScreen />);
-    await fireEvent.press(screen.getByRole("button", { name: "See all three with Plus" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Have my coach draft tomorrow" }));
     expect(mockOpenPaywall).toHaveBeenCalledTimes(1);
     expect(mockOpenPaywall).toHaveBeenCalledWith("evening_draft");
     expect(mockTrack).toHaveBeenCalledWith("plus_gate_hit", { feature: "evening_draft" });
@@ -411,7 +416,7 @@ describe("Evening teaser for a free user (1.5)", () => {
     const free = storeFor(PERFECT_CLOSED, FREE);
     mockStore = free;
     const { rerender } = await render(<HomeScreen />);
-    await fireEvent.press(screen.getByRole("button", { name: "See all three with Plus" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Have my coach draft tomorrow" }));
 
     // The paywall shows and is closed without buying: nothing happens.
     mockPaywall = { paywallSource: "evening_draft", entitlementActive: false };
@@ -424,7 +429,7 @@ describe("Evening teaser for a free user (1.5)", () => {
     expect(closeDay).not.toHaveBeenCalled();
 
     // Again, and this time Plus is bought.
-    await fireEvent.press(screen.getByRole("button", { name: "See all three with Plus" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Have my coach draft tomorrow" }));
     mockPaywall = { paywallSource: "evening_draft", entitlementActive: false };
     await rerender(<HomeScreen />);
     mockPaywall = { paywallSource: null, entitlementActive: true };
@@ -548,7 +553,7 @@ describe("The free Break it down try (1.5)", () => {
     await waitFor(() => expect(mockStore.setTaskSteps).toHaveBeenCalledWith("t0", ["Clear counter", "Wipe it"], "Clean kitchen"));
     expect(storedWhenAsked).toBe("1");
     expect(mockOpenPaywall).not.toHaveBeenCalled();
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(has("That was your free try. Plus breaks down any task."));
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(has("Steps added. That was your one free try."));
     expect(mockTrack).toHaveBeenCalledWith("break_down_used", { count: 2, source: "free_try" });
     // Spent: the badge is gone and the row shows Plus.
     expect(screen.queryByTestId("break-down-free-try")).toBeNull();
@@ -575,7 +580,7 @@ describe("The free Break it down try (1.5)", () => {
     alert.mockRestore();
   });
 
-  it("a 402 means the server has no try left: mark it used, open the paywall, show no error", async () => {
+  it("a 402 means the server has no try left: mark it used, say so, open the paywall, show no error", async () => {
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     (requestBreakDown as jest.Mock).mockRejectedValue(new MomentumAiError("needs_plus", "Free limit reached"));
     mockStore = freeStore();
@@ -584,6 +589,7 @@ describe("The free Break it down try (1.5)", () => {
     await pressBreakDown();
     await waitFor(() => expect(mockOpenPaywall).toHaveBeenCalledWith("break_down"));
     expect(alert).not.toHaveBeenCalled();
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(has("Your free try was already used."));
     expect(await AsyncStorage.getItem(BREAK_DOWN_KEY)).toBe("1");
     await waitFor(() => expect(screen.getByTestId("break-down-plus")).toBeOnTheScreen());
     expect(screen.queryByTestId("break-down-free-try")).toBeNull();
@@ -625,7 +631,7 @@ describe("The free Break it down try (1.5)", () => {
       status: "ended" as const,
     });
 
-    it("Stuck? uses the free try, ends the timer, and offers the 5-minute starter instead of the toast", async () => {
+    it("Stuck? uses the free try, ends the timer, offers the 5-minute starter, and says it was the free try", async () => {
       const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
       (requestBreakDown as jest.Mock).mockResolvedValue(["Find the lead", "Put shoes on"]);
       mockStore = storeFor({ tasks: tasks("Walk", "Read"), focusSession: ended() }, FREE);
@@ -635,7 +641,7 @@ describe("The free Break it down try (1.5)", () => {
       expect(mockOpenPaywall).not.toHaveBeenCalled();
       expect(mockStore.stopFocusSession).toHaveBeenCalledWith("broken_down");
       expect(await AsyncStorage.getItem(BREAK_DOWN_KEY)).toBe("1");
-      expect(screen.queryByTestId("today-toast")).toBeNull();
+      expect(screen.getByTestId("today-toast")).toHaveTextContent(has("Steps added. That was your one free try."));
       alert.mockRestore();
     });
 
@@ -647,5 +653,98 @@ describe("The free Break it down try (1.5)", () => {
       await waitFor(() => expect(mockOpenPaywall).toHaveBeenCalledWith("break_down"));
       expect(await AsyncStorage.getItem(BREAK_DOWN_KEY)).toBe("1");
     });
+  });
+});
+
+// --- Review fixes (PR #102) ---------------------------------------------------
+
+describe("1.5 review fixes", () => {
+  beforeEach(() => {
+    mockProxyUrl = PROXY;
+  });
+
+  it("no teaser in a build that can't reach the AI evening coach", async () => {
+    jest.useFakeTimers(at(20));
+    mockProxyUrl = null;
+    mockStore = storeFor(PERFECT_CLOSED, FREE);
+    await render(<HomeScreen />);
+    expect(teaser()).toBeNull();
+    expect(screen.getByTestId("evening-result")).toHaveTextContent(has("Tomorrow starts fresh."));
+  });
+
+  it("'Drafting tomorrow…' only when the coach drafts; otherwise 'Closing the day…'", async () => {
+    jest.useFakeTimers(at(20));
+    (closeDay as jest.Mock).mockImplementation(() => new Promise(() => {}));
+    mockStore = storeFor(OPEN_EVENING, FREE);
+    const first = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Today felt good" }));
+    expect(screen.getByTestId("evening-closing")).toHaveTextContent(has("Closing the day…"));
+    await first.unmount();
+
+    mockStore = storeFor(OPEN_EVENING, PLUS);
+    await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Today felt good" }));
+    expect(screen.getByTestId("evening-closing")).toHaveTextContent(has("Drafting tomorrow…"));
+  });
+
+  it("while Plus is still being checked, the copy makes no coach promise", async () => {
+    jest.useFakeTimers(at(20));
+    mockStore = storeFor(OPEN_EVENING, CHECKING);
+    await render(<HomeScreen />);
+    expect(
+      screen.getByText("One tap closes the day and carries what's open to tomorrow. A note is optional."),
+    ).toBeOnTheScreen();
+  });
+
+  it("an AI close that falls back with nothing drafted offers Try again, which asks the coach again", async () => {
+    jest.useFakeTimers(at(20));
+    const fallback = { note: "A good day.", because: "", tomorrow: [], memory: null, source: "local" as const };
+    (closeDay as jest.Mock).mockResolvedValue(fallback);
+    const before = { ...PERFECT_CLOSED, todayReflectionResult: null, eveningClose: null };
+    mockStore = storeFor(before, PLUS);
+    const { rerender } = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByRole("button", { name: "Today felt good" }));
+    await act(async () => {});
+    expect((closeDay as jest.Mock).mock.calls[0][1]).toEqual({ useAi: true });
+    const { setEveningClose } = mockStore;
+    mockStore = { ...storeFor(PERFECT_CLOSED, PLUS), setEveningClose } as MockStore;
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("evening-retry")).toHaveTextContent(has("Couldn't draft tomorrow."));
+    await fireEvent.press(screen.getByRole("button", { name: "Try drafting tomorrow again" }));
+    await act(async () => {});
+    expect(closeDay).toHaveBeenCalledTimes(2);
+    expect((closeDay as jest.Mock).mock.calls[1]).toEqual([expect.objectContaining({ result: "good" }), { useAi: true }]);
+  });
+
+  it("while Plus is pending, Break it down is the free try; confirmed Plus by the end gives it back, no toast", async () => {
+    let resolve!: (steps: string[]) => void;
+    (requestBreakDown as jest.Mock).mockImplementation(() => new Promise<string[]>((r) => (resolve = r)));
+    mockStore = storeFor({ ...SET, tasks: tasks("Clean kitchen") }, CHECKING);
+    const { rerender } = await render(<HomeScreen />);
+    await act(async () => {});
+    await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
+    await waitFor(() => expect(requestBreakDown).toHaveBeenCalledTimes(1));
+    expect(await AsyncStorage.getItem(BREAK_DOWN_KEY)).toBe("1");
+
+    mockStore = { ...mockStore, ...PLUS } as MockStore;
+    await rerender(<HomeScreen />);
+    await act(async () => resolve(["Clear counter", "Wipe it"]));
+    await waitFor(async () => expect(await AsyncStorage.getItem(BREAK_DOWN_KEY)).toBe("0"));
+    expect(screen.queryByTestId("today-toast")).toBeNull();
+    expect(mockTrack).toHaveBeenCalledWith("break_down_used", { count: 2 });
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+  });
+
+  it("a 429 (the network's free tries are used today) gives the try back", async () => {
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    (requestBreakDown as jest.Mock).mockRejectedValueOnce(new MomentumAiError("rate_limited", "Too many requests", 429));
+    mockStore = storeFor({ ...SET, tasks: tasks("Clean kitchen") }, FREE);
+    await render(<HomeScreen />);
+    await waitFor(() => expect(screen.getByTestId("break-down-free-try")).toBeOnTheScreen());
+    await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
+    await waitFor(() => expect(alert).toHaveBeenCalledWith("Couldn't break it down", expect.any(String)));
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+    await waitFor(async () => expect(await AsyncStorage.getItem(BREAK_DOWN_KEY)).toBe("0"));
+    alert.mockRestore();
   });
 });

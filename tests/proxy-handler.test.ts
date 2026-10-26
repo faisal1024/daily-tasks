@@ -406,7 +406,7 @@ describe("entitlements", () => {
       keys: [IP, UKEY],
       free: [
         { key: `once:break-down:${UKEY}`, cap: 1, lifetime: true },
-        { key: `try:break-down:${IP}`, cap: 20 },
+        { key: `try:break-down:${IP}`, cap: 20, shared: true },
       ],
     });
     const spent = setup({ env, entitlement: "free", spend: (req) => (req.free.length ? "free" : "ok") });

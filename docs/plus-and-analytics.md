@@ -27,22 +27,31 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
   has Plus, and the brain dump / ideas sheet reopens.
 - **Paywall placement:** once at the end of first run (closable), and at value moments:
   Break it down (after its one free try), "Get Plus" in the brain dump (only after the
-  free sorts), "New ideas", the calendar setting, the evening teaser ("See all three with
-  Plus", source `evening_draft`) and Settings › Plus. Lifetime is shown from Settings and,
-  from 1.5, on every paywall once this install has closed `LIFETIME_AFTER_DISMISSALS` (2)
-  paywalls without buying (count in its own AsyncStorage key, kept by "Reset all data").
-  Restore purchases is on the paywall and in Settings.
+  free sorts), "New ideas", the calendar setting, the evening teaser ("Have my coach draft
+  tomorrow", source `evening_draft`) and Settings › Plus. Lifetime is shown from Settings
+  and, from 1.5, on every paywall once this install has closed `LIFETIME_AFTER_DISMISSALS`
+  (2) paywalls without buying (count in its own AsyncStorage key, kept by "Reset all
+  data"). Only paywalls the user reached for count (not onboarding, aha or win-back), and
+  only once their plans had loaded. A lapsed subscriber (expired, or Apple retrying a
+  failed renewal) isn't offered lifetime this way, since a retried renewal could charge
+  twice. Restore purchases is on the paywall and in Settings.
 - **Benefit order (1.5):** Nag mode, "Your coach drafts tomorrow", Smart brain dump,
   Break it down, then the rest. The paywall a feature opened leads with that feature
-  (Nag mode, the evening draft).
+  (Nag mode, the evening draft, Break it down, the brain dump, ideas, calendar,
+  routines); generic and onboarding paywalls keep Nag mode first.
 - **Evening teaser (1.5):** a free user who closes a day where every task was done (and at
-  least `EVENING_TEASER_MIN_DONE`, 3 = perfect days) sees one real line and two
-  placeholder bars under the coach's note. No AI is called (the evening route is
-  Plus-only); the line is the user's own (a task still open, else the oldest saved for
-  later, else the built-in idea for the next step on the goal path; no line = no teaser);
-  the bars are shapes, never hidden content (`lib/daily-tasks/evening-teaser.ts`). Buying
-  from it closes the day again with the AI coach. The check-in card, the done card and the
-  "Tonight" line only promise a coach's draft when the AI coach will close the day.
+  least `EVENING_TEASER_MIN_DONE`, 3 = perfect days), in a build that can reach the AI
+  evening coach, sees "Tomorrow could start with", one real line and two placeholder
+  shapes under the coach's note, "Plus drafts a full three each night, from how today
+  went. Your three stay free either way." and a secondary "Have my coach draft tomorrow".
+  No AI is called (the evening route is Plus-only), and nothing suggests a draft exists.
+  The line is the user's own (the oldest saved for later, else the built-in idea for the
+  next step on the goal path; no line = no teaser); the shapes are hidden from VoiceOver
+  and never hide content (`lib/daily-tasks/evening-teaser.ts`). Buying from it closes the
+  day again with the AI coach; if that falls back with nothing drafted, "Couldn't draft
+  tomorrow." offers Try again. The check-in card, done card, "Tonight" line and "Drafting
+  tomorrow…" (else "Closing the day…") only promise a coach's draft once Plus is
+  confirmed and the coach is reachable.
 - **Onboarding paywall (1.3):** echoes what first run just did ("Your three are set." with
   three tasks, "Today's set." with one or two, then "Want help like this every
   morning?"); with no tasks set ("I'll add my own") it falls back to the generic

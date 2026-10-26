@@ -195,9 +195,13 @@ describe("PlusProvider: paywall dismissals (1.5, lifetime after two)", () => {
     (purchasePackage as jest.Mock).mockResolvedValue({ outcome: "purchased", active: true });
     const { result } = await renderHook(() => usePlus(), { wrapper });
     await waitFor(() => expect(result.current.paywallDismissals).toBe(0));
+    (loadSdkPackages as jest.Mock).mockResolvedValue([ANNUAL]);
     for (const source of ["break_down", "evening_draft"] as const) {
       await act(async () => {
         result.current.openPaywall(source);
+      });
+      await act(async () => {
+        await result.current.loadPaywallPackages();
       });
       await act(async () => result.current.markPaywallShown());
       await act(async () => result.current.closePaywall());

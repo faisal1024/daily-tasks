@@ -350,6 +350,11 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
 const LEADING_BENEFIT: Partial<Record<PaywallSource, string>> = {
   nag_mode: "Nag mode",
   evening_draft: "Your coach drafts tomorrow",
+  break_down: "Break it down",
+  brain_dump: "Smart brain dump",
+  new_ideas: "AI ideas for your goal",
+  calendar: "Plan around your calendar",
+  routines: "Unlimited routines",
 };
 
 /** The benefits in the order to show them: the one the paywall opened for comes first. */
@@ -410,7 +415,7 @@ export function paywallSubhead(source: PaywallSource, options: { taskCount?: num
     case "nag_mode":
       return "Nag mode reminds you as Mom, Dad, Partner, Coach or Drill sergeant. Calm reminders and your three stay free either way.";
     case "evening_draft":
-      return "With Plus, your coach drafts tomorrow's three tonight, from how today went. Your three stay free either way.";
+      return "Plus drafts a full three each night, from how today went. Your three stay free either way.";
     default:
       return "Your three tasks stay free forever. Plus adds the AI helpers.";
   }

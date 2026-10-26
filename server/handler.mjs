@@ -75,13 +75,14 @@ export function ipKey(ip) {
 /**
  * @typedef {{
  *   admit: (keys: string[]) => string | Promise<string>,
- *   spend: (req: { keys: string[], free: { key: string, cap: number, lifetime?: boolean }[] }) => string | Promise<string>,
+ *   spend: (req: { keys: string[], free: { key: string, cap: number, lifetime?: boolean, shared?: boolean }[] }) => string | Promise<string>,
  *   refund?: (req: { free: { key: string, cap: number, lifetime?: boolean }[] }) => unknown,
  * }} Budget
  * admit: per-minute counting + a check (no spend) of the daily/global caps.
  * spend: atomically re-checks the caps (incl. free ones) and spends one unit;
- *        "ok" | "day" | "global" | "free". Called only right before the AI call.
+ *        "ok" | "day" | "global" | "free" | "shared". Called only right before the AI call.
  *        A `lifetime` free allowance never resets (one free break-down per id).
+ *        "shared": only an allowance marked `shared` (a per-network ceiling) is full.
  * refund: gives back lifetime allowances when the AI call then failed.
  */
 
@@ -128,7 +129,8 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
     if (perClient <= 0 || perNetwork <= 0) return [];
     return [
       { key: `once:${route.name}:${userKey}`, cap: perClient, lifetime: true },
-      { key: `try:${route.name}:${ip}`, cap: perNetwork },
+      // Shared: when only this is full the try isn't spent, just not now (429).
+      { key: `try:${route.name}:${ip}`, cap: perNetwork, shared: true },
     ];
   };
 
@@ -261,8 +263,13 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
     let spent = await budget.spend({ keys, free });
     // What a failed AI call gives back: the lifetime tries this request spent.
     let spentOnce = free.filter((allowance) => allowance.lifetime);
-    if (spent === "free") {
-      if (mode === "enforce") return { status: 402, body: { error: "Free limit reached" } };
+    if (spent === "free" || spent === "shared") {
+      // "free": this id's own allowance is used up (final, 402). "shared": only
+      // a shared ceiling (the network's free tries today) is full, so the try
+      // isn't lost: 429, and the app gives it back and says try later.
+      if (mode === "enforce") {
+        return spent === "shared" ? limited("day") : { status: 402, body: { error: "Free limit reached" } };
+      }
       freeCapLog.note();
       spentOnce = [];
       spent = await budget.spend({ keys, free: [] });

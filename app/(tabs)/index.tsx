@@ -285,6 +285,8 @@ export default function HomeScreen() {
   // Evening close in flight.
   const [closingDay, setClosingDay] = useState(false);
   const closingRef = useRef(false);
+  // The day whose AI close fell back with nothing drafted (offers "Try again").
+  const [eveningAiFailedFor, setEveningAiFailedFor] = useState<string | null>(null);
   // Opened from "Saved for later" (full day): show just the saved items.
   const [ideasSavedOnly, setIdeasSavedOnly] = useState(false);
   // However the sheet closes (its button, a lock, rollover, the paywall), the
@@ -352,6 +354,9 @@ export default function HomeScreen() {
   // A ref, not just state: two quick taps in one render must not both start.
   const breakingRef = useRef<string | null>(null);
   const breakDownAvailable = proxyRouteUrl(getMomentumAiProxyUrl(), "break-down") != null;
+  // Read when a free try returns: Plus may have been confirmed while it ran.
+  const plusConfirmedRef = useRef(plusConfirmed);
+  plusConfirmedRef.current = plusConfirmed;
   // 1.5: a free user's one Break it down try (free-uses.ts); null while it loads.
   const [freeBreakDowns, setFreeBreakDowns] = useState<number | null>(null);
   useEffect(() => {
@@ -399,7 +404,9 @@ export default function HomeScreen() {
   });
   // The AI coach closes the day (Plus with the proxy): the evening copy only
   // promises a draft when one will come (1.5).
-  const coachDrafts = hasPlus && getMomentumAiProxyUrl() != null;
+  // Confirmed Plus only, so a free user never sees "drafts tomorrow" while Plus is checked.
+  const eveningAiAvailable = proxyRouteUrl(getMomentumAiProxyUrl(), "evening") != null;
+  const coachDrafts = plusConfirmed && eveningAiAvailable;
   const dayClosed = isDayClosed(state.eveningClose, today);
   const closedDraft =
     dayClosed && state.tomorrowDraft?.forDate === addDays(today, 1) ? state.tomorrowDraft : null;
@@ -407,13 +414,14 @@ export default function HomeScreen() {
   const eveningTeaser = showsEveningTeaser({
     paywallEnabled,
     hasPlus,
+    eveningAiAvailable,
     dayClosed,
     hasDraft: closedDraft !== null,
     taskCount: total,
     completedCount: progress.completed,
   })
     ? eveningTeaserLine({
-        tasks: state.tasks.map((task) => ({ text: task.text, done: isCompleted(task.id) })),
+        tasks: state.tasks,
         parkedTasks: state.parkedTasks,
         plan: state.momentumPlan,
         completedMilestoneIds: state.completedMilestoneIds,
@@ -1200,12 +1208,14 @@ export default function HomeScreen() {
     options: { starter?: boolean; afterSheet?: boolean } = {},
   ) => {
     if (breakingRef.current) return;
+    if (!plusConfirmed && freeBreakDowns !== 0) {
+      // Free, or Plus still being checked: the free try first (once per
+      // install; the claim has the final say). A subscriber whose Plus is
+      // confirmed meanwhile gets it back (see runBreakDown).
+      void runBreakDown(taskId, text, options.starter, { freeTry: true, afterSheet: options.afterSheet });
+      return;
+    }
     if (!hasPlus) {
-      // The free try first (once per install; the claim has the final say).
-      if (freeBreakDowns !== 0) {
-        void runBreakDown(taskId, text, options.starter, { freeTry: true, afterSheet: options.afterSheet });
-        return;
-      }
       showBreakDownPaywall(taskId, text, options);
       return;
     }
@@ -1260,19 +1270,28 @@ export default function HomeScreen() {
       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
       // Only if the task still reads the same (it may have been edited meanwhile).
       setTaskSteps(taskId, steps, text);
-      track("break_down_used", free.freeTry ? { count: steps.length, source: "free_try" } : { count: steps.length });
+      // Plus confirmed while it ran (it was still being checked): not a free try after all.
+      const wasFreeTry = free.freeTry === true && !plusConfirmedRef.current;
+      if (free.freeTry && !wasFreeTry) {
+        void refundFreeBreakDown()
+          .then(() => freeBreakDownsLeft())
+          .then(setFreeBreakDowns);
+      }
+      track("break_down_used", wasFreeTry ? { count: steps.length, source: "free_try" } : { count: steps.length });
       // Break it down is Plus-only and AI-only: steps back means Plus was used.
       if (steps.length > 0 && !free.freeTry) void recordPlusUse("break_down");
+      if (wasFreeTry) showToast("Steps added. That was your one free try.");
       // The store keeps steps trimmed: match it, so the starter names the step.
       const first = steps.map((step) => step.trim()).find(Boolean);
       if (starter && first) offerStarter(taskId, first);
-      else if (free.freeTry) showToast("That was your free try. Plus breaks down any task.");
     } catch (error) {
       const kind = classifyAiFailure(error);
       if (free.freeTry && kind === "needs_plus") {
-        // The server has no free try left for this install: the paywall, as before.
+        // The server has no free try left for this install's id (the badge
+        // offered one): say so, then the paywall, as before.
         void spendFreeBreakDowns();
         setFreeBreakDowns(0);
+        showToast("Your free try was already used.");
         showBreakDownPaywall(taskId, text, { starter });
         return;
       }
@@ -1338,13 +1357,17 @@ export default function HomeScreen() {
     if (closingRef.current) return;
     closingRef.current = true;
     setClosingDay(true);
+    setEveningAiFailedFor(null);
     // The day being closed is the one on screen now, whenever the reply lands.
     const day = today;
     const input = buildEveningInput(state, result, typedNote);
     // Confirmed Plus only: "still checking" must not spend an AI call on a free user.
-    void closeDay(input, { useAi: plusConfirmed && getMomentumAiProxyUrl() != null })
+    const useAi = plusConfirmed && getMomentumAiProxyUrl() != null;
+    void closeDay(input, { useAi })
       .then((close) => {
         setEveningClose(close, day, result);
+        // Asked the coach, got the on-device close with nothing for tomorrow: offer a retry.
+        if (useAi && close.source === "local" && close.tomorrow.length === 0) setEveningAiFailedFor(day);
         track("evening_closed", { source: close.source, count: close.tomorrow.length });
       })
       .finally(() => {
@@ -1963,6 +1986,15 @@ export default function HomeScreen() {
                       closing={closingDay}
                       note={dayClosed ? state.eveningClose?.note ?? null : null}
                       draft={closedDraft}
+                      coachDrafts={plusConfirmed && getMomentumAiProxyUrl() != null}
+                      onRetry={
+                        eveningAiFailedFor === today && dayClosed && plusConfirmed && state.eveningClose
+                          ? () => {
+                              const closed = state.eveningClose;
+                              if (closed) runEveningClose(closed.result);
+                            }
+                          : undefined
+                      }
                       teaser={
                         eveningTeaser
                           ? {

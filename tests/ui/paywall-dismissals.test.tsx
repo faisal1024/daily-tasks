@@ -9,6 +9,7 @@ import { track } from "@/lib/daily-tasks/analytics";
 import type { PaywallSource, PlusPackage } from "@/lib/daily-tasks/plus";
 import { PAYWALL_DISMISSALS_KEY, PlusProvider, usePlus, type PlusContextValue } from "@/lib/daily-tasks/plus-context";
 import {
+  fetchPlusStatus,
   loadPackages,
   purchase as purchasePackage,
   restore as restorePurchases,
@@ -193,5 +194,45 @@ describe("lifetime after two dismissals", () => {
     expect(events).toEqual([["paywall_dismissed", { source: "evening_draft", count: 1 }]]);
     // paywall_closed still goes out as before.
     expect(track).toHaveBeenCalledWith("paywall_closed", { source: "evening_draft" });
+  });
+});
+
+describe("which closes count toward lifetime (review fixes)", () => {
+  it("paywalls the app showed on its own (onboarding, aha, win-back) don't count", async () => {
+    await render(app());
+    await waitFor(() => expect(plus.paywallDismissals).toBe(0));
+    for (const source of ["onboarding", "aha", "win_back"] as const) {
+      await openShown(source);
+      await dismiss();
+    }
+    expect(plus.paywallDismissals).toBe(0);
+    expect(track).not.toHaveBeenCalledWith("paywall_dismissed", expect.anything());
+  });
+
+  it("a close before the plans loaded doesn't count", async () => {
+    (loadPackages as jest.Mock).mockImplementation(() => new Promise(() => {}));
+    await render(app());
+    await waitFor(() => expect(plus.paywallDismissals).toBe(0));
+    await act(async () => {
+      plus.openPaywall("break_down");
+    });
+    await waitFor(() => expect(screen.getByTestId("paywall-sheet")).toBeOnTheScreen());
+    await act(async () => plus.markPaywallShown());
+    await dismiss();
+    expect(plus.paywallDismissals).toBe(0);
+  });
+
+  it("a lapsed subscriber isn't offered lifetime for dismissals (a retried renewal could charge twice); Settings still shows it", async () => {
+    (fetchPlusStatus as jest.Mock).mockResolvedValue({ active: false, lapsedAt: new Date(Date.now() - 86_400_000).toISOString() });
+    await AsyncStorage.setItem(PAYWALL_DISMISSALS_KEY, "5");
+    await render(app());
+    await waitFor(() => expect(plus.subscriptionLapsed).toBe(true));
+    await waitFor(() => expect(plus.paywallDismissals).toBe(5));
+    await openShown("break_down");
+    expect(screen.queryByTestId("paywall-plan-lifetime")).toBeNull();
+    await dismiss();
+    await openShown("settings");
+    expect(screen.getByTestId("paywall-plan-lifetime")).toBeOnTheScreen();
+    (fetchPlusStatus as jest.Mock).mockResolvedValue({ active: false, lapsedAt: null });
   });
 });

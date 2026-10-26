@@ -130,13 +130,19 @@ users up to `FREE_BRAIN_DUMPS_PER_DAY` per user (and 3× that per network).
 **One free Break it down (1.5):** a free id gets `FREE_BREAK_DOWNS_PER_CLIENT`
 (1) break-down ever, counted per hashed app user id in the Worker's Limits
 object (table `once_counts`, never cleaned up), within a per-network ceiling of
-`FREE_BREAK_DOWNS_PER_NETWORK_PER_DAY` (20) free tries a day. After that it's
-402 "Free limit reached". If the AI call then fails, the try is given back.
+`FREE_BREAK_DOWNS_PER_NETWORK_PER_DAY` (20) free tries a day. Once the id's
+own try is used it's 402 "Free limit reached". When only the network ceiling is
+full the try isn't spent: 429 (try later), and the app gives it back. If the AI
+call then fails, the try is given back too.
 Honest limits: RevenueCat's anonymous id is new after a reinstall (or "Reset"
 in RevenueCat), so a reinstall gets one more free try; the network ceiling and
-the global cap bound that. No id = no free try (old builds are already allowed
-without one until `ENTITLEMENT_REQUIRE_ID=1`). The Node server keeps the count
-in memory, so a restart forgets it.
+the global cap bound that. The free try needs an id; but until
+`ENTITLEMENT_REQUIRE_ID=1`, requests **without** an id aren't checked at all
+(on any route, break-down included): they share the `NO_ID_DAILY_LIMIT`
+ceiling (`noid:all`) with every other id-less request. The Node server keeps
+the count in memory (at most 100,000 ids, oldest forgotten first), so a restart
+forgets it. The record kept is a one-way hash of the id with a count, never the
+id itself; it isn't removed, so the try stays used.
 If RevenueCat can't answer (down, rate-limited, or our key is wrong) requests
 are allowed for a moment and a warning is logged: paying users are never
 locked out by an outage.
@@ -624,7 +630,7 @@ pass this sanitiser (a test runs every one through it). See
   | `GLOBAL_DAILY_LIMIT` | 5000 in code; 500 in `render.yaml`/`wrangler.toml` | 503 for everyone (spend circuit breaker) |
   | `FREE_BRAIN_DUMPS_PER_DAY` | 8 (0 = no free AI) | 402 "Free limit reached" (enforce only) |
   | `FREE_BREAK_DOWNS_PER_CLIENT` | 1 per id, ever (0 = no free try) | 402 "Free limit reached" (enforce only) |
-  | `FREE_BREAK_DOWNS_PER_NETWORK_PER_DAY` | 20 (0 = no free try) | 402 "Free limit reached" (enforce only) |
+  | `FREE_BREAK_DOWNS_PER_NETWORK_PER_DAY` | 20 (0 = no free try) | 429, `Retry-After: 3600` (the try isn't spent; enforce only) |
   | `ENTITLEMENT_MODE` | off | `log` counts, `enforce` answers 402 on Plus routes |
   | `REVENUECAT_SECRET_KEY` | unset | needed for `log`/`enforce` (V1 secret key) |
   | `ENTITLEMENT_REQUIRE_ID` | unset | `1` = requests without an app user id count as free (see "Early supporters") |

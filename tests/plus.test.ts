@@ -132,6 +132,24 @@ describe("which plans a paywall shows (Phase 11a)", () => {
     expect(plusBenefitsFor("evening_draft")).toHaveLength(PLUS_BENEFITS.length);
   });
 
+  it("a feature's paywall leads with that feature; generic and onboarding keep Nag mode first", () => {
+    const leads: [PaywallSource, string][] = [
+      ["break_down", "Break it down"],
+      ["brain_dump", "Smart brain dump"],
+      ["new_ideas", "AI ideas for your goal"],
+      ["calendar", "Plan around your calendar"],
+      ["routines", "Unlimited routines"],
+    ];
+    for (const [source, title] of leads) {
+      const list = plusBenefitsFor(source);
+      expect(list[0].title).toBe(title);
+      expect(new Set(list.map((b) => b.title)).size).toBe(PLUS_BENEFITS.length);
+    }
+    for (const source of ["onboarding", "settings", "aha", "win_back", null] as const) {
+      expect(plusBenefitsFor(source)[0].title).toBe("Nag mode");
+    }
+  });
+
   it("has a win-back headline", () => {
     expect(paywallHeadline("win_back")).toBe("Want the AI helpers back?");
   });

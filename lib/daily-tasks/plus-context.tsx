@@ -67,6 +67,13 @@ export const LAST_PAYWALL_KEY = "daily-tasks/plus-last-paywall-shown-at";
 // every paywall offers lifetime too. Own key, so "Reset all data" keeps it.
 export const PAYWALL_DISMISSALS_KEY = "daily-tasks/plus-paywall-dismissals";
 
+/**
+ * Paywalls the app shows on its own (first run, the aha moment, win-back):
+ * closing one isn't a "no thanks" to a feature the user reached for, so it
+ * doesn't count toward lifetime.
+ */
+const AUTO_PAYWALL_SOURCES: ReadonlySet<PaywallSource> = new Set<PaywallSource>(["onboarding", "aha", "win_back"]);
+
 function parseDismissals(raw: string | null): number {
   const n = raw === null ? 0 : Number.parseInt(raw, 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
@@ -150,6 +157,11 @@ export interface PlusContextValue {
   ahaPaywallState: AhaPaywallState | null;
   /** Paywalls this install has closed without buying (lifetime shows from LIFETIME_AFTER_DISMISSALS). */
   paywallDismissals: number;
+  /**
+   * Plus lapsed (expired, or Apple is retrying a failed renewal): lifetime
+   * isn't offered for dismissals then, since a retried renewal could charge twice.
+   */
+  subscriptionLapsed: boolean;
 }
 
 const noPaywall: PlusContextValue = {
@@ -175,6 +187,7 @@ const noPaywall: PlusContextValue = {
   trial: null,
   ahaPaywallState: null,
   paywallDismissals: 0,
+  subscriptionLapsed: false,
 };
 
 const PlusContext = createContext<PlusContextValue>(noPaywall);
@@ -309,6 +322,8 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   }, []);
   // Set when this open ended in Plus (bought or restored): its close isn't a dismissal.
   const acquiredRef = useRef(false);
+  // This open's plans loaded: a close before that isn't a choice about the prices.
+  const plansLoadedRef = useRef(false);
   const lapsedRef = useRef<string | null>(null);
   lapsedRef.current = lapsedAt;
   const entitlementRef = useRef(false);
@@ -397,6 +412,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     sourceRef.current = source;
     shownRef.current = false;
     acquiredRef.current = false;
+    plansLoadedRef.current = false;
     openedAt.current = Date.now();
     openSeq.current += 1;
     clearViewedCap();
@@ -499,7 +515,16 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     offerLookup.current = null;
     clearViewedCap();
     if (shownRef.current) track("paywall_closed", { source: sourceRef.current });
-    if (shownRef.current && !acquiredRef.current) noteDismissal(sourceRef.current);
+    // Counted toward lifetime: a paywall the user reached for, on screen with
+    // its plans, closed without buying.
+    if (
+      shownRef.current &&
+      plansLoadedRef.current &&
+      !acquiredRef.current &&
+      !AUTO_PAYWALL_SOURCES.has(sourceRef.current)
+    ) {
+      noteDismissal(sourceRef.current);
+    }
     sourceRef.current = null;
     shownRef.current = false;
     setPaywallSource(null);
@@ -529,11 +554,15 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
         markWinBack("offerShownFor", lookup.lapse);
       }
     };
-    if (!forOpen) return loadSdkPackages();
+    const loaded = (packages: PlusPackage[]) => {
+      if (seq === openSeq.current && packages.length > 0) plansLoadedRef.current = true;
+      return packages;
+    };
+    if (!forOpen) return loaded(await loadSdkPackages());
     try {
       const packages = await loadSdkPackages({ winBack: true });
       settle(packages.some((pkg) => shownWinBackOffer(pkg) !== null));
-      return packages;
+      return loaded(packages);
     } catch (error) {
       settle(false);
       throw error;
@@ -665,6 +694,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       trial,
       ahaPaywallState,
       paywallDismissals,
+      subscriptionLapsed: lapsedAt !== null,
     }),
     [
       paywallBuild,
@@ -689,6 +719,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       trial,
       ahaPaywallState,
       paywallDismissals,
+      lapsedAt,
     ],
   );
 

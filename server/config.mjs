@@ -6,6 +6,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
+/** Most lifetime-allowance ids the Node server remembers (see createBudget). */
+export const MAX_ONCE_KEYS = 100_000;
 
 function positiveInt(value, fallback) {
   const parsed = Number(value);
@@ -197,9 +199,16 @@ export function createBudget(config, { now } = {}) {
   };
   // Lifetime allowances (`lifetime: true`, e.g. one free break-down per id):
   // never roll over. In memory, so a restart of this process forgets them;
-  // the Worker keeps them in its Durable Object.
+  // the Worker keeps them in its Durable Object. Capped at MAX_ONCE_KEYS ids
+  // (the oldest is forgotten first, which only means that id could get its
+  // free try again), so memory stays bounded on this legacy host.
   const onceCounts = new Map();
   const usedOnce = (key) => onceCounts.get(key) ?? 0;
+  const setOnce = (key, n) => {
+    onceCounts.delete(key);
+    if (onceCounts.size >= MAX_ONCE_KEYS) onceCounts.delete(onceCounts.keys().next().value);
+    onceCounts.set(key, n);
+  };
   return {
     limiter,
     admit(keys) {
@@ -217,14 +226,19 @@ export function createBudget(config, { now } = {}) {
         const result = limiter.peekDay(key);
         if (result !== "ok") return result;
       }
-      for (const { key, cap, lifetime } of free) {
+      // The user's own allowance being used up ("free") wins over a full
+      // shared ceiling ("shared", e.g. per network): only the first is final.
+      let sharedFull = false;
+      for (const { key, cap, lifetime, shared } of free) {
         // 0 means "no free AI", never "unlimited".
-        if (cap <= 0) return "free";
-        if (lifetime ? usedOnce(key) >= cap : freeLimiter(cap).peekDay(key) !== "ok") return "free";
+        const full = cap <= 0 || (lifetime ? usedOnce(key) >= cap : freeLimiter(cap).peekDay(key) !== "ok");
+        if (full && !shared) return "free";
+        if (full) sharedFull = true;
       }
+      if (sharedFull) return "shared";
       for (const key of keys) limiter.record(key);
       for (const { key, cap, lifetime } of free) {
-        if (lifetime) onceCounts.set(key, usedOnce(key) + 1);
+        if (lifetime) setOnce(key, usedOnce(key) + 1);
         else freeLimiter(cap).record(key);
       }
       return "ok";
@@ -235,7 +249,7 @@ export function createBudget(config, { now } = {}) {
         if (!lifetime) continue;
         const used = usedOnce(key);
         if (used <= 1) onceCounts.delete(key);
-        else onceCounts.set(key, used - 1);
+        else setOnce(key, used - 1);
       }
     },
   };

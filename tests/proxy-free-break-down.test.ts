@@ -155,7 +155,15 @@ describe.each(budgets)("free Break it down: %s", (_name, makeBudget) => {
   it("caps free tries per network per day (a reinstall gets a new id), then resets the next day", async () => {
     const t = await setup({ FREE_BREAK_DOWNS_PER_NETWORK_PER_DAY: "3" });
     for (const c of ["a", "b", "c"]) expect((await t.call(asUser(c))).status).toBe(200);
-    expect(await t.call(asUser("d"))).toEqual({ status: 402, body: { error: "Free limit reached" } });
+    // Only the shared network ceiling is full: 429 (try later), never 402, so
+    // the app gives the try back instead of treating it as used.
+    expect(await t.call(asUser("d"))).toEqual({
+      status: 429,
+      body: { error: "Too many requests" },
+      headers: { "Retry-After": "3600" },
+    });
+    // An id whose own try is used still hears 402, even with the network full.
+    expect((await t.call(asUser("a"))).status).toBe(402);
     // Another network is not held up by the first one's ceiling.
     expect((await t.call(asUser("e"), { ip: "198.51.100.9" })).status).toBe(200);
     // The refused id kept its lifetime try: tomorrow it can still use it.
