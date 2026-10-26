@@ -28,6 +28,8 @@ import { themeColors } from "@/theme.config";
 import type { AppState, DayRecord, Routine, Task } from "@/lib/daily-tasks/types";
 import type { AhaPaywallState } from "@/lib/daily-tasks/aha-paywall";
 
+import { SHEET_SWAP_DELAY_MS } from "@/hooks/use-paywall-gate";
+
 import { renderWithProviders as render } from "./render";
 
 // --- Mocks: a controllable store, and no native side effects -----------------
@@ -4637,5 +4639,96 @@ describe("Today on a set day (1.4)", () => {
     expect(mockStore.parkTasks.mock.calls).toEqual([[["Finish report", "Call mum", "Buy shoes"]]]);
     expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
     expect(screen.getByTestId("today-toast")).toHaveTextContent(/Today is locked\. 3 saved for later in Ideas\./);
+  });
+});
+
+// --- 1.6 E: capture from anywhere (the Dump widget and control, a dump link) ----
+
+describe("capture from anywhere: Today", () => {
+  const withDump = (
+    overrides: Partial<AppState> = {},
+    extra: Record<string, unknown> = {},
+  ): MockStore =>
+    ({
+      ...makeStore(overrides),
+      dumpPrompt: { source: "widget" as const, nonce: 1 },
+      clearDumpPrompt: jest.fn(),
+      captureNotice: null,
+      clearCaptureNotice: jest.fn(),
+      ...extra,
+    }) as MockStore;
+
+  it("a dump request opens the brain dump on Today and is cleared once acted on", async () => {
+    mockStore = withDump({ tasks: tasks("Walk") });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+    expect((mockStore as unknown as { clearDumpPrompt: jest.Mock }).clearDumpPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("with no request, no brain dump opens by itself", async () => {
+    mockStore = withDump({ tasks: tasks("Walk") }, { dumpPrompt: null });
+    await render(<HomeScreen />);
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+  });
+
+  it("on a locked day it still opens, and every pick can only be saved for later", async () => {
+    mockStore = withDump({ ...SET, tasks: tasks("Walk", "Read", "Stretch") });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+    expect(screen.queryByTestId("brain-dump-notice")).toBeNull();
+    expect(mockStore.addTasks).not.toHaveBeenCalled();
+  });
+
+  it("not over the paywall (a purchase may be under way); the request is dropped, not held for later", async () => {
+    mockPaywall = { paywallSource: "brain_dump", entitlementActive: false };
+    mockStore = withDump({ tasks: tasks("Walk") });
+    const view = await render(<HomeScreen />);
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    expect((mockStore as unknown as { clearDumpPrompt: jest.Mock }).clearDumpPrompt).toHaveBeenCalledTimes(1);
+    // The paywall closing later doesn't conjure the sheet.
+    mockPaywall = { paywallSource: null, entitlementActive: false };
+    await view.rerender(<HomeScreen />);
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+  });
+
+  it("another sheet steps aside first: the Ideas sheet closes, then the brain dump follows after the swap delay", async () => {
+    mockStore = makeStore({ tasks: tasks("Walk") }) as MockStore;
+    const view = await render(<HomeScreen />);
+    await fireEvent.press(screen.getByTestId("need-ideas"));
+    expect(screen.getByTestId("ideas-sheet")).toBeOnTheScreen();
+
+    jest.useFakeTimers();
+    mockStore = withDump({ tasks: tasks("Walk") });
+    await view.rerender(<HomeScreen />);
+    expect(screen.queryByTestId("ideas-sheet")).toBeNull();
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    await act(async () => {
+      jest.advanceTimersByTime(SHEET_SWAP_DELAY_MS);
+    });
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+  });
+
+  it("a second request while the brain dump is open leaves it (and what's typed in it) alone", async () => {
+    mockStore = withDump({ tasks: tasks("Walk") });
+    const view = await render(<HomeScreen />);
+    await fireEvent.changeText(screen.getByLabelText("Brain dump text"), "half a thought");
+    mockStore = withDump({ tasks: tasks("Walk") }, { dumpPrompt: { source: "link" as const, nonce: 2 } });
+    await view.rerender(<HomeScreen />);
+    expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Brain dump text").props.value).toBe("half a thought");
+  });
+
+  it("captures saved for later are said once, in a toast (one thought, or the count), then cleared", async () => {
+    mockStore = withDump({ tasks: tasks("Walk") }, { dumpPrompt: null, captureNotice: { count: 1, nonce: 1 } });
+    const view = await render(<HomeScreen />);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Your captured thought is saved for later in Ideas\./);
+    expect((mockStore as unknown as { clearCaptureNotice: jest.Mock }).clearCaptureNotice).toHaveBeenCalledTimes(1);
+
+    mockStore = withDump({ tasks: tasks("Walk") }, { dumpPrompt: null, captureNotice: { count: 3, nonce: 2 } });
+    await view.rerender(<HomeScreen />);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/3 captured thoughts saved for later in Ideas\./);
+    // Nothing was added to today's three.
+    expect(mockStore.addTasks).not.toHaveBeenCalled();
+    expect(mockStore.addTask).not.toHaveBeenCalled();
   });
 });

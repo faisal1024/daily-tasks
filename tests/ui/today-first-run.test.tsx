@@ -127,6 +127,26 @@ async function openTodayBrainDump() {
   expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
 }
 
+describe("Today: first run vs a capture request (1.6 E)", () => {
+  it("a dump request over first run opens nothing (the first run stays; the request is cleared, not held)", async () => {
+    const clearDumpPrompt = jest.fn();
+    mockStore = makeStore({}, { dumpPrompt: { source: "widget", nonce: 1 }, clearDumpPrompt });
+    await render(<HomeScreen />);
+    expect(screen.getByTestId("first-run-dump")).toBeOnTheScreen();
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+    expect(clearDumpPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("first run ending later does not bring the dropped dump request back", async () => {
+    mockStore = makeStore({ hasSeenOnboarding: false }, { dumpPrompt: { source: "link", nonce: 1 }, clearDumpPrompt: jest.fn() });
+    const view = await render(<HomeScreen />);
+    // First run finishes later: the dropped request does not reappear.
+    mockStore = makeStore({ hasSeenOnboarding: true }, { dumpPrompt: null, clearDumpPrompt: jest.fn() });
+    await view.rerender(<HomeScreen />);
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
+  });
+});
+
 describe("Today: first run", () => {
   it("shows for a new user, not the old onboarding modal", async () => {
     mockStore = makeStore();
