@@ -4682,7 +4682,8 @@ describe("1.6 F: saved items with a date", () => {
     const sheet = within(screen.getByTestId("ideas-sheet"));
     const lead = within(sheet.getByTestId("due-today-ideas"));
     expect(order(lead)).toEqual(["Call mum"]);
-    expect(lead.getByTestId("parked-when-p3")).toHaveTextContent("For today");
+    // Under the "For today" header the item shows its label, not the reason again (re-review).
+    expect(lead.getByTestId("parked-when-p3")).toHaveTextContent(/^Today$/);
     expect(lead.getByRole("header")).toHaveTextContent("For today");
     // Not listed a second time below.
     expect(order(within(sheet.getByTestId("parked-ideas")))).toEqual(["Buy shoes", "Plain thing", "Old thing", "Passport"]);

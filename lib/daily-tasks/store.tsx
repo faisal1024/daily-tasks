@@ -75,6 +75,7 @@ import {
   type AiFailureKind,
 } from "./ai-status";
 import { autoLockEligibleTaskCount, scheduledAutoLockAt, shouldAutoLockToday } from "./locking";
+import { parseLocalWhen } from "./resurface";
 import {
   canTakeParkedTask,
   clearTaskSteps,
@@ -200,7 +201,7 @@ type Action =
   | { type: "hydrate"; state: AppState }
   | { type: "rollover"; today: string }
   | { type: "addTask"; text: string; today: string; routineId?: string; when?: TaskWhen }
-  | { type: "addTasks"; texts: string[]; today: string }
+  | { type: "addTasks"; texts: string[]; today: string; whens?: Record<string, TaskWhen> }
   | { type: "editTask"; id: TaskId; text: string; today: string }
   | { type: "deleteTask"; id: TaskId; today: string }
   | { type: "notToday"; id: TaskId; today: string; at: string }
@@ -370,6 +371,9 @@ function resetMilestonesIfGoalChanged(
   return { completedMilestoneIds: [], pendingMilestoneCelebration: null };
 }
 
+// Case- and space-insensitive, like Saved for later's own matching (1.6 F).
+const looseTextKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
 export function reducer(state: AppState, action: Action): AppState {
   const next = keepGoalPath(state, action, reduce(state, action));
   // Today changed under yesterday's card (a draft, a brain dump, setting the
@@ -524,7 +528,10 @@ function reduce(state: AppState, action: Action): AppState {
       // Only what the card offered: tasks already on the list, finished or
       // dropped were filtered out of it and must not come back as saved.
       const leftovers = action.shown.filter((text) => !action.tasks.includes(text));
-      const next = reducer(state, { type: "addTasks", texts: action.tasks, today: action.today });
+      // Saved items in the draft bring their soft dates along (1.6 F).
+      const whens: Record<string, TaskWhen> = {};
+      for (const item of state.parkedTasks) if (item.when) whens[looseTextKey(item.text)] = item.when;
+      const next = reducer(state, { type: "addTasks", texts: action.tasks, today: action.today, whens });
       // Ticked ones now on Today leave Saved for later (no copy in both).
       const added = next.tasks.slice(state.tasks.length).map((task) => task.text);
       const unparked = unparkTexts(next, added);
@@ -802,12 +809,16 @@ function reduce(state: AppState, action: Action): AppState {
           ...state,
           tasks: [
             ...state.tasks,
-            ...texts.map((text) => ({
-              id: makeId(),
-              text,
-              createdAt: new Date().toISOString(),
-              carriedOver: false,
-            })),
+            ...texts.map((text) => {
+              const when = action.whens?.[looseTextKey(text)];
+              return {
+                id: makeId(),
+                text,
+                createdAt: new Date().toISOString(),
+                carriedOver: false,
+                ...(when ? { when } : {}),
+              };
+            }),
           ],
           journey: registerShowedUp(state.journey, action.today),
         },
@@ -823,9 +834,11 @@ function reduce(state: AppState, action: Action): AppState {
           ...state,
           tasks: state.tasks.map((task) => {
             if (task.id !== action.id || task.text === text) return task;
-            // Steps were written for the old wording; drop them when it changes.
-            const { steps: _staleSteps, ...rest } = task;
-            return { ...rest, text };
+            // Steps (and the soft date, 1.6 F) were for the old wording; drop
+            // them when it changes. A date in the new words is read afresh.
+            const { steps: _staleSteps, when: _staleWhen, ...rest } = task;
+            const when = parseLocalWhen(text, action.today);
+            return when ? { ...rest, text, when } : { ...rest, text };
           }),
         },
         action.today,
@@ -851,7 +864,7 @@ function reduce(state: AppState, action: Action): AppState {
       // Off the list first: parkTasks skips anything still on today's list.
       const removed = { ...state, tasks: state.tasks.filter((item) => item.id !== action.id) };
       // Its date, if it came from Saved for later, goes back with it (1.6 F).
-      return syncTodayHistory(parkTasks(removed, [task.text], action.at, taskDates(task), { today: action.today }), action.today);
+      return syncTodayHistory(parkTasks(removed, [task.text], action.at, taskDates(task), { today: action.today, carried: true }), action.today);
     }
     case "toggleTask": {
       // Not one of today's tasks (e.g. it rolled over a moment ago): ignore,

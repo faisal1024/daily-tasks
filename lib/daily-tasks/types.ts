@@ -124,6 +124,8 @@ export interface DayTaskRecord {
   steps?: TaskStep[];
   /** Added from a routine (1.3): kept when carried so it isn't suggested twice. */
   routineId?: string;
+  /** The task's soft date (1.6 F), kept so a carried task keeps it. */
+  when?: TaskWhen;
 }
 
 export interface DayRecord {

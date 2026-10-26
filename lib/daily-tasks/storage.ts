@@ -32,6 +32,7 @@ import type {
   ReflectionResult,
   Task,
   TomorrowDraft,
+  TaskWhen,
   EveningCloseRecord,
   ParkedTask,
   TaskStep,
@@ -129,7 +130,14 @@ function normalizeDayTaskRecord(value: unknown): DayTaskRecord | null {
         : null,
     ...normalizeStepsField(value.steps),
     ...(typeof value.routineId === "string" && value.routineId ? { routineId: value.routineId } : {}),
+    ...withWhen(value.when),
   };
+}
+
+/** `{ when }` for a valid soft date (1.6 F), else nothing. */
+function withWhen(value: unknown): { when?: TaskWhen } {
+  const when = normalizeWhen(value);
+  return when ? { when } : {};
 }
 
 function normalizeDayRecord(date: string, value: unknown): DayRecord | null {

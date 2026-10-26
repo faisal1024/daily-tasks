@@ -210,8 +210,11 @@ export function IdeasSheet({
   };
 
   // One saved item: add (or swap in) and remove, with its date or "For today" under it.
-  const renderParked = (item: (typeof parked)[number]) => {
-    const detail = item.reason ?? item.label;
+  // Under the "For today" header the reason ("For today") would repeat it:
+  // the label instead ("Today", "By today", "Overdue"), which still opens
+  // Change day.
+  const renderParked = (item: (typeof parked)[number], underHeader = false) => {
+    const detail = underHeader ? item.label : (item.reason ?? item.label);
     const canChangeDay = Boolean(onSetParkedWhen && item.when && dayChoices.length > 0);
     const detailText = detail ? (
       <Text className="text-sm" style={{ color: colors.muted }} testID={`parked-when-${item.id}`}>
@@ -411,7 +414,7 @@ export function IdeasSheet({
               <Text accessibilityRole="header" className="text-sm font-semibold" style={{ color: colors.muted }}>
                 For today
               </Text>
-              {dueParked.map(renderParked)}
+              {dueParked.map((item) => renderParked(item, true))}
             </View>
           )}
 
@@ -613,7 +616,7 @@ export function IdeasSheet({
                   Saved for later
                 </Text>
               )}
-              {laterParked.map(renderParked)}
+              {laterParked.map((item) => renderParked(item))}
             </View>
           )}
 

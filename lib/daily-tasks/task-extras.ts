@@ -23,6 +23,13 @@ export interface ParkOptions {
    * set aside. Undefined entries are being saved today.
    */
   refDays?: (string | undefined)[];
+  /**
+   * `dates` are carried from a task going back to Saved for later (Not
+   * today, swapped out), not read by the AI: an entry is used as it is,
+   * never re-read from the words, and a missed deadline stays Overdue (and
+   * isn't dropped by the same-day rule either).
+   */
+  carried?: boolean;
 }
 
 /**
@@ -57,8 +64,14 @@ export function parkTasks(
     const refDay = options.refDays?.[index];
     const written = isDateKey(refDay) && today && refDay <= today ? refDay : null;
     let when: TaskWhen | null = null;
-    if (today) {
-      // The AI's (or a carried) date, if it isn't before the day it's read against; else the words.
+    const carried = options.carried ? normalizeWhen(dates?.[looseKey(text)]) : null;
+    if (today && carried) {
+      // A carried date: kept while it's ahead, or a deadline still Overdue; a
+      // plan set aside on its own day loses it (it was set aside).
+      when = normalizeWhen(carried, today) ?? (isOverdue(carried, today) ? carried : null);
+      if (when && when.kind === "on" && when.date === today) when = null;
+    } else if (today) {
+      // The AI's date, if it isn't before the day it's read against; else the words.
       const base = written ?? today;
       const read = normalizeWhen(dates?.[looseKey(text)], base) ?? parseLocalWhen(text, base);
       when = normalizeWhen(read, today);
@@ -112,7 +125,7 @@ export function swapParkedTask(
   tasks[index] = { id: input.newId, text, createdAt: input.now, carriedOver: false, ...(parked.when ? { when: parked.when } : {}) };
   const swapped = { ...removeParkedTask(state, parked.id), tasks };
   // The task that left is saved for later (parkTasks skips what's still on today).
-  return parkTasks(swapped, [out.text], input.now, taskDates(out), { today: input.today });
+  return parkTasks(swapped, [out.text], input.now, taskDates(out), { today: input.today, carried: true });
 }
 
 /** A task's carried date (1.6 F) in parkTasks' `dates` form, if it has one. */

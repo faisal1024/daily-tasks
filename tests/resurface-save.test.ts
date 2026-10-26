@@ -258,3 +258,48 @@ describe("setParkedWhen (Change day / No date)", () => {
     expect(setParkedWhen(state, "p", { date: "2026-02-30", kind: "on" }).parkedTasks[0]).not.toHaveProperty("when");
   });
 });
+
+// --- Re-review fixes (PR #107) -------------------------------------------------
+
+describe("parkTasks: carried dates (Not today, swapped out)", () => {
+  const SAT = "2026-10-31";
+  const satState = () => ({ ...dayState(SAT), lastOpenedDate: SAT });
+  const carry = (text: string, when: TaskWhen, today = SAT) =>
+    parkTasks(satState(), [text], NOW, { [text.toLowerCase()]: when }, { today, carried: true }).parkedTasks[0];
+
+  it("an overdue deadline stays Overdue, not re-read from its words as next week's day", () => {
+    const parked = carry("Pay rent by Friday", { date: "2026-10-30", kind: "by" });
+    expect(parked.when).toEqual({ date: "2026-10-30", kind: "by" });
+    expect(savedItemsView([{ id: "x", text: "Other", parkedAt: "" }, parked], SAT)[0]).toMatchObject({
+      text: "Pay rent by Friday",
+      reason: "Overdue",
+    });
+  });
+
+  it("a deadline set aside on its own day keeps its date (so it can become Overdue)", () => {
+    expect(carry("Pay rent", { date: SAT, kind: "by" }).when).toEqual({ date: SAT, kind: "by" });
+  });
+
+  it("a plan set aside on its own day, or one long past, loses it; a future one keeps it", () => {
+    expect(carry("Deck", { date: SAT, kind: "on" })).not.toHaveProperty("when");
+    expect(carry("Deck", { date: "2026-10-20", kind: "on" })).not.toHaveProperty("when");
+    expect(carry("Deck", { date: "2026-10-01", kind: "by" })).not.toHaveProperty("when");
+    expect(carry("Deck", { date: "2026-11-03", kind: "on" }).when).toEqual({ date: "2026-11-03", kind: "on" });
+  });
+
+  it("never falls back to the words for a carried item", () => {
+    expect(carry("Call mum tomorrow", { date: "2026-10-20", kind: "on" })).not.toHaveProperty("when");
+  });
+
+  it("swapped out on the day a deadline was due, it keeps that date", () => {
+    let state = dayState(SAT, ["Walk", "Read", "Stretch"]);
+    state = {
+      ...state,
+      lastOpenedDate: SAT,
+      tasks: state.tasks.map((t, i) => (i === 0 ? { ...t, text: "Pay rent", when: { date: SAT, kind: "by" as const } } : t)),
+      parkedTasks: [{ id: "q", text: "Other", parkedAt: "" }],
+    };
+    state = swapParkedTask(state, { parkedId: "q", taskId: "t0", now: NOW, newId: "m", today: SAT });
+    expect(state.parkedTasks.find((p) => p.text === "Pay rent")?.when).toEqual({ date: SAT, kind: "by" });
+  });
+});
