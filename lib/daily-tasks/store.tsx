@@ -217,6 +217,7 @@ import type {
   TaskId,
   TaskWhen,
 } from "./types";
+import { withSavedDateTip } from "./saved-date-tip";
 import { DEFAULT_NOTIFICATIONS, MAX_PARKED_TASKS, MAX_TASKS } from "./types";
 
 type Action =
@@ -249,6 +250,8 @@ type Action =
   | { type: "setAutoLockTime"; hour: number; minute: number }
   | { type: "markOnboardingSeen" }
   | { type: "markReorderHintSeen" }
+  | { type: "dismissSavedDateTip" }
+  | { type: "noteCaptured" }
   | { type: "markWhatsNewSeen"; ids: string[] }
   | { type: "completeMomentumOnboarding"; profile: MomentumProfile }
   | { type: "updateMomentumProfile"; profile: MomentumProfile }
@@ -428,7 +431,8 @@ export function reducer(state: AppState, action: Action): AppState {
     next.pendingRollover && (next.tasks !== state.tasks || next.todayLocked !== state.todayLocked)
       ? settlePendingRollover(next)
       : next;
-  return keepFocusSession(settled);
+  // A dated item saved for later (from anywhere): the "add a day" tip is done.
+  return withSavedDateTip(keepFocusSession(settled));
 }
 
 /**
@@ -697,6 +701,9 @@ function reduce(state: AppState, action: Action): AppState {
       });
     case "parkCaptures":
       return parkCapturedTexts(state, action.texts, action.at, action.refDays);
+    case "noteCaptured":
+      // The share sheet or Siri was used (1.6): the new install's capture card isn't needed.
+      return state.capturedEver ? state : { ...state, capturedEver: true };
     case "setParkedWhen":
       return setParkedWhen(state, action.id, action.when);
     case "removeParkedTask":
@@ -1110,6 +1117,8 @@ function reduce(state: AppState, action: Action): AppState {
       return { ...state, hasSeenOnboarding: true, whatsNewSeen: withWhatsNewSeen(state.whatsNewSeen, allAnnouncementIds()) };
     case "markReorderHintSeen":
       return state.reorderHintSeen ? state : { ...state, reorderHintSeen: true };
+    case "dismissSavedDateTip":
+      return state.savedDateTipDone ? state : { ...state, savedDateTipDone: true };
     case "markWhatsNewSeen": {
       const whatsNewSeen = withWhatsNewSeen(state.whatsNewSeen, action.ids);
       return whatsNewSeen === state.whatsNewSeen ? state : { ...state, whatsNewSeen };
@@ -1368,6 +1377,8 @@ interface StoreContextValue {
   markOnboardingSeen: () => void;
   /** The one-time reorder hint under Today's card was shown (1.4). */
   markReorderHintSeen: () => void;
+  /** Saved for later's "add a day" tip was closed (1.6). */
+  dismissSavedDateTip: () => void;
   /** These "What's new" announcements were shown (or aren't needed): never again (1.4). */
   markWhatsNewSeen: (ids: string[]) => void;
   completeMomentumOnboarding: (profile: MomentumProfile) => void;
@@ -2287,6 +2298,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const markReorderHintSeen = useCallback(() => {
     dispatch({ type: "markReorderHintSeen" });
   }, []);
+  const dismissSavedDateTip = useCallback(() => {
+    dispatch({ type: "dismissSavedDateTip" });
+  }, []);
   const markWhatsNewSeen = useCallback((ids: string[]) => {
     dispatch({ type: "markWhatsNewSeen", ids });
   }, []);
@@ -3009,6 +3023,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     try {
       const { items, junk } = parseCaptureFiles(files);
       junk.forEach((name) => deleteCaptureFile(name));
+      // Something was captured, whether or not it's saved now (Saved for later
+      // full, or already there): the share sheet or Siri has been used.
+      if (items.length > 0) dispatch({ type: "noteCaptured" });
       const before = stateRef.current;
       const plan = planCaptureImport(before, items, MAX_PARKED_TASKS);
       const texts = plan.save.map((item) => item.text);
@@ -3124,6 +3141,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAutoLockTime,
       markOnboardingSeen,
       markReorderHintSeen,
+      dismissSavedDateTip,
       markWhatsNewSeen,
       completeMomentumOnboarding,
       updateMomentumProfile,
@@ -3231,6 +3249,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setAutoLockTime,
       markOnboardingSeen,
       markReorderHintSeen,
+      dismissSavedDateTip,
       markWhatsNewSeen,
       completeMomentumOnboarding,
       updateMomentumProfile,

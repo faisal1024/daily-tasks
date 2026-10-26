@@ -3,6 +3,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Linking,
+  type LayoutChangeEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -13,6 +14,7 @@ import {
 } from "react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
+import { useReducedMotion } from "react-native-reanimated";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { ChoiceChips } from "@/components/daily-tasks/choice-chips";
@@ -51,6 +53,12 @@ import {
 import { NAG_LEVEL_COUNT_NOTE, nagLevelRudeNote } from "@/lib/daily-tasks/nag-copy";
 import { loadFirstDays } from "@/lib/daily-tasks/first-days";
 import { sundayResetOf } from "@/lib/daily-tasks/sunday-reset";
+import {
+  settingsSectionOffset,
+  subscribeSettingsFocus,
+  takeSettingsFocus,
+  type SettingsFocusTarget,
+} from "@/lib/daily-tasks/settings-focus";
 import { NAG_ANNOUNCEMENT_ID, NAG_FIRST_DAYS_ID, NAG_INTRO_SETTINGS_ROW } from "@/lib/daily-tasks/whats-new";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -315,10 +323,10 @@ export default function SettingsScreen() {
     requestNag();
   };
 
-  // "What is Nag mode?": the sheet people updating to 1.4 were shown, again.
+  // "What is Nag mode?": the "Meet Nag mode" sheet, again.
   const [nagIntroOpen, setNagIntroOpen] = useState(false);
-  // A 1.5 D install (its first run wrote the Nag intro's record): the sheet
-  // isn't news to them, so no "New in 1.4" (1.5 D). Read before it opens.
+  // A 1.5 D install (its first run wrote the Nag intro's record): its events
+  // carry the first days' id, not 1.4's announcement. Read before it opens.
   const [nagIntroFresh, setNagIntroFresh] = useState(false);
   const openNagIntro = () => {
     void loadFirstDays().then((record) => {
@@ -334,6 +342,42 @@ export default function SettingsScreen() {
     },
     [],
   );
+  // A place to bring into view, asked for by What's new (1.6): "Write your
+  // lines" (Nag's own lines) or "See what it remembers" (coach memory). Taken
+  // as Settings mounts or while it's up; once laid out, it scrolls there and
+  // VoiceOver moves to its header. Offsets come from onLayout (each y is in
+  // its parent, so a nested section adds up its parents'): measureLayout
+  // against a node number is ignored on the New Architecture.
+  const scrollRef = useRef<ScrollView>(null);
+  const ownLinesHeaderRef = useRef<Text>(null);
+  const coachMemoryHeaderRef = useRef<View>(null);
+  const layoutY = useRef<{ reminders?: number; nagCard?: number; ownLines?: number; coachMemory?: number }>({});
+  const onLayoutY = (key: keyof typeof layoutY.current) => (event: LayoutChangeEvent) => {
+    layoutY.current[key] = event.nativeEvent.layout.y;
+  };
+  const reduceMotion = useReducedMotion();
+  const [focusTarget, setFocusTarget] = useState<SettingsFocusTarget | null>(() => takeSettingsFocus());
+  useEffect(
+    () =>
+      subscribeSettingsFocus(() => {
+        const target = takeSettingsFocus();
+        if (target) setFocusTarget(target);
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (!focusTarget) return;
+    const timer = setTimeout(() => {
+      setFocusTarget(null);
+      const header = focusTarget === "coach-memory" ? coachMemoryHeaderRef.current : ownLinesHeaderRef.current;
+      const y = settingsSectionOffset(focusTarget, layoutY.current);
+      // Not laid out yet: Settings stays where it is (VoiceOver still moves).
+      if (y !== null) scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: !reduceMotion });
+      if (header) AccessibilityInfo.sendAccessibilityEvent(header, "focus");
+    }, SHEET_SWAP_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [focusTarget, reduceMotion]);
+
   const closeNagIntro = () => {
     setNagIntroOpen(false);
     // VoiceOver goes back to the row that opened it (gone once Nag is on).
@@ -480,6 +524,7 @@ export default function SettingsScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
       <ScrollView
+        ref={scrollRef}
         // Readable width on iPad.
         contentContainerStyle={{
           padding: 24,
@@ -662,7 +707,9 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        <CoachMemorySection />
+        <View onLayout={onLayoutY("coachMemory")} testID="settings-coach-memory-place">
+          <CoachMemorySection headerRef={coachMemoryHeaderRef} />
+        </View>
 
         <Section
           icon="options-outline"
@@ -863,6 +910,8 @@ export default function SettingsScreen() {
           icon="notifications-outline"
           title="Reminders"
           subtitle="Smart, local nudges that react to Today's Three."
+          onLayout={onLayoutY("reminders")}
+          testID="settings-reminders"
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-4">
             <View className="flex-row items-center justify-between gap-4">
@@ -955,7 +1004,11 @@ export default function SettingsScreen() {
           ) : null}
 
           {nagActive ? (
-            <View className="bg-surface rounded-2xl p-4 border border-border gap-4" testID="settings-nag">
+            <View
+              className="bg-surface rounded-2xl p-4 border border-border gap-4"
+              testID="settings-nag"
+              onLayout={onLayoutY("nagCard")}
+            >
               <View className="gap-2">
                 <Text className="text-sm font-semibold text-foreground">Voice</Text>
                 <ChoiceChips
@@ -1014,7 +1067,9 @@ export default function SettingsScreen() {
                   </Text>
                 </Pressable>
               </View>
-              <NagOwnLines />
+              <View onLayout={onLayoutY("ownLines")} testID="settings-nag-own-lines-place">
+                <NagOwnLines headerRef={ownLinesHeaderRef} />
+              </View>
               <View className="gap-3">
                 <Pressable
                   onPress={() => setNagHoursOpen(!nagHoursOpen)}
@@ -1357,15 +1412,19 @@ function Section({
   title,
   subtitle,
   children,
+  onLayout,
+  testID,
 }: {
   icon?: React.ComponentProps<typeof Ionicons>["name"];
   title: string;
   subtitle?: string;
   children: React.ReactNode;
+  onLayout?: (event: LayoutChangeEvent) => void;
+  testID?: string;
 }) {
   const colors = useColors();
   return (
-    <View className="gap-3">
+    <View className="gap-3" onLayout={onLayout} testID={testID}>
       <View className="gap-1.5">
         <SectionLabel icon={icon} label={title} />
         {subtitle && (

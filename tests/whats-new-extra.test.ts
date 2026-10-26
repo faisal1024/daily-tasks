@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
-import { NAG_ANNOUNCEMENT_ID, whatsNewDecision } from "../lib/daily-tasks/whats-new";
+import { FEATURES_16_ID, NAG_ANNOUNCEMENT_ID, whatsNewDecision } from "../lib/daily-tasks/whats-new";
 
 const saved = (whatsNewSeen: unknown) =>
   JSON.parse(JSON.stringify({ ...buildInitialState(new Date(2026, 9, 12)), hasSeenOnboarding: true, whatsNewSeen }));
@@ -13,7 +13,8 @@ describe("whatsNewSeen as the state loads", () => {
   it("a damaged list is cleaned on load: only well-formed ids, each once", () => {
     const loaded = normalizeState(saved([NAG_ANNOUNCEMENT_ID, 7, null, NAG_ANNOUNCEMENT_ID, "has space", { id: "x" }]))!;
     expect(loaded.whatsNewSeen).toEqual([NAG_ANNOUNCEMENT_ID]);
-    expect(whatsNewDecision(loaded).show).toBeNull();
+    // 1.4's is seen; 1.6's is still to come.
+    expect(whatsNewDecision(loaded).show?.id).toBe(FEATURES_16_ID);
   });
 
   it.each([
@@ -25,7 +26,8 @@ describe("whatsNewSeen as the state loads", () => {
   ])("%s is none seen (never 'seen' by accident), and the rule still runs", (_name, value) => {
     const loaded = normalizeState(saved(value))!;
     expect(loaded.whatsNewSeen).toEqual([]);
-    expect(whatsNewDecision(loaded).show?.id).toBe(NAG_ANNOUNCEMENT_ID);
+    // An updater: 1.6's sheet (it covers 1.4's Nag mode).
+    expect(whatsNewDecision(loaded).show?.id).toBe(FEATURES_16_ID);
   });
 
   it("a text someone could have typed is never kept as an id", () => {

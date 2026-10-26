@@ -55,6 +55,9 @@ const FIRST_RUN_RECORD = {
   nagCardUntil: TOMORROW,
   nagIntro: "waiting",
   nagIntroOpen: expect.any(String),
+  // 1.6: "Save for later from anywhere", from the third day of use.
+  openDays: [expect.any(String)],
+  captureCard: "waiting",
 };
 const originalOS = Platform.OS;
 

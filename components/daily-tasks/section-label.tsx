@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import { Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -8,6 +9,8 @@ interface SectionLabelProps {
   /** Leading icon (Ionicons name) shown inside the chip. */
   icon?: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
+  /** For moving VoiceOver to it (Settings, from What's new). */
+  viewRef?: Ref<View>;
 }
 
 /**
@@ -15,10 +18,11 @@ interface SectionLabelProps {
  * not stretch full width). Icons, not emoji: emoji are read aloud by VoiceOver
  * and look out of place in native UI.
  */
-export function SectionLabel({ icon, label }: SectionLabelProps) {
+export function SectionLabel({ icon, label, viewRef }: SectionLabelProps) {
   const colors = useColors();
   return (
     <View
+      ref={viewRef}
       className="self-start flex-row items-center gap-2 rounded-2xl px-3.5 py-2"
       style={{ backgroundColor: `${colors.primary}16` }}
       // One accessible element with the header trait (so it's in the

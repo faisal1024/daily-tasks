@@ -23,17 +23,32 @@ export interface Announcement {
    * announcement is marked seen without being shown.
    */
   alreadyUsing?: (state: WhatsNewState) => boolean;
+  /**
+   * Older announcements this one covers (1.6 covers 1.4's Nag mode): in a
+   * build that has this one they are never shown, only marked seen quietly.
+   */
+  supersedes?: readonly string[];
 }
 
 export const NAG_ANNOUNCEMENT_ID = "1.4-nag";
+/** 1.6's sheet (whats-new-16.ts): Save for later, own nag lines, Sunday reset, coach memory, nag buttons. */
+export const FEATURES_16_ID = "1.6-features";
 
-const RELEASED: readonly Announcement[] = [
-  {
-    id: NAG_ANNOUNCEMENT_ID,
-    // A saved Nag style, with or without Plus right now: they chose it once.
-    alreadyUsing: (state) => state.notifications.style === "nag",
-  },
-];
+/** The 1.4 announcement on its own (its tests run with just this one). */
+export const NAG_ANNOUNCEMENT: Announcement = {
+  id: NAG_ANNOUNCEMENT_ID,
+  // A saved Nag style, with or without Plus right now: they chose it once.
+  alreadyUsing: (state) => state.notifications.style === "nag",
+};
+
+export const FEATURES_16_ANNOUNCEMENT: Announcement = {
+  id: FEATURES_16_ID,
+  // 1.6 has a Nag card of its own, so someone updating from before 1.4 sees one sheet, not two.
+  // (1.5 shipped inside 1.6 and had no announcement of its own; its coach memory is a 1.6 card.)
+  supersedes: [NAG_ANNOUNCEMENT_ID],
+};
+
+const RELEASED: readonly Announcement[] = [NAG_ANNOUNCEMENT, FEATURES_16_ANNOUNCEMENT];
 
 let announcements: readonly Announcement[] = RELEASED;
 
@@ -78,7 +93,8 @@ export interface WhatsNewDecision {
  * Who sees what. Nothing before first run has finished (it marks every
  * current announcement seen when it does, so a new install has none left).
  * After that: each announcement not in `whatsNewSeen`, oldest first, unless
- * its feature is already in use.
+ * its feature is already in use, or a newer one in this build supersedes it
+ * (both of those are marked seen quietly instead).
  */
 export function whatsNewDecision(
   state: WhatsNewState,
@@ -87,9 +103,11 @@ export function whatsNewDecision(
   if (!state.hasSeenOnboarding) return { show: null, skip: [] };
   const skip: string[] = [];
   let show: Announcement | null = null;
-  for (const announcement of list) {
-    if (state.whatsNewSeen.includes(announcement.id)) continue;
-    if (announcement.alreadyUsing?.(state)) skip.push(announcement.id);
+  const unseen = list.filter((announcement) => !state.whatsNewSeen.includes(announcement.id));
+  // Covered by a newer one in this build (seen or not): never shown on its own.
+  const superseded = new Set(list.flatMap((announcement) => announcement.supersedes ?? []));
+  for (const announcement of unseen) {
+    if (superseded.has(announcement.id) || announcement.alreadyUsing?.(state)) skip.push(announcement.id);
     else if (!show) show = announcement;
   }
   return { show, skip };
@@ -179,18 +197,27 @@ export function whatsNewActivity(tasks: readonly { id: string; text: string }[],
 // The Nag mode announcement
 // ---------------------------------------------------------------------------
 
-/** The sheet's words. Plain, no em dashes; nothing about the AI beyond the turn-on question. */
+/**
+ * The sheet's words. Plain, no em dashes; nothing about the AI beyond the
+ * turn-on question. From 1.6 its points say what nags do now (they fit the
+ * task, the Snooze and Mark done buttons, your own lines), and it has no
+ * "New in 1.4" label or "Also new" line: 1.6's What's new supersedes the 1.4
+ * announcement, so the sheet is only ever an introduction now.
+ */
 export const NAG_INTRO_COPY = {
-  label: "New in 1.4",
   title: "Meet Nag mode",
   lede: "Reminders with a personality. Pick who nags you and how hard.",
   voice: "Voice",
   level: "Level",
   another: "Show another",
   points: [
-    { icon: "shuffle-outline", text: "Random times, at most one an hour." },
-    { icon: "trending-up-outline", text: "Gets pushier while your tasks stay open." },
-    { icon: "moon-outline", text: "One tap stops it for the day. It stays quiet during Do Not Disturb and Focus." },
+    {
+      icon: "trending-up-outline",
+      text: "Random times. Gets pushier while your tasks stay open, and always about the task in front of you.",
+    },
+    // The nag buttons' own names (notifications.ts).
+    { icon: "hand-left-outline", text: "Long-press a nag to Snooze 1 hour or Mark done." },
+    { icon: "create-outline", text: "With Plus, write your own lines: “{task}. Now. I mean it.” becomes “Gym. Now. I mean it.”" },
   ],
   /** Without Plus, directly above the main button. */
   plus: "Nag mode is part of Plus. Calm reminders stay free.",
@@ -199,7 +226,8 @@ export const NAG_INTRO_COPY = {
   primaryFree: "See Plus",
   primaryFreeHint: "Shows what Plus includes",
   secondary: "Not now",
-  footer: "Also new: drag to reorder your three, reminders that name your tasks, and ideas for your next milestone.",
+  /** Under the points: the nag's own stop button (1.6 G's name for it) and the quiet times. */
+  footer: "“No more nags today” on a nag stops it until tomorrow. It stays quiet during Do Not Disturb and Focus.",
   close: "Close",
 } as const;
 

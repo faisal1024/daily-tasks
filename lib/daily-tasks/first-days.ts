@@ -1,6 +1,7 @@
 // The two Today cards that used to be first-run screens (1.5): "Want a nudge
 // in the morning?" from the first check-off (or the next day), and the widget
-// tip from the app open after the first finished day. First run itself is now three screens: brain dump → "Here are
+// tip from the app open after the first finished day. 1.5 D added the Nag
+// card, and 1.6 "Save for later from anywhere" (around day three). First run itself is now three screens: brain dump → "Here are
 // your three" → Today.
 //
 // Kept in its own key (like the trial note), written when first run ends, so
@@ -66,6 +67,34 @@ export const NUDGE_MAX_DECLINES = 2;
  */
 export type WidgetTipState = "waiting" | "earned" | "due" | "done";
 
+/**
+ * 1.6 "Save for later from anywhere": "waiting" until it may show, "shown"
+ * on the one day it showed (`captureCardOn`), "done" once "Got it" is tapped
+ * or that day has passed. It shows once.
+ */
+export type CaptureCardState = "waiting" | "shown" | "done";
+/** It waits until the app was opened on this many earlier days (so the third day of use at the soonest)... */
+export const CAPTURE_CARD_EARLIER_DAYS = 2;
+/** ...and remembers no more open days than it needs. */
+const MAX_OPEN_DAYS = CAPTURE_CARD_EARLIER_DAYS + 1;
+
+/** The widget tip's words (1.6: it names the Dump widget too). */
+export function widgetTipCopy(appName: string): { title: string; body: string } {
+  return {
+    title: "Keep your three on your Home Screen",
+    body: `Touch and hold an empty spot on your Home Screen, tap Edit, then Add Widget, and search for ${appName}. The Dump widget is a button that opens a brain dump.`,
+  };
+}
+
+/** The 1.6 card's words. Its "How it works" opens the same steps as What's new's first card. */
+export const CAPTURE_CARD_COPY = {
+  title: "Save for later from anywhere",
+  body: "Share from any app, or tell Siri “Save for later in Three Today”. It waits in Ideas, never on today's three.",
+  showMe: "How it works",
+  hide: "Hide",
+  gotIt: "Got it",
+} as const;
+
 export interface FirstDaysRecord {
   /**
    * Date key (YYYY-MM-DD) from which the nudge card may show; null once it's
@@ -93,6 +122,15 @@ export interface FirstDaysRecord {
   nagIntro?: NagIntroState;
   /** While "waiting": the open first run ended in (see currentOpen). */
   nagIntroOpen?: string;
+  /**
+   * 1.6: the days (YYYY-MM-DD) the app was opened on, oldest first, the last
+   * few only. Absent (a record from before 1.6): no capture card.
+   */
+  openDays?: string[];
+  /** 1.6: see CaptureCardState. Absent: no capture card. */
+  captureCard?: CaptureCardState;
+  /** The day the capture card showed: no other first-days card that day. */
+  captureCardOn?: string;
 }
 
 /**
@@ -111,7 +149,61 @@ export function startFirstDays(today: string, open: string = currentOpen()): Fir
     nagCardUntil: addDays(today, NAG_CARD_DAYS - 1),
     nagIntro: "waiting",
     nagIntroOpen: open,
+    // 1.6: "Save for later from anywhere", from the third day of use.
+    openDays: [today],
+    captureCard: "waiting",
   };
+}
+
+/** The app was opened on `today` (kept only while the capture card may still need it). */
+export function noteOpenDay(record: FirstDaysRecord, today: string): FirstDaysRecord {
+  if (!record.openDays || record.captureCard !== "waiting" || record.openDays.includes(today)) return record;
+  return { ...record, openDays: [...record.openDays, today].sort().slice(-MAX_OPEN_DAYS) };
+}
+
+/**
+ * "Save for later from anywhere" (1.6) shows: while waiting, once the app was
+ * opened on two earlier days and something has been ticked (ever), not when
+ * the user has already saved something from the share sheet or Siri, not
+ * while another card shows, and never on a day another first-days card
+ * showed (`shownToday`: the days each card was last shown). Once it has
+ * shown, only for the rest of that day.
+ */
+export function shouldShowCaptureCard(input: {
+  record: FirstDaysRecord | null;
+  today: string;
+  tickedEver: boolean;
+  capturedEver: boolean;
+  otherShowing: boolean;
+  shownToday: Partial<Record<FirstDaysCardKind, string>>;
+}): boolean {
+  const { record, today } = input;
+  if (!record || input.otherShowing || input.capturedEver) return false;
+  if (record.captureCard === "shown") return record.captureCardOn === today;
+  if (record.captureCard !== "waiting" || !input.tickedEver) return false;
+  const others = (["nudge", "nag", "widget"] as const).some((kind) => input.shownToday[kind] === today);
+  if (others) return false;
+  const earlier = (record.openDays ?? []).filter((day) => day < today);
+  return earlier.length >= CAPTURE_CARD_EARLIER_DAYS;
+}
+
+/** It came up today: it shows for the rest of today only. */
+export function markCaptureCardShown(record: FirstDaysRecord, today: string): FirstDaysRecord {
+  if (record.captureCard !== "waiting") return record;
+  const { openDays, ...rest } = record;
+  return { ...rest, captureCard: "shown", captureCardOn: today };
+}
+
+/** "Got it", or the day it showed has passed: never again (the day is kept, for the one-card-a-day rule). */
+export function finishCaptureCard(record: FirstDaysRecord): FirstDaysRecord {
+  if (record.captureCard === "done" || record.captureCard === undefined) return record;
+  const { openDays, ...rest } = record;
+  return { ...rest, captureCard: "done" };
+}
+
+/** The capture card showed today: the other cards wait for another day. */
+export function captureCardShownOn(record: FirstDaysRecord | null, today: string): boolean {
+  return Boolean(record && record.captureCard !== undefined && record.captureCard !== "waiting" && record.captureCardOn === today);
 }
 
 /**
@@ -193,7 +285,13 @@ export function openFirstDays(
   record: FirstDaysRecord,
   at: { launch?: string; today?: string; open?: string } = {},
 ): FirstDaysRecord {
-  const withNag = openNagIntro(record, at.open ?? currentOpen());
+  const withDay = at.today ? noteOpenDay(record, at.today) : record;
+  // Shown on an earlier day and not tapped: it showed once, and that's it.
+  const withCapture =
+    withDay.captureCard === "shown" && at.today && withDay.captureCardOn !== at.today
+      ? finishCaptureCard(withDay)
+      : withDay;
+  const withNag = openNagIntro(withCapture, at.open ?? currentOpen());
   if (withNag.widgetTip !== "earned") return withNag;
   const launch = at.launch ?? currentLaunch();
   const laterDay = Boolean(at.today && withNag.earnedOn && at.today > withNag.earnedOn);
@@ -311,11 +409,36 @@ function normalizeRecord(value: unknown): FirstDaysRecord | null {
       else record.nagIntro = "due";
     }
   }
+  // 1.6, only when saved (a record from before has none: no capture card).
+  if ("captureCard" in v) {
+    record.captureCard = v.captureCard === "waiting" || v.captureCard === "shown" ? v.captureCard : "done";
+    if (typeof v.captureCardOn === "string" && DATE_KEY.test(v.captureCardOn)) record.captureCardOn = v.captureCardOn;
+    else if (record.captureCard === "shown") record.captureCard = "done";
+    if (record.captureCard === "waiting") {
+      record.openDays = Array.isArray(v.openDays)
+        ? [...new Set(v.openDays.filter((day): day is string => typeof day === "string" && DATE_KEY.test(day)))]
+            .sort()
+            .slice(-MAX_OPEN_DAYS)
+        : [];
+    }
+  }
   return record;
 }
 
-export type FirstDaysCardKind = "nudge" | "nag" | "widget";
-type ShownDays = Partial<Record<FirstDaysCardKind, string>>;
+export type FirstDaysCardKind = "nudge" | "nag" | "widget" | "capture";
+export type ShownDays = Partial<Record<FirstDaysCardKind, string>>;
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The day each card was last shown (claimShownToday's record); empty when unreadable. */
+export async function loadShownDays(): Promise<ShownDays> {
+  try {
+    const raw = await AsyncStorage.getItem(FIRST_DAYS_SHOWN_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as ShownDays) : {};
+  } catch {
+    return {};
+  }
+}
 
 /**
  * True the first time `kind` is shown on `today` (and records it), so the

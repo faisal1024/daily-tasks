@@ -29,6 +29,7 @@ import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/sto
 import { DEFAULT_AUTO_LOCK, DEFAULT_NOTIFICATIONS, type AppState, type Task } from "@/lib/daily-tasks/types";
 import {
   __setAnnouncementsForTests,
+  NAG_ANNOUNCEMENT,
   todayIdleForWhatsNew,
   WHATS_NEW_DELAY_MS,
   WHATS_NEW_RETRY_MS,
@@ -138,8 +139,10 @@ const realCurrentState = appState.currentState;
 beforeEach(async () => {
   jest.useFakeTimers({ now: START });
   jest.clearAllMocks();
-  // The released announcements (the suite's setup turns them off for everyone else).
-  __setAnnouncementsForTests(null);
+  // 1.4's announcement on its own, as 1.4 and 1.5 shipped it (1.6's, which
+  // supersedes it, is tests/ui/whats-new-16.test.tsx). The suite's setup turns
+  // announcements off for everyone else.
+  __setAnnouncementsForTests([NAG_ANNOUNCEMENT]);
   mockPlus = { ...PLUS };
   mockWindow = PHONE;
   mockOpenPaywall.mockImplementation(() => true);

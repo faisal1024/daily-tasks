@@ -555,6 +555,9 @@ export function normalizeState(value: unknown): AppState | null {
     reorderHintSeen: value.reorderHintSeen === true,
     // Saved before 1.4: none seen, so someone updating is shown what's new once.
     whatsNewSeen: normalizeWhatsNewSeen(value.whatsNewSeen),
+    // Saved before 1.6: not done (unless something saved already has a day; see withSavedDateTip).
+    savedDateTipDone: value.savedDateTipDone === true,
+    capturedEver: value.capturedEver === true,
     todayReflection:
       typeof value.todayReflection === "string" ? value.todayReflection : null,
     todayReflectionResult: normalizeReflectionResult(value.todayReflectionResult),
@@ -769,6 +772,8 @@ export function buildInitialState(now: Date = new Date()): AppState {
     reorderHintSeen: false,
     // A new install: first run marks every current announcement seen when it ends.
     whatsNewSeen: [],
+    savedDateTipDone: false,
+    capturedEver: false,
     todayReflection: null,
     todayReflectionResult: null,
     momentumProfile: DEFAULT_MOMENTUM_PROFILE,

@@ -36,6 +36,7 @@ import {
 import { CelebrationOverlay } from "@/components/daily-tasks/celebration-overlay";
 import { IdeasSheet, type IdeaItem } from "@/components/daily-tasks/ideas-sheet";
 import { NagIntro } from "@/components/daily-tasks/nag-intro";
+import { WhatsNew16Sheet } from "@/components/daily-tasks/whats-new-16-sheet";
 import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
 import { NextPathLink } from "@/components/daily-tasks/next-path-link";
 import { FirstRun } from "@/components/daily-tasks/first-run";
@@ -160,6 +161,7 @@ import {
   welcomeBackLine,
 } from "@/lib/daily-tasks/welcome-back";
 import {
+  FEATURES_16_ID,
   NAG_ANNOUNCEMENT_ID,
   NAG_FIRST_DAYS_ID,
   NAG_ON_TOAST,
@@ -167,6 +169,10 @@ import {
   whatsNewActivity,
   whatsNewMoment,
 } from "@/lib/daily-tasks/whats-new";
+import { TRY_NAG_16_ID, whatsNew16Cards, type WhatsNew16Action } from "@/lib/daily-tasks/whats-new-16";
+import { isSunday } from "@/lib/daily-tasks/sunday-reset";
+import { requestSettingsFocus } from "@/lib/daily-tasks/settings-focus";
+import { showSavedDateTip } from "@/lib/daily-tasks/saved-date-tip";
 import {
   buildEveningInput,
   closeDay,
@@ -228,6 +234,7 @@ export default function HomeScreen() {
     resolveRollover,
     markOnboardingSeen,
     markReorderHintSeen,
+    dismissSavedDateTip,
     requestNotificationPermission,
     notificationPermission,
     setNotificationsEnabled,
@@ -873,6 +880,16 @@ export default function HomeScreen() {
   const tickedEarlier = useMemo(() => tickedBefore(state.history, today), [state.history, today]);
   // "Meet Nag mode" opened from a new install's Nag card (1.5 D).
   const [nagCardOpen, setNagCardOpen] = useState(false);
+  // "Meet Nag mode" from 1.6's What's new ("Try Nag mode"): the same sheet, not worded as 1.4's news.
+  const [nagFrom16Open, setNagFrom16Open] = useState(false);
+  // A 1.6 card's button, waiting for the What's new sheet to animate away.
+  const whatsNew16Timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (whatsNew16Timer.current) clearTimeout(whatsNew16Timer.current);
+    },
+    [],
+  );
   // "Share your day" (1.5 D): the finished day's picture, from the done card.
   const [shareOpen, setShareOpen] = useState(false);
   const firstDays = useFirstDays({
@@ -882,6 +899,8 @@ export default function HomeScreen() {
     // "Meet Nag mode" on its own only once the app has done something for them.
     tickedEver: completedCount > 0 || tickedEarlier,
     onOpenNag: () => setNagCardOpen(true),
+    // 1.6: already saved something from the share sheet or Siri: no "Save for later from anywhere" card.
+    capturedEver: state.capturedEver === true,
     active: ready && state.hasSeenOnboarding && !firstRunActive && !state.pendingRollover && appActive,
     version: firstDaysVersion,
     checkedOff: completedCount > 0,
@@ -1103,6 +1122,7 @@ export default function HomeScreen() {
     showCelebration ||
     // 1.5 D: "Meet Nag mode" from its Today card, and the share preview.
     nagCardOpen ||
+    nagFrom16Open ||
     shareOpen ||
     // 1.6 H: the Sunday reset's sheet.
     sundayReset.isOpen;
@@ -1160,6 +1180,12 @@ export default function HomeScreen() {
   };
   // "Meet Nag mode" from the Nag card: closed the same way (1.5 D).
   const closeNagSheet = (next?: "paywall") => {
+    if (nagFrom16Open) {
+      // 1.6's sheet was already marked seen as it handed over.
+      setNagFrom16Open(false);
+      afterNagSheet(next);
+      return;
+    }
     if (!nagCardOpen) {
       closeWhatsNew(next);
       return;
@@ -1184,6 +1210,20 @@ export default function HomeScreen() {
   // A focus prompt while the sheet is up: the sheet steps aside, not seen
   // (the user didn't close it), and comes back at a later foreground.
   whatsNewStepAside.current = () => {
+    // A 1.6 card's button waiting for the sheet to go: something else needs
+    // the screen. The action is dropped, but the sheet is still sliding away:
+    // what comes next waits for it as for any sheet stepping aside.
+    if (whatsNew16Timer.current) {
+      clearTimeout(whatsNew16Timer.current);
+      whatsNew16Timer.current = null;
+      handOffWhatsNew();
+      return true;
+    }
+    if (nagFrom16Open) {
+      setNagFrom16Open(false);
+      handOffWhatsNew();
+      return true;
+    }
     if (nagCardOpen) {
       // The same for "Meet Nag mode" opened from its card: not seen, so the
       // card stays and it can be opened again there.
@@ -1200,6 +1240,73 @@ export default function HomeScreen() {
   const busyRef = useRef(false);
   // The sheet counts as something on screen too: no rating ask or paywall over it.
   busyRef.current = somethingUp || whatsNew.openId !== null || whatsNewHandingOff;
+
+  // What's new in 1.6 (and 1.5, which ships inside it): its cards depend on
+  // Nag mode and Plus (whatsNew16Cards). "Got it" closes it as the 1.4 sheet
+  // closes; a card's button closes it first (seen), then acts once it has
+  // animated away (one modal at a time on iOS), as the 1.4 sheet's paywall
+  // hand-off does. Events: ids only.
+  const nagOn = state.notifications.style === "nag" && hasPlus;
+  const whatsNew16Open = whatsNew.openId === FEATURES_16_ID;
+  const sunday = isSunday(today);
+  const whatsNew16CardsShown = useMemo(() => whatsNew16Cards({ nagOn, hasPlus, sunday }), [nagOn, hasPlus, sunday]);
+  // "shown" once per opening, when iOS has it on screen (not when it's asked
+  // for: a dropped sheet is asked for again).
+  const whatsNew16ShownSent = useRef(false);
+  useEffect(() => {
+    if (!whatsNew16Open) whatsNew16ShownSent.current = false;
+  }, [whatsNew16Open]);
+  const onWhatsNew16Show = () => {
+    whatsNew.shown();
+    if (whatsNew16ShownSent.current) return;
+    whatsNew16ShownSent.current = true;
+    track("whats_new_shown", { id: FEATURES_16_ID, source: "today" });
+  };
+  const trackWhatsNew16 = (action: WhatsNew16Action | "dismiss") =>
+    track("whats_new_action", { id: FEATURES_16_ID, action, source: "today" });
+  const closeWhatsNew16 = () => {
+    trackWhatsNew16("dismiss");
+    closeWhatsNew();
+  };
+  const actOnWhatsNew16 = (action: Exclude<WhatsNew16Action, "how_to">) => {
+    trackWhatsNew16(action);
+    whatsNew.close();
+    handOffWhatsNew();
+    if (whatsNew16Timer.current) clearTimeout(whatsNew16Timer.current);
+    whatsNew16Timer.current = setTimeout(() => {
+      whatsNew16Timer.current = null;
+      switch (action) {
+        case "write_lines":
+          requestSettingsFocus("nag-own-lines");
+          router.navigate("/settings");
+          return;
+        case "coach_memory":
+          requestSettingsFocus("coach-memory");
+          router.navigate("/settings");
+          return;
+        case "try_nag":
+          setNagFrom16Open(true);
+          return;
+        case "try_reset":
+          // Plus: the reset; free: the paywall (source sunday_reset), then the reset if bought.
+          if (hasPlus) track("sunday_reset", { step: "card", action: "start", source: "whats_new" });
+          sundayReset.start("whats_new");
+          return;
+      }
+    }, SHEET_SWAP_DELAY_MS);
+  };
+  // Stable for the memoized sheet: they read the latest render's handlers.
+  const whatsNew16Latest = useRef({ act: actOnWhatsNew16, close: closeWhatsNew16, show: onWhatsNew16Show, how: trackWhatsNew16 });
+  whatsNew16Latest.current = { act: actOnWhatsNew16, close: closeWhatsNew16, show: onWhatsNew16Show, how: trackWhatsNew16 };
+  const whatsNew16Handlers = useMemo(
+    () => ({
+      onAction: (action: Exclude<WhatsNew16Action, "how_to">) => whatsNew16Latest.current.act(action),
+      onHowTo: () => whatsNew16Latest.current.how("how_to"),
+      onGotIt: () => whatsNew16Latest.current.close(),
+      onShow: () => whatsNew16Latest.current.show(),
+    }),
+    [],
+  );
 
   // Capture from anywhere (1.6 E; see lib/daily-tasks/capture.ts). The Dump
   // widget or control, the "Brain dump" shortcut or a dump link: the brain
@@ -2341,6 +2448,8 @@ export default function HomeScreen() {
         }}
         // Due today first, each dated one labelled (1.6 F).
         parked={savedItems}
+        savedDateTip={showSavedDateTip(state)}
+        onDismissSavedDateTip={dismissSavedDateTip}
         onAddParked={(id) => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
           addParkedTask(id);
@@ -2500,12 +2609,33 @@ export default function HomeScreen() {
         />
       )}
 
+      <WhatsNew16Sheet
+        visible={whatsNew16Open}
+        cards={whatsNew16CardsShown}
+        onAction={whatsNew16Handlers.onAction}
+        onHowTo={whatsNew16Handlers.onHowTo}
+        onGotIt={whatsNew16Handlers.onGotIt}
+        onShow={whatsNew16Handlers.onShow}
+      />
+
       <NagIntro
         // The 1.4 announcement for people who updated; a new install's own
-        // introduction (on its own once, or from the Nag card) for the rest (1.5 D).
-        visible={whatsNew.openId === NAG_ANNOUNCEMENT_ID || whatsNew.openId === NAG_FIRST_DAYS_ID || nagCardOpen}
-        id={whatsNew.openId === NAG_ANNOUNCEMENT_ID ? NAG_ANNOUNCEMENT_ID : NAG_FIRST_DAYS_ID}
-        source={nagCardOpen ? "card" : "today"}
+        // introduction (on its own once, or from the Nag card) for the rest (1.5 D);
+        // 1.6's "Try Nag mode" (not worded as news).
+        visible={
+          whatsNew.openId === NAG_ANNOUNCEMENT_ID ||
+          whatsNew.openId === NAG_FIRST_DAYS_ID ||
+          nagCardOpen ||
+          nagFrom16Open
+        }
+        id={
+          nagFrom16Open
+            ? TRY_NAG_16_ID
+            : whatsNew.openId === NAG_ANNOUNCEMENT_ID
+              ? NAG_ANNOUNCEMENT_ID
+              : NAG_FIRST_DAYS_ID
+        }
+        source={nagCardOpen ? "card" : nagFrom16Open ? "whats_new" : "today"}
         onClose={closeNagSheet}
         onShow={whatsNew.shown}
         onTurnedOn={() => {

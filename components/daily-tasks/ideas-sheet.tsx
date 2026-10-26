@@ -17,6 +17,7 @@ import { useColors } from "@/hooks/use-colors";
 import { showActionSheet } from "@/lib/daily-tasks/action-sheet";
 import { suggestionsHint } from "@/lib/daily-tasks/ai-status";
 import { routineBlock, routineBlockedLine } from "@/lib/daily-tasks/routines";
+import { SAVED_DATE_TIP, SAVED_DATE_TIP_DISMISS } from "@/lib/daily-tasks/saved-date-tip";
 import type { TaskWhen } from "@/lib/daily-tasks/types";
 import { THINKING_HINT_DELAY_MS, type IdeasSource } from "@/lib/daily-tasks/today-view";
 
@@ -57,6 +58,12 @@ interface IdeasSheetProps {
     reason?: string;
     dueToday?: boolean;
   }[];
+  /**
+   * Saved for later's one-line "add a day" tip (1.6, saved-date-tip.ts):
+   * until a dated item was saved once, or the tip was closed.
+   */
+  savedDateTip?: boolean;
+  onDismissSavedDateTip?: () => void;
   /** The days "Change day" offers (whenChoices), with onSetParkedWhen. */
   dayChoices?: { label: string; date: string }[];
   /** A saved item's date changed by hand; null for "No date" (1.6 F). */
@@ -117,6 +124,8 @@ export function IdeasSheet({
   onAddAll,
   onRegenerate,
   parked = [],
+  savedDateTip = false,
+  onDismissSavedDateTip,
   onAddParked,
   onRemoveParked,
   dayChoices = [],
@@ -616,6 +625,32 @@ export function IdeasSheet({
                   Saved for later
                 </Text>
               )}
+              {savedDateTip ? (
+                <View className="flex-row items-center gap-2" testID="saved-date-tip">
+                  <Ionicons
+                    name="calendar-outline"
+                    size={16}
+                    color={colors.muted}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                  />
+                  <Text className="flex-1 text-sm" style={{ color: colors.muted }}>
+                    {SAVED_DATE_TIP}
+                  </Text>
+                  {onDismissSavedDateTip ? (
+                    <Pressable
+                      onPress={onDismissSavedDateTip}
+                      accessibilityRole="button"
+                      accessibilityLabel={SAVED_DATE_TIP_DISMISS}
+                      className="items-center justify-center"
+                      style={{ minHeight: 44, minWidth: 44 }}
+                      testID="saved-date-tip-dismiss"
+                    >
+                      <Ionicons name="close" size={18} color={colors.muted} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
               {laterParked.map((item) => renderParked(item))}
             </View>
           )}

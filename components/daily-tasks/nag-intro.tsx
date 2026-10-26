@@ -7,7 +7,7 @@ import { NagIntroSheet } from "@/components/daily-tasks/nag-intro-sheet";
 import { useNagTurnOn, type NagChoice } from "@/hooks/use-nag-turn-on";
 import { track } from "@/lib/daily-tasks/analytics";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
-import { NAG_ANNOUNCEMENT_ID, NAG_FIRST_DAYS_ID } from "@/lib/daily-tasks/whats-new";
+import { NAG_ANNOUNCEMENT_ID } from "@/lib/daily-tasks/whats-new";
 
 export function NagIntro({
   visible,
@@ -20,12 +20,13 @@ export function NagIntro({
   visible: boolean;
   /**
    * Where it was opened: on its own on Today, from the row in Settings, or
-   * from a new install's Nag card on Today (1.5 D).
+   * from a new install's Nag card on Today (1.5 D), or from 1.6's What's
+   * new ("Try Nag mode").
    */
-  source: "today" | "settings" | "card";
+  source: "today" | "settings" | "card" | "whats_new";
   /**
-   * The id in its events: the 1.4 announcement, or NAG_FIRST_DAYS_ID for a
-   * new install (then it isn't worded as news).
+   * The id in its events: the 1.4 announcement, the first days' id for a new
+   * install, or 1.6's What's new ("Try Nag mode").
    */
   id?: string;
   /**
@@ -70,7 +71,6 @@ export function NagIntro({
       hasPlus={hasPlus}
       initial={{ persona: state.notifications.nagPersona, level: state.notifications.nagLevel }}
       taskText={taskText}
-      fresh={id === NAG_FIRST_DAYS_ID}
       onShow={onShow}
       onTry={(choice) => {
         act("try", choice);
