@@ -11,6 +11,7 @@ import {
   applyAiNagLines,
   lineForStep,
   NAG_CATEGORY_ID,
+  NAG_GENERAL_CATEGORY_ID,
   NAG_LEVEL_COUNTS,
   nagDayNeedsPlan,
   nagDayWantsAi,
@@ -418,7 +419,9 @@ describe("the plan from the record", () => {
     expect(items).toHaveLength(7);
     items.forEach((item, index) => {
       const slot = record.slots[index];
-      expect(item).toMatchObject({ id: slot.id, title: "Three Today · Mom", body: slot.text, kind: "nag", categoryId: NAG_CATEGORY_ID });
+      // 1.6 G: Mark done only on a nag about a task.
+      const categoryId = slot.taskId ? NAG_CATEGORY_ID : NAG_GENERAL_CATEGORY_ID;
+      expect(item).toMatchObject({ id: slot.id, title: "Three Today · Mom", body: slot.text, kind: "nag", categoryId });
       expect(item.fireAt.getTime()).toBe(slot.fireAtMs);
       expect(item.data).toEqual({ ...(slot.taskId ? { taskId: slot.taskId } : {}), step: slot.step });
     });

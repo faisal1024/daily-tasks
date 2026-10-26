@@ -16,6 +16,7 @@ import {
   NAG_REQUEST_TIMEOUT_MS,
   nagModeStrategy,
   nagStrategy,
+  snoozeNagDay,
   stubNagRecord,
   type NagDayInput,
 } from "@/lib/daily-tasks/nag-day";
@@ -590,5 +591,56 @@ describe("the strategies", () => {
     expect(JSON.stringify(plan)).not.toMatch(/dentist|report|Walk the dog|AI line/i);
     expect(request).toHaveBeenCalledTimes(1);
     expect(networkFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("a snooze waiting behind a request for lines (PR 109 review)", () => {
+  it("the plan holds the nags back at once; once the request and the snooze land, the saved record does", async () => {
+    let answer: (value: { lines: NagLine[] }) => void = () => {};
+    request = jest.fn(() => new Promise<{ lines: NagLine[] }>((resolve) => (answer = resolve))) as unknown as jest.MockedFunction<Request>;
+    const day = ensureNagDay(input(), deps());
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    const planned = await saved();
+    const first = planned.slots[0].fireAtMs;
+    const tap = new Date(first - 30 * 60_000);
+    jest.setSystemTime(tap);
+    const before = await nagModeStrategy(context({ now: tap }));
+    expect(before.some((item) => item.kind === "nag" && item.fireAt.getTime() === first)).toBe(true);
+
+    const snooze = snoozeNagDay({ today: DAY, window: NAG_ON.nagWindow, now: tap }, { onChange: (version) => versions.push(version) });
+    // The request is still out: the record isn't snoozed yet, but a sync now plans as if it were.
+    expect((await saved()).snoozedUntil).toBeUndefined();
+    const until = Math.ceil((tap.getTime() + 60 * 60_000) / 60_000) * 60_000;
+    for (const strategy of [nagModeStrategy, nagStrategy]) {
+      const items = (await strategy(context({ now: tap }))).filter((item) => item.kind === "nag");
+      expect(items.length).toBeGreaterThan(0);
+      for (const item of items) expect(item.fireAt.getTime()).toBeGreaterThanOrEqual(until);
+    }
+
+    answer({ lines: aiLines(7) });
+    await day;
+    await snooze;
+    expect((await saved()).snoozedUntil).toBe(until);
+    const after = (await nagModeStrategy(context({ now: tap }))).filter((item) => item.kind === "nag");
+    for (const item of after) expect(item.fireAt.getTime()).toBeGreaterThanOrEqual(until);
+    expect(after[0].fireAt.getTime()).toBe(until);
+  });
+
+  it("a reset while it waits drops it: nothing is held back afterwards", async () => {
+    let answer: (value: { lines: NagLine[] }) => void = () => {};
+    request = jest.fn(() => new Promise<{ lines: NagLine[] }>((resolve) => (answer = resolve))) as unknown as jest.MockedFunction<Request>;
+    const day = ensureNagDay(input(), deps());
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    const first = (await saved()).slots[0].fireAtMs;
+    const tap = new Date(first - 30 * 60_000);
+    const snooze = snoozeNagDay({ today: DAY, window: NAG_ON.nagWindow, now: tap });
+    await clearNagRecord();
+    answer({ lines: aiLines(7) });
+    await day;
+    await snooze;
+    await ensureNagDay(input({ now: tap }), { request: jest.fn(async ({ count }) => ({ lines: aiLines(count) })) as unknown as Request });
+    const items = (await nagModeStrategy(context({ now: tap }))).filter((item) => item.kind === "nag");
+    expect(items.length).toBeGreaterThan(0);
+    expect((await saved()).snoozedUntil).toBeUndefined();
   });
 });

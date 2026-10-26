@@ -20,6 +20,7 @@ import { NAG_LEVELS, NAG_PERSONA_LABELS, NAG_PERSONAS, type NagLevel, type NagLi
 import {
   applyAiNagLines,
   NAG_CATEGORY_ID,
+  NAG_GENERAL_CATEGORY_ID,
   NAG_LEVEL_COUNTS,
   NAG_MIN_GAP_MINUTES,
   nagAiKey,
@@ -248,7 +249,8 @@ function playDay(seed: number, dayKey: string, counts: Counts) {
       expect(item.interruptionLevel, where).toBe("active");
       expect(item.sound, where).toBeUndefined();
       expect(item.kind, where).toBe("nag");
-      expect(item.categoryId, where).toBe(NAG_CATEGORY_ID);
+      // 1.6 G: Mark done only on a nag about a task (names shown).
+      expect(item.categoryId, where).toBe(item.data?.taskId ? NAG_CATEGORY_ID : NAG_GENERAL_CATEGORY_ID);
       expect(item.title, where).toContain(NAG_PERSONA_LABELS[settings.nagPersona]);
       expect(item.body.length, where).toBeGreaterThan(0);
       expect(item.body, where).not.toMatch(/[\u0000-\u001f—]/);

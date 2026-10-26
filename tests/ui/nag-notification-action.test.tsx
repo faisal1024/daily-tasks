@@ -94,7 +94,7 @@ afterEach(() => {
 
 describe("a nag's 'Stop for today'", () => {
   it("is recognised only on a nag, and only for that button", () => {
-    expect(parseNagNotificationResponse(response(TODAY_NAG, NAG_ACTION_STOP))).toEqual({ action: "stop", dayKey: D });
+    expect(parseNagNotificationResponse(response(TODAY_NAG, NAG_ACTION_STOP))).toEqual({ action: "stop", dayKey: D, taskId: null });
     expect(parseNagNotificationResponse(response(TODAY_NAG, DEFAULT_TAP))).toBeNull();
     expect(parseNagNotificationResponse(response(`daily-tasks:${D}:progress:1400`, NAG_ACTION_STOP))).toBeNull();
     expect(parseNagNotificationResponse(response("three-today:focus-timer", NAG_ACTION_STOP))).toBeNull();
@@ -103,11 +103,15 @@ describe("a nag's 'Stop for today'", () => {
     expect(parseNagNotificationResponse(undefined)).toBeNull();
   });
 
-  it("the category is registered at launch: one button, 'Stop for today', which opens the app", async () => {
+  it("the categories are registered at launch: Mark done (task nags only), Snooze 1 hour and 'Stop for today', which open the app", async () => {
     await openApp();
     const nag = mocked.setNotificationCategoryAsync.mock.calls.find(([id]) => id === "three-today:nag");
     expect(nag).toBeTruthy();
-    expect(nag![1]).toEqual([{ identifier: "nag-stop-today", buttonTitle: "Stop for today", options: { opensAppToForeground: true } }]);
+    const snooze = { identifier: "nag-snooze-hour", buttonTitle: "Snooze 1 hour", options: { opensAppToForeground: true } };
+    const stop = { identifier: "nag-stop-today", buttonTitle: "No more nags today", options: { opensAppToForeground: true } };
+    expect(nag![1]).toEqual([{ identifier: "nag-done", buttonTitle: "Mark done", options: { opensAppToForeground: true } }, snooze, stop]);
+    const general = mocked.setNotificationCategoryAsync.mock.calls.find(([id]) => id === "three-today:nag-general");
+    expect(general![1]).toEqual([snooze, stop]);
   });
 
   it("pauses today's nags, once, and says where it came from", async () => {

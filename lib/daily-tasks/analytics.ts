@@ -83,6 +83,8 @@ export type AnalyticsEvent =
   | "nag_mode_disabled"
   | "nag_paused_today"
   | "nag_lines_loaded"
+  // 1.6 G: a nag's button (action "done" | "snooze" | "stop"). Ids only.
+  | "nag_action"
   | "whats_new_shown"
   | "whats_new_action";
 

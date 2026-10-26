@@ -502,16 +502,16 @@ describe("the proxy's sanitiser, second pass", () => {
     const result = server.sanitizeNagLines(
       {
         lines: [
-          { step: 1, taskIndex: 0, text: "Just checking on the dentist." },
+          { step: 1, taskIndex: 0, text: "Just checking on “Call the dentist”." },
           { step: 2, taskIndex: null, text: "Good morning! The list is waiting." },
-          { step: 3, taskIndex: 0, text: "The dentist again. Only asking." },
+          { step: 3, taskIndex: 0, text: "“Call the dentist” again. Only asking." },
           { step: 4, taskIndex: null, text: "Still open tonight, I see." },
           { step: 5, taskIndex: null, text: "One tick would be lovely." },
         ],
       },
       { persona: "mom", level: "firm", tasks: [{ text: "Call the dentist" }], count: 7 },
     );
-    expect(result.lines.map((line: NagLine) => line.text)).toEqual(["Just checking on the dentist.", "The dentist again. Only asking.", "One tick would be lovely."]);
+    expect(result.lines.map((line: NagLine) => line.text)).toEqual(["Just checking on “Call the dentist”.", "“Call the dentist” again. Only asking.", "One tick would be lovely."]);
     expect(result.lines.map((line: NagLine) => line.step)).toEqual([1, 2, 3]);
   });
 

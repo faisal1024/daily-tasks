@@ -18,6 +18,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { ChoiceChips } from "@/components/daily-tasks/choice-chips";
 import { CoachMemorySection } from "@/components/daily-tasks/coach-memory-section";
 import { NagIntro } from "@/components/daily-tasks/nag-intro";
+import { NagOwnLines } from "@/components/daily-tasks/nag-own-lines";
 import { OnboardingModal } from "@/components/daily-tasks/onboarding-modal";
 import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
 import { SectionLabel } from "@/components/daily-tasks/section-label";
@@ -1013,6 +1014,7 @@ export default function SettingsScreen() {
                   </Text>
                 </Pressable>
               </View>
+              <NagOwnLines />
               <View className="gap-3">
                 <Pressable
                   onPress={() => setNagHoursOpen(!nagHoursOpen)}
