@@ -9,6 +9,7 @@ import { NAG_LEVELS, NAG_PERSONAS } from "./nag";
 import { normalizeNagOwnLines } from "./nag-own-lines";
 import { NAG_STORAGE_KEY, normalizeNagWindow } from "./nag-plan";
 import { normalizeRoutines } from "./routines";
+import { normalizeWhen } from "./resurface";
 import { isReviewTrigger } from "./review-prompt";
 import { normalizeWhatsNewSeen } from "./whats-new";
 import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
@@ -32,6 +33,7 @@ import type {
   ReflectionResult,
   Task,
   TomorrowDraft,
+  TaskWhen,
   EveningCloseRecord,
   ParkedTask,
   TaskStep,
@@ -84,6 +86,8 @@ function normalizeTasks(value: unknown): Task[] {
       carriedOver: item.carriedOver === true,
     };
     if (typeof item.routineId === "string" && item.routineId) task.routineId = item.routineId;
+    const when = normalizeWhen(item.when);
+    if (when) task.when = when;
     tasks.push({ ...task, ...normalizeStepsField(item.steps) });
   }
   return tasks;
@@ -96,11 +100,16 @@ function normalizeParkedTasks(value: unknown): ParkedTask[] {
       (item): item is Record<string, unknown> =>
         isRecord(item) && typeof item.id === "string" && typeof item.text === "string",
     )
-    .map((item) => ({
-      id: item.id as string,
-      text: item.text as string,
-      parkedAt: typeof item.parkedAt === "string" ? item.parkedAt : "",
-    }))
+    .map((item) => {
+      const parked: ParkedTask = {
+        id: item.id as string,
+        text: item.text as string,
+        parkedAt: typeof item.parkedAt === "string" ? item.parkedAt : "",
+      };
+      // 1.6 F: a malformed date is dropped, never the item.
+      const when = normalizeWhen(item.when);
+      return when ? { ...parked, when } : parked;
+    })
     .slice(-MAX_PARKED_TASKS);
 }
 
@@ -122,7 +131,14 @@ function normalizeDayTaskRecord(value: unknown): DayTaskRecord | null {
         : null,
     ...normalizeStepsField(value.steps),
     ...(typeof value.routineId === "string" && value.routineId ? { routineId: value.routineId } : {}),
+    ...withWhen(value.when),
   };
+}
+
+/** `{ when }` for a valid soft date (1.6 F), else nothing. */
+function withWhen(value: unknown): { when?: TaskWhen } {
+  const when = normalizeWhen(value);
+  return when ? { when } : {};
 }
 
 function normalizeDayRecord(date: string, value: unknown): DayRecord | null {

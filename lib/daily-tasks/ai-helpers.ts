@@ -5,7 +5,8 @@
 import { getMomentumAiProxyUrl, postToProxy, proxyRouteUrl } from "./ai-client";
 import { MomentumAiError } from "./ai-status";
 import type { MemoryStatsPayload } from "./coach-memory";
-import { MAX_TASKS } from "./types";
+import { isDateKey, normalizeWhen } from "./resurface";
+import { MAX_TASKS, type TaskWhen } from "./types";
 
 export const MAX_BRAIN_DUMP_CHARS = 2000;
 export const MAX_TASK_TEXT = 64;
@@ -24,6 +25,31 @@ export interface BrainDumpResult {
    * on-device split): see pickReason for what is shown then.
    */
   reasons?: string[];
+  /**
+   * Soft dates the AI sort read from the dump (1.6 F, Plus), keyed by the
+   * item's text, lowercased with spacing collapsed (as parkTasks looks
+   * them up). Absent when there are none: an older proxy, a free sort, the
+   * on-device split (which reads its own when an item is saved).
+   */
+  dates?: Record<string, TaskWhen>;
+}
+
+const looseKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
+/** The dates on kept items (`when`), checked against `today`. */
+function itemDates(lists: unknown[][], kept: string[], today: string): Record<string, TaskWhen> {
+  const keep = new Set(kept.map(looseKey));
+  const dates: Record<string, TaskWhen> = {};
+  for (const list of lists) {
+    for (const item of list) {
+      if (!item || typeof item !== "object") continue;
+      const text = cleanTaskText((item as { text?: unknown }).text);
+      const when = normalizeWhen((item as { when?: unknown }).when, today);
+      if (!text || !when || !keep.has(looseKey(text)) || dates[looseKey(text)]) continue;
+      dates[looseKey(text)] = when;
+    }
+  }
+  return dates;
 }
 
 // Bullets may hug the text ("-walk"); numbered markers need a space so
@@ -210,8 +236,12 @@ export function tidyDumpLine(line: string): string {
   return text || original.replace(/[\s.,;:!…]+$/u, "").trim();
 }
 
-/** Normalize the proxy's brain-dump response; throws if nothing usable. */
-export function parseBrainDumpResponse(data: unknown, openSlots: number): BrainDumpResult {
+/**
+ * Normalize the proxy's brain-dump response; throws if nothing usable. With
+ * `today` (the local date key sent), items' `when` are kept when valid and
+ * not in the past; without it they are ignored.
+ */
+export function parseBrainDumpResponse(data: unknown, openSlots: number, today?: string | null): BrainDumpResult {
   const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
   const seen = new Set<string>();
   const reasons: string[] = [];
@@ -220,8 +250,21 @@ export function parseBrainDumpResponse(data: unknown, openSlots: number): BrainD
     throw new MomentumAiError("invalid_response", "Brain dump returned no picks.");
   }
   const parked = uniqueTexts(Array.isArray(record.parked) ? record.parked : [], MAX_PARKED, seen);
+  const dates = isDateKey(today)
+    ? itemDates(
+        [Array.isArray(record.picks) ? record.picks : [], Array.isArray(record.parked) ? record.parked : []],
+        [...picks, ...parked],
+        today,
+      )
+    : {};
   // An older proxy sends no usable reasons: then there is no field at all.
-  return { picks, parked, source: "ai", ...(reasons.some(Boolean) ? { reasons } : {}) };
+  return {
+    picks,
+    parked,
+    source: "ai",
+    ...(reasons.some(Boolean) ? { reasons } : {}),
+    ...(Object.keys(dates).length > 0 ? { dates } : {}),
+  };
 }
 
 export async function requestBrainDump({
@@ -230,12 +273,18 @@ export async function requestBrainDump({
   goalTitle,
   agenda = [],
   stats = null,
+  today = null,
   planUrl = getMomentumAiProxyUrl(),
   fetchImpl,
 }: {
   text: string;
   openSlots: number;
   goalTitle: string | null;
+  /**
+   * The local date key (1.6 F, Plus only): sent so the AI can turn "deck for
+   * Tuesday" into a date. Without it no dates are asked for.
+   */
+  today?: string | null;
   /** Today's events and reminders, pre-formatted (see agenda.ts). */
   agenda?: string[];
   /** The last 30 days in numbers and a few titles (memoryStatsPayload), or null. */
@@ -255,10 +304,11 @@ export async function requestBrainDump({
       goalTitle,
       ...(agenda.length > 0 ? { agenda } : {}),
       ...(stats ? { stats } : {}),
+      ...(isDateKey(today) ? { today } : {}),
     },
     fetchImpl,
   });
-  return parseBrainDumpResponse(data, openSlots);
+  return parseBrainDumpResponse(data, openSlots, isDateKey(today) ? today : null);
 }
 
 /** Normalize the proxy's break-down response into 2–5 short steps. */
@@ -322,7 +372,14 @@ export const FREE_LIMIT_NOTICE =
  * friendly notice) if the request fails, so the user never loses what they typed.
  */
 export async function sortBrainDump(
-  params: { text: string; openSlots: number; goalTitle: string | null; agenda?: string[]; stats?: MemoryStatsPayload | null },
+  params: {
+    text: string;
+    openSlots: number;
+    goalTitle: string | null;
+    agenda?: string[];
+    stats?: MemoryStatsPayload | null;
+    today?: string | null;
+  },
   request: typeof requestBrainDump = requestBrainDump,
 ): Promise<SortedBrainDump> {
   try {
