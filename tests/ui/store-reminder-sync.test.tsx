@@ -253,8 +253,9 @@ describe("store: a rewrite that fails", () => {
   it("what is handed to the scheduler carries no pending list of its own (the scheduler adds it)", async () => {
     await renderOnDay({ tasks: THREE }, new Date(2026, 8, 25, 8));
     expect(Object.keys(lastSync()).sort()).toEqual(
-      // `plus` and `strategy` are for nag mode (Plus-only; see nag-mode-store.test.tsx).
-      ["draft", "locked", "now", "permissionState", "plus", "settings", "strategy", "tasks", "today", "yesterdayOpen"].sort(),
+      // `plus` and `strategy` are for nag mode (Plus-only; see nag-mode-store.test.tsx);
+      // `sundayReset` for the Sunday reset's notification (1.6).
+      ["draft", "locked", "now", "permissionState", "plus", "settings", "strategy", "sundayReset", "tasks", "today", "yesterdayOpen"].sort(),
     );
   });
 });

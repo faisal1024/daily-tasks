@@ -45,6 +45,7 @@ import type { FocusSessionControls } from "@/components/daily-tasks/focus-check-
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { ShareDaySheet } from "@/components/daily-tasks/share-day-sheet";
+import { SundayResetCard } from "@/components/daily-tasks/sunday-reset-card";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { ReorderGhost, ReorderRow, reorderRowKey, useTaskReorder } from "@/components/daily-tasks/task-reorder";
@@ -1921,6 +1922,8 @@ export default function HomeScreen() {
                   </Text>
                 </Pressable>
               )}
+              {/* The Sunday reset (1.6): Sunday evenings, under the day's card. */}
+              <SundayResetCard firstRunActive={firstRunActive} />
               {/* The day-5 trial note: under the day's card and status, away from the rollover. */}
               {ready && !firstRunActive && <TrialNote today={today} active={appActive} />}
             </View>

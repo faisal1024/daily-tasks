@@ -47,6 +47,28 @@ export interface TomorrowDraft {
   /** Plain reason for the draft, e.g. "Because today was hard, tomorrow is lighter." */
   because: string;
   source: "ai" | "local";
+  /**
+   * Set when the Sunday reset (1.6) picked these: an evening close for the
+   * same night keeps them instead of drafting over the user's own choice.
+   * Absent on drafts from the evening close.
+   */
+  from?: "reset";
+}
+
+/**
+ * The Sunday reset (1.6, Plus; lib/daily-tasks/sunday-reset.ts). Week keys
+ * are the Sunday that starts the week (yyyy-MM-dd). Absent on older saves:
+ * read with sundayResetOf (defaults).
+ */
+export interface SundayResetState {
+  /** Settings › Reminders: the Sunday 6 PM notification (Plus). On by default. */
+  reminder: boolean;
+  /** The week the reset was last finished. */
+  doneWeek: string | null;
+  /** The week the Today card was closed with × (no card, no notification that week). */
+  dismissedWeek: string | null;
+  /** The week a free user first saw the Plus intro card; it never shows in a later week. */
+  freeIntroWeek: string | null;
 }
 
 export interface EveningCloseRecord {
@@ -330,8 +352,11 @@ export interface AppState {
   // basic memory (coach-memory.ts) only looks at the days after it. Optional
   // so older saves (and hand-built states) without it mean "never cleared".
   memoryClearedAt?: string | null;
-  // Tomorrow's three from the last evening close, or null.
+  // Tomorrow's three from the last evening close (or the Sunday reset), or null.
   tomorrowDraft: TomorrowDraft | null;
+  // The Sunday reset (1.6). Optional: older saves and hand-built states have
+  // none (see sundayResetOf).
+  sundayReset?: SundayResetState;
   // The last evening close: which day, the answer it was for, and the note.
   // (Kept even when nothing was drafted, so a closed day stays closed.)
   eveningClose: EveningCloseRecord | null;

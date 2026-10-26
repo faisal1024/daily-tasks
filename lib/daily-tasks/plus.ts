@@ -12,7 +12,15 @@ export const PLUS_ENTITLEMENT = "plus";
  */
 export const GRANDFATHER_BEFORE_VERSION = "1.1.0";
 
-export type PlusFeature = "brain_dump" | "break_down" | "ai_ideas" | "calendar" | "routines" | "nag_mode" | "evening_draft";
+export type PlusFeature =
+  | "brain_dump"
+  | "break_down"
+  | "ai_ideas"
+  | "calendar"
+  | "routines"
+  | "nag_mode"
+  | "evening_draft"
+  | "sunday_reset";
 
 export type PaywallSource =
   | "onboarding"
@@ -28,7 +36,9 @@ export type PaywallSource =
   // Choosing the Nag reminder style in Settings (1.4).
   | "nag_mode"
   // The evening close's tomorrow teaser for a free user (1.5).
-  | "evening_draft";
+  | "evening_draft"
+  // The Sunday reset's one-time intro card, or its Progress row (1.6).
+  | "sunday_reset";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -350,6 +360,7 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
 const LEADING_BENEFIT: Partial<Record<PaywallSource, string>> = {
   nag_mode: "Nag mode",
   evening_draft: "Your coach drafts tomorrow",
+  sunday_reset: "Your coach drafts tomorrow",
   break_down: "Break it down",
   brain_dump: "Smart brain dump",
   new_ideas: "AI ideas for your goal",
@@ -394,6 +405,8 @@ export function paywallHeadline(source: PaywallSource, options: { taskCount?: nu
       return "Reminders in a voice you pick";
     case "evening_draft":
       return "Wake up to tomorrow's three";
+    case "sunday_reset":
+      return "Set up your week in two minutes";
     default:
       return "A little extra help, when you want it";
   }
@@ -416,6 +429,8 @@ export function paywallSubhead(source: PaywallSource, options: { taskCount?: num
       return "Nag mode reminds you as Mom, Dad, Partner, Coach or Drill sergeant. Calm reminders and your three stay free either way.";
     case "evening_draft":
       return "Plus drafts a full three each night, from how today went. Your three stay free either way.";
+    case "sunday_reset":
+      return "Last week's wins, a dump for the week, and Monday's three from your coach. Your three stay free either way.";
     default:
       return "Your three tasks stay free forever. Plus adds the AI helpers.";
   }

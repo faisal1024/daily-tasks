@@ -10,7 +10,7 @@ import {
 } from "react";
 import { Platform, AppState as RNAppState, type AppStateStatus } from "react-native";
 
-import { storeDayFor, todayKey } from "./date";
+import { addDays, storeDayFor, todayKey } from "./date";
 import {
   cancelFocusTimerNotification,
   dismissFocusTimerNotification,
@@ -24,6 +24,7 @@ import {
   type FocusNotificationResponse,
 } from "./notifications";
 import { createDebounced, yesterdayOpenTexts, type ReminderContext } from "./reminder-plan";
+import { resetDraft, sundayResetOf, withSundayReset } from "./sunday-reset";
 import { clearNagRecord, ensureNagDay, nagModeStrategy, stubNagRecord } from "./nag-day";
 import type { NagLevel, NagPersona } from "./nag";
 import { adjustNagWindow, nagModeOn } from "./nag-plan";
@@ -189,6 +190,7 @@ import type {
   ReflectionResult,
   Routine,
   ReviewTrigger,
+  SundayResetState,
   TaskId,
 } from "./types";
 import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
@@ -265,6 +267,9 @@ type Action =
   | { type: "setEveningClose"; close: EveningClose; day: string; result: ReflectionResult }
   | { type: "applyTomorrowDraft"; tasks: string[]; shown: string[]; today: string; at: string }
   | { type: "dismissTomorrowDraft" }
+  // The Sunday reset (1.6): its record, and the next day's draft it makes.
+  | { type: "updateSundayReset"; patch: Partial<SundayResetState> }
+  | { type: "setResetDraft"; tasks: string[]; today: string; source: "ai" | "local" }
   | { type: "setAgendaEnabled"; enabled: boolean }
   | { type: "setCoachMemory"; text: string }
   | { type: "clearCoachMemory"; today: string }
@@ -508,10 +513,15 @@ function reduce(state: AppState, action: Action): AppState {
     }
     case "setEveningClose":
       // `day` is the day the user closed (captured at the tap), so a reply
-      // that lands after midnight still drafts for the right morning.
+      // that lands after midnight still drafts for the right morning. The
+      // three picked in that night's Sunday reset (1.6) stay: they're the
+      // user's own choice.
       return {
         ...state,
-        tomorrowDraft: draftForTomorrow(action.close, action.day),
+        tomorrowDraft:
+          state.tomorrowDraft?.from === "reset" && state.tomorrowDraft.forDate === addDays(action.day, 1)
+            ? state.tomorrowDraft
+            : draftForTomorrow(action.close, action.day),
         // The on-device close has no memory to add; keep what the coach knows.
         coachMemory: action.close.memory ?? state.coachMemory,
         eveningClose: { date: action.day, result: action.result, note: action.close.note },
@@ -591,6 +601,12 @@ function reduce(state: AppState, action: Action): AppState {
       };
     case "dismissTomorrowDraft":
       return state.tomorrowDraft ? { ...state, tomorrowDraft: null } : state;
+    case "updateSundayReset":
+      return { ...state, sundayReset: { ...sundayResetOf(state), ...action.patch } };
+    case "setResetDraft": {
+      const draft = resetDraft(action.tasks, action.today, action.source);
+      return draft ? { ...state, tomorrowDraft: draft } : state;
+    }
     case "completeMilestone": {
       // Milestones are the user's to tick when they've really got there.
       const advanced = completeMilestoneState({
@@ -1301,6 +1317,10 @@ interface StoreContextValue {
   /** `shown` is what the card offered; the unused rest is saved for later. */
   applyTomorrowDraft: (tasks: string[], shown: string[]) => void;
   dismissTomorrowDraft: () => void;
+  /** The Sunday reset's record (1.6): its switch and weeks. */
+  updateSundayReset: (patch: Partial<SundayResetState>) => void;
+  /** The Sunday reset's three (1.6) become the next day's draft. */
+  setResetDraft: (tasks: string[], source: "ai" | "local") => void;
   setAgendaEnabled: (enabled: boolean) => void;
   /** Replace the AI coach memory (Plus); blank clears it. */
   setCoachMemory: (text: string) => void;
@@ -1391,6 +1411,9 @@ interface StoreContextValue {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
+/** The reminders: the calm ones or the nags, plus the Sunday reset's (1.6). */
+const sundayResetStrategy = withSundayReset(nagModeStrategy);
+
 /** What the reminders are written from; the time is added when they're written. */
 type ReminderSyncContext = Omit<ReminderContext, "now" | "pending" | "lastDeliveredAt">;
 
@@ -1408,7 +1431,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     createDebounced(() => {
       const context = reminderContext.current;
       if (!context) return;
-      void syncNotifications({ ...context, now: new Date(), strategy: nagModeStrategy }).catch(() => {
+      void syncNotifications({ ...context, now: new Date(), strategy: sundayResetStrategy }).catch(() => {
         // Not written: forget what was asked for, so the next change (or
         // coming to the front) asks again instead of matching it.
         lastReminderSync.current = null;
@@ -1876,6 +1899,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       draft: notificationDraft,
       // Nag mode is Plus-only: leaving Plus stops the nags at the next rewrite.
       plus: hasPlus,
+      // The Sunday reset's notification (1.6, Plus too).
+      sundayReset: sundayResetOf({ sundayReset: state.sundayReset }),
     };
     const signature = JSON.stringify([context, nagVersion]);
     if (lastReminderSync.current === signature) return;
@@ -1891,6 +1916,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     reminderSync,
     state.notifications,
     state.pendingRollover,
+    state.sundayReset,
     state.tasks,
     state.todayCompletions,
     state.todayLocked,
@@ -2381,6 +2407,15 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const dismissTomorrowDraft = useCallback(() => {
     dispatch({ type: "dismissTomorrowDraft" });
   }, []);
+  const updateSundayReset = useCallback((patch: Partial<SundayResetState>) => {
+    dispatch({ type: "updateSundayReset", patch });
+  }, []);
+  const setResetDraft = useCallback(
+    (tasks: string[], source: "ai" | "local") => {
+      dispatch({ type: "setResetDraft", tasks, today: ensureDay(), source });
+    },
+    [ensureDay],
+  );
   const completeMilestone = useCallback((id: string) => {
     dispatch({ type: "completeMilestone", id });
   }, []);
@@ -2828,6 +2863,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setEveningClose,
       applyTomorrowDraft,
       dismissTomorrowDraft,
+      updateSundayReset,
+      setResetDraft,
       setAgendaEnabled,
       setCoachMemory,
       clearCoachMemory,
@@ -2924,6 +2961,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setEveningClose,
       applyTomorrowDraft,
       dismissTomorrowDraft,
+      updateSundayReset,
+      setResetDraft,
       setAgendaEnabled,
       setCoachMemory,
       clearCoachMemory,

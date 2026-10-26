@@ -230,6 +230,8 @@ export async function requestBrainDump({
   goalTitle,
   agenda = [],
   stats = null,
+  forDay,
+  saved = [],
   planUrl = getMomentumAiProxyUrl(),
   fetchImpl,
 }: {
@@ -240,6 +242,10 @@ export async function requestBrainDump({
   agenda?: string[];
   /** The last 30 days in numbers and a few titles (memoryStatsPayload), or null. */
   stats?: MemoryStatsPayload | null;
+  /** The Sunday reset (1.6): the weekday the picks are for, when it isn't today. */
+  forDay?: string;
+  /** The Sunday reset (1.6): saved-for-later items the picks may come from too. */
+  saved?: string[];
   planUrl?: string | null;
   fetchImpl?: typeof fetch;
 }): Promise<BrainDumpResult> {
@@ -255,6 +261,8 @@ export async function requestBrainDump({
       goalTitle,
       ...(agenda.length > 0 ? { agenda } : {}),
       ...(stats ? { stats } : {}),
+      ...(forDay ? { forDay } : {}),
+      ...(saved.length > 0 ? { saved: saved.map((item) => Array.from(item.trim()).slice(0, 120).join("")) } : {}),
     },
     fetchImpl,
   });

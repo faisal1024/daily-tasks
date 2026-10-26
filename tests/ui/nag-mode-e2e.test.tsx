@@ -311,7 +311,8 @@ describe("nag mode", () => {
     await act(async () => result.current.toggleTask("t2"));
     await eventually(() => {
       expect(ofKind("nag")).toEqual([]);
-      expect(owned().every((item) => kindOf(item) === "morning")).toBe(true);
+      // Mornings, and the Sunday reset's notification (1.6, Plus).
+      expect(owned().every((item) => ["morning", "sunday_reset"].includes(kindOf(item)))).toBe(true);
     });
   });
 

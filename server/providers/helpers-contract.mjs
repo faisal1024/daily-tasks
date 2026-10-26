@@ -26,6 +26,10 @@ export const MAX_ECHO_TEXT = 200;
 // ones are dropped (the app shows its own), never shortened.
 export const MAX_REASON_WORDS = 5;
 export const MAX_REASON_CHARS = 40;
+// The Sunday reset (1.6): saved-for-later items sent beside the week's dump
+// (the newest of them), each a task title.
+export const MAX_SAVED_ITEMS = 20;
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function nonEmptyString(value, max) {
   return typeof value === "string" && value.trim().length > 0 && value.length <= max;
@@ -90,25 +94,63 @@ export function validateBrainDumpPayload(payload) {
   }
   if (!optionalGoal(payload.goalTitle)) return "Invalid goalTitle";
   if (!isValidAgenda(payload.agenda)) return "Invalid agenda";
+  // The Sunday reset (1.6): picks for another day, and saved items to pick from.
+  if (payload.forDay !== undefined && !WEEKDAYS.includes(payload.forDay)) return "Invalid forDay";
+  if (payload.saved !== undefined) {
+    if (!Array.isArray(payload.saved) || payload.saved.length > MAX_SAVED_ITEMS) return "Invalid saved";
+    if (!payload.saved.every((item) => nonEmptyString(item, MAX_TASK_CHARS))) return "Invalid saved";
+  }
   // `stats` (1.5) isn't checked here: a malformed one is ignored
   // (statsPromptLines), so a brain dump is never refused over it.
   return null;
 }
 
+/** One line of user text inside a fenced block: no line breaks, controls or fence breakers. */
+function fencedLine(value) {
+  return String(value)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ")
+    .replace(/"""/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The saved items sent with a Sunday reset (1.6), cleaned; [] when none. */
+function savedItems(payload) {
+  return (Array.isArray(payload?.saved) ? payload.saved : []).map(fencedLine).filter(Boolean);
+}
+
 export function buildBrainDumpPrompt(payload) {
+  // The Sunday reset (1.6) plans the next day, not today.
+  const day = WEEKDAYS.includes(payload.forDay) ? payload.forDay : null;
+  const saved = savedItems(payload);
   return [
     payload.goalTitle ? `The person's bigger goal: ${payload.goalTitle}` : "No specific goal set.",
-    `Pick at most ${payload.openSlots} item(s) for today.`,
+    day
+      ? `They are planning ahead: pick at most ${payload.openSlots} item(s) for ${day}, not for today.`
+      : `Pick at most ${payload.openSlots} item(s) for today.`,
     ...agendaPromptLines(payload.agenda),
     ...statsPromptLines(payload.stats, { counts: false }),
     ...((cleanStats(payload.stats)?.moved.length ?? 0) > 0
-      ? ["Those titles are context only: never add one as a pick or a parked item unless it is in the brain dump below."]
+      ? [
+          `Those titles are context only: never add one as a pick or a parked item unless it is in the brain dump${
+            saved.length > 0 ? " or the saved list" : ""
+          } below.`,
+        ]
       : []),
     "Brain dump (their words):",
     '"""',
     payload.text.trim(),
     '"""',
-    "Give each pick a reason of at most five words saying why it's for today, " +
+    ...(saved.length > 0
+      ? [
+          "Already on their saved-for-later list (their words too). A pick may come from here: " +
+            "copy its words exactly. Never list these as parked.",
+          '"""',
+          ...saved,
+          '"""',
+        ]
+      : []),
+    `Give each pick a reason of at most five words saying why it's for ${day ?? "today"}, ` +
       'like "Quick win", "Due Friday", "Unblocks the rest" or "Been waiting a while". ' +
       "Name a deadline only if they wrote one. " +
       'Say "Been waiting a while" only for a task listed above as one they keep moving. ' +
@@ -223,9 +265,13 @@ export function sanitizeBrainDump(result, payload) {
   const moved = new Set((cleanStats(payload?.stats)?.moved ?? []).map((item) => taskKey(item.text)));
   const honest = (item) =>
     !item.reason || !WAITING_REASON.test(foldForMatch(item.reason)) || moved.has(taskKey(item.text)) ? item : { text: item.text };
+  // The Sunday reset (1.6): a saved item is already saved, never parked again.
+  const saved = new Set(savedItems(payload).map(taskKey));
   return {
     picks: textItems(result.picks, MAX_TASK_TEXT, 3).map(honest),
-    parked: textItems(result.parked, MAX_TASK_TEXT, MAX_PARKED).map(({ text }) => ({ text })),
+    parked: textItems(result.parked, MAX_TASK_TEXT, MAX_PARKED)
+      .filter(({ text }) => !saved.has(taskKey(text)))
+      .map(({ text }) => ({ text })),
   };
 }
 
@@ -244,7 +290,9 @@ export function isValidBrainDump(result, payload) {
   const picks = sanitizeBrainDump(result).picks;
   if (picks.length === 0) return false;
   if (typeof payload?.text !== "string") return true; // nothing to compare against
-  return picks.some((item) => fromDump(item.text, payload.text));
+  // A Sunday reset's pick may come from the saved items sent with it (1.6).
+  const theirWords = [payload.text, ...savedItems(payload)].join("\n");
+  return picks.some((item) => fromDump(item.text, theirWords));
 }
 
 // --- Break it down → 3-5 tiny steps -----------------------------------------
