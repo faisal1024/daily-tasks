@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import type { PendingRollover, TaskId } from "@/lib/daily-tasks/types";
+import { rolloverTitle } from "@/lib/daily-tasks/welcome-back";
 
 interface RolloverModalProps {
   /** @deprecated the card shows whenever there's something pending. */
@@ -19,6 +20,11 @@ interface RolloverModalProps {
    * style, nothing ticked, so the draft's "Use this" is the one main action).
    */
   quiet?: boolean;
+  /**
+   * Today (yyyy-MM-dd), so the title names the day the leftovers are from
+   * ("Unfinished from Tuesday", "from last week"): "yesterday" only when it was.
+   */
+  today?: string;
 }
 
 /**
@@ -28,7 +34,7 @@ interface RolloverModalProps {
  * A card on Today, not a modal: a modal blocked everything behind it (last
  * night's draft looked tappable but wasn't), and iOS can't stack a sheet on it.
  */
-export function RolloverModal({ pending, remainingSlots, onApply, quiet = false }: RolloverModalProps) {
+export function RolloverModal({ pending, remainingSlots, onApply, quiet = false, today }: RolloverModalProps) {
   const colors = useColors();
   const [selectedIds, setSelectedIds] = useState<TaskId[]>([]);
 
@@ -76,7 +82,11 @@ export function RolloverModal({ pending, remainingSlots, onApply, quiet = false 
           accessibilityRole="header"
           style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontSize: 20, fontWeight: "800" }}
         >
-          {quiet ? "Also from yesterday" : "Unfinished from yesterday"}
+          {today
+            ? rolloverTitle(pending.sourceDate, today, quiet)
+            : quiet
+              ? "Also from yesterday"
+              : "Unfinished from yesterday"}
         </Text>
         <Text className="text-base" style={{ color: colors.muted }}>
           {!hasRoom

@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Fonts } from "@/constants/theme";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
+import { showActionSheet } from "@/lib/daily-tasks/action-sheet";
 import { suggestionsHint } from "@/lib/daily-tasks/ai-status";
 import { routineBlock, routineBlockedLine } from "@/lib/daily-tasks/routines";
 import { THINKING_HINT_DELAY_MS, type IdeasSource } from "@/lib/daily-tasks/today-view";
@@ -45,6 +46,13 @@ interface IdeasSheetProps {
   parked?: { id: string; text: string }[];
   onAddParked?: (id: string) => void;
   onRemoveParked?: (id: string) => void;
+  /**
+   * "Swap in" (1.5 D): on a full, unlocked day each saved item can take one
+   * of today's open tasks' place (`taskId`); that task is saved for later.
+   */
+  onSwapParked?: (parkedId: string, taskId: string) => void;
+  /** Today's open tasks, the ones a saved item can swap with. */
+  swapTargets?: { id: string; text: string }[];
   /** Offered in the "full" state so the next step is one tap away. */
   onLock?: () => void;
   /** Routines due today and not on today's list yet (1.3). Nothing shows when empty. */
@@ -72,6 +80,9 @@ interface IdeasSheetProps {
 
 const keyOf = (text: string) => text.trim().toLowerCase();
 
+/** "Swap in" asks which of today's open tasks makes way (1.5 D). */
+export const SWAP_IN_QUESTION = "Which task should it replace? That one goes to Saved for later.";
+
 export function IdeasSheet({
   visible,
   savedOnly = false,
@@ -91,6 +102,8 @@ export function IdeasSheet({
   parked = [],
   onAddParked,
   onRemoveParked,
+  onSwapParked,
+  swapTargets = [],
   onLock,
   routines = [],
   onAddRoutine,
@@ -115,6 +128,34 @@ export function IdeasSheet({
   const full = remainingSlots <= 0;
   // Saved items can't move onto a full day, or a locked one.
   const parkedBlocked = full || locked;
+  // A full, unlocked day: a saved item can swap places with an open task (1.5 D).
+  const canSwap = full && !locked && Boolean(onSwapParked) && swapTargets.length > 0;
+  // Android: the choice opens under the item (an alert has room for three
+  // buttons, and three open tasks need a Cancel too).
+  const [swapChoosing, setSwapChoosing] = useState<string | null>(null);
+  useEffect(() => {
+    if (!visible || !canSwap) setSwapChoosing(null);
+  }, [visible, canSwap]);
+  const chooseSwap = (item: { id: string; text: string }) => {
+    if (!onSwapParked) return;
+    const targets = swapTargets;
+    if (Platform.OS === "ios") {
+      showActionSheet(
+        {
+          title: `Swap in “${item.text}”`,
+          message: SWAP_IN_QUESTION,
+          options: [...targets.map((t) => t.text), "Cancel"],
+          cancelButtonIndex: targets.length,
+        },
+        (index) => {
+          const target = targets[index];
+          if (target) onSwapParked(item.id, target.id);
+        },
+      );
+      return;
+    }
+    setSwapChoosing((current) => (current === item.id ? null : item.id));
+  };
   // The saved-only view is just the saved items: no milestone group either.
   const shownMilestone = !savedOnly && milestoneGroup && milestoneGroup.ideas.length > 0 ? milestoneGroup : null;
   // Opened for the milestone group: scroll to it once it has been laid out.
@@ -178,7 +219,9 @@ export function IdeasSheet({
             />
           )}
 
-          <View className="flex-row items-center justify-between">
+          {/* Not over the saved items: they're the user's own, not starter ideas (1.5 D). */}
+          {!savedOnly && (
+          <View className="flex-row items-center justify-between" testID="ideas-source-row">
             <View
               className="flex-row items-center gap-1.5 rounded-full px-3 py-1"
               style={{ backgroundColor: source.personalized ? `${colors.primary}18` : colors.surface }}
@@ -213,6 +256,7 @@ export function IdeasSheet({
               </Pressable>
             )}
           </View>
+          )}
 
           {stillThinking && (
             <Text className="text-xs" style={{ color: colors.muted }}>
@@ -249,7 +293,9 @@ export function IdeasSheet({
               {locked
                 ? "Today is locked. Unlock it to add one."
                 : savedOnly
-                  ? "Your day is full. Free a slot to swap one of these in."
+                  ? canSwap
+                    ? "Your day is full. Swap one of these in for an open task."
+                    : "Your day is full. Free a slot to swap one of these in."
                   : full
                     ? "Today's three are picked. Nice."
                     : suggestionsHint(remainingSlots)}
@@ -363,8 +409,8 @@ export function IdeasSheet({
                 </Text>
               )}
               {parked.map((item) => (
+                <View key={item.id} className="gap-2">
                 <View
-                  key={item.id}
                   className="rounded-2xl border p-3 flex-row items-center gap-3"
                   style={{ borderColor: colors.border, backgroundColor: colors.surface }}
                 >
@@ -381,6 +427,22 @@ export function IdeasSheet({
                     <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
                     <Text className="flex-1 text-base text-foreground">{item.text}</Text>
                   </Pressable>
+                  {canSwap ? (
+                    <Pressable
+                      onPress={() => chooseSwap(item)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Swap in ${item.text}`}
+                      accessibilityHint="Pick which of today's tasks it replaces"
+                      hitSlop={6}
+                      className="rounded-full px-3 justify-center"
+                      style={{ minHeight: 36, borderWidth: 1, borderColor: colors.primary }}
+                      testID={`swap-in-${item.id}`}
+                    >
+                      <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                        Swap in
+                      </Text>
+                    </Pressable>
+                  ) : null}
                   <Pressable
                     onPress={() => onRemoveParked?.(item.id)}
                     accessibilityRole="button"
@@ -389,6 +451,44 @@ export function IdeasSheet({
                   >
                     <Ionicons name="close-circle-outline" size={20} color={colors.muted} />
                   </Pressable>
+                </View>
+                {canSwap && swapChoosing === item.id ? (
+                  <View className="gap-2 px-1" testID={`swap-choices-${item.id}`}>
+                    <Text className="text-sm" style={{ color: colors.muted }}>
+                      {SWAP_IN_QUESTION}
+                    </Text>
+                    <View className="flex-row flex-wrap gap-2">
+                      {swapTargets.map((target) => (
+                        <Pressable
+                          key={target.id}
+                          onPress={() => {
+                            setSwapChoosing(null);
+                            onSwapParked?.(item.id, target.id);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Replace ${target.text}`}
+                          className="rounded-full px-3 justify-center"
+                          style={{ minHeight: 44, borderWidth: 1, borderColor: colors.primary }}
+                        >
+                          <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                            {target.text}
+                          </Text>
+                        </Pressable>
+                      ))}
+                      <Pressable
+                        onPress={() => setSwapChoosing(null)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Cancel"
+                        className="rounded-full px-3 justify-center"
+                        style={{ minHeight: 44 }}
+                      >
+                        <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
+                          Cancel
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
                 </View>
               ))}
             </View>

@@ -80,6 +80,7 @@ import {
   clearTaskSteps,
   parkTasks,
   removeParkedTask,
+  swapParkedTask,
   unparkTexts,
   setTaskSteps,
   toggleTaskStep,
@@ -243,6 +244,7 @@ type Action =
   | { type: "parkTasks"; texts: string[]; at: string }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
+  | { type: "swapParkedTask"; parkedId: string; taskId: string; today: string; at: string; newId: string }
   | { type: "addRoutine"; routine: Routine; max: number | null }
   | { type: "updateRoutine"; id: string; text: string; days: number[] }
   | { type: "setRoutinePaused"; id: string; paused: boolean }
@@ -628,6 +630,15 @@ function reduce(state: AppState, action: Action): AppState {
       if (!parked || !canTakeParkedTask(state)) return state;
       const withTask = reducer(state, { type: "addTask", text: parked.text, today: action.today });
       return withTask === state ? state : removeParkedTask(withTask, action.id);
+    }
+    case "swapParkedTask": {
+      const swapped = swapParkedTask(state, {
+        parkedId: action.parkedId,
+        taskId: action.taskId,
+        now: action.at,
+        newId: action.newId,
+      });
+      return swapped === state ? state : syncTodayHistory(swapped, action.today);
     }
     case "addRoutine": {
       // Free users stop at the limit; routines kept from a lapsed Plus stay.
@@ -1313,11 +1324,17 @@ interface StoreContextValue {
   removeParkedTask: (id: string) => void;
   addParkedTask: (id: string) => void;
   /**
+   * "Swap in" (1.5 D): a saved item takes an open task's place on a full,
+   * unlocked day; that task is saved for later. False when nothing changed.
+   */
+  swapParkedTask: (parkedId: string, taskId: string) => boolean;
+  /**
    * Create a routine (1.3). "limit": a free user already has
    * FREE_ROUTINE_LIMIT (open the paywall); "exists": the same routine is
    * already there (e.g. a double-tapped Save); "invalid": no text or no days.
    */
-  addRoutine: (text: string, days: number[]) => AddRoutineResult;
+  /** `source` "preset": one of the Routines sheet's one-tap presets (1.5 D). */
+  addRoutine: (text: string, days: number[], source?: "preset") => AddRoutineResult;
   /** A new routine is allowed right now (Plus, or under the free limit). */
   canAddRoutine: boolean;
   updateRoutine: (id: string, text: string, days: number[]) => void;
@@ -2382,12 +2399,33 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const addParkedTask = useCallback((id: string) => {
     dispatch({ type: "addParkedTask", id, today: ensureDay() });
   }, [ensureDay]);
+  // The state as of the last swap, before React has rendered it: two swaps in
+  // one frame must see the first (like routinesRef for routines).
+  const swapRef = useRef<{ from: AppState; to: AppState } | null>(null);
+  const swapParkedTaskCb = useCallback(
+    (parkedId: string, taskId: string): boolean => {
+      const today = ensureDay();
+      const at = new Date().toISOString();
+      const newId = makeId();
+      // The same pure step the reducer takes, on the latest state: says whether it will happen.
+      const rendered = stateRef.current;
+      const current = swapRef.current && swapRef.current.from === rendered ? swapRef.current.to : rendered;
+      // The day just turned: that task was yesterday's, nothing to swap.
+      if (current.lastOpenedDate !== today) return false;
+      const next = swapParkedTask(current, { parkedId, taskId, now: at, newId });
+      if (next === current) return false;
+      swapRef.current = { from: rendered, to: next };
+      dispatch({ type: "swapParkedTask", parkedId, taskId, today, at, newId });
+      return true;
+    },
+    [ensureDay],
+  );
   // Routines as of the last add, before React has rendered it: a
   // double-tapped Save must see the first one (and be refused).
   const routinesRef = useRef(state.routines);
   routinesRef.current = state.routines;
   const addRoutine = useCallback(
-    (rawText: string, rawDays: number[]): AddRoutineResult => {
+    (rawText: string, rawDays: number[], source?: "preset"): AddRoutineResult => {
       const text = cleanRoutineText(rawText);
       const days = cleanDays(rawDays);
       if (!text || days.length === 0) return "invalid";
@@ -2411,7 +2449,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       if (!next) return "exists";
       routinesRef.current = next;
       dispatch({ type: "addRoutine", routine, max });
-      track("routine_created", { count: next.length });
+      track("routine_created", source ? { count: next.length, source } : { count: next.length });
       return "added";
     },
     [hasPlus],
@@ -2804,6 +2842,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       parkTasks: parkTasksCb,
       removeParkedTask: removeParkedTaskCb,
       addParkedTask,
+      swapParkedTask: swapParkedTaskCb,
       addRoutine,
       canAddRoutine,
       updateRoutine,
@@ -2899,6 +2938,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       parkTasksCb,
       removeParkedTaskCb,
       addParkedTask,
+      swapParkedTaskCb,
       addRoutine,
       canAddRoutine,
       updateRoutine,

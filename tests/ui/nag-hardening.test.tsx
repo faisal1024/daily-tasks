@@ -32,6 +32,7 @@ import { __resetStorageForTests, buildInitialState, clearState } from "@/lib/dai
 import { DEFAULT_AUTO_LOCK, DEFAULT_NOTIFICATIONS, type AppState, type NotificationConfig, type Task } from "@/lib/daily-tasks/types";
 
 import { renderWithProviders as render } from "./render";
+import { UPCOMING_MORNING_DAYS } from "@/lib/daily-tasks/reminders";
 
 const FREE = { paywallBuild: true, paywallEnabled: true, entitlementActive: false, entitlementKnown: true, paywallSource: null as string | null };
 const PLUS = { ...FREE, entitlementActive: true };
@@ -811,7 +812,7 @@ describe("saved state: old, partial, damaged", () => {
     await eventually(() => {
       expect(ofKind("progress")).toHaveLength(4);
       expect(ofKind("evening")).toHaveLength(6);
-      expect(ofKind("morning")).toHaveLength(6);
+      expect(ofKind("morning")).toHaveLength(UPCOMING_MORNING_DAYS);
     });
     expect(ofKind("nag")).toEqual([]);
     expect(networkFetch).not.toHaveBeenCalled();

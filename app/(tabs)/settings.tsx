@@ -48,7 +48,8 @@ import {
   NAG_PERSONAS,
 } from "@/lib/daily-tasks/nag";
 import { NAG_LEVEL_COUNT_NOTE, nagLevelRudeNote } from "@/lib/daily-tasks/nag-copy";
-import { NAG_INTRO_SETTINGS_ROW } from "@/lib/daily-tasks/whats-new";
+import { loadFirstDays } from "@/lib/daily-tasks/first-days";
+import { NAG_ANNOUNCEMENT_ID, NAG_FIRST_DAYS_ID, NAG_INTRO_SETTINGS_ROW } from "@/lib/daily-tasks/whats-new";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { announcePolitely } from "@/lib/daily-tasks/announce";
@@ -310,6 +311,15 @@ export default function SettingsScreen() {
 
   // "What is Nag mode?": the sheet people updating to 1.4 were shown, again.
   const [nagIntroOpen, setNagIntroOpen] = useState(false);
+  // A 1.5 D install (its first run wrote the Nag intro's record): the sheet
+  // isn't news to them, so no "New in 1.4" (1.5 D). Read before it opens.
+  const [nagIntroFresh, setNagIntroFresh] = useState(false);
+  const openNagIntro = () => {
+    void loadFirstDays().then((record) => {
+      setNagIntroFresh(record?.nagIntro !== undefined);
+      setNagIntroOpen(true);
+    });
+  };
   const nagIntroRow = useRef<View>(null);
   const nagIntroFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -924,7 +934,7 @@ export default function SettingsScreen() {
           {!nagActive ? (
             <Pressable
               ref={nagIntroRow}
-              onPress={() => setNagIntroOpen(true)}
+              onPress={openNagIntro}
               accessibilityRole="button"
               accessibilityLabel={NAG_INTRO_SETTINGS_ROW}
               accessibilityHint="Shows what Nag mode does and how it sounds"
@@ -1235,6 +1245,7 @@ export default function SettingsScreen() {
       <NagIntro
         visible={nagIntroOpen}
         source="settings"
+        id={nagIntroFresh ? NAG_FIRST_DAYS_ID : NAG_ANNOUNCEMENT_ID}
         onClose={closeNagIntro}
         // The style card above now shows Nag, with its controls.
         onTurnedOn={() => announcePolitely("Nag mode is on")}

@@ -300,8 +300,21 @@ export function planReminders(input: ReminderPlanInput): PlannedReminder[] {
   return withTaskCopy(reminders);
 }
 
-/** How many days ahead a morning nudge is scheduled (iOS allows 64 pending). */
-export const UPCOMING_MORNING_DAYS = 6;
+/**
+ * How many days ahead a morning nudge is scheduled (1.5 D: two weeks, so
+ * someone away for a while still gets one gentle morning a day). iOS keeps
+ * 64 pending: a day's own reminders (about 10) plus these and the nags stay
+ * well under it, and fitPlanToLimit drops the latest first if not.
+ */
+export const UPCOMING_MORNING_DAYS = 14;
+
+/** The morning a week after the last sync (the app not opened since) asks a little differently. */
+export const LAPSED_MORNING_DAY = 7;
+/** What that morning says (1.5 D). */
+export const LAPSED_MORNING_COPY: ReminderCopy = {
+  title: GENERIC_REMINDER_COPY.morning.title,
+  body: "Your Day count is right where you left it. Three small things?",
+};
 
 /**
  * One gentle morning nudge on each of the next few days. Today's reminders
@@ -339,7 +352,10 @@ export function planUpcomingMornings(input: {
       : REMINDER_HOURS.weekdayMorningStart;
     const at = candidateAt(day, hour);
     let words: ReminderCopy | null;
-    if (copy && copy.dayKey === dayKey && copy.tasks.length > 0) {
+    if (offset === LAPSED_MORNING_DAY && !(copy && copy.dayKey === dayKey && copy.tasks.length > 0)) {
+      // A week without the app (every open writes these again): the Day count.
+      words = LAPSED_MORNING_COPY;
+    } else if (copy && copy.dayKey === dayKey && copy.tasks.length > 0) {
       // The tasks' own day, still ahead of the clock: its morning names
       // them (written ahead, so no counts). Nothing if they're all done.
       words = buildReminderCopy({

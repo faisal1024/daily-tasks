@@ -15,6 +15,7 @@ import { syncNotifications } from "@/lib/daily-tasks/notifications";
 import { DEFAULT_NOTIFICATIONS } from "@/lib/daily-tasks/types";
 
 import { renderWithProviders as render } from "./render";
+import { UPCOMING_MORNING_DAYS } from "@/lib/daily-tasks/reminders";
 
 jest.mock("@/lib/daily-tasks/analytics", () => ({ track: jest.fn() }));
 jest.mock("expo-notifications", () => ({
@@ -112,7 +113,7 @@ describe("syncNotifications", () => {
     expect(secondStart).toBeGreaterThan(0);
     // All of the first sync's scheduling happened before the second began.
     expect(events.slice(1, secondStart).every((e) => e === "schedule")).toBe(true);
-    expect(events.slice(1, secondStart)).toHaveLength(6);
+    expect(events.slice(1, secondStart)).toHaveLength(UPCOMING_MORNING_DAYS);
   });
 });
 

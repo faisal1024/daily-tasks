@@ -44,6 +44,7 @@ import { pickedNote, saveFirstDays, startFirstDays } from "@/lib/daily-tasks/fir
 import type { FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { DoneCard } from "@/components/daily-tasks/done-card";
+import { ShareDaySheet } from "@/components/daily-tasks/share-day-sheet";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { ReorderGhost, ReorderRow, reorderRowKey, useTaskReorder } from "@/components/daily-tasks/task-reorder";
@@ -147,8 +148,16 @@ import {
 } from "@/lib/daily-tasks/reorder";
 import { buildWeekSummary, todayPhase } from "@/lib/daily-tasks/today-phase";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
+import { claimFirstTick, FIRST_TICK_TOAST, isFirstTickEver, tickedBefore } from "@/lib/daily-tasks/first-tick";
+import {
+  claimWelcomeShown,
+  showsWelcomeBack,
+  welcomeBack,
+  welcomeBackLine,
+} from "@/lib/daily-tasks/welcome-back";
 import {
   NAG_ANNOUNCEMENT_ID,
+  NAG_FIRST_DAYS_ID,
   NAG_ON_TOAST,
   todayIdleForWhatsNew,
   whatsNewActivity,
@@ -229,6 +238,8 @@ export default function HomeScreen() {
     parkTasks,
     removeParkedTask,
     addParkedTask,
+    swapParkedTask,
+    updateMomentumProfile,
     addRoutineToToday,
     setTaskSteps,
     toggleTaskStep,
@@ -814,6 +825,8 @@ export default function HomeScreen() {
       // A set day takes nothing new.
       remainingSlots={state.todayLocked ? 0 : remainingSlots}
       quiet={Boolean(draft)}
+      // "Unfinished from Tuesday": named for the day they're from (1.5 D).
+      today={today}
       onApply={(ids) => {
         track("rollover_resolved", {
           count: ids.length,
@@ -830,8 +843,19 @@ export default function HomeScreen() {
   // the first check-off (or the next day), the widget tip from a later launch
   // or day after the first finished day. Never with first run or the rollover
   // card up. The state lives here, so where the cards sit never reloads it.
+  // Something was checked off on an earlier day (for "Meet Nag mode" on its own, 1.5 D).
+  const tickedEarlier = useMemo(() => tickedBefore(state.history, today), [state.history, today]);
+  // "Meet Nag mode" opened from a new install's Nag card (1.5 D).
+  const [nagCardOpen, setNagCardOpen] = useState(false);
+  // "Share your day" (1.5 D): the finished day's picture, from the done card.
+  const [shareOpen, setShareOpen] = useState(false);
   const firstDays = useFirstDays({
     today,
+    appActive,
+    nagOn: state.notifications.style === "nag",
+    // "Meet Nag mode" on its own only once the app has done something for them.
+    tickedEver: completedCount > 0 || tickedEarlier,
+    onOpenNag: () => setNagCardOpen(true),
     active: ready && state.hasSeenOnboarding && !firstRunActive && !state.pendingRollover && appActive,
     version: firstDaysVersion,
     checkedOff: completedCount > 0,
@@ -858,6 +882,23 @@ export default function HomeScreen() {
     day: "numeric",
     month: "long",
   });
+  // Back after two days or more (1.5 D): one calm line until the first tick.
+  const welcome = useMemo(() => welcomeBack(state.history, today), [state.history, today]);
+  const showWelcome =
+    ready &&
+    state.hasSeenOnboarding &&
+    showsWelcomeBack({ welcome, completedCount, firstRun: firstRunActive });
+  const welcomeDays = showWelcome && welcome ? welcome.days : 0;
+  useEffect(() => {
+    if (!welcomeDays || !appActive) return;
+    let cancelled = false;
+    void claimWelcomeShown(today).then((first) => {
+      if (first && !cancelled) track("welcome_back_shown", { count: welcomeDays });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [welcomeDays, appActive, today]);
   const firstName = state.momentumProfile.name?.trim().split(/\s+/)[0] ?? "";
   const greetingLine = firstName ? `${greetingText(greetingFor())}, ${firstName}` : null;
 
@@ -1033,7 +1074,10 @@ export default function HomeScreen() {
     focusTaskId !== null ||
     // No rating ask over a focus session: running, paused or at its check-in.
     focusSession !== null ||
-    showCelebration;
+    showCelebration ||
+    // 1.5 D: "Meet Nag mode" from its Today card, and the share preview.
+    nagCardOpen ||
+    shareOpen;
 
   // What's new (1.4): once, for someone who updated, in the quiet window
   // right after a launch or a return to the foreground: Today in front with
@@ -1058,6 +1102,8 @@ export default function HomeScreen() {
     pending: plusPending,
     activity: whatsNewActivity(state.tasks, state.todayCompletions),
     canShowNow: () => whatsNewCanShow.current(),
+    // A new install's own "Meet Nag mode", once, on the next open after first run (1.5 D).
+    firstDays: { id: NAG_FIRST_DAYS_ID, due: firstDays.nagIntroDue, seen: firstDays.nagIntroSeen },
   });
   // VoiceOver goes back to Today's title once the sheet has gone.
   const todayTitleRef = useRef<Text>(null);
@@ -1082,6 +1128,20 @@ export default function HomeScreen() {
   };
   const closeWhatsNew = (next?: "paywall") => {
     whatsNew.close();
+    afterNagSheet(next);
+  };
+  // "Meet Nag mode" from the Nag card: closed the same way (1.5 D).
+  const closeNagSheet = (next?: "paywall") => {
+    if (!nagCardOpen) {
+      closeWhatsNew(next);
+      return;
+    }
+    setNagCardOpen(false);
+    // Seen once it's closed (or handed to the paywall): the card and the sheet's own showing are done.
+    firstDays.nagIntroSeen();
+    afterNagSheet(next);
+  };
+  const afterNagSheet = (next?: "paywall") => {
     if (next === "paywall") {
       // The paywall is about to appear: VoiceOver's focus is its to take.
       handOffWhatsNew();
@@ -1096,6 +1156,13 @@ export default function HomeScreen() {
   // A focus prompt while the sheet is up: the sheet steps aside, not seen
   // (the user didn't close it), and comes back at a later foreground.
   whatsNewStepAside.current = () => {
+    if (nagCardOpen) {
+      // The same for "Meet Nag mode" opened from its card: not seen, so the
+      // card stays and it can be opened again there.
+      setNagCardOpen(false);
+      handOffWhatsNew();
+      return true;
+    }
     if (whatsNew.openId === null) return false;
     whatsNew.postpone();
     handOffWhatsNew();
@@ -1453,13 +1520,21 @@ export default function HomeScreen() {
 
   const handleToggle = (id: string) => {
     const completing = !isCompleted(id);
+    // A tap on every tick (1.5 D): firmer for done than for undone; the row's check pops in.
     haptic(() =>
-      completing
-        ? Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-        : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
+      Haptics.impactAsync(completing ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light),
     );
     toggleTask(id);
     if (completing) track("task_completed", { count: completedCount + 1 });
+    // The very first tick on this install: one line, once (1.5 D).
+    if (completing && isFirstTickEver({ history: state.history, today, completedBefore: completedCount })) {
+      void claimFirstTick().then((first) => {
+        if (!first) return;
+        showToast(FIRST_TICK_TOAST);
+        // Queued after the tick's own words (and any "Done: …"), never in their place.
+        announcePolitely(FIRST_TICK_TOAST);
+      });
+    }
     // Plus lapsed a while ago: offer it back once, after a small win (not on
     // launch). Skipped if anything else is on screen, e.g. the celebration.
     if (completing && winBackDue && paywallEnabled && !hasPlus) {
@@ -1716,6 +1791,21 @@ export default function HomeScreen() {
                   <Text className="flex-1 text-sm text-foreground">{toast}</Text>
                 </View>
               )}
+
+              {showWelcome ? (
+                <View className="flex-row items-center gap-2 px-1" testID="welcome-back">
+                  <Ionicons
+                    name="sunny-outline"
+                    size={16}
+                    color={colors.primary}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                  />
+                  <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "600" }}>
+                    {welcomeBackLine(daysShowedUp)}
+                  </Text>
+                </View>
+              ) : null}
 
               {/* No draft to weigh it against: yesterday's leftovers come first. */}
               {rolloverOnTop && rolloverCard}
@@ -2032,6 +2122,8 @@ export default function HomeScreen() {
                     eveningCheckIn={eveningCheckIn}
                     coachDrafts={coachDrafts}
                     onPullOneMore={ideasVisible ? () => setIdeasOpen(true) : undefined}
+                    // The picture goes to the iOS share sheet (1.5 D).
+                    onShare={Platform.OS === "ios" && total > 0 ? () => setShareOpen(true) : undefined}
                   />
                 )}
                 {eveningCheckIn && (
@@ -2118,6 +2210,20 @@ export default function HomeScreen() {
           addParkedTask(id);
         }}
         onRemoveParked={removeParkedTask}
+        // 1.5 D: on a full, unlocked day a saved item swaps in for an open task.
+        swapTargets={state.tasks.filter((task) => !isCompleted(task.id)).map((task) => ({ id: task.id, text: task.text }))}
+        onSwapParked={(parkedId, taskId) => {
+          const out = state.tasks.find((task) => task.id === taskId)?.text;
+          // Its timer goes with it (the store clears a session whose task leaves today): say so, as Not today does.
+          const timed = focusSessionRef.current?.taskId === taskId;
+          if (!swapParkedTask(parkedId, taskId)) return;
+          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+          track("saved_swapped_in", { source: ideasSavedOnly ? "saved" : "ideas" });
+          const swapped = out ? `Swapped in. “${out}” is saved for later.` : "Swapped in.";
+          const message = timed ? `${swapped} Timer stopped.` : swapped;
+          AccessibilityInfo.announceForAccessibility(message);
+          showToast(message);
+        }}
         onLock={total > 0 ? confirmLock : undefined}
         routines={dueRoutines}
         onAddRoutine={(id) => handleAddRoutine(id, "ideas")}
@@ -2249,14 +2355,26 @@ export default function HomeScreen() {
       )}
 
       <NagIntro
-        visible={whatsNew.openId === NAG_ANNOUNCEMENT_ID}
-        source="today"
-        onClose={closeWhatsNew}
+        // The 1.4 announcement for people who updated; a new install's own
+        // introduction (on its own once, or from the Nag card) for the rest (1.5 D).
+        visible={whatsNew.openId === NAG_ANNOUNCEMENT_ID || whatsNew.openId === NAG_FIRST_DAYS_ID || nagCardOpen}
+        id={whatsNew.openId === NAG_ANNOUNCEMENT_ID ? NAG_ANNOUNCEMENT_ID : NAG_FIRST_DAYS_ID}
+        source={nagCardOpen ? "card" : "today"}
+        onClose={closeNagSheet}
         onShow={whatsNew.shown}
         onTurnedOn={() => {
           showToast(NAG_ON_TOAST);
           announceLater(NAG_ON_TOAST);
         }}
+      />
+
+      <ShareDaySheet
+        visible={shareOpen}
+        tasks={state.tasks.map((task) => ({ text: task.text, done: isCompleted(task.id) }))}
+        daysShowedUp={daysShowedUp}
+        dateLabel={dateLabel}
+        hideTaskNames={state.notifications.hideTaskNames}
+        onClose={() => setShareOpen(false)}
       />
 
       <CelebrationOverlay visible={showCelebration} onDismiss={dismissCelebration} />
@@ -2322,8 +2440,12 @@ export default function HomeScreen() {
         // Tasks already on today (an earlier first run added them, then
         // didn't finish): it just finishes. Read only when it (re)appears.
         resumeCount={state.tasks.length}
-        onFinish={({ picked, source }) => {
+        onFinish={({ picked, source, name }) => {
           markOnboardingSeen();
+          // 1.5 D: the optional name from the "three" screen, for the greeting.
+          if (name && name !== (state.momentumProfile.name ?? "")) {
+            updateMomentumProfile({ ...state.momentumProfile, name });
+          }
           setFirstRunActive(false);
           // Resumed: count what's already on today (nothing was dumped now).
           const count = source === "resume" ? state.tasks.length : picked;

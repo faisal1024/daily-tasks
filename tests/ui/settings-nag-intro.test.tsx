@@ -10,6 +10,7 @@ import SettingsScreen from "@/app/(tabs)/settings";
 import { SHEET_SWAP_DELAY_MS } from "@/hooks/use-paywall-gate";
 import { track } from "@/lib/daily-tasks/analytics";
 import { announcePolitely } from "@/lib/daily-tasks/announce";
+import { saveFirstDays, startFirstDays } from "@/lib/daily-tasks/first-days";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
@@ -125,6 +126,16 @@ describe("Settings: What is Nag mode?", () => {
     expect(inSheet().getByText("New in 1.4")).toBeOnTheScreen();
     expect(screen.getByTestId("nag-intro-sample").props.children).toContain("“Call the dentist”");
     expect(eventsNamed("whats_new_shown")).toEqual([{ id: ID, source: "settings" }]);
+  });
+
+  it("a 1.5 D install (its first run wrote the Nag intro's record): not 'New in 1.4', and its own id", async () => {
+    await saveFirstDays(startFirstDays("2026-10-11", "earlier#0"));
+    await renderSettings({}, { whatsNewSeen: [ID] });
+    await openIntro();
+    expect(inSheet().getByRole("header", { name: "Meet Nag mode" })).toBeOnTheScreen();
+    expect(screen.queryByTestId("nag-intro-label")).toBeNull();
+    expect(screen.queryByTestId("nag-intro-footer")).toBeNull();
+    expect(eventsNamed("whats_new_shown")).toEqual([{ id: "1.5-nag-intro", source: "settings" }]);
   });
 
   it("it doesn't come up by itself in Settings, and opening it never changes what's been seen", async () => {

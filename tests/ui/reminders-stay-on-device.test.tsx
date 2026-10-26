@@ -15,6 +15,7 @@ import SettingsScreen from "@/app/(tabs)/settings";
 import { __resetAnalyticsForTests, __setAnalyticsFetchForTests, flush } from "@/lib/daily-tasks/analytics";
 import { NAME_FREE_REMINDER_BODIES } from "@/lib/daily-tasks/reminder-copy";
 import { REMINDER_SYNC_DEBOUNCE_MS } from "@/lib/daily-tasks/reminder-plan";
+import { LAPSED_MORNING_COPY } from "@/lib/daily-tasks/reminders";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
@@ -199,6 +200,8 @@ describe("Hide task names on: a morning's use of the app", () => {
         "Nothing picked yet. Three small things is plenty.",
         "A fresh page. What are today's three?",
         "Nothing picked yet. One is enough to begin.",
+        // The morning a week on (1.5 D).
+        LAPSED_MORNING_COPY.body,
       ]).toContain(call.content.body);
     }
     expect(everythingLogged()).not.toMatch(TASK_WORDS);

@@ -12,6 +12,7 @@
 import { getMomentumAiProxyUrl, postToProxy, proxyRouteUrl } from "./ai-client";
 import { MomentumAiError } from "./ai-status";
 import { pickStable } from "./coach-messages";
+import { STARTER_MINUTES } from "./focus-session";
 import type { TodayPhase } from "./today-phase";
 import type { CoachNoteLines, CoachNotesCache, MomentumSettings, Task, TaskId } from "./types";
 import { MAX_COACH_KEY_CHARS, MAX_COACH_LINE, MAX_COACH_REQUESTS_PER_DAY, MAX_TASKS } from "./types";
@@ -31,16 +32,24 @@ const QUOTE_MIN_WORD_CUT = 20;
 // The proxy's limit for a task (and the goal title) in the payload.
 const MAX_TASK_CHARS = MAX_COACH_KEY_CHARS;
 
+const SPELLED_MINUTES: Record<number, string> = { 2: "two", 3: "three", 5: "five", 10: "ten", 15: "fifteen" };
+/**
+ * The note's Start button starts a STARTER_MINUTES starter (1.5 D): a line
+ * that names a length names that one ("five minutes"), never another.
+ */
+export const STARTER_MINUTES_WORD = SPELLED_MINUTES[STARTER_MINUTES] ?? String(STARTER_MINUTES);
+const STARTER_MINUTES_WORD_CAPITAL = STARTER_MINUTES_WORD.charAt(0).toUpperCase() + STARTER_MINUTES_WORD.slice(1);
+
 // Calm, second person, 20 words or fewer with the task quoted; no
 // exclamation marks, no guilt, no hype, no emoji. {task} is the quoted task.
 export const START_LINES = [
-  "Give {task} two minutes. That's all it needs for now.",
+  `Give {task} ${STARTER_MINUTES_WORD} minutes. That's all it needs for now.`,
   "For {task}, get out the one thing you need first.",
   "Start {task} small: set a short timer and begin.",
-  "Give {task} ten quiet minutes before anything else asks for you.",
+  `Give {task} ${STARTER_MINUTES_WORD} quiet minutes before anything else asks for you.`,
   "Name the very first step of {task}, then take just that one.",
   "Clear a little space for {task} and begin before you feel ready.",
-  "Make {task} smaller. What could you finish in five minutes?",
+  `Make {task} smaller. What could you finish in ${STARTER_MINUTES_WORD} minutes?`,
   "Begin {task} with the easiest part. The rest comes easier after that.",
 ] as const;
 
@@ -51,8 +60,8 @@ export const MOMENTUM_LINES = [
   "Keep it steady: pick up {task} and do the next small part.",
   "{task} doesn't need to be perfect, just a little further along.",
   "When you're ready, pick up {task} where it's easiest.",
-  "Bring a steady pace to {task}. Ten minutes is plenty.",
-  "{task} is the next piece of today. Ten minutes is a fine start.",
+  `Bring a steady pace to {task}. ${STARTER_MINUTES_WORD_CAPITAL} minutes is plenty.`,
+  `{task} is the next piece of today. ${STARTER_MINUTES_WORD_CAPITAL} minutes is a fine start.`,
 ] as const;
 
 /** Cache key: the task text, trimmed, single-spaced and lower-cased. */

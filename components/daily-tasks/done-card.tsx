@@ -16,6 +16,7 @@ export function DoneCard({
   eveningCheckIn,
   coachDrafts = true,
   onPullOneMore,
+  onShare,
 }: {
   total: number;
   week: Pick<WeekSummary, "showedUpDays" | "tasksDone">;
@@ -25,6 +26,8 @@ export function DoneCard({
   coachDrafts?: boolean;
   /** Only while the ideas entry would show (an open slot on an unset day). */
   onPullOneMore?: () => void;
+  /** "Share your day" (1.5 D, iOS): opens the picture's preview. */
+  onShare?: () => void;
 }) {
   const title = doneCardTitle(total);
   const wins = smallWinsLine(week);
@@ -73,6 +76,33 @@ export function DoneCard({
         >
           <Ionicons name="add" size={16} color="#fff" />
           <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700" }}>Pull one more from Ideas</Text>
+        </Pressable>
+      ) : null}
+      {onShare ? (
+        <Pressable
+          onPress={onShare}
+          accessibilityRole="button"
+          accessibilityLabel="Share your day"
+          accessibilityHint="Shows a picture of today to share"
+          style={{
+            alignSelf: "flex-start",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            marginTop: 8,
+            minHeight: 44,
+            paddingVertical: 10,
+            paddingHorizontal: 14,
+            borderRadius: 999,
+            // The same quiet pill as "Pull one more": AA white on the dark tint.
+            backgroundColor: "rgba(22,20,32,0.18)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.45)",
+          }}
+          testID="share-day"
+        >
+          <Ionicons name="share-outline" size={16} color="#fff" />
+          <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700" }}>Share your day</Text>
         </Pressable>
       ) : null}
     </GradientCard>

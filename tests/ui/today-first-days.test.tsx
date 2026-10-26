@@ -41,6 +41,21 @@ jest.mock("@/components/daily-tasks/rollover-modal", () => ({ RolloverModal: () 
 const TODAY = "2026-09-26";
 // First run's record waits for the next day (or the first check-off) for the nudge.
 const TOMORROW = "2026-09-27";
+/**
+ * What first run writes as it ends: the nudge from tomorrow (or the first
+ * check-off), the widget tip waiting, and 1.5 D's Nag card (the first two
+ * days, from the first check-off or tomorrow) with its sheet waiting for the
+ * next open.
+ */
+const FIRST_RUN_RECORD = {
+  nudgeFrom: TOMORROW,
+  nudgeDeclines: 0,
+  widgetTip: "waiting",
+  nagCardFrom: TOMORROW,
+  nagCardUntil: TOMORROW,
+  nagIntro: "waiting",
+  nagIntroOpen: expect.any(String),
+};
 const originalOS = Platform.OS;
 
 function makeStore(overrides: Partial<AppState> = {}, extra: Record<string, unknown> = {}) {
@@ -151,7 +166,7 @@ describe("first run ends (1.5): each path", () => {
     expect(mockStore.addTasks).not.toHaveBeenCalled();
     expect(completedEvents()).toEqual([{ source: "own", count: 0 }]);
     await waitFor(async () =>
-      expect(await storedRecord()).toEqual({ nudgeFrom: TOMORROW, nudgeDeclines: 0, widgetTip: "waiting" }),
+      expect(await storedRecord()).toEqual(FIRST_RUN_RECORD),
     );
     expect(screen.queryByTestId("today-toast")).toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 700));
@@ -197,7 +212,7 @@ describe("first run ends (1.5): each path", () => {
     // VoiceOver hears it a moment later, so the closing screen doesn't cut it off.
     await waitFor(() => expect(announce).toHaveBeenCalledWith("Your three are picked."));
     expect(announce.mock.calls.filter(([text]) => text === "Your three are picked.")).toHaveLength(1);
-    expect(await storedRecord()).toEqual({ nudgeFrom: TOMORROW, nudgeDeclines: 0, widgetTip: "waiting" });
+    expect(await storedRecord()).toEqual(FIRST_RUN_RECORD);
     expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 

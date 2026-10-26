@@ -134,14 +134,15 @@ describe("planReminders", () => {
 });
 
 describe("planUpcomingMornings (Phase 8)", () => {
-  it("plans one morning nudge on each of the next 6 days: 8:00 on weekdays, 10:00 at weekends", () => {
+  it("plans one morning nudge on each of the next 14 days: 8:00 on weekdays, 10:00 at weekends", () => {
     // Friday 25 Sep 2026, evening.
     const upcoming = planUpcomingMornings({
       now: new Date(2026, 8, 25, 21, 0),
       settings: DEFAULT_NOTIFICATIONS,
       permissionState: "granted",
     });
-    expect(UPCOMING_MORNING_DAYS).toBe(6);
+    // Two weeks of mornings (1.5 D).
+    expect(UPCOMING_MORNING_DAYS).toBe(14);
     expect(upcoming.map((r) => [r.at.getDate(), r.at.getHours(), r.at.getMinutes()])).toEqual([
       [26, 10, 0], // Sat
       [27, 10, 0], // Sun
@@ -149,10 +150,18 @@ describe("planUpcomingMornings (Phase 8)", () => {
       [29, 8, 0],
       [30, 8, 0],
       [1, 8, 0],
+      [2, 8, 0],
+      [3, 10, 0], // Sat
+      [4, 10, 0], // Sun
+      [5, 8, 0],
+      [6, 8, 0],
+      [7, 8, 0],
+      [8, 8, 0],
+      [9, 8, 0],
     ]);
     expect(upcoming.every((r) => r.kind === "morning")).toBe(true);
     expect(upcoming[0].identifier).toBe(buildReminderIdentifier("morning", upcoming[0].at));
-    expect(new Set(upcoming.map((r) => r.identifier)).size).toBe(6);
+    expect(new Set(upcoming.map((r) => r.identifier)).size).toBe(14);
   });
 
   it("plans none when reminders, the morning nudge, or permission are off", () => {

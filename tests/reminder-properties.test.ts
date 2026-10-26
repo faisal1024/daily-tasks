@@ -42,7 +42,7 @@ import {
   type ReminderPlanItem,
   type ReminderStrategy,
 } from "../lib/daily-tasks/reminder-plan";
-import { MANAGED_REMINDER_PREFIX } from "../lib/daily-tasks/reminders";
+import { LAPSED_MORNING_COPY, MANAGED_REMINDER_PREFIX, UPCOMING_MORNING_DAYS } from "../lib/daily-tasks/reminders";
 import { DEFAULT_NOTIFICATIONS, type NotificationConfig, type TomorrowDraft } from "../lib/daily-tasks/types";
 
 const ZONES = [
@@ -205,6 +205,8 @@ const NAME_FREE_BODIES = [
   "Nothing picked yet. Three small things is plenty.",
   "A fresh page. What are today's three?",
   "Nothing picked yet. One is enough to begin.",
+  // The morning a week on (1.5 D).
+  LAPSED_MORNING_COPY.body,
 ];
 
 /** Wording that is true whether or not the task was ticked since it was written. */
@@ -647,7 +649,7 @@ describe("done tasks", () => {
         expect(onClockDay(plan, made.context.now), `${zone} run ${run}`).toEqual([]);
         plan.forEach((item) => expect(mentions(shown(item), made.taskWords)).toEqual([]));
         // The mornings ahead are still there (when mornings are on): a new day starts open.
-        expect(plan.length).toBe(made.context.settings.enabled && made.context.settings.morning ? 6 : 0);
+        expect(plan.length).toBe(made.context.settings.enabled && made.context.settings.morning ? UPCOMING_MORNING_DAYS : 0);
       }
     });
   });
@@ -666,7 +668,7 @@ describe("done tasks", () => {
         const plan = planOf(made.context);
         expect(onClockDay(plan, made.context.now)).toEqual([]);
         expect(plan.map((item) => toDateKey(item.fireAt))).not.toContain(made.context.today);
-        expect(plan).toHaveLength(5);
+        expect(plan).toHaveLength(UPCOMING_MORNING_DAYS - 1);
       }
     });
   });
@@ -823,9 +825,9 @@ describe("times, ids and clock changes in every zone", () => {
             (h) => new Date(now.getFullYear(), now.getMonth(), now.getDate(), h).getTime() > now.getTime(),
           );
           expect(today.map((item) => item.fireAt.getHours()), label).toEqual(wanted);
-          // The six mornings: the next six local days, 8:00 on weekdays and 10:00 at weekends.
+          // The mornings: the next 14 local days (1.5 D), 8:00 on weekdays and 10:00 at weekends.
           const mornings = afterClockDay(plan, now);
-          expect(mornings, label).toHaveLength(6);
+          expect(mornings, label).toHaveLength(UPCOMING_MORNING_DAYS);
           mornings.forEach((item, index) => {
             const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + index + 1, 12);
             const weekend = date.getDay() === 0 || date.getDay() === 6;
@@ -1003,13 +1005,16 @@ describe("fitPlanToLimit, on generated plans", () => {
     expect(fitted.map((item) => item.id)).toEqual(Array.from({ length: room }, (_unused, index) => `daily-tasks:n:${79 - index}`));
   });
 
-  it("the standard plan always fits whole beside up to 40 others, in any situation", () => {
+  // At most every hour today (14) and two weeks of mornings (1.5 D): 28, so it
+  // fits whole beside 36 that aren't ours (there are usually none to two).
+  it("the standard plan always fits whole beside up to 36 others, in any situation", () => {
+    const most = 14 + UPCOMING_MORNING_DAYS;
     const random = seeded(89_703);
     for (let run = 0; run < 300; run++) {
       const made = scenario(random, { storeOffset: random.pick([0, -1, 1]) });
       const plan = taskAwareStrategy(made.context);
-      expect(plan.length).toBeLessThanOrEqual(20);
-      expect(fitPlanToLimit(plan, { now: made.context.now, otherPending: 40 })).toHaveLength(plan.length);
+      expect(plan.length).toBeLessThanOrEqual(most);
+      expect(fitPlanToLimit(plan, { now: made.context.now, otherPending: 64 - most })).toHaveLength(plan.length);
       // And is already clean: the scheduler's pass changes no word of it.
       const fitted = fitPlanToLimit(plan, { now: made.context.now, otherPending: 0 });
       expect(fitted.map((item) => [item.id, item.title, item.body])).toEqual(bySoonest(plan).map((item) => [item.id, item.title, item.body]));

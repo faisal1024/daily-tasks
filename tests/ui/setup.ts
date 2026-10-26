@@ -32,6 +32,12 @@ jest.mock("expo-haptics", () => ({
   NotificationFeedbackType: { Success: "success", Warning: "warning", Error: "error" },
 }));
 
+// "Share your day" (1.5 D): the picture is a file on the device; no native module in tests.
+jest.mock("react-native-view-shot", () => ({
+  captureRef: jest.fn(async () => "/tmp/three-today-share.png"),
+  releaseCapture: jest.fn(),
+}));
+
 jest.mock("@react-native-async-storage/async-storage", () =>
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- hoisted jest.mock factory
   require("@react-native-async-storage/async-storage/jest/async-storage-mock"),

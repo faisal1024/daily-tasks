@@ -42,7 +42,12 @@ export type FirstRunStep = "dump" | "sorting" | "three";
 export interface FirstRunResult {
   picked: number;
   source: "dump" | "own" | "resume";
+  /** 1.5 D: what to call them, typed on the "three" screen (optional; absent when left empty). */
+  name?: string;
 }
+
+/** The longest name kept (the same as Settings' field). */
+export const FIRST_RUN_NAME_MAX = 40;
 
 interface FirstRunProps {
   visible: boolean;
@@ -77,6 +82,8 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
   const [parked, setParked] = useState<string[]>([]);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
+  // 1.5 D: optional, on the "three" screen; saved as the name in greetings.
+  const [name, setName] = useState("");
   const sortRun = useRef(0);
   // Guards against double taps (two sorts, or the three added twice).
   const committing = useRef(false);
@@ -101,6 +108,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
     setParked([]);
     setChosen(new Set());
     setNotice(null);
+    setName("");
     setStep("dump");
     if (resumeCount > 0) {
       committing.current = true;
@@ -152,7 +160,8 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
     committing.current = true;
     const rest = [...picks.filter((pick) => !chosen.has(pick)), ...parked];
     const picked = onSet(use, rest);
-    onFinish({ picked, source: "dump" });
+    const typed = name.trim().replace(/\s+/g, " ").slice(0, FIRST_RUN_NAME_MAX);
+    onFinish(typed ? { picked, source: "dump", name: typed } : { picked, source: "dump" });
   };
 
   const toggle = (pick: string) => {
@@ -330,6 +339,31 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
                   {parked.length === 1 ? "1 more thing" : `${parked.length} more things`} saved for later.
                 </Text>
               ) : null}
+              {/* 1.5 D: one optional field, no extra screen. */}
+              <View className="gap-2 mt-2">
+                <Text className="text-base font-semibold text-foreground" nativeID="first-run-name-label">
+                  What should we call you?
+                </Text>
+                <TextInput
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Your name (optional)"
+                  placeholderTextColor={colors.muted}
+                  autoCapitalize="words"
+                  autoComplete="given-name"
+                  textContentType="givenName"
+                  returnKeyType="done"
+                  maxLength={FIRST_RUN_NAME_MAX}
+                  accessibilityLabel="What should we call you? Optional"
+                  accessibilityLabelledBy="first-run-name-label"
+                  className="text-base text-foreground rounded-2xl px-4 py-3"
+                  style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                  testID="first-run-name"
+                />
+                <Text className="text-sm" style={{ color: colors.muted }}>
+                  For your greeting. Change it anytime in Settings.
+                </Text>
+              </View>
             </>
           )}
 

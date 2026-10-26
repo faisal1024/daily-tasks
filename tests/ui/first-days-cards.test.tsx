@@ -50,8 +50,17 @@ const props = (over: Partial<Props> = {}): Props => ({
 });
 
 const seed = (record: FirstDaysRecord) => saveFirstDays(record);
+/**
+ * First run's record without 1.5 D's Nag card and sheet: these tests are
+ * about the nudge and the widget tip (the Nag card has its own tests).
+ */
+const aRecord = (day: string): FirstDaysRecord => {
+  const { nagCardFrom, nagCardUntil, nagIntro, nagIntroOpen, ...record } = startFirstDays(day);
+  void [nagCardFrom, nagCardUntil, nagIntro, nagIntroOpen];
+  return record;
+};
 /** A record whose nudge is due on D1 (first run ended the day before, or a task was checked off). */
-const nudgeDue = (): FirstDaysRecord => ({ ...startFirstDays(D1), nudgeFrom: D1 });
+const nudgeDue = (): FirstDaysRecord => ({ ...aRecord(D1), nudgeFrom: D1 });
 const stored = async () => JSON.parse((await AsyncStorage.getItem(FIRST_DAYS_KEY)) ?? "null");
 const cardEvents = () =>
   (track as jest.Mock).mock.calls.filter(([name]) => name === "first_days_card").map(([, p]) => p);
@@ -175,7 +184,7 @@ describe("nudge card", () => {
 });
 
 describe("widget tip", () => {
-  const waiting = () => startFirstDays(D1);
+  const waiting = () => aRecord(D1);
 
   it("is earned on the first finished day but never shown in that session: it's due from the next open", async () => {
     await seed({ ...waiting(), nudgeFrom: null });
@@ -314,7 +323,7 @@ describe("the record is read again when first run writes a fresh one", () => {
 
 describe("nudge card timing (review fix)", () => {
   it("not on the first-run day until a task is checked off; then today", async () => {
-    await seed(startFirstDays(D1));
+    await seed(aRecord(D1));
     const { rerender } = await render(<FirstDaysCards {...props()} />);
     for (let i = 0; i < 4; i++) await act(async () => {});
     expect(nudge()).toBeNull();
@@ -324,13 +333,13 @@ describe("nudge card timing (review fix)", () => {
   });
 
   it("without a check-off it shows the next day", async () => {
-    await seed(startFirstDays(D1));
+    await seed(aRecord(D1));
     await render(<FirstDaysCards {...props({ today: "2026-10-02" })} />);
     await waitFor(() => expect(nudge()).toBeOnTheScreen());
   });
 
   it("a check-off never brings a snoozed nudge forward", async () => {
-    await seed({ ...startFirstDays(D1), nudgeFrom: "2026-10-04", nudgeDeclines: 1 });
+    await seed({ ...aRecord(D1), nudgeFrom: "2026-10-04", nudgeDeclines: 1 });
     await render(<FirstDaysCards {...props({ today: "2026-10-02", checkedOff: true })} />);
     for (let i = 0; i < 4; i++) await act(async () => {});
     expect(nudge()).toBeNull();

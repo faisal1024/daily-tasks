@@ -7,7 +7,7 @@ import { NagIntroSheet } from "@/components/daily-tasks/nag-intro-sheet";
 import { useNagTurnOn, type NagChoice } from "@/hooks/use-nag-turn-on";
 import { track } from "@/lib/daily-tasks/analytics";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
-import { NAG_ANNOUNCEMENT_ID } from "@/lib/daily-tasks/whats-new";
+import { NAG_ANNOUNCEMENT_ID, NAG_FIRST_DAYS_ID } from "@/lib/daily-tasks/whats-new";
 
 export function NagIntro({
   visible,
@@ -15,10 +15,19 @@ export function NagIntro({
   onClose,
   onTurnedOn,
   onShow,
+  id = NAG_ANNOUNCEMENT_ID,
 }: {
   visible: boolean;
-  /** Where it was opened: on its own on Today, or from the row in Settings. */
-  source: "today" | "settings";
+  /**
+   * Where it was opened: on its own on Today, from the row in Settings, or
+   * from a new install's Nag card on Today (1.5 D).
+   */
+  source: "today" | "settings" | "card";
+  /**
+   * The id in its events: the 1.4 announcement, or NAG_FIRST_DAYS_ID for a
+   * new install (then it isn't worded as news).
+   */
+  id?: string;
   /**
    * Close the sheet (Today marks the announcement seen here). `next`
    * "paywall": it is closing so the paywall can come up.
@@ -44,11 +53,11 @@ export function NagIntro({
 
   // Ids only, never a line or a task.
   useEffect(() => {
-    if (visible) track("whats_new_shown", { id: NAG_ANNOUNCEMENT_ID, source });
-  }, [visible, source]);
+    if (visible) track("whats_new_shown", { id, source });
+  }, [visible, source, id]);
 
   const act = (action: "try" | "dismiss", choice: NagChoice) =>
-    track("whats_new_action", { id: NAG_ANNOUNCEMENT_ID, action, persona: choice.persona, level: choice.level, source });
+    track("whats_new_action", { id, action, persona: choice.persona, level: choice.level, source });
 
   // The preview may name the next open task, on the phone only; not with names hidden.
   const taskText = state.notifications.hideTaskNames
@@ -61,6 +70,7 @@ export function NagIntro({
       hasPlus={hasPlus}
       initial={{ persona: state.notifications.nagPersona, level: state.notifications.nagLevel }}
       taskText={taskText}
+      fresh={id === NAG_FIRST_DAYS_ID}
       onShow={onShow}
       onTry={(choice) => {
         act("try", choice);

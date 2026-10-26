@@ -48,9 +48,15 @@ export function NagIntroSheet({
   onTry,
   onDismiss,
   onShow,
+  fresh = false,
 }: {
   visible: boolean;
   hasPlus: boolean;
+  /**
+   * A new install's own introduction (1.5 D): nothing is new to them, so no
+   * "New in 1.4" label and no "Also new" line.
+   */
+  fresh?: boolean;
   /** The chips' starting choice: the saved voice and level. */
   initial: NagChoice;
   /** An open task for the preview to name; null when there is none or names are hidden. */
@@ -186,14 +192,18 @@ export function NagIntroSheet({
         testID="nag-intro-sheet"
       >
         <View className="flex-row items-center justify-between gap-3 px-5">
-          <Text
-            className="flex-1 text-sm font-semibold"
-            style={{ color: colors.primary }}
-            maxFontSizeMultiplier={1.6}
-            testID="nag-intro-label"
-          >
-            {NAG_INTRO_COPY.label}
-          </Text>
+          {fresh ? (
+            <View className="flex-1" />
+          ) : (
+            <Text
+              className="flex-1 text-sm font-semibold"
+              style={{ color: colors.primary }}
+              maxFontSizeMultiplier={1.6}
+              testID="nag-intro-label"
+            >
+              {NAG_INTRO_COPY.label}
+            </Text>
+          )}
           <Pressable
             onPress={() => onDismiss(choice)}
             accessibilityRole="button"
@@ -324,9 +334,11 @@ export function NagIntroSheet({
 
           {inlineButtons ? buttons : null}
 
-          <Text className="text-xs" style={{ color: colors.muted }} testID="nag-intro-footer">
-            {NAG_INTRO_COPY.footer}
-          </Text>
+          {fresh ? null : (
+            <Text className="text-xs" style={{ color: colors.muted }} testID="nag-intro-footer">
+              {NAG_INTRO_COPY.footer}
+            </Text>
+          )}
         </ScrollView>
 
         {inlineButtons ? null : (

@@ -10,15 +10,21 @@ import {
   claimShownToday,
   declineNudge,
   dismissWidgetTip,
+  finishNagIntro,
   loadFirstDays,
+  nagIntroDue,
+  noteAppForeground,
   noteCheckOff,
   noteFinishedDay,
   openFirstDays,
   saveFirstDays,
+  shouldShowNagCard,
   shouldShowNudgeCard,
   shouldShowWidgetTip,
+  type FirstDaysCardKind,
   type FirstDaysRecord,
 } from "@/lib/daily-tasks/first-days";
+import { NAG_CARD_COPY } from "@/lib/daily-tasks/whats-new";
 import type { NotificationPermissionState } from "@/lib/daily-tasks/types";
 
 export interface FirstDaysInput {
@@ -34,14 +40,34 @@ export interface FirstDaysInput {
   permission: NotificationPermissionState | undefined;
   /** "Yes": ask iOS, and turn morning reminders on when allowed. */
   onAskNudge: () => Promise<NotificationPermissionState>;
+  /**
+   * The app is in front (not a background launch). Each return to the
+   * foreground is a new "open": "Meet Nag mode" waits for the open after
+   * first run's (1.5 D).
+   */
+  appActive?: boolean;
+  /** Nag mode is already the reminder style: no card, no sheet. */
+  nagOn?: boolean;
+  /** Something has been checked off, today or on an earlier day: "Meet Nag mode" may come up on its own. */
+  tickedEver?: boolean;
+  /** The Nag card's button: open "Meet Nag mode". */
+  onOpenNag?: () => void;
 }
 
 export interface FirstDaysCardsState {
-  showing: "nudge" | "widget" | null;
+  showing: FirstDaysCardKind | null;
   asking: boolean;
   yes: () => Promise<void>;
   notNow: () => void;
   dismissTip: () => void;
+  /** The Nag card's button: the sheet opens (closing it calls nagIntroSeen). */
+  openNag: () => void;
+  /** × on the Nag card: neither the card nor the sheet comes back. */
+  dismissNag: () => void;
+  /** A new install's next open after first run: "Meet Nag mode" may come up on its own, once. */
+  nagIntroDue: boolean;
+  /** The sheet (on its own or from the card) was closed: seen, so it and the card are done. */
+  nagIntroSeen: () => void;
 }
 
 /**
@@ -61,6 +87,10 @@ export function useFirstDays({
   dayFinished,
   permission,
   onAskNudge,
+  appActive = true,
+  nagOn = false,
+  tickedEver = false,
+  onOpenNag,
 }: FirstDaysInput): FirstDaysCardsState {
   const [record, setRecord] = useState<FirstDaysRecord | null>(null);
   // The latest record, for answers that land after an await (the permission prompt).
@@ -69,6 +99,14 @@ export function useFirstDays({
   const [asking, setAsking] = useState(false);
   // A ref too: two taps in one frame both see `asking` false (state lags a render).
   const askingRef = useRef(false);
+
+  // A return to the foreground is a new open. Declared before the load below,
+  // so the open is counted before the record is read again.
+  const wasAppActive = useRef(appActive);
+  useEffect(() => {
+    if (appActive && !wasAppActive.current) noteAppForeground();
+    wasAppActive.current = appActive;
+  }, [appActive]);
 
   useEffect(() => {
     if (!active) return;
@@ -105,10 +143,27 @@ export function useFirstDays({
     if (record && checkedOff) update((current) => noteCheckOff(current, today, true));
   }, [record, dayFinished, checkedOff, today]);
 
+  // One card at a time: the morning nudge, then the Nag card, then the widget tip.
   const showNudge = active && shouldShowNudgeCard({ record, today, permission, dayFinished });
+  const showNag =
+    active && shouldShowNagCard({ record, today, nagOn, nudgeShowing: showNudge, dayFinished });
   const showWidget =
-    active && shouldShowWidgetTip({ record, widgetsSupported: Platform.OS === "ios", nudgeShowing: showNudge });
-  const showing = !record ? null : showNudge ? "nudge" : showWidget ? "widget" : null;
+    active &&
+    shouldShowWidgetTip({
+      record,
+      widgetsSupported: Platform.OS === "ios",
+      nudgeShowing: showNudge,
+      nagShowing: showNag,
+    });
+  const showing: FirstDaysCardKind | null = !record
+    ? null
+    : showNudge
+      ? "nudge"
+      : showNag
+        ? "nag"
+        : showWidget
+          ? "widget"
+          : null;
 
   // "shown" once per card per day, deduped in storage (survives remounts and relaunches).
   useEffect(() => {
@@ -150,7 +205,31 @@ export function useFirstDays({
     track("first_days_card", { kind: "widget", action: "dismissed" });
   };
 
-  return { showing, asking, yes, notNow, dismissTip };
+  // The sheet opens; it counts as seen when it's closed (nagIntroSeen), so a
+  // sheet that had to step aside (a focus prompt) leaves the card in place.
+  const openNag = () => {
+    track("first_days_card", { kind: "nag", action: "open" });
+    onOpenNag?.();
+  };
+
+  const dismissNag = () => {
+    update(finishNagIntro);
+    track("first_days_card", { kind: "nag", action: "dismissed" });
+  };
+
+  const nagIntroSeen = () => update(finishNagIntro);
+
+  return {
+    showing,
+    asking,
+    yes,
+    notNow,
+    dismissTip,
+    openNag,
+    dismissNag,
+    nagIntroDue: active && nagIntroDue(record, nagOn, { today, tickedEver }),
+    nagIntroSeen,
+  };
 }
 
 /** The cards with their own state (one place on screen; Today uses the hook + view). */
@@ -161,8 +240,33 @@ export function FirstDaysCards(props: FirstDaysInput) {
 /** What useFirstDays says to show. */
 export function FirstDaysCardsView({ cards }: { cards: FirstDaysCardsState }) {
   const colors = useColors();
-  const { showing, asking, yes, notNow, dismissTip } = cards;
+  const { showing, asking, yes, notNow, dismissTip, openNag, dismissNag } = cards;
   if (!showing) return null;
+
+  if (showing === "nag") {
+    return (
+      <Card icon="megaphone-outline" testID="nag-card" dismissLabel={NAG_CARD_COPY.dismiss} onDismiss={dismissNag}>
+        <Text className="text-sm font-semibold text-foreground" accessibilityRole="header">
+          {NAG_CARD_COPY.title}
+        </Text>
+        <Text className="text-sm text-muted">{NAG_CARD_COPY.body}</Text>
+        <Pressable
+          onPress={openNag}
+          accessibilityRole="button"
+          accessibilityLabel={NAG_CARD_COPY.button}
+          accessibilityHint="Opens Meet Nag mode"
+          hitSlop={8}
+          className="self-start justify-center mt-1"
+          style={{ minHeight: 44 }}
+          testID="nag-card-open"
+        >
+          <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+            {NAG_CARD_COPY.button}
+          </Text>
+        </Pressable>
+      </Card>
+    );
+  }
 
   if (showing === "nudge") {
     return (
