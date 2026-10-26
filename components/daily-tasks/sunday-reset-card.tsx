@@ -1,50 +1,25 @@
-// The Sunday reset's way in (1.6): the Today card on Sunday evenings, the
-// Progress row any day, and the gate that opens the sheet for Plus or the
-// paywall (source `sunday_reset`) for a free user, then the sheet once Plus.
-import { useEffect, useRef, useState } from "react";
+// The Sunday reset's ways in (1.6): the Today card on Sunday evenings and the
+// Progress row any day. Both open the one sheet through SundayResetProvider
+// (the sheet for Plus; the paywall, source `sunday_reset`, for a free user).
+import { useEffect, useMemo, useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useHour } from "@/hooks/use-hour";
-import { usePaywallGate } from "@/hooks/use-paywall-gate";
 import { track } from "@/lib/daily-tasks/analytics";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import {
+  isSunday,
   sundayResetCard,
   sundayResetOf,
   usedBeforeToday,
   weekKey,
   type SundayResetCardKind,
 } from "@/lib/daily-tasks/sunday-reset";
-import { SundayResetSheet, type SundayResetSource } from "./sunday-reset-sheet";
-
-/**
- * Opens the reset from `source`: the sheet with Plus, otherwise the paywall,
- * and the sheet after it if Plus was bought. Render `sheet` once.
- */
-export function useSundayResetGate(source: SundayResetSource) {
-  const { hasPlus } = useDailyTasks();
-  const [open, setOpen] = useState(false);
-  const hasPlusRef = useRef(hasPlus);
-  hasPlusRef.current = hasPlus;
-  const showPaywall = usePaywallGate<true>(() => {
-    // Read as of the paywall closing: bought → straight into the reset.
-    if (hasPlusRef.current) setOpen(true);
-  });
-  const start = () => {
-    if (hasPlus) {
-      setOpen(true);
-      return;
-    }
-    track("sunday_reset", { step: source === "today" ? "intro" : "card", action: "plus", source });
-    showPaywall("sunday_reset", { feature: "sunday_reset", resume: true });
-  };
-  const sheet = <SundayResetSheet visible={open} onClose={() => setOpen(false)} source={source} />;
-  return { start, sheet, open };
-}
+import { useSundayReset } from "./sunday-reset-provider";
 
 /**
  * The Today card: Sunday from 5 PM (see sundayResetCard). Plus: "Set up your
@@ -57,16 +32,17 @@ export function SundayResetCard({ firstRunActive }: { firstRunActive: boolean })
   const hour = useHour();
   const { ready, state, today, plusConfirmed, hasPlus, updateSundayReset } = useDailyTasks();
   const { paywallEnabled } = usePlus();
-  const gate = useSundayResetGate("today");
-  const reset = sundayResetOf(state);
+  const reset = useSundayReset();
+  const record = sundayResetOf(state);
+  const usedBefore = useMemo(() => usedBeforeToday(state.history, today), [state.history, today]);
   const kind: SundayResetCardKind | null = ready
     ? sundayResetCard({
         today,
         hour,
-        reset,
+        reset: record,
         plus: plusConfirmed ? "yes" : hasPlus ? "unknown" : "no",
         paywallEnabled,
-        usedBefore: usedBeforeToday(state.history, today),
+        usedBefore,
         firstRunActive,
       })
     : null;
@@ -81,8 +57,8 @@ export function SundayResetCard({ firstRunActive }: { firstRunActive: boolean })
     if (shownFor.current === tag) return;
     shownFor.current = tag;
     track("sunday_reset", { step: kind === "free" ? "intro" : "card", action: "shown", source: "today" });
-    if (kind === "free" && reset.freeIntroWeek !== week) updateSundayReset({ freeIntroWeek: week });
-  }, [kind, week, reset.freeIntroWeek, updateSundayReset]);
+    if (kind === "free" && record.freeIntroWeek !== week) updateSundayReset({ freeIntroWeek: week });
+  }, [kind, week, record.freeIntroWeek, updateSundayReset]);
 
   return (
     <>
@@ -103,8 +79,8 @@ export function SundayResetCard({ firstRunActive }: { firstRunActive: boolean })
               </Text>
               <Text className="text-sm" style={{ color: colors.muted }}>
                 {kind === "plus"
-                  ? "Two minutes: last week's wins, a dump for the week, and Monday's three."
-                  : "Plus walks you through it on Sunday evenings: last week's wins, a dump for the week, and Monday's three from your coach. Your three stay free either way."}
+                  ? "Two minutes: your week's wins, a dump for the week, and Monday's three."
+                  : "Plus walks you through it on Sunday evenings: your week's wins, a dump for the week, and Monday's three from your coach. Your three stay free either way."}
               </Text>
             </View>
             <Pressable
@@ -113,8 +89,9 @@ export function SundayResetCard({ firstRunActive }: { firstRunActive: boolean })
                 track("sunday_reset", { step: kind === "free" ? "intro" : "card", action: "dismissed", source: "today" });
               }}
               accessibilityRole="button"
-              accessibilityLabel="Not this week"
-              hitSlop={10}
+              accessibilityLabel={kind === "free" ? "Dismiss" : "Not this week"}
+              hitSlop={12}
+              style={{ minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "flex-start" }}
               testID="sunday-reset-dismiss"
             >
               <Ionicons name="close" size={20} color={colors.muted} />
@@ -123,12 +100,17 @@ export function SundayResetCard({ firstRunActive }: { firstRunActive: boolean })
           <Pressable
             onPress={() => {
               if (kind === "plus") track("sunday_reset", { step: "card", action: "start", source: "today" });
-              gate.start();
+              reset.start("today");
             }}
             accessibilityRole="button"
             accessibilityHint={kind === "free" ? "Shows Plus plans" : undefined}
+            hitSlop={12}
             className="self-start rounded-full px-4 py-2"
-            style={{ backgroundColor: kind === "plus" ? colors.primary : `${colors.primary}16` }}
+            style={{
+              minHeight: 44,
+              justifyContent: "center",
+              backgroundColor: kind === "plus" ? colors.primary : `${colors.primary}16`,
+            }}
             testID="sunday-reset-start"
           >
             <Text style={{ color: kind === "plus" ? colors.onPrimary : colors.primary, fontWeight: "700", fontSize: 15 }}>
@@ -137,7 +119,6 @@ export function SundayResetCard({ firstRunActive }: { firstRunActive: boolean })
           </Pressable>
         </View>
       ) : null}
-      {gate.sheet}
     </>
   );
 }
@@ -145,14 +126,16 @@ export function SundayResetCard({ firstRunActive }: { firstRunActive: boolean })
 /** Progress's row (any day): the reset for the next day, or Plus for a free user. */
 export function SundayResetRow() {
   const colors = useColors();
-  const { hasPlus } = useDailyTasks();
-  const gate = useSundayResetGate("progress");
+  const { hasPlus, today } = useDailyTasks();
+  const reset = useSundayReset();
+  // Sundays it sets up the week; any other day it plans tomorrow.
+  const sunday = isSunday(today);
   return (
     <>
       <Pressable
         onPress={() => {
           if (hasPlus) track("sunday_reset", { step: "card", action: "start", source: "progress" });
-          gate.start();
+          reset.start("progress");
         }}
         accessibilityRole="button"
         accessibilityHint={hasPlus ? "Plans tomorrow's three" : "Shows Plus plans"}
@@ -163,10 +146,12 @@ export function SundayResetRow() {
         <Ionicons name="sunny-outline" size={20} color={colors.primary} />
         <View className="flex-1">
           <Text className="text-base text-foreground" style={{ fontWeight: "700" }}>
-            Set up your week
+            {sunday ? "Set up your week" : "Plan tomorrow"}
           </Text>
           <Text className="text-sm" style={{ color: colors.muted }}>
-            Two minutes: your wins, a dump for the week, and tomorrow&apos;s three.
+            {sunday
+              ? "Two minutes: your week's wins, a dump for the week, and Monday's three."
+              : "Two minutes: your wins and tomorrow's three."}
           </Text>
         </View>
         {hasPlus ? (
@@ -177,7 +162,6 @@ export function SundayResetRow() {
           </Text>
         )}
       </Pressable>
-      {gate.sheet}
     </>
   );
 }

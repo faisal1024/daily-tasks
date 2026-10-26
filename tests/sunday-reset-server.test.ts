@@ -152,13 +152,9 @@ describe("sanitizeBrainDump and isValidBrainDump with saved items", () => {
     expect(isValidBrainDump(closer, { ...DUMP, saved: SAVED })).toBe(true);
   });
 
-  // KNOWN GAP (reported on PR #110, not fixed here): a pick or parked item is
-  // shortened to MAX_TASK_TEXT (64) before the saved check, so a saved item of
-  // 65-80 characters (an 80-character task can be saved) copied exactly by the
-  // model is shortened and no longer matches its saved key: it comes back
-  // parked. The app compensates (savedMatch maps it back by words), so the
-  // damage is the contract's promise, not the user's list.
-  it.skip("never parks a saved item longer than 64 characters (server/providers/helpers-contract.mjs:262-275)", () => {
+  // Reported on PR #110, fixed: the saved check reads the model's words before
+  // they are shortened to MAX_TASK_TEXT (64).
+  it("never parks a saved item longer than 64 characters (server/providers/helpers-contract.mjs:262-275)", () => {
     const long = "Call the electric company about the strange charge on last month's bill";
     expect(long.length).toBeGreaterThan(64);
     const clean = sanitizeBrainDump({ picks: [{ text: "Finish report" }], parked: [{ text: long }] }, { ...DUMP, saved: [long] });

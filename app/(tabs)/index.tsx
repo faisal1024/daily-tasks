@@ -46,6 +46,7 @@ import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { ShareDaySheet } from "@/components/daily-tasks/share-day-sheet";
 import { SundayResetCard } from "@/components/daily-tasks/sunday-reset-card";
+import { useSundayReset } from "@/components/daily-tasks/sunday-reset-provider";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
 import { ReorderGhost, ReorderRow, reorderRowKey, useTaskReorder } from "@/components/daily-tasks/task-reorder";
@@ -276,6 +277,8 @@ export default function HomeScreen() {
     checkWinBackOffer,
     ahaPaywallState,
   } = usePlus();
+  // The Sunday reset's sheet (1.6), shared with Progress (sunday-reset-provider.tsx).
+  const sundayReset = useSundayReset();
   const winBackDueRef = useRef(winBackDue);
   winBackDueRef.current = winBackDue;
 
@@ -1085,7 +1088,9 @@ export default function HomeScreen() {
     showCelebration ||
     // 1.5 D: "Meet Nag mode" from its Today card, and the share preview.
     nagCardOpen ||
-    shareOpen;
+    shareOpen ||
+    // 1.6 H: the Sunday reset's sheet.
+    sundayReset.isOpen;
 
   // What's new (1.4): once, for someone who updated, in the quiet window
   // right after a launch or a return to the foreground: Today in front with
@@ -1164,6 +1169,8 @@ export default function HomeScreen() {
   // A focus prompt while the sheet is up: the sheet steps aside, not seen
   // (the user didn't close it), and comes back at a later foreground.
   whatsNewStepAside.current = () => {
+    // The Sunday reset closes as its × does (a typed dump is saved).
+    if (sundayReset.stepAside()) return true;
     if (nagCardOpen) {
       // The same for "Meet Nag mode" opened from its card: not seen, so the
       // card stays and it can be opened again there.

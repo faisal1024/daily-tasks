@@ -202,10 +202,10 @@ describe("winsCopy: only what went well", () => {
   it("reads calmly, with the best day and Day N", () => {
     const copy = winsCopy({ completed: 8, showedUpDays: 5, bestDay: { weekday: "Tuesday", completed: 3 } }, 12);
     expect(copy.headline).toBe("8 tasks finished this week.");
-    expect(copy.lines).toEqual(["You showed up on 5 days.", "Day 12 and counting.", "Tuesday went best: 3 done."]);
+    expect(copy.lines).toEqual(["You showed up on 5 days.", "Day 12 so far.", "Tuesday went best: 3 done."]);
     expect(winsCopy({ completed: 3, showedUpDays: 1, bestDay: { weekday: "Today", completed: 3 } }, 1).lines).toEqual([
       "You showed up on 1 day.",
-      "Day 1 and counting.",
+      "Day 1 so far.",
       "Today went best: 3 done.",
     ]);
   });
@@ -278,14 +278,16 @@ describe("sortWeek", () => {
     expect(sort.dumpItems).toEqual(["Mow the lawn", "Wash the car"]);
   });
 
-  it("asks for the next day with the newest 20 saved items beside the dump", async () => {
+  // PR #110 review: the first 20 in the order given (resurfacing order, see
+  // savedForReset), not the newest, so old items can come back.
+  it("asks for the next day with the first 20 saved items (in the order given) beside the dump", async () => {
     const many = Array.from({ length: 25 }, (_, i) => `Saved thing number ${i}`);
     const request = vi.fn(async () => aiResult({ picks: ["Mow the lawn"], parked: [], reasons: [] }));
     await sortWeek({ ...params, saved: many }, request);
     expect(request).toHaveBeenCalledTimes(1);
     const call = (request.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
     expect(call).toMatchObject({ text: "mow lawn\nwash car", openSlots: 3, forDay: "Monday", goalTitle: "Run a 5K" });
-    expect(call.saved).toEqual(many.slice(5));
+    expect(call.saved).toEqual(many.slice(0, 20));
     expect((call.saved as string[]).length).toBe(20);
   });
 
@@ -470,8 +472,10 @@ describe("sundayResetReminder: the Sunday 6 PM notification", () => {
   });
 
   it("skips a Sunday whose week is already done or was closed, but not a past week's mark", () => {
-    expect(sundayResetReminder(context(WED, { sundayReset: { ...DEFAULT_SUNDAY_RESET, doneWeek: SUNDAY } }))).toBeNull();
-    expect(sundayResetReminder(context(WED, { sundayReset: { ...DEFAULT_SUNDAY_RESET, dismissedWeek: SUNDAY } }))).toBeNull();
+    // PR #110 review: a done or closed week moves it to the Sunday after, never to none.
+    const NEXT_SUNDAY = new Date(2026, 10, 1, 18, 0);
+    expect(sundayResetReminder(context(WED, { sundayReset: { ...DEFAULT_SUNDAY_RESET, doneWeek: SUNDAY } }))?.fireAt).toEqual(NEXT_SUNDAY);
+    expect(sundayResetReminder(context(WED, { sundayReset: { ...DEFAULT_SUNDAY_RESET, dismissedWeek: SUNDAY } }))?.fireAt).toEqual(NEXT_SUNDAY);
     const past = { ...DEFAULT_SUNDAY_RESET, doneWeek: "2026-10-18", dismissedWeek: "2026-10-11" };
     expect(sundayResetReminder(context(WED, { sundayReset: past }))?.fireAt).toEqual(new Date(2026, 9, 25, 18, 0));
     // Done this Sunday afternoon, then the evening passes: the next one is for next Sunday.

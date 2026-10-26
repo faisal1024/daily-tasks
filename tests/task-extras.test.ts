@@ -62,7 +62,7 @@ describe("parkTasks", () => {
     expect(next.parkedTasks[0].text).toBe("old 2");
     expect(next.parkedTasks.slice(-2).map((p) => p.text)).toEqual(["new a", "new b"]);
     // Generous, so a brain dump never silently drops what someone typed.
-    expect(MAX_PARKED_TASKS).toBe(50);
+    expect(MAX_PARKED_TASKS).toBe(100);
   });
 
   it("doesn't touch anything else in state", () => {

@@ -24,7 +24,7 @@ import {
   type FocusNotificationResponse,
 } from "./notifications";
 import { createDebounced, yesterdayOpenTexts, type ReminderContext } from "./reminder-plan";
-import { resetDraft, sundayResetOf, withSundayReset } from "./sunday-reset";
+import { resetDraft, sundayResetOf, usedBeforeToday, withSundayReset } from "./sunday-reset";
 import { clearNagRecord, ensureNagDay, nagModeStrategy, stubNagRecord } from "./nag-day";
 import type { NagLevel, NagPersona } from "./nag";
 import { adjustNagWindow, nagModeOn } from "./nag-plan";
@@ -274,7 +274,7 @@ type Action =
   | { type: "dismissTomorrowDraft" }
   // The Sunday reset (1.6): its record, and the next day's draft it makes.
   | { type: "updateSundayReset"; patch: Partial<SundayResetState> }
-  | { type: "setResetDraft"; tasks: string[]; today: string; source: "ai" | "local" }
+  | { type: "setResetDraft"; tasks: string[]; today: string; source: "ai" | "local"; forDate?: string }
   | { type: "setAgendaEnabled"; enabled: boolean }
   | { type: "setCoachMemory"; text: string }
   | { type: "clearCoachMemory"; today: string }
@@ -615,7 +615,7 @@ function reduce(state: AppState, action: Action): AppState {
     case "updateSundayReset":
       return { ...state, sundayReset: { ...sundayResetOf(state), ...action.patch } };
     case "setResetDraft": {
-      const draft = resetDraft(action.tasks, action.today, action.source);
+      const draft = resetDraft(action.tasks, action.today, action.source, action.forDate);
       return draft ? { ...state, tomorrowDraft: draft } : state;
     }
     case "completeMilestone": {
@@ -1350,8 +1350,11 @@ interface StoreContextValue {
   dismissTomorrowDraft: () => void;
   /** The Sunday reset's record (1.6): its switch and weeks. */
   updateSundayReset: (patch: Partial<SundayResetState>) => void;
-  /** The Sunday reset's three (1.6) become the next day's draft. */
-  setResetDraft: (tasks: string[], source: "ai" | "local") => void;
+  /**
+   * The Sunday reset's three (1.6) become a draft: for `forDate` (the day the
+   * sheet planned, captured when it sorted), else the next day.
+   */
+  setResetDraft: (tasks: string[], source: "ai" | "local", forDate?: string) => void;
   setAgendaEnabled: (enabled: boolean) => void;
   /** Replace the AI coach memory (Plus); blank clears it. */
   setCoachMemory: (text: string) => void;
@@ -1907,6 +1910,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "regenerateMomentumPlan", now: new Date() });
   }, [ready, state.momentumPlan, state.momentumProfile]);
 
+  // The Sunday reset's notification only once there's a planned day before today (1.6).
+  const resetUsedBefore = useMemo(() => usedBeforeToday(state.history, today), [state.history, today]);
+
   // Tomorrow's notification leaves out anything finished since the close.
   const notificationDraft = useMemo(
     () =>
@@ -1937,8 +1943,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       draft: notificationDraft,
       // Nag mode is Plus-only: leaving Plus stops the nags at the next rewrite.
       plus: hasPlus,
-      // The Sunday reset's notification (1.6, Plus too).
-      sundayReset: sundayResetOf({ sundayReset: state.sundayReset }),
+      // The Sunday reset's notification (1.6, Plus too), with the card's
+      // gate: none during first run or before a planned day.
+      sundayReset:
+        state.hasSeenOnboarding && resetUsedBefore ? sundayResetOf({ sundayReset: state.sundayReset }) : undefined,
     };
     const signature = JSON.stringify([context, nagVersion]);
     if (lastReminderSync.current === signature) return;
@@ -1954,6 +1962,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     reminderSync,
     state.notifications,
     state.pendingRollover,
+    state.hasSeenOnboarding,
+    resetUsedBefore,
     state.sundayReset,
     state.tasks,
     state.todayCompletions,
@@ -2449,8 +2459,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     dispatch({ type: "updateSundayReset", patch });
   }, []);
   const setResetDraft = useCallback(
-    (tasks: string[], source: "ai" | "local") => {
-      dispatch({ type: "setResetDraft", tasks, today: ensureDay(), source });
+    (tasks: string[], source: "ai" | "local", forDate?: string) => {
+      dispatch({ type: "setResetDraft", tasks, today: ensureDay(), source, ...(forDate ? { forDate } : {}) });
     },
     [ensureDay],
   );

@@ -14,12 +14,22 @@
 // Pure, apart from sortWeek's AI call (the brain-dump route).
 
 import { cleanTaskText, localBrainDump, requestBrainDump, type BrainDumpResult } from "./ai-helpers";
+import { isDueOn, savedDueOn, savedItemsView } from "./resurface";
 import { addDays, fromDateKey, toDateKey } from "./date";
 import type { MemoryStatsPayload } from "./coach-memory";
 import type { ReminderContext, ReminderPlanItem, ReminderStrategy } from "./reminder-plan";
 import { MANAGED_REMINDER_PREFIX } from "./reminders";
 import { showedUp } from "./streaks";
-import { MAX_TASKS, type AppState, type History, type SundayResetState, type TomorrowDraft } from "./types";
+import {
+  MAX_PARKED_TASKS,
+  MAX_TASKS,
+  type AppState,
+  type History,
+  type ParkedTask,
+  type SundayResetState,
+  type TaskWhen,
+  type TomorrowDraft,
+} from "./types";
 import { reviewDays } from "./weekly-review";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -31,11 +41,15 @@ export const SUNDAY_RESET_REMINDER_HOUR = 18;
 /** The notification's `kind` (in its id and data). */
 export const SUNDAY_RESET_KIND = "sunday_reset";
 export const SUNDAY_RESET_REMINDER_COPY = {
-  title: "Sunday reset",
-  body: "Two minutes to set up your week?",
+  title: "Your week",
+  body: "Two quiet minutes to set up Monday?",
 } as const;
-/** Saved items sent with the week's dump (the newest), like the proxy's limit. */
+/** Saved items sent with the week's dump (in resurfacing order), like the proxy's limit. */
 export const MAX_SAVED_SENT = 20;
+/** How long the week's sort waits for the AI before the simple split is used. */
+export const WEEK_SORT_TIMEOUT_MS = 12_000;
+/** Step 3 lists at most this many rows; the rest are a line ("+N more in Saved for later"). */
+export const MAX_CANDIDATES_SHOWN = 8;
 /** The `because` line on the draft the reset makes (shown on the next morning's card). */
 export const RESET_DRAFT_BECAUSE = "You picked these when you set up your week.";
 
@@ -149,7 +163,7 @@ export function winsCopy(wins: WeekWins, dayCount: number): { headline: string; 
       : "A quiet week. A new one starts now.";
   const lines: string[] = [];
   if (wins.showedUpDays > 0) lines.push(`You showed up on ${plural(wins.showedUpDays, "day", "days")}.`);
-  if (dayCount > 0) lines.push(`Day ${dayCount} and counting.`);
+  if (dayCount > 0) lines.push(`Day ${dayCount} so far.`);
   if (wins.bestDay) {
     lines.push(
       wins.bestDay.weekday === "Today"
@@ -206,6 +220,8 @@ export interface WeekSort {
   /** A short reason per suggested item (1.5's reasons), keyed by its text. */
   reasons: Record<string, string>;
   source: "ai" | "local";
+  /** Dates the AI read from the dump (1.6 F), keyed like parkTasks looks them up. Absent: none. */
+  dates?: Record<string, TaskWhen>;
 }
 
 function uniq(texts: string[]): string[] {
@@ -218,12 +234,40 @@ function uniq(texts: string[]): string[] {
   });
 }
 
-/** The simple pick (no AI): the dump's items first, then the oldest saved ones. */
-export function localWeekSort(dump: string, saved: string[]): WeekSort {
+/**
+ * The simple pick (no AI): the dump's items first, then the saved ones in
+ * the order given. `notByDefault` (saved items planned for a later day) are
+ * never suggested.
+ */
+export function localWeekSort(dump: string, saved: string[], notByDefault: string[] = []): WeekSort {
   const split = dump.trim() ? localBrainDump(dump, MAX_TASKS) : null;
   const fromDump = split ? [...split.picks, ...split.parked] : [];
   const dumpItems = uniq(fromDump.filter((text) => !saved.some((s) => looseKey(s) === looseKey(text))));
-  return { dumpItems, suggested: uniq([...fromDump, ...saved]).slice(0, MAX_TASKS), reasons: {}, source: "local" };
+  const later = new Set(notByDefault.map(looseKey));
+  const suggested = uniq([...fromDump, ...saved])
+    .filter((text) => !later.has(looseKey(text)))
+    .slice(0, MAX_TASKS);
+  return { dumpItems, suggested, reasons: {}, source: "local" };
+}
+
+/**
+ * Saved for later as the reset reads it (1.6 F's dates): the order to send
+ * the AI (what resurfacing would bring back first: due on `target`, then
+ * due or overdue today, then the rest oldest first, so old items can come
+ * back), what is due on `target` (it leads step 3, ticked), and what is
+ * planned "on" a later day (offered, never ticked by default).
+ */
+export function savedForReset(
+  parked: ParkedTask[],
+  today: string,
+  target: string,
+): { order: string[]; dueOnTarget: string[]; later: string[] } {
+  const dueOnTarget = savedDueOn(parked, target);
+  const order = uniq([...dueOnTarget, ...savedItemsView(parked, today).map((item) => item.text)]);
+  const later = parked
+    .filter((item) => item.when?.kind === "on" && item.when.date > target && !isDueOn(item.when, target))
+    .map((item) => item.text);
+  return { order, dueOnTarget, later };
 }
 
 /**
@@ -235,19 +279,27 @@ export function localWeekSort(dump: string, saved: string[]): WeekSort {
 export async function sortWeek(
   params: {
     dump: string;
+    /** Saved items in the order to send them (savedForReset's `order`). */
     saved: string[];
     forDay: string;
     goalTitle: string | null;
     stats?: MemoryStatsPayload | null;
     useAi: boolean;
+    /** The store's day (1.6 F): sent so the AI can date the dump's items. */
+    today?: string;
+    /** Saved items planned for a later day: never suggested by default. */
+    notByDefault?: string[];
+    /** Give up on the AI after this long (WEEK_SORT_TIMEOUT_MS from the sheet). */
+    timeoutMs?: number;
   },
   request: typeof requestBrainDump = requestBrainDump,
 ): Promise<WeekSort> {
   const dump = params.dump.trim();
   const saved = uniq(params.saved.map((text) => text.trim()).filter(Boolean));
+  const later = params.notByDefault ?? [];
   if (!dump && saved.length === 0) return { dumpItems: [], suggested: [], reasons: {}, source: "local" };
-  if (!params.useAi) return localWeekSort(dump, saved);
-  const sent = saved.slice(-MAX_SAVED_SENT);
+  if (!params.useAi) return localWeekSort(dump, saved, later);
+  const sent = saved.slice(0, MAX_SAVED_SENT);
   let result: BrainDumpResult;
   try {
     result = await request({
@@ -257,12 +309,15 @@ export async function sortWeek(
       goalTitle: params.goalTitle,
       stats: params.stats ?? null,
       forDay: params.forDay,
+      ...(params.today ? { today: params.today } : {}),
       ...(dump && sent.length > 0 ? { saved: sent } : {}),
+      ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
     });
   } catch {
-    return localWeekSort(dump, saved);
+    return localWeekSort(dump, saved, later);
   }
-  if (result.source !== "ai") return localWeekSort(dump, saved);
+  if (result.source !== "ai") return localWeekSort(dump, saved, later);
+  const laterKeys = new Set(later.map(looseKey));
   const asSaved = (text: string) => savedMatch(text, saved, dump);
   const reasons: Record<string, string> = {};
   const suggested = uniq(
@@ -272,11 +327,14 @@ export async function sortWeek(
       if (reason) reasons[text] = reason;
       return text;
     }),
-  ).slice(0, MAX_TASKS);
+  )
+    .filter((text) => !laterKeys.has(looseKey(text)))
+    .slice(0, MAX_TASKS);
   const dumpItems = dump
     ? uniq([...result.picks, ...result.parked].filter((text) => asSaved(text) === null))
     : [];
-  return { dumpItems, suggested, reasons, source: "ai" };
+  const dates = dump && result.dates && Object.keys(result.dates).length > 0 ? result.dates : null;
+  return { dumpItems, suggested, reasons, source: "ai", ...(dates ? { dates } : {}) };
 }
 
 /**
@@ -289,8 +347,42 @@ export function nextDayCandidates(input: {
   dumpItems: string[];
   saved: string[];
   existingDraft: string[];
+  /** Saved items due on the day being planned (1.6 F): first. */
+  dueOnTarget?: string[];
+  /** A draft the reset itself made earlier (reopened): first of all. */
+  ownDraft?: string[];
 }): string[] {
-  return uniq([...input.suggested, ...input.dumpItems, ...[...input.saved].reverse(), ...input.existingDraft]);
+  return uniq([
+    ...(input.ownDraft ?? []),
+    ...(input.dueOnTarget ?? []),
+    ...input.suggested,
+    ...input.dumpItems,
+    ...[...input.saved].reverse(),
+    ...input.existingDraft,
+  ]);
+}
+
+/**
+ * Ticked when step 3 opens: a draft the reset made for that day before
+ * (reopened after finishing), else the saved items due that day, then the
+ * suggestion; at most three.
+ */
+export function defaultPicks(input: { ownDraft?: string[]; dueOnTarget?: string[]; suggested: string[]; existingDraft: string[] }): string[] {
+  if (input.ownDraft && input.ownDraft.length > 0) return uniq(input.ownDraft).slice(0, MAX_TASKS);
+  const picks = uniq([...(input.dueOnTarget ?? []), ...input.suggested]);
+  return (picks.length > 0 ? picks : uniq(input.existingDraft)).slice(0, MAX_TASKS);
+}
+
+/**
+ * What of `items` fits in Saved for later (at most MAX_PARKED_TASKS; items
+ * already there take no room): never pushing the oldest out. `overflow` is
+ * how many new ones didn't fit.
+ */
+export function fitSaved(items: string[], parked: { text: string }[]): { fits: string[]; overflow: number } {
+  const have = new Set(parked.map((item) => looseKey(item.text)));
+  const fresh = uniq(items).filter((text) => !have.has(looseKey(text)));
+  const room = Math.max(0, MAX_PARKED_TASKS - parked.length);
+  return { fits: fresh.slice(0, room), overflow: Math.max(0, fresh.length - room) };
 }
 
 /** A typed "add your own" line, cleaned like any task (null when empty). */
@@ -298,20 +390,45 @@ export function cleanOwnTask(text: string): string | null {
   return cleanTaskText(text);
 }
 
-/** The draft the reset leaves for `today`'s next day (null for no tasks). */
-export function resetDraft(tasks: string[], today: string, source: "ai" | "local"): TomorrowDraft | null {
+/**
+ * The draft the reset leaves for `forDate` (by default `today`'s next day:
+ * the sheet passes the day it planned, so finishing after midnight still
+ * fills that day). Null for no tasks.
+ */
+export function resetDraft(
+  tasks: string[],
+  today: string,
+  source: "ai" | "local",
+  forDate: string = resetTargetDay(today),
+): TomorrowDraft | null {
   const cleaned = uniq(tasks.map((text) => cleanTaskText(text)).filter((text): text is string => text !== null)).slice(
     0,
     MAX_TASKS,
   );
   if (cleaned.length === 0) return null;
-  return { forDate: resetTargetDay(today), tasks: cleaned, note: "", because: RESET_DRAFT_BECAUSE, source, from: "reset" };
+  return { forDate, tasks: cleaned, note: "", because: RESET_DRAFT_BECAUSE, source, from: "reset" };
+}
+
+/** The closing line on the done screen. */
+export function doneLine(input: { weekday: string; picked: number; added: number }): string {
+  if (input.picked > 0) {
+    return `${input.weekday}'s plan will be waiting in the morning. Everything else stays in Saved for later.`;
+  }
+  return input.added > 0 ? "Everything you added is in Saved for later." : "You're all set for the week.";
+}
+
+/** "N didn't fit. Saved for later is full." */
+export function overflowLine(count: number): string {
+  return `${count} didn't fit. Saved for later is full.`;
 }
 
 /**
  * The Sunday notification (Plus, notifications on and allowed, its switch
- * on): the next Sunday at 6 PM, unless that week's reset is done or its card
- * was closed. One item, never time-sensitive, no task words. fitPlanToLimit
+ * on): the next Sunday at 6 PM whose week's reset isn't done and whose card
+ * wasn't closed (so finishing on a Sunday afternoon moves it to the Sunday
+ * after). One item, never time-sensitive, no task words. The store leaves
+ * `sundayReset` out (none planned) where the card couldn't show either:
+ * during first run, or with no planned day before today. fitPlanToLimit
  * still decides whether it fits under iOS's 64.
  */
 export function sundayResetReminder(context: ReminderContext): ReminderPlanItem | null {
@@ -319,14 +436,14 @@ export function sundayResetReminder(context: ReminderContext): ReminderPlanItem 
   if (!reset || !reset.reminder) return null;
   if (context.plus !== true || !context.settings.enabled || context.permissionState !== "granted") return null;
   const { now } = context;
-  for (let offset = 0; offset <= 7; offset++) {
+  for (let offset = 0; offset <= 14; offset++) {
     const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
     if (day.getDay() !== 0) continue;
     const at = new Date(day);
     at.setHours(SUNDAY_RESET_REMINDER_HOUR, 0, 0, 0);
     if (at.getTime() <= now.getTime()) continue;
     const key = toDateKey(day);
-    if (reset.doneWeek === key || reset.dismissedWeek === key) return null;
+    if (reset.doneWeek === key || reset.dismissedWeek === key) continue;
     const hh = String(SUNDAY_RESET_REMINDER_HOUR).padStart(2, "0");
     return {
       id: `${MANAGED_REMINDER_PREFIX}${key}:${SUNDAY_RESET_KIND}:${hh}00`,

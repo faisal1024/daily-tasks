@@ -8,6 +8,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react-native";
 
 import { SundayResetCard, SundayResetRow } from "@/components/daily-tasks/sunday-reset-card";
+import { SundayResetProvider } from "@/components/daily-tasks/sunday-reset-provider";
 import { toDateKey } from "@/lib/daily-tasks/date";
 import { requestBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { sanitizeProps, track } from "@/lib/daily-tasks/analytics";
@@ -96,8 +97,10 @@ function Probe(): ReactNode {
 }
 const tree = (kind: "card" | "row" = "card", firstRunActive = false) => (
   <DailyTasksProvider>
-    <Probe />
-    {kind === "card" ? <SundayResetCard firstRunActive={firstRunActive} /> : <SundayResetRow />}
+    <SundayResetProvider>
+      <Probe />
+      {kind === "card" ? <SundayResetCard firstRunActive={firstRunActive} /> : <SundayResetRow />}
+    </SundayResetProvider>
   </DailyTasksProvider>
 );
 
@@ -135,7 +138,9 @@ const press = (testID: string) => fireEvent.press(screen.getByTestId(testID));
 const card = () => screen.queryByTestId("sunday-reset-card");
 const intro = () => screen.queryByTestId("sunday-reset-intro");
 const sheet = () => screen.queryByTestId("sunday-reset-sheet");
-const candidates = () => screen.queryAllByTestId("sunday-reset-candidate").map((node) => node.props.accessibilityLabel as string);
+// A row's label is "Task. Reason" when it has one (VoiceOver hears both): the task part.
+const candidates = () =>
+  screen.queryAllByTestId("sunday-reset-candidate").map((node) => (node.props.accessibilityLabel as string).split(". ")[0]);
 const parkedTexts = () => latest.state.parkedTasks.map((item) => item.text);
 
 /** Plus, the sheet open on step 1 (from the Today card). */
@@ -474,7 +479,7 @@ describe("the sheet", () => {
   // Android back button) drops the sort's result (right: the sheet is gone)
   // AND never saves the text they typed: components/daily-tasks/sunday-reset-sheet.tsx:101-108
   // ("A week's dump typed but not sorted yet is saved, never lost.").
-  it.skip("closing while the week is being sorted still saves what was typed", async () => {
+  it("closing while the week is being sorted still saves what was typed", async () => {
     proxyUrl.mockReturnValue("https://proxy.test/api/momentum/plan");
     brainDump.mockReturnValue(new Promise(() => {}));
     await startReset();

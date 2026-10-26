@@ -335,6 +335,11 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
     detail: "Turn a stuck task into tiny steps you can start now.",
   },
   {
+    icon: "sunny-outline",
+    title: "Sunday reset",
+    detail: "Two minutes on Sunday: your week's wins, a dump for the week, and Monday's three.",
+  },
+  {
     icon: "sparkles-outline",
     title: "AI ideas for your goal",
     detail: "Fresh suggestions each day that adapt to how your days go.",
@@ -360,7 +365,7 @@ export const PLUS_BENEFITS: { icon: string; title: string; detail: string }[] = 
 const LEADING_BENEFIT: Partial<Record<PaywallSource, string>> = {
   nag_mode: "Nag mode",
   evening_draft: "Your coach drafts tomorrow",
-  sunday_reset: "Your coach drafts tomorrow",
+  sunday_reset: "Sunday reset",
   break_down: "Break it down",
   brain_dump: "Smart brain dump",
   new_ideas: "AI ideas for your goal",
@@ -430,7 +435,7 @@ export function paywallSubhead(source: PaywallSource, options: { taskCount?: num
     case "evening_draft":
       return "Plus drafts a full three each night, from how today went. Your three stay free either way.";
     case "sunday_reset":
-      return "Last week's wins, a dump for the week, and Monday's three from your coach. Your three stay free either way.";
+      return "Your week's wins, a dump for the week, and Monday's three from your coach. Your three stay free either way.";
     default:
       return "Your three tasks stay free forever. Plus adds the AI helpers.";
   }

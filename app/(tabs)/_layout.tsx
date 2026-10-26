@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HapticTab } from "@/components/haptic-tab";
+import { SundayResetProvider } from "@/components/daily-tasks/sunday-reset-provider";
 import { useColors } from "@/hooks/use-colors";
 
 export default function TabLayout() {
@@ -13,50 +14,53 @@ export default function TabLayout() {
   const tabBarHeight = 60 + bottomPadding;
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.muted,
-        headerShown: false,
-        tabBarButton: HapticTab,
-        tabBarLabelStyle: { fontSize: 12, fontWeight: "700" },
-        tabBarStyle: {
-          paddingTop: 8,
-          paddingBottom: bottomPadding,
-          height: tabBarHeight,
-          backgroundColor: colors.background,
-          borderTopColor: colors.border,
-          borderTopWidth: 0.5,
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Today",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="sunny" size={25} color={color} />
-          ),
+    // The Sunday reset's one sheet (1.6), for Today, Progress and its notification.
+    <SundayResetProvider>
+      <Tabs
+        screenOptions={{
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.muted,
+          headerShown: false,
+          tabBarButton: HapticTab,
+          tabBarLabelStyle: { fontSize: 12, fontWeight: "700" },
+          tabBarStyle: {
+            paddingTop: 8,
+            paddingBottom: bottomPadding,
+            height: tabBarHeight,
+            backgroundColor: colors.background,
+            borderTopColor: colors.border,
+            borderTopWidth: 0.5,
+          },
         }}
-      />
-      <Tabs.Screen
-        name="journey"
-        options={{
-          title: "Progress",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="leaf" size={24} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "Settings",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="settings" size={24} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: "Today",
+            tabBarIcon: ({ color }) => (
+              <Ionicons name="sunny" size={25} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="journey"
+          options={{
+            title: "Progress",
+            tabBarIcon: ({ color }) => (
+              <Ionicons name="leaf" size={24} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: "Settings",
+            tabBarIcon: ({ color }) => (
+              <Ionicons name="settings" size={24} color={color} />
+            ),
+          }}
+        />
+      </Tabs>
+    </SundayResetProvider>
   );
 }

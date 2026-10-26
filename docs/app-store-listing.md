@@ -64,6 +64,13 @@ Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html
 ```
 
+## What's New in 1.6 (draft)
+
+```
+(Draft: fill in with the other 1.6 changes.)
+• Sunday reset (Plus): two minutes on Sunday evening for your week's wins, a dump for the week, and Monday's three.
+```
+
 ## What's New in 1.5 (draft)
 
 ```
@@ -124,6 +131,8 @@ The Plus paywall also appears once at the end of the first-run flow (closable), 
 Calendar and Reminders: only used if the user turns on Settings › "Plan around my calendar" (a Plus feature). Today's event titles and times and reminders due today are sent with AI suggestion requests so the three fit around the day.
 
 Nag mode (Settings › Reminders › Reminder style › Nag): an optional Plus feature, off by default. It sends local notifications about the user's own open tasks at random times, at most one an hour, never time-sensitive, and "Stop nagging me today" stops them for the day in one tap. The user picks a voice and a level. The Drill sergeant voice at the Firm and Relentless levels uses comic boot-camp remarks about the user's effort ("maggot", "slacker"); this is disclosed in the app where the level is chosen ("Drill sergeant gets rude at this level: it mocks your effort, not you."). There is no profanity, no slurs, no threats and nothing about body, intelligence, gender, health or family. AI-written lines are filtered on our server and again on the device. Open tasks are sent to the AI service only after an in-app confirmation ("Turn on Nag mode?").
+
+Sunday reset (1.6, Plus): on Sundays from 5 PM a card appears on Today; any day it's in Progress › Set up your week.
 
 To see the first-run flow, delete and reinstall the app.
 ```

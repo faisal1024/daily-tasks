@@ -129,8 +129,9 @@ export interface ParkedTask {
   when?: TaskWhen;
 }
 
-// Generous so a brain dump never silently drops what someone typed.
-export const MAX_PARKED_TASKS = 50;
+// Generous so a brain dump never silently drops what someone typed (100
+// from 1.6: the Sunday reset saves a week's worth, and saves only what fits).
+export const MAX_PARKED_TASKS = 100;
 
 export type LockSource = "manual" | "auto";
 
