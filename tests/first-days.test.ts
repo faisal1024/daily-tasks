@@ -198,14 +198,18 @@ describe("the saved record", () => {
     expect(await loadFirstDays()).toBeNull();
   });
 
-  it("round-trips, and first run writes nudge-from-tomorrow + tip waiting", async () => {
-    await saveFirstDays(startFirstDays("2026-10-01"));
+  it("round-trips, and first run writes nudge-from-tomorrow + tip waiting (+ 1.5 D's Nag card and sheet)", async () => {
+    await saveFirstDays(startFirstDays("2026-10-01", "launch#0"));
     expect(JSON.parse(store.data.get(FIRST_DAYS_KEY) ?? "null")).toEqual({
       nudgeFrom: "2026-10-02",
       nudgeDeclines: 0,
       widgetTip: "waiting",
+      nagCardFrom: "2026-10-02",
+      nagCardUntil: "2026-10-02",
+      nagIntro: "waiting",
+      nagIntroOpen: "launch#0",
     });
-    expect(await loadFirstDays()).toEqual(startFirstDays("2026-10-01"));
+    expect(await loadFirstDays()).toEqual(startFirstDays("2026-10-01", "launch#0"));
   });
 
   it("an earned tip survives a save and load", async () => {

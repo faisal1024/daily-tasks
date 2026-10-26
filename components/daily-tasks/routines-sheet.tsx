@@ -33,6 +33,7 @@ import {
   describeDays,
   PICKER_ORDER,
   presetFor,
+  presetsToOffer,
   routineSavedNote,
   type AddRoutineResult,
   type DaysPreset,
@@ -55,7 +56,8 @@ interface RoutinesSheetProps {
   atFreeLimit?: boolean;
   /** Open straight into "New routine" (e.g. right after buying Plus). */
   startInEditor?: boolean;
-  onAdd: (text: string, days: number[]) => AddRoutineResult;
+  /** `source` "preset": a one-tap preset (1.5 D). */
+  onAdd: (text: string, days: number[], source?: "preset") => AddRoutineResult;
   /** Tapped "Add a routine" at the free limit (the sheet closes, then the paywall opens). */
   onLimit: () => void;
   onUpdate: (id: string, text: string, days: number[]) => void;
@@ -147,6 +149,24 @@ export function RoutinesSheet({
     }
     setEditing({ kind: "new" });
   };
+
+  // A preset (1.5 D): one tap makes it, days and all. At the free limit it
+  // goes to the Plus gate like "Add a routine".
+  const addPreset = (preset: { text: string; days: readonly number[] }) => {
+    setJustSaved(null);
+    if (!canAdd) {
+      onLimit();
+      return;
+    }
+    const days = [...preset.days];
+    const result = onAdd(preset.text, days, "preset");
+    if (result === "limit") {
+      onLimit();
+      return;
+    }
+    if (result === "added" || result === "exists") markSaved(null, preset.text, days);
+  };
+  const presets = presetsToOffer(routines);
 
   const confirmRemove = (routine: Routine) => {
     Alert.alert(
@@ -248,6 +268,35 @@ export function RoutinesSheet({
                   onRemove={() => confirmRemove(routine)}
                 />
               ))}
+
+              {presets.length > 0 && (
+                <View className="gap-2" testID="routine-presets">
+                  <Text className="text-sm font-semibold" style={{ color: colors.muted }} accessibilityRole="header">
+                    {routines.length === 0 ? "Start with one" : "Or one of these"}
+                  </Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    {presets.map((preset) => (
+                      <Pressable
+                        key={preset.text}
+                        onPress={() => addPreset(preset)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Add ${preset.text}, ${describeDays([...preset.days], { spoken: true })}`}
+                        accessibilityHint={canAdd ? "Adds this routine" : "Free keeps two routines. Opens Plus."}
+                        className="rounded-2xl border px-3 py-2"
+                        style={{ borderColor: colors.border, backgroundColor: colors.surface, minHeight: 44, justifyContent: "center" }}
+                        testID={`routine-preset-${preset.text}`}
+                      >
+                        <Text className="text-sm text-foreground" style={{ fontWeight: "600" }}>
+                          {preset.text}
+                        </Text>
+                        <Text className="text-xs" style={{ color: colors.muted }}>
+                          {describeDays([...preset.days])}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
 
               <Pressable
                 onPress={startAdd}

@@ -12,6 +12,8 @@ import { isReviewTrigger } from "./review-prompt";
 import { normalizeWhatsNewSeen } from "./whats-new";
 import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
 import { FIRST_DAYS_KEY, FIRST_DAYS_SHOWN_KEY } from "./first-days";
+import { FIRST_TICK_KEY } from "./first-tick";
+import { WELCOME_BACK_SHOWN_KEY } from "./welcome-back";
 import type {
   AppState,
   AutoLockConfig,
@@ -872,6 +874,9 @@ export async function clearState(): Promise<void> {
       NAG_STORAGE_KEY,
       FIRST_DAYS_KEY,
       FIRST_DAYS_SHOWN_KEY,
+      // 1.5 D: the first-tick toast and the welcome's once-a-day event start fresh too.
+      FIRST_TICK_KEY,
+      WELCOME_BACK_SHOWN_KEY,
     ]);
   } catch (err) {
     console.warn("[daily-tasks] failed to clear state", err);

@@ -7,6 +7,7 @@
 import * as Notifications from "expo-notifications";
 
 import type { ReminderPlan, ReminderPlanItem } from "@/lib/daily-tasks/reminder-plan";
+import { UPCOMING_MORNING_DAYS } from "@/lib/daily-tasks/reminders";
 import { TRIAL_REMINDER_ID } from "@/lib/daily-tasks/trial-reminder";
 import { DEFAULT_NOTIFICATIONS } from "@/lib/daily-tasks/types";
 
@@ -220,9 +221,9 @@ describe("a sync that changes nothing writes nothing", () => {
     centre.platform = platform;
     const { syncNotifications } = load();
     await syncNotifications(input());
-    // 10 today (10, 12, 14, 16, 17..22) and 6 mornings.
-    expect(scheduledIds()).toHaveLength(16);
-    expect(centre.owned()).toHaveLength(16);
+    // 10 today (10, 12, 14, 16, 17..22) and two weeks of mornings (1.5 D).
+    expect(scheduledIds()).toHaveLength(10 + UPCOMING_MORNING_DAYS);
+    expect(centre.owned()).toHaveLength(10 + UPCOMING_MORNING_DAYS);
     const before = centre.words();
 
     clearCalls();
@@ -277,7 +278,7 @@ describe("a sync that changes nothing writes nothing", () => {
     expect(scheduledIds()).toContain("daily-tasks:2026-10-12:progress:1200");
     expect(scheduledIds().every((id) => id.startsWith("daily-tasks:2026-10-12:"))).toBe(true);
     expect(scheduledIds()).not.toContain("daily-tasks:2026-10-12:progress:1000");
-    expect(centre.owned()).toHaveLength(15);
+    expect(centre.owned()).toHaveLength(9 + UPCOMING_MORNING_DAYS);
   });
 
   it("a pending reminder a second or more off, or with other words, is rewritten; one whose time can't be read too", async () => {
@@ -304,7 +305,7 @@ describe("on iOS a pending reminder's time is read from its own data", () => {
 
   it("every reminder is handed to the system with its own time, in ms, beside its kind and task id", async () => {
     await load().syncNotifications(input());
-    expect(centre.owned()).toHaveLength(16);
+    expect(centre.owned()).toHaveLength(10 + UPCOMING_MORNING_DAYS);
     for (const stored of centre.owned()) {
       expect(stored.content.data?.fireAt).toBe(stored.at.getTime());
       expect(typeof stored.content.data?.kind).toBe("string");
@@ -392,13 +393,13 @@ describe("never more than 64 pending, at any moment", () => {
     for (let i = 0; i < others; i++) centre.seed(i === 0 ? FOCUS_ID : i === 1 ? TRIAL_REMINDER_ID : `someone-else:${i}`);
     await syncNotifications(input());
 
-    const room = Math.min(16, 64 - others);
+    const room = Math.min(10 + UPCOMING_MORNING_DAYS, 64 - others);
     expect(centre.peak).toBeLessThanOrEqual(64);
     expect(centre.owned()).toHaveLength(room);
     expect(centre.others()).toHaveLength(others);
     // The soonest: today's first.
     expect(centre.pending.has("daily-tasks:2026-10-12:progress:1000")).toBe(true);
-    if (room < 16) expect(centre.pending.has("daily-tasks:2026-10-18:morning:1000")).toBe(false);
+    if (room < 10 + UPCOMING_MORNING_DAYS) expect(centre.pending.has("daily-tasks:2026-10-26:morning:0800")).toBe(false);
 
     clearCalls();
     await syncNotifications(input());
@@ -537,12 +538,12 @@ describe("when the system refuses some of it", () => {
     centre.rejectSchedule.add("daily-tasks:2026-10-12:progress:1200");
     centre.rejectSchedule.add("daily-tasks:2026-10-13:morning:0800");
     await syncNotifications(input());
-    expect(centre.owned()).toHaveLength(14);
+    expect(centre.owned()).toHaveLength(8 + UPCOMING_MORNING_DAYS);
     centre.rejectSchedule.clear();
     clearCalls();
     await syncNotifications(input());
     expect(scheduledIds().sort()).toEqual(["daily-tasks:2026-10-12:progress:1200", "daily-tasks:2026-10-13:morning:0800"]);
-    expect(centre.owned()).toHaveLength(16);
+    expect(centre.owned()).toHaveLength(10 + UPCOMING_MORNING_DAYS);
   });
 
   it("the system failing to list what is pending fails that sync whole (nothing written blind), and the next one runs", async () => {
@@ -551,7 +552,7 @@ describe("when the system refuses some of it", () => {
     await expect(syncNotifications(input())).rejects.toThrow("unavailable");
     expect(writes()).toBe(0);
     await syncNotifications(input());
-    expect(centre.owned()).toHaveLength(16);
+    expect(centre.owned()).toHaveLength(10 + UPCOMING_MORNING_DAYS);
   });
 });
 
@@ -670,7 +671,7 @@ describe("Hide task names, end to end through the scheduler", () => {
     await syncNotifications(input({ draft, settings: hidden }));
     expect(centre.words()).not.toMatch(TASK_WORDS);
     expect(centre.words()).not.toMatch(/plants/);
-    expect(centre.owned()).toHaveLength(16);
+    expect(centre.owned()).toHaveLength(10 + UPCOMING_MORNING_DAYS);
     for (const item of centre.owned()) {
       expect(["A calm start", "A small nudge", "Still time today"]).toContain(item.content.title);
       // The kind and its own time ride along; no task id any more, since no task is named.

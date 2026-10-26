@@ -21,6 +21,7 @@ export function useWhatsNew({
   pending,
   activity,
   canShowNow,
+  firstDays,
 }: {
   /** The app is in front. Each time this turns true (a launch, a return) is one chance. */
   active: boolean;
@@ -32,6 +33,12 @@ export function useWhatsNew({
   activity: string;
   /** Asked as the delay ends, for what isn't state (`whatsNewMoment`). */
   canShowNow: () => WhatsNewMoment;
+  /**
+   * A new install's own "Meet Nag mode" (1.5 D): no announcement (first run
+   * marked them all seen), but the same sheet in the same quiet window, once,
+   * on the next open after first run. `seen` is called as it closes.
+   */
+  firstDays?: { id: string; due: boolean; seen: () => void };
 }) {
   const { ready, state, markWhatsNewSeen } = useDailyTasks();
   const { hasSeenOnboarding, whatsNewSeen, notifications } = state;
@@ -52,7 +59,8 @@ export function useWhatsNew({
   canShowNowRef.current = canShowNow;
   /** One foreground session: from a launch or a return to the foreground until the app leaves it. */
   const live = ready && active;
-  const dueId = live && openId === null ? (decision.show?.id ?? null) : null;
+  const firstDaysId = firstDays?.due ? firstDays.id : null;
+  const dueId = live && openId === null ? (decision.show?.id ?? firstDaysId) : null;
   /** This foreground session's chance is used up: the user did something, or the sheet was closed. */
   const [spent, setSpent] = useState(false);
   // Bumped to ask again a little later (a launch-time blocker, or iOS dropped the sheet).
@@ -117,9 +125,13 @@ export function useWhatsNew({
 
   const openIdRef = useRef(openId);
   openIdRef.current = openId;
+  const firstDaysRef = useRef(firstDays);
+  firstDaysRef.current = firstDays;
   /** The user closed it, whichever way: it has been seen. */
   const close = useCallback(() => {
-    if (openIdRef.current) markWhatsNewSeen([openIdRef.current]);
+    const id = openIdRef.current;
+    if (id && id === firstDaysRef.current?.id) firstDaysRef.current.seen();
+    else if (id) markWhatsNewSeen([id]);
     setOpenId(null);
     setSpent(true);
   }, [markWhatsNewSeen]);

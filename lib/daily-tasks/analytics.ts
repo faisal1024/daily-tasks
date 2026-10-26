@@ -38,8 +38,16 @@ export type AnalyticsEvent =
   | "tomorrow_draft_used"
   | "onboarding_step"
   // 1.5: the Today cards that replaced first run's nudge and widget screens
-  // (kind "nudge" | "widget", action "shown" | "yes" | "not_now" | "dismissed").
+  // (kind "nudge" | "widget", action "shown" | "yes" | "not_now" | "dismissed"),
+  // and 1.5 D's Nag mode card (kind "nag", action "shown" | "open" | "dismissed").
   | "first_days_card"
+  // 1.5 D: back after 2+ days (count = days since the last open), once a day.
+  | "welcome_back_shown"
+  // 1.5 D: the finished day's picture went to the share sheet (count = tasks,
+  // kind "names" | "no_names"). Never a task or the picture.
+  | "finish_card_shared"
+  // 1.5 D: a saved item swapped in for an open task on a full day.
+  | "saved_swapped_in"
   | "agenda_toggled"
   | "goal_set"
   | "task_not_today"

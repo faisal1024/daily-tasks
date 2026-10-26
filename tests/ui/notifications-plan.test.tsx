@@ -7,6 +7,7 @@ import * as Notifications from "expo-notifications";
 import type { PendingReminder, ReminderContext, ReminderPlan } from "@/lib/daily-tasks/reminder-plan";
 import { TRIAL_REMINDER_ID } from "@/lib/daily-tasks/trial-reminder";
 import { DEFAULT_NOTIFICATIONS } from "@/lib/daily-tasks/types";
+import { UPCOMING_MORNING_DAYS } from "@/lib/daily-tasks/reminders";
 
 jest.mock("expo-notifications", () => ({
   getPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
@@ -166,8 +167,8 @@ describe("a reminder sync and the notifications it doesn't own", () => {
     expect(mocked.dismissNotificationAsync).not.toHaveBeenCalled();
     // Everything it schedules is its own, one per id, with the task in the next one.
     const ids = scheduledIds();
-    expect(ids).toHaveLength(16);
-    expect(new Set(ids).size).toBe(16);
+    expect(ids).toHaveLength(10 + UPCOMING_MORNING_DAYS);
+    expect(new Set(ids).size).toBe(10 + UPCOMING_MORNING_DAYS);
     expect(ids.every((id) => id.startsWith("daily-tasks:"))).toBe(true);
     const [next] = scheduledRequests();
     expect(next.identifier).toBe("daily-tasks:2026-10-12:progress:1000");
@@ -246,7 +247,7 @@ describe("what is already pending", () => {
     const { syncNotifications } = load();
     await syncNotifications(input());
     const first = scheduledRequests();
-    expect(first).toHaveLength(16);
+    expect(first).toHaveLength(10 + UPCOMING_MORNING_DAYS);
 
     // The same sync again, with those now pending: nothing to do.
     mocked.scheduleNotificationAsync.mockClear();
@@ -419,7 +420,7 @@ describe("when the system says no", () => {
 
     await expect(syncNotifications(input())).resolves.toBeUndefined();
 
-    expect(mocked.scheduleNotificationAsync).toHaveBeenCalledTimes(16);
+    expect(mocked.scheduleNotificationAsync).toHaveBeenCalledTimes(10 + UPCOMING_MORNING_DAYS);
     // The stale one is still cancelled afterwards; the failed one wasn't pending, so nothing to remove.
     expect(cancelledIds()).toEqual(["daily-tasks:2026-10-11:evening:2200"]);
     expect(warn).toHaveBeenCalledTimes(1);
@@ -438,7 +439,7 @@ describe("when the system says no", () => {
     pending([failing]);
     await syncNotifications(input({ settings: { ...DEFAULT_NOTIFICATIONS, hideTaskNames: true } }));
     expect(cancelledIds()).toEqual([failing]);
-    expect(scheduledIds()).toHaveLength(16);
+    expect(scheduledIds()).toHaveLength(10 + UPCOMING_MORNING_DAYS);
   });
 
   it("one rejected cancel doesn't stop the others or fail the sync", async () => {
@@ -449,7 +450,7 @@ describe("when the system says no", () => {
     pending(["daily-tasks:old:0", "daily-tasks:old:1", "daily-tasks:old:2", FOCUS_ID]);
     await expect(syncNotifications(input())).resolves.toBeUndefined();
     expect(cancelledIds().sort()).toEqual(["daily-tasks:old:0", "daily-tasks:old:1", "daily-tasks:old:2"]);
-    expect(scheduledIds()).toHaveLength(16);
+    expect(scheduledIds()).toHaveLength(10 + UPCOMING_MORNING_DAYS);
     expect(String(warn.mock.calls[0][0])).toContain("daily-tasks:old:1");
 
     mocked.cancelScheduledNotificationAsync.mockClear();

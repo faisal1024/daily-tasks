@@ -203,6 +203,22 @@ export const NAG_INTRO_COPY = {
   close: "Close",
 } as const;
 
+/**
+ * A new install's own "Meet Nag mode" (1.5 D): the same sheet, from the Today
+ * card on the first two days, or on its own once on the next open after
+ * first run. Not an announcement (nothing is new to them), so it has no
+ * "New in 1.4" label or "Also new" line, and its own id in the events.
+ */
+export const NAG_FIRST_DAYS_ID = "1.5-nag-intro";
+
+/** The quiet Today card on a new install's first two days (1.5 D). */
+export const NAG_CARD_COPY = {
+  title: "Want a voice that won't let it go?",
+  body: "Mom, Dad, Partner, Coach or Drill sergeant.",
+  button: "Meet Nag mode",
+  dismiss: "Dismiss Nag mode card",
+} as const;
+
 /** On Today once Nag mode was turned on from the sheet. */
 export const NAG_ON_TOAST = "Nag mode is on. Change it in Settings › Reminders.";
 /** The row in Settings › Reminders that opens the sheet again. */

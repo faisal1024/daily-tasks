@@ -30,6 +30,29 @@ export const DAY_PRESETS: { id: Exclude<DaysPreset, "custom">; label: string; da
   { id: "weekends", label: "Weekends", days: WEEKENDS },
 ];
 
+/**
+ * One-tap starting points in the Routines sheet (1.5 D), days filled in.
+ * Free still keeps two routines: a third goes to the Plus gate as usual.
+ */
+export const ROUTINE_PRESETS: readonly { text: string; days: readonly number[] }[] = [
+  { text: "Stretch", days: WEEKDAYS },
+  { text: "Plan the week", days: [0] },
+  { text: "Inbox to zero", days: WEEKDAYS },
+  { text: "Walk", days: ALL_DAYS },
+  { text: "Read 10 pages", days: ALL_DAYS },
+  { text: "Tidy desk", days: [5] },
+];
+
+/** While there are this few routines the presets show (a third one is where free meets the Plus gate). */
+export const ROUTINE_PRESETS_UNTIL = FREE_ROUTINE_LIMIT + 1;
+
+/** The presets still worth offering: none once there are a few routines; never one already made (same words). */
+export function presetsToOffer(routines: readonly { text: string }[]): { text: string; days: readonly number[] }[] {
+  if (routines.length >= ROUTINE_PRESETS_UNTIL) return [];
+  const made = new Set(routines.map((routine) => routine.text.trim().replace(/\s+/g, " ").toLowerCase()));
+  return ROUTINE_PRESETS.filter((preset) => !made.has(preset.text.toLowerCase()));
+}
+
 /** Sunday = 0, like Date#getDay. */
 export const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

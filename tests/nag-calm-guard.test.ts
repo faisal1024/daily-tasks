@@ -42,6 +42,8 @@ vi.mock("../lib/daily-tasks/analytics", () => ({ track: vi.fn() }));
 
 /** sha256 of the calm plans for the fixed inputs below, computed with main's code. */
 const CALM_DIGEST = "56180f9d63a6ae5a876c0eef17a73fd7c408c4468f0cc0331a1451f94fff5722";
+/** The same with two weeks of mornings and the day-7 line (1.5 D). */
+const CALM_DIGEST_15D = "2c0acdab2a52ce75f0dbea2d445db4b5e408046c20f31324a6eb133aa86e674c";
 
 /** mulberry32. */
 function seeded(seed: number) {
@@ -141,7 +143,16 @@ describe("Calm is unchanged by Nag mode", () => {
     expect(text).toMatch(/"kind":"progress"/);
     expect(text).toMatch(/"kind":"evening"/);
     expect(all.filter((context) => taskAwareStrategy(context).length > 0).length).toBeGreaterThan(200);
-    expect(createHash("sha256").update(text).digest("hex")).toBe(CALM_DIGEST);
+    // 1.5 D adds a second week of mornings: up to six days ahead, the plans are main's, byte for byte.
+    const firstWeek = all
+      .map((context) => {
+        const lastDay = new Date(context.now.getFullYear(), context.now.getMonth(), context.now.getDate() + 7);
+        return stable(taskAwareStrategy(context).filter((item) => item.fireAt.getTime() < lastDay.getTime()));
+      })
+      .join("\n");
+    expect(createHash("sha256").update(firstWeek).digest("hex")).toBe(CALM_DIGEST);
+    // And the whole plan, mornings 7 to 14 included, as 1.5 D plans it.
+    expect(createHash("sha256").update(text).digest("hex")).toBe(CALM_DIGEST_15D);
   });
 
   it("nagModeStrategy is taskAwareStrategy, byte for byte, whenever nag mode doesn't apply: Calm, no Plus, no permission, reminders off", async () => {

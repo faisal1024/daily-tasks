@@ -51,6 +51,30 @@ export function removeParkedTask(state: AppState, id: string): AppState {
   return { ...state, parkedTasks: state.parkedTasks.filter((p) => p.id !== id) };
 }
 
+/**
+ * "Swap in" (1.5 D): a saved item takes an open task's place on a full,
+ * unlocked day, in the same spot, and that task is saved for later instead.
+ * Nothing changes on a locked day, for a done task, or for one already on
+ * today under another id (the same words twice).
+ */
+export function swapParkedTask(
+  state: AppState,
+  input: { parkedId: string; taskId: string; now: string; newId: string },
+): AppState {
+  if (state.todayLocked) return state;
+  const parked = state.parkedTasks.find((p) => p.id === input.parkedId);
+  const index = state.tasks.findIndex((task) => task.id === input.taskId);
+  if (!parked || index < 0 || state.todayCompletions.includes(input.taskId)) return state;
+  const text = parked.text.trim();
+  const out = state.tasks[index];
+  if (!text || state.tasks.some((task, i) => i !== index && key(task.text) === key(text))) return state;
+  const tasks = state.tasks.slice();
+  tasks[index] = { id: input.newId, text, createdAt: input.now, carriedOver: false };
+  const swapped = { ...removeParkedTask(state, parked.id), tasks };
+  // The task that left is saved for later (parkTasks skips what's still on today).
+  return parkTasks(swapped, [out.text], input.now);
+}
+
 /** Whether a parked item can move onto today's list right now. */
 export function canTakeParkedTask(state: AppState): boolean {
   return !state.todayLocked && state.tasks.length < MAX_TASKS;

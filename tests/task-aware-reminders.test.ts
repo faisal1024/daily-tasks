@@ -30,7 +30,13 @@ import {
   type ReminderPlan,
   type ReminderStrategy,
 } from "../lib/daily-tasks/reminder-plan";
-import { planReminders, planUpcomingMornings } from "../lib/daily-tasks/reminders";
+import {
+  LAPSED_MORNING_COPY,
+  LAPSED_MORNING_DAY,
+  planReminders,
+  planUpcomingMornings,
+  UPCOMING_MORNING_DAYS,
+} from "../lib/daily-tasks/reminders";
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
 import { DEFAULT_NOTIFICATIONS, type DayTaskRecord, type TomorrowDraft } from "../lib/daily-tasks/types";
 
@@ -39,7 +45,13 @@ const GENERIC_BODIES = KINDS.map((kind) => GENERIC_REMINDER_COPY[kind].body);
 const GENERIC_TITLES = KINDS.map((kind) => GENERIC_REMINDER_COPY[kind].title);
 /** What a reminder may say with names hidden: the general lines, the name-free ones, and the empty day's prompt. */
 const NAME_FREE_BODY = (body: string) =>
-  [...GENERIC_BODIES, ...NAME_FREE_REMINDER_BODIES.day, ...NAME_FREE_REMINDER_BODIES.evening].includes(body) ||
+  [
+    ...GENERIC_BODIES,
+    ...NAME_FREE_REMINDER_BODIES.day,
+    ...NAME_FREE_REMINDER_BODIES.evening,
+    // The morning a week on (1.5 D).
+    LAPSED_MORNING_COPY.body,
+  ].includes(body) ||
   /^(Nothing picked yet\.|A fresh page\.) [^:·]+$/.test(body);
 /** The wording of a reminder written ahead of its delivery: true whether or not the task was ticked since. */
 const HEDGED =
@@ -146,6 +158,7 @@ describe("which reminders may state counts", () => {
 
   it("tomorrow's nudge is true either way about what is open today, with no counts; the days after ask plainly", () => {
     const mornings = planFor({ now: monday(9, 5), tasks }).filter((item) => item.id.includes(":morning:"));
+    // Two weeks of mornings (1.5 D).
     expect(mornings.map((item) => item.id)).toEqual([
       "daily-tasks:2026-10-13:morning:0800",
       "daily-tasks:2026-10-14:morning:0800",
@@ -153,6 +166,14 @@ describe("which reminders may state counts", () => {
       "daily-tasks:2026-10-16:morning:0800",
       "daily-tasks:2026-10-17:morning:1000",
       "daily-tasks:2026-10-18:morning:1000",
+      "daily-tasks:2026-10-19:morning:0800",
+      "daily-tasks:2026-10-20:morning:0800",
+      "daily-tasks:2026-10-21:morning:0800",
+      "daily-tasks:2026-10-22:morning:0800",
+      "daily-tasks:2026-10-23:morning:0800",
+      "daily-tasks:2026-10-24:morning:1000",
+      "daily-tasks:2026-10-25:morning:1000",
+      "daily-tasks:2026-10-26:morning:0800",
     ]);
     const [tomorrow, ...after] = mornings;
     expect(tomorrow.title).toBe("A calm start");
@@ -160,10 +181,12 @@ describe("which reminders may state counts", () => {
       /^(From yesterday: (Bravo|Charlie)\. Still open\? It could be one of today's three\.|From yesterday's list: (Bravo|Charlie)\. Want it in today's three\?|Yesterday's list: Bravo · Charlie\. Anything to bring into today\?)$/,
     );
     expect(tomorrow.body).not.toMatch(/\d|Alpha/);
-    for (const later of after) {
-      expect(later.body).toMatch(/^(Nothing picked yet\.|A fresh page\.)/);
+    after.forEach((later, index) => {
+      // A week on (the app not opened since): the Day count (1.5 D).
+      if (index + 2 === LAPSED_MORNING_DAY) expect(later.body).toBe(LAPSED_MORNING_COPY.body);
+      else expect(later.body).toMatch(/^(Nothing picked yet\.|A fresh page\.)/);
       expect(shown(later)).not.toMatch(/Alpha|Bravo|Charlie|yesterday/);
-    }
+    });
   });
 
   it("every morning slot of an empty day is plain about it (nothing there can be ticked from the widget)", () => {
@@ -395,7 +418,7 @@ describe("what a reminder says", () => {
     // Nothing left today; the next days' morning nudges remain.
     const plan = planFor({ now: monday(9, 5), tasks });
     expect(plan.map((item) => item.id).filter((id) => id.includes(":2026-10-12:"))).toEqual([]);
-    expect(plan).toHaveLength(6);
+    expect(plan).toHaveLength(UPCOMING_MORNING_DAYS);
   });
 
   it("never says 'missed' or 'overdue', never uses a dash, in any situation or variant", () => {
@@ -463,6 +486,14 @@ describe("a full day's copy", () => {
         "2026-10-16:morning:0800 | A calm start | Nothing picked yet. Three small things is plenty.",
         "2026-10-17:morning:1000 | A calm start | A fresh page. What are today's three?",
         "2026-10-18:morning:1000 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-19:morning:0800 | A calm start | Your Day count is waiting. Three small things?",
+        "2026-10-20:morning:0800 | A calm start | Nothing picked yet. What are today's three?",
+        "2026-10-21:morning:0800 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-22:morning:0800 | A calm start | A fresh page. What are today's three?",
+        "2026-10-23:morning:0800 | A calm start | Nothing picked yet. Three small things is plenty.",
+        "2026-10-24:morning:1000 | A calm start | Nothing picked yet. What are today's three?",
+        "2026-10-25:morning:1000 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-26:morning:0800 | A calm start | A fresh page. What are today's three?",
       ]
     `);
   });
@@ -486,6 +517,14 @@ describe("a full day's copy", () => {
         "2026-10-16:morning:0800 | A calm start | Nothing picked yet. Three small things is plenty.",
         "2026-10-17:morning:1000 | A calm start | A fresh page. What are today's three?",
         "2026-10-18:morning:1000 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-19:morning:0800 | A calm start | Your Day count is waiting. Three small things?",
+        "2026-10-20:morning:0800 | A calm start | Nothing picked yet. What are today's three?",
+        "2026-10-21:morning:0800 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-22:morning:0800 | A calm start | A fresh page. What are today's three?",
+        "2026-10-23:morning:0800 | A calm start | Nothing picked yet. Three small things is plenty.",
+        "2026-10-24:morning:1000 | A calm start | Nothing picked yet. What are today's three?",
+        "2026-10-25:morning:1000 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-26:morning:0800 | A calm start | A fresh page. What are today's three?",
       ]
     `);
   });
@@ -509,6 +548,14 @@ describe("a full day's copy", () => {
         "2026-10-16:morning:0800 | A calm start | Nothing picked yet. Three small things is plenty.",
         "2026-10-17:morning:1000 | A calm start | A fresh page. What are today's three?",
         "2026-10-18:morning:1000 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-19:morning:0800 | A calm start | Your Day count is waiting. Three small things?",
+        "2026-10-20:morning:0800 | A calm start | Nothing picked yet. What are today's three?",
+        "2026-10-21:morning:0800 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-22:morning:0800 | A calm start | A fresh page. What are today's three?",
+        "2026-10-23:morning:0800 | A calm start | Nothing picked yet. Three small things is plenty.",
+        "2026-10-24:morning:1000 | A calm start | Nothing picked yet. What are today's three?",
+        "2026-10-25:morning:1000 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-26:morning:0800 | A calm start | A fresh page. What are today's three?",
       ]
     `);
   });
@@ -527,6 +574,14 @@ describe("a full day's copy", () => {
         "2026-10-16:morning:0800 | A calm start | Nothing picked yet. Three small things is plenty.",
         "2026-10-17:morning:1000 | A calm start | A fresh page. What are today's three?",
         "2026-10-18:morning:1000 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-19:morning:0800 | A calm start | Your Day count is waiting. Three small things?",
+        "2026-10-20:morning:0800 | A calm start | Nothing picked yet. What are today's three?",
+        "2026-10-21:morning:0800 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-22:morning:0800 | A calm start | A fresh page. What are today's three?",
+        "2026-10-23:morning:0800 | A calm start | Nothing picked yet. Three small things is plenty.",
+        "2026-10-24:morning:1000 | A calm start | Nothing picked yet. What are today's three?",
+        "2026-10-25:morning:1000 | A calm start | Nothing picked yet. One is enough to begin.",
+        "2026-10-26:morning:0800 | A calm start | A fresh page. What are today's three?",
       ]
     `);
   });
@@ -538,7 +593,7 @@ describe("a full day's copy", () => {
       yesterdayOpen: ["Renew passport"],
       settings: { ...DEFAULT_NOTIFICATIONS, hideTaskNames: true },
     });
-    expect(hidden).toHaveLength(16);
+    expect(hidden).toHaveLength(10 + UPCOMING_MORNING_DAYS);
     for (const item of hidden) {
       expect(shown(item)).not.toMatch(/dentist|report|Walk|passport/i);
       expect(GENERIC_TITLES).toContain(item.title);
@@ -730,8 +785,10 @@ describe("the day the tasks belong to and the clock's day", () => {
     expect(after?.body).toMatch(/yesterday/i);
     expect(after?.body).toMatch(/Call the dentist|Walk/);
     // The rest ask plainly.
-    for (const later of plan.filter((item) => item.fireAt.getDate() >= 15)) {
-      expect(later.body).toMatch(/^(Nothing picked yet\.|A fresh page\.)/);
+    for (const later of plan.filter((item) => item.id.includes(":morning:") && item.fireAt >= new Date(2026, 9, 15))) {
+      // A week from now (the 19th): the Day count (1.5 D).
+      if (later.id.includes(":2026-10-19:")) expect(later.body).toBe(LAPSED_MORNING_COPY.body);
+      else expect(later.body).toMatch(/^(Nothing picked yet\.|A fresh page\.)/);
     }
     // One per id.
     expect(new Set(plan.map((item) => item.id)).size).toBe(plan.length);
@@ -760,7 +817,7 @@ describe("clock changes and time zones", () => {
   const mornings = (now: Date) => planUpcomingMornings({ now, settings, permissionState: "granted" });
   const expectLocalMornings = (now: Date) => {
     const slots = mornings(now);
-    expect(slots).toHaveLength(6);
+    expect(slots).toHaveLength(UPCOMING_MORNING_DAYS);
     slots.forEach((slot, index) => {
       const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + index + 1);
       const weekend = day.getDay() === 0 || day.getDay() === 6;
@@ -768,7 +825,7 @@ describe("clock changes and time zones", () => {
       expect([slot.at.getHours(), slot.at.getMinutes()]).toEqual([weekend ? 10 : 8, 0]);
       expect(slot.identifier).toBe(`daily-tasks:${toDateKey(day)}:morning:${weekend ? "1000" : "0800"}`);
     });
-    expect(new Set(slots.map((slot) => slot.identifier)).size).toBe(6);
+    expect(new Set(slots.map((slot) => slot.identifier)).size).toBe(UPCOMING_MORNING_DAYS);
     return slots;
   };
 
@@ -788,6 +845,14 @@ describe("clock changes and time zones", () => {
         "2026-03-10T12:00:00.000Z",
         "2026-03-11T12:00:00.000Z",
         "2026-03-12T12:00:00.000Z",
+        "2026-03-13T12:00:00.000Z",
+        "2026-03-14T14:00:00.000Z",
+        "2026-03-15T14:00:00.000Z",
+        "2026-03-16T12:00:00.000Z",
+        "2026-03-17T12:00:00.000Z",
+        "2026-03-18T12:00:00.000Z",
+        "2026-03-19T12:00:00.000Z",
+        "2026-03-20T12:00:00.000Z",
       ]);
     });
   });
@@ -811,7 +876,7 @@ describe("clock changes and time zones", () => {
       const today = plan.filter((item) => item.id.includes(":2026-11-01:"));
       expect(today.map((item) => item.fireAt.getHours())).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
       expect(new Set(plan.map((item) => item.id)).size).toBe(plan.length);
-      expect(plan).toHaveLength(20);
+      expect(plan).toHaveLength(14 + UPCOMING_MORNING_DAYS);
     });
   });
 
@@ -839,6 +904,14 @@ describe("clock changes and time zones", () => {
         "daily-tasks:2026-10-16:morning:0800",
         "daily-tasks:2026-10-17:morning:1000",
         "daily-tasks:2026-10-18:morning:1000",
+        "daily-tasks:2026-10-19:morning:0800",
+        "daily-tasks:2026-10-20:morning:0800",
+        "daily-tasks:2026-10-21:morning:0800",
+        "daily-tasks:2026-10-22:morning:0800",
+        "daily-tasks:2026-10-23:morning:0800",
+        "daily-tasks:2026-10-24:morning:1000",
+        "daily-tasks:2026-10-25:morning:1000",
+        "daily-tasks:2026-10-26:morning:0800",
       ]);
       // Tomorrow's nudge is about the local today.
       expect(plan[10].body).toMatch(/yesterday/i);
@@ -962,14 +1035,15 @@ describe("fitPlanToLimit", () => {
     expect(fitPlanToLimit(plan, { now: monday(7, 30), otherPending: 0 })).toEqual(plan);
   });
 
-  it("the standard reminders never come near the limit (20 at most)", () => {
+  it("the standard reminders never come near the limit (28 at most: 14 today, two weeks of mornings)", () => {
     const most = planFor({
       now: monday(0, 30),
       tasks: [WALK],
       settings: { ...DEFAULT_NOTIFICATIONS, hourly: true },
     });
-    expect(most).toHaveLength(20);
-    expect(fitPlanToLimit(most, { now: monday(0, 30), otherPending: 2 })).toHaveLength(20);
+    expect(most).toHaveLength(14 + UPCOMING_MORNING_DAYS);
+    expect(most.length).toBeLessThanOrEqual(28);
+    expect(fitPlanToLimit(most, { now: monday(0, 30), otherPending: 2 })).toHaveLength(most.length);
   });
 });
 
@@ -1301,10 +1375,18 @@ describe("strategies", () => {
       "daily-tasks:2026-10-16:morning:0800",
       "daily-tasks:2026-10-17:morning:1000",
       "daily-tasks:2026-10-18:morning:1000",
+      "daily-tasks:2026-10-19:morning:0800",
+      "daily-tasks:2026-10-20:morning:0800",
+      "daily-tasks:2026-10-21:morning:0800",
+      "daily-tasks:2026-10-22:morning:0800",
+      "daily-tasks:2026-10-23:morning:0800",
+      "daily-tasks:2026-10-24:morning:1000",
+      "daily-tasks:2026-10-25:morning:1000",
+      "daily-tasks:2026-10-26:morning:0800",
       "daily-tasks:nag:1",
     ]);
     expect(plan[0].title).toBe("A calm start");
-    expect(plan[6]).toMatchObject({ kind: "nag", sound: true, body: "1 open" });
+    expect(plan[UPCOMING_MORNING_DAYS]).toMatchObject({ kind: "nag", sound: true, body: "1 open" });
     // The mornings alone are the standard plan's mornings.
     expect(morningsStrategy(context({ tasks: [WALK] }))).toEqual(
       taskAwareStrategy(context({ tasks: [WALK] })).filter((item) => item.kind === "morning"),

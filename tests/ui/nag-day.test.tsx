@@ -23,6 +23,7 @@ import { NAG_STORAGE_KEY, type NagDayRecord } from "@/lib/daily-tasks/nag-plan";
 import { taskAwareStrategy, type ReminderContext } from "@/lib/daily-tasks/reminder-plan";
 import { clearState } from "@/lib/daily-tasks/storage";
 import { DEFAULT_NOTIFICATIONS, type NotificationConfig } from "@/lib/daily-tasks/types";
+import { UPCOMING_MORNING_DAYS } from "@/lib/daily-tasks/reminders";
 
 const DAY = "2026-10-12";
 const at = (hour: number, minute = 0, day = 12) => new Date(2026, 9, day, hour, minute);
@@ -538,7 +539,7 @@ describe("the strategies", () => {
     expect(kinds("progress")).toEqual([]);
     expect(kinds("evening")).toEqual([]);
     expect(kinds("morning")).toEqual(calm.filter((item) => item.kind === "morning"));
-    expect(kinds("morning")).toHaveLength(6);
+    expect(kinds("morning")).toHaveLength(UPCOMING_MORNING_DAYS);
     expect(calm.filter((item) => item.kind !== "morning").length).toBeGreaterThan(0);
     expect(new Set(plan.map((item) => item.id)).size).toBe(plan.length);
   });
@@ -556,7 +557,7 @@ describe("the strategies", () => {
     await ensureNagDay(input(), deps());
     const paused = context({ settings: { ...NAG_ON, nagPausedDate: DAY } });
     const plan = await nagModeStrategy(paused);
-    expect(plan.length).toBe(6);
+    expect(plan.length).toBe(UPCOMING_MORNING_DAYS);
     expect(plan.every((item) => item.kind === "morning")).toBe(true);
     expect(await nagStrategy(paused)).toEqual([]);
   });

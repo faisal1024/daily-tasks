@@ -18,6 +18,7 @@ import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
 import { DEFAULT_AUTO_LOCK, DEFAULT_NOTIFICATIONS, type AppState, type NotificationConfig, type Task } from "@/lib/daily-tasks/types";
+import { UPCOMING_MORNING_DAYS } from "@/lib/daily-tasks/reminders";
 
 const FREE = { paywallBuild: true, paywallEnabled: true, entitlementActive: false, entitlementKnown: true, paywallSource: null };
 const PLUS = { ...FREE, entitlementActive: true };
@@ -203,7 +204,7 @@ describe("calm (the default)", () => {
     await eventually(() => {
       expect(ofKind("progress")).toHaveLength(4);
       expect(ofKind("evening")).toHaveLength(6);
-      expect(ofKind("morning")).toHaveLength(6);
+      expect(ofKind("morning")).toHaveLength(UPCOMING_MORNING_DAYS);
     });
     expect(ofKind("nag")).toEqual([]);
     expect(networkFetch).not.toHaveBeenCalled();
@@ -231,7 +232,7 @@ describe("nag mode", () => {
     await eventually(() => {
       expect(ofKind("progress")).toEqual([]);
       expect(ofKind("evening")).toEqual([]);
-      expect(ofKind("morning")).toHaveLength(6);
+      expect(ofKind("morning")).toHaveLength(UPCOMING_MORNING_DAYS);
     });
     expect(ofKind("morning").every((item) => !item.identifier.startsWith(`daily-tasks:${D}:`))).toBe(true);
 
@@ -325,7 +326,7 @@ describe("nag mode", () => {
     expect(ofKind("nag")).toEqual([]);
     expect(ofKind("progress")).toEqual([]);
     expect(ofKind("evening")).toEqual([]);
-    expect(ofKind("morning")).toHaveLength(6);
+    expect(ofKind("morning")).toHaveLength(UPCOMING_MORNING_DAYS);
     await act(async () => result.current.resumeNag());
     await eventually(() => expect(snapshot()).toBe(before));
     expect(networkFetch).toHaveBeenCalledTimes(1);

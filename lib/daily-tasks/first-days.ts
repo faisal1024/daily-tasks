@@ -30,6 +30,30 @@ export function __newLaunchForTests(): void {
   launchId = `${launchId}+`;
 }
 
+/**
+ * Returns to the foreground in this launch. An "open" is a launch or a
+ * return to the foreground: the "Meet Nag mode" sheet waits for the open
+ * after the one first run ended in (1.5 D).
+ */
+let foregrounds = 0;
+export function noteAppForeground(): void {
+  foregrounds += 1;
+}
+/** This open: the launch plus how many times it came back to the foreground. */
+export function currentOpen(): string {
+  return `${launchId}#${foregrounds}`;
+}
+
+/** The Nag mode card shows on the first-run day and the day after (1.5 D). */
+export const NAG_CARD_DAYS = 2;
+
+/**
+ * "Meet Nag mode" for a new install (1.5 D): "waiting" for the next app open
+ * after first run, "due" from then until it is seen (shown on its own, or
+ * opened from the card), then "done".
+ */
+export type NagIntroState = "waiting" | "due" | "done";
+
 /** "Not now" on the nudge card hides it for this many days... */
 export const NUDGE_SNOOZE_DAYS = 3;
 /** ...and the second "Not now" retires it (Settings › Reminders still has it all). */
@@ -55,6 +79,19 @@ export interface FirstDaysRecord {
   /** While "earned": the launch and day that earned it. */
   earnedLaunch?: string;
   earnedOn?: string;
+  /**
+   * 1.5 D: the Nag mode card shows from `nagCardFrom` to `nagCardUntil`
+   * (YYYY-MM-DD, inclusive): the first-run day from its first check-off
+   * (never seconds after "picked"), and the day after. `nagCardUntil` null
+   * once it's dismissed or the sheet was seen. Absent (a record from before
+   * 1.5 D): no card.
+   */
+  nagCardFrom?: string;
+  nagCardUntil?: string | null;
+  /** 1.5 D: see NagIntroState. Absent: "done" (nothing shows by itself). */
+  nagIntro?: NagIntroState;
+  /** While "waiting": the open first run ended in (see currentOpen). */
+  nagIntroOpen?: string;
 }
 
 /**
@@ -62,14 +99,34 @@ export interface FirstDaysRecord {
  * tomorrow, or for the first check-off today (noteCheckOff), whichever comes
  * first: not seconds after "Your three are picked."
  */
-export function startFirstDays(today: string): FirstDaysRecord {
-  return { nudgeFrom: addDays(today, 1), nudgeDeclines: 0, widgetTip: "waiting" };
+export function startFirstDays(today: string, open: string = currentOpen()): FirstDaysRecord {
+  return {
+    nudgeFrom: addDays(today, 1),
+    nudgeDeclines: 0,
+    widgetTip: "waiting",
+    // 1.5 D: the Nag mode card on the first two days (like the nudge, from
+    // the first check-off or the next day), and its sheet on the next open.
+    nagCardFrom: addDays(today, 1),
+    nagCardUntil: addDays(today, NAG_CARD_DAYS - 1),
+    nagIntro: "waiting",
+    nagIntroOpen: open,
+  };
 }
 
-/** A task checked off today brings a first nudge forward to today (never a snoozed one). */
+/**
+ * A task checked off today brings a first nudge forward to today (never a
+ * snoozed one), and the Nag card's start too (1.5 D).
+ */
 export function noteCheckOff(record: FirstDaysRecord, today: string, checkedOff: boolean): FirstDaysRecord {
-  if (!checkedOff || record.nudgeDeclines > 0 || record.nudgeFrom === null) return record;
-  return record.nudgeFrom > today ? { ...record, nudgeFrom: today } : record;
+  if (!checkedOff) return record;
+  const nudgeSooner = record.nudgeDeclines === 0 && record.nudgeFrom !== null && record.nudgeFrom > today;
+  const nagSooner = typeof record.nagCardFrom === "string" && record.nagCardFrom > today;
+  if (!nudgeSooner && !nagSooner) return record;
+  return {
+    ...record,
+    ...(nudgeSooner ? { nudgeFrom: today } : {}),
+    ...(nagSooner ? { nagCardFrom: today } : {}),
+  };
 }
 
 /** A date key `days` calendar days after `day` (local, DST-safe). */
@@ -140,24 +197,69 @@ export function noteFinishedDay(
  */
 export function openFirstDays(
   record: FirstDaysRecord,
-  at: { launch?: string; today?: string } = {},
+  at: { launch?: string; today?: string; open?: string } = {},
 ): FirstDaysRecord {
-  if (record.widgetTip !== "earned") return record;
+  const withNag = openNagIntro(record, at.open ?? currentOpen());
+  if (withNag.widgetTip !== "earned") return withNag;
   const launch = at.launch ?? currentLaunch();
-  const laterDay = Boolean(at.today && record.earnedOn && at.today > record.earnedOn);
-  if (record.earnedLaunch === launch && !laterDay) return record;
-  const { earnedLaunch, earnedOn, ...rest } = record;
+  const laterDay = Boolean(at.today && withNag.earnedOn && at.today > withNag.earnedOn);
+  if (withNag.earnedLaunch === launch && !laterDay) return withNag;
+  const { earnedLaunch, earnedOn, ...rest } = withNag;
   return { ...rest, widgetTip: "due" };
 }
 
-/** The widget tip: iOS only (the widget is), once due, and one card at a time (the nudge first). */
+/** A waiting "Meet Nag mode" becomes due on any open after the one first run ended in. */
+export function openNagIntro(record: FirstDaysRecord, open: string): FirstDaysRecord {
+  if (record.nagIntro !== "waiting" || record.nagIntroOpen === open) return record;
+  const { nagIntroOpen, ...rest } = record;
+  return { ...rest, nagIntro: "due" };
+}
+
+/** The sheet comes up on its own once (when Today is quiet): due, and Nag mode not already on. */
+export function nagIntroDue(record: FirstDaysRecord | null, nagOn: boolean): boolean {
+  return Boolean(record && record.nagIntro === "due" && !nagOn);
+}
+
+/**
+ * The sheet was seen (on its own or from the card), or the card dismissed:
+ * neither comes back.
+ */
+export function finishNagIntro(record: FirstDaysRecord): FirstDaysRecord {
+  // Already done with the card gone: the same record, so nothing is saved again.
+  if (record.nagIntro === "done" && record.nagCardUntil === null) return record;
+  const { nagIntroOpen, nagCardFrom, ...rest } = record;
+  return { ...rest, nagCardUntil: null, nagIntro: "done" };
+}
+
+/**
+ * "Want a voice that won't let it go?" on Today (1.5 D): on the first-run day
+ * and the day after, until it's dismissed or the sheet is seen; not with Nag
+ * mode already on, not on a finished day (it would sit on the done card), and
+ * one card at a time: the morning nudge goes first.
+ */
+export function shouldShowNagCard(input: {
+  record: FirstDaysRecord | null;
+  today: string;
+  nagOn: boolean;
+  nudgeShowing: boolean;
+  dayFinished?: boolean;
+}): boolean {
+  const { record, today } = input;
+  if (!record || !record.nagCardUntil || record.nagIntro === "done") return false;
+  if (input.nagOn || input.nudgeShowing || input.dayFinished) return false;
+  if (record.nagCardFrom && today < record.nagCardFrom) return false;
+  return today <= record.nagCardUntil;
+}
+
+/** The widget tip: iOS only (the widget is), once due, and one card at a time (the nudge, then the Nag card, first). */
 export function shouldShowWidgetTip(input: {
   record: FirstDaysRecord | null;
   widgetsSupported: boolean;
   nudgeShowing: boolean;
+  nagShowing?: boolean;
 }): boolean {
-  const { record, widgetsSupported, nudgeShowing } = input;
-  return Boolean(record && widgetsSupported && !nudgeShowing && record.widgetTip === "due");
+  const { record, widgetsSupported, nudgeShowing, nagShowing = false } = input;
+  return Boolean(record && widgetsSupported && !nudgeShowing && !nagShowing && record.widgetTip === "due");
 }
 
 export function dismissWidgetTip(record: FirstDaysRecord): FirstDaysRecord {
@@ -190,17 +292,32 @@ function normalizeRecord(value: unknown): FirstDaysRecord | null {
     if (typeof v.earnedLaunch === "string") record.earnedLaunch = v.earnedLaunch;
     if (typeof v.earnedOn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.earnedOn)) record.earnedOn = v.earnedOn;
   }
+  // 1.5 D, only when saved (a record from before has neither: no card, no sheet).
+  if (typeof v.nagCardFrom === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.nagCardFrom)) record.nagCardFrom = v.nagCardFrom;
+  if ("nagCardUntil" in v) {
+    record.nagCardUntil =
+      typeof v.nagCardUntil === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.nagCardUntil) ? v.nagCardUntil : null;
+  }
+  if ("nagIntro" in v) {
+    record.nagIntro = v.nagIntro === "waiting" || v.nagIntro === "due" ? v.nagIntro : "done";
+    if (record.nagIntro === "waiting") {
+      // Without its open it can't tell the next one: due from here.
+      if (typeof v.nagIntroOpen === "string") record.nagIntroOpen = v.nagIntroOpen;
+      else record.nagIntro = "due";
+    }
+  }
   return record;
 }
 
-type ShownDays = Partial<Record<"nudge" | "widget", string>>;
+export type FirstDaysCardKind = "nudge" | "nag" | "widget";
+type ShownDays = Partial<Record<FirstDaysCardKind, string>>;
 
 /**
  * True the first time `kind` is shown on `today` (and records it), so the
  * "shown" event goes out once a day whatever remounts or relaunches. False
  * when already logged today, or storage can't be read (stay quiet).
  */
-export async function claimShownToday(kind: "nudge" | "widget", today: string): Promise<boolean> {
+export async function claimShownToday(kind: FirstDaysCardKind, today: string): Promise<boolean> {
   try {
     const raw = await AsyncStorage.getItem(FIRST_DAYS_SHOWN_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : {};
