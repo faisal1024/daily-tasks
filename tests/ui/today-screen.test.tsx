@@ -1410,6 +1410,8 @@ describe("Plus gates (free plan)", () => {
     jest.useFakeTimers({ now: MORNING });
     mockProxyUrl = "https://proxy.test/api/momentum/plan";
     (requestBreakDown as jest.Mock).mockResolvedValue(["Clear counter"]);
+    // 1.5: the one free try is already used, so the paywall comes first.
+    await AsyncStorage.setItem("daily-tasks/free-break-downs-used", "1");
     const free = { ...makeStore({ ...SET, tasks: tasks("Clean kitchen") }), hasPlus: false };
     mockStore = free;
     const { rerender } = await render(<HomeScreen />);
@@ -1430,6 +1432,25 @@ describe("Plus gates (free plan)", () => {
       jest.advanceTimersByTime(650);
     });
     expect(requestBreakDown).toHaveBeenCalledWith(expect.objectContaining({ task: "Clean kitchen" }));
+  });
+
+  it("1.5: the first Break it down is a free try (no paywall), then the paywall as before", async () => {
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    (requestBreakDown as jest.Mock).mockResolvedValue(["Clear counter", "Wipe it"]);
+    mockStore = { ...makeStore({ ...SET, tasks: tasks("Clean kitchen") }), hasPlus: false };
+    const { rerender } = await render(<HomeScreen />);
+    await waitFor(() => expect(screen.getByTestId("break-down-free-try")).toHaveTextContent("1 free try"));
+    await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
+    await waitFor(() => expect(requestBreakDown).toHaveBeenCalledTimes(1));
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+    expect(await AsyncStorage.getItem("daily-tasks/free-break-downs-used")).toBe("1");
+
+    mockStore = { ...makeStore({ ...SET, tasks: tasks("Clean kitchen") }), hasPlus: false };
+    await rerender(<HomeScreen />);
+    expect(screen.getByTestId("break-down-plus")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Break down Clean kitchen" }));
+    expect(mockOpenPaywall).toHaveBeenCalledWith("break_down");
+    expect(requestBreakDown).toHaveBeenCalledTimes(1);
   });
 
   it("after the free AI sorts, brain dump uses the on-device split (no AI call), logs the gate, and offers Plus", async () => {
@@ -2141,6 +2162,28 @@ describe("Today: morning draft and evening close", () => {
     expect(screen.getByText("How did today feel?")).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "I didn't get to it today" })).toBeNull();
   });
+
+  it("1.5: a free user's closed perfect day shows a teaser with one real line, and the paywall from it", async () => {
+    jest.useFakeTimers(EVENING);
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    const perfect = {
+      tasks: tasks("Walk", "Read", "Stretch"),
+      todayCompletions: ["t0", "t1", "t2"],
+      todayReflectionResult: "good" as const,
+      eveningClose: { date: TODAY, result: "good" as const, note: "A good day." },
+      parkedTasks: [{ id: "p1", text: "Call the dentist", parkedAt: "2026-09-25T10:00:00.000Z" }],
+    };
+    mockStore = { ...makeStore(perfect), hasPlus: false, plusConfirmed: false };
+    await render(<HomeScreen />);
+    // The card promises only what the on-device close does.
+    expect(screen.getByText("One tap closes the day. A note is optional.")).toBeOnTheScreen();
+    const teaser = within(screen.getByTestId("evening-teaser"));
+    expect(teaser.getByTestId("evening-teaser-line")).toHaveTextContent("· Call the dentist");
+    expect(teaser.getByText("With Plus, your coach drafts tomorrow's three tonight.")).toBeOnTheScreen();
+    await fireEvent.press(teaser.getByRole("button", { name: "See all three with Plus" }));
+    expect(mockOpenPaywall).toHaveBeenCalledWith("evening_draft");
+    expect(closeDay).not.toHaveBeenCalled();
+  });
 });
 
 
@@ -2194,6 +2237,8 @@ describe("Today card (Phase 10a)", () => {
   });
 
   it("has no hero once everything is done: the gradient card instead (with room left, the status line stays)", async () => {
+    // The AI coach closes the day (Plus with the proxy), so the line promises a draft (1.5).
+    mockProxyUrl = "https://proxy.test/api/momentum/plan";
     mockStore = makeStore({ ...SET, tasks: tasks("Walk", "Stretch"), todayCompletions: ["t0", "t1"] });
     await render(<HomeScreen />);
     expect(upNext()).toHaveLength(0);
@@ -3425,6 +3470,8 @@ describe("Timer on your tasks (1.3)", () => {
 
   it("Stuck? on the free plan opens the paywall instead of the AI", async () => {
     mockProxyUrl = "https://proxy.test/api/momentum/plan";
+    // 1.5: the one free try is already used.
+    await AsyncStorage.setItem("daily-tasks/free-break-downs-used", "1");
     mockStore = { ...makeStore({ tasks: tasks("Walk", "Read"), focusSession: ended() }), hasPlus: false };
     await render(<HomeScreen />);
     await press("Stuck? Break it down");

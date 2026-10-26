@@ -22,6 +22,8 @@ export type AnalyticsEvent =
   | "plus_gate_hit"
   | "paywall_viewed"
   | "paywall_closed"
+  // 1.5: closed without buying (source, count = dismissals so far on this install).
+  | "paywall_dismissed"
   | "paywall_monthly_nudge_tapped"
   | "purchase_started"
   | "purchase_completed"

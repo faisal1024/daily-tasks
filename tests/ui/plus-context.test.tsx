@@ -13,6 +13,7 @@ import {
   CHECK_TIMEOUT_MS,
   INSTALL_DAY_KEY,
   LAST_PAYWALL_KEY,
+  PAYWALL_DISMISSALS_KEY,
   PlusProvider,
   VIEWED_CAP_MS,
   WIN_BACK_CHECK_KEY,
@@ -185,6 +186,36 @@ describe("PlusProvider: a paywall iOS never presented", () => {
       jest.advanceTimersByTime(60);
     });
     expect(result.current.paywallSource).toBe("settings");
+  });
+});
+
+describe("PlusProvider: paywall dismissals (1.5, lifetime after two)", () => {
+  it("counts a shown paywall closed without buying, persists it, and never counts a purchase", async () => {
+    await AsyncStorage.removeItem(PAYWALL_DISMISSALS_KEY);
+    (purchasePackage as jest.Mock).mockResolvedValue({ outcome: "purchased", active: true });
+    const { result } = await renderHook(() => usePlus(), { wrapper });
+    await waitFor(() => expect(result.current.paywallDismissals).toBe(0));
+    for (const source of ["break_down", "evening_draft"] as const) {
+      await act(async () => {
+        result.current.openPaywall(source);
+      });
+      await act(async () => result.current.markPaywallShown());
+      await act(async () => result.current.closePaywall());
+    }
+    expect(result.current.paywallDismissals).toBe(2);
+    expect(await AsyncStorage.getItem(PAYWALL_DISMISSALS_KEY)).toBe("2");
+    expect(track).toHaveBeenCalledWith("paywall_dismissed", { source: "evening_draft", count: 2 });
+
+    await act(async () => {
+      result.current.openPaywall("brain_dump");
+    });
+    await act(async () => result.current.markPaywallShown());
+    await act(async () => {
+      await result.current.purchase(ANNUAL);
+    });
+    expect(result.current.paywallSource).toBeNull();
+    expect(result.current.paywallDismissals).toBe(2);
+    await AsyncStorage.removeItem(PAYWALL_DISMISSALS_KEY);
   });
 });
 

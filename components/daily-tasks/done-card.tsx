@@ -14,12 +14,15 @@ export function DoneCard({
   total,
   week,
   eveningCheckIn,
+  coachDrafts = true,
   onPullOneMore,
 }: {
   total: number;
   week: Pick<WeekSummary, "showedUpDays" | "tasksDone">;
   /** The check-in follows below: keep the line about closing the day. */
   eveningCheckIn: boolean;
+  /** The AI coach drafts tomorrow at the close (Plus); otherwise the line promises no draft. */
+  coachDrafts?: boolean;
   /** Only while the ideas entry would show (an open slot on an unset day). */
   onPullOneMore?: () => void;
 }) {
@@ -39,7 +42,7 @@ export function DoneCard({
         </Text>
         {eveningCheckIn ? (
           <Text style={{ color: "#fff", fontSize: 15, marginTop: 4 }}>
-            Close the day below and your coach drafts tomorrow.
+            {coachDrafts ? "Close the day below and your coach drafts tomorrow." : "Close the day below."}
           </Text>
         ) : null}
       </View>

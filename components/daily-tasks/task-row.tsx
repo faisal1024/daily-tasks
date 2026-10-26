@@ -73,6 +73,8 @@ interface TaskRowBaseProps {
   breakingDown?: boolean;
   breakDownDisabled?: boolean;
   breakDownNeedsPlus?: boolean;
+  /** A free user's free try is left (1.5): this label ("1 free try") shows instead of Plus. */
+  breakDownFreeTry?: string | null;
   onToggleStep?: (stepId: string) => void;
   onClearSteps?: () => void;
   /**
@@ -171,6 +173,7 @@ export function TaskRow({
   breakingDown = false,
   breakDownDisabled = false,
   breakDownNeedsPlus = false,
+  breakDownFreeTry = null,
   onToggleStep,
   onClearSteps,
   onTimer,
@@ -665,7 +668,11 @@ export function TaskRow({
                     accessibilityRole="button"
                     accessibilityLabel={`Break down ${task.text}`}
                     accessibilityHint={
-                      breakDownNeedsPlus ? "Plus feature. Shows Plus plans." : "Splits this task into a few tiny steps"
+                      breakDownFreeTry
+                        ? `${breakDownFreeTry}. Splits this task into a few tiny steps`
+                        : breakDownNeedsPlus
+                          ? "Plus feature. Shows Plus plans."
+                          : "Splits this task into a few tiny steps"
                     }
                     hitSlop={10}
                     style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
@@ -674,7 +681,17 @@ export function TaskRow({
                     <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
                       Break it down
                     </Text>
-                    {breakDownNeedsPlus ? (
+                    {breakDownFreeTry ? (
+                      <View
+                        className="rounded-full px-1.5 flex-row items-center"
+                        style={{ backgroundColor: `${colors.primary}1f` }}
+                        testID={tid("break-down-free-try")}
+                      >
+                        <Text className="text-xs font-semibold" style={{ color: colors.primary }}>
+                          {breakDownFreeTry}
+                        </Text>
+                      </View>
+                    ) : breakDownNeedsPlus ? (
                       <View
                         className="rounded-full px-1.5 flex-row items-center gap-0.5"
                         style={{ backgroundColor: `${colors.primary}1f` }}

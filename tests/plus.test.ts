@@ -6,6 +6,7 @@ import {
   defaultPackageId,
   freeTrialDays,
   hasPlusAccess,
+  LIFETIME_AFTER_DISMISSALS,
   PLUS_BENEFITS,
   plusBenefitsFor,
   paywallHeadline,
@@ -111,6 +112,24 @@ describe("which plans a paywall shows (Phase 11a)", () => {
     for (const source of elsewhere) {
       expect(visiblePackages(all, source)).toEqual([annual, monthly]);
     }
+  });
+
+  it("shows lifetime on every paywall once two were closed without buying (1.5)", () => {
+    expect(LIFETIME_AFTER_DISMISSALS).toBe(2);
+    expect(visiblePackages(all, "break_down", 1)).toEqual([annual, monthly]);
+    expect(visiblePackages(all, "break_down", 2)).toEqual(all);
+    expect(visiblePackages(all, "evening_draft", 5)).toEqual(all);
+  });
+
+  it("leads with Nag mode, the evening draft, the brain dump and Break it down (1.5)", () => {
+    expect(PLUS_BENEFITS.slice(0, 4).map((b) => b.title)).toEqual([
+      "Nag mode",
+      "Your coach drafts tomorrow",
+      "Smart brain dump",
+      "Break it down",
+    ]);
+    expect(plusBenefitsFor("evening_draft")[0].title).toBe("Your coach drafts tomorrow");
+    expect(plusBenefitsFor("evening_draft")).toHaveLength(PLUS_BENEFITS.length);
   });
 
   it("has a win-back headline", () => {

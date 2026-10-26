@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { morningPerspective } from "@/lib/daily-tasks/evening";
+import { EVENING_TEASER_BLURRED_LINES, EVENING_TEASER_COPY } from "@/lib/daily-tasks/evening-teaser";
 import { numberWord } from "@/lib/daily-tasks/number-word";
 import type { TomorrowDraft } from "@/lib/daily-tasks/types";
 
@@ -268,15 +269,24 @@ export function TomorrowDraftCard({
   );
 }
 
+/** Widths of the placeholder lines under the teaser's real one (shapes only). */
+const TEASER_BAR_WIDTHS = ["78%", "62%", "70%"] as const;
+
 /** After the evening check-in: the coach's note and tomorrow's draft. */
 export function EveningResult({
   closing,
   note,
   draft,
+  teaser = null,
 }: {
   closing: boolean;
   note: string | null;
   draft: TomorrowDraft | null;
+  /**
+   * A free user's good day (1.5): one real line from their own data and
+   * placeholder shapes, with the way to Plus. Only without a draft.
+   */
+  teaser?: { line: string; onSeePlus: () => void } | null;
 }) {
   const colors = useColors();
   if (closing) {
@@ -303,6 +313,45 @@ export function EveningResult({
               · {text}
             </Text>
           ))}
+        </View>
+      ) : teaser ? (
+        <View className="gap-2 mt-1" testID="evening-teaser">
+          <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+            {EVENING_TEASER_COPY.title}
+          </Text>
+          <Text className="text-sm" style={{ color: colors.foreground }} testID="evening-teaser-line">
+            · {teaser.line}
+          </Text>
+          {/* Placeholder shapes, not hidden tasks: nothing was drafted for a free user. */}
+          <View
+            className="gap-2"
+            accessible
+            accessibilityLabel={EVENING_TEASER_COPY.blurredLabel}
+            testID="evening-teaser-blurred"
+          >
+            {TEASER_BAR_WIDTHS.slice(0, EVENING_TEASER_BLURRED_LINES).map((width) => (
+              <View
+                key={width}
+                style={{ width, height: 12, borderRadius: 6, backgroundColor: colors.border, opacity: 0.8 }}
+              />
+            ))}
+          </View>
+          <Text className="text-sm" style={{ color: colors.muted }}>
+            {EVENING_TEASER_COPY.body}
+          </Text>
+          <Pressable
+            onPress={teaser.onSeePlus}
+            accessibilityRole="button"
+            accessibilityLabel={EVENING_TEASER_COPY.button}
+            accessibilityHint="Shows Plus plans"
+            className="rounded-2xl py-3 items-center mt-1"
+            style={{ backgroundColor: colors.primary }}
+            testID="evening-teaser-plus"
+          >
+            <Text style={{ color: colors.onPrimary, fontWeight: "700", fontSize: 16 }}>
+              {EVENING_TEASER_COPY.button}
+            </Text>
+          </Pressable>
         </View>
       ) : (
         <Text className="text-sm" style={{ color: colors.muted }}>
