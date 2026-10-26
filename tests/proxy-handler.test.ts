@@ -397,6 +397,29 @@ describe("entitlements", () => {
     expect(t.warned("without Plus on a Plus route")).toBe(1);
   });
 
+  it("enforce: a free id gets its one free break-down (per id ever, and per network a day), then 402 (1.5)", async () => {
+    const env = { ...enforce, freeBreakDownsPerClient: 1, freeBreakDownsPerNetworkPerDay: 20 };
+    const body = { task: "Clean the kitchen", goalTitle: null };
+    const t = setup({ env, entitlement: "free", result: { steps: [{ text: "a" }, { text: "b" }, { text: "c" }] } });
+    expect((await t.call({ path: BREAK_DOWN_ROUTE, headers: withId, body })).status).toBe(200);
+    expect(t.budget.spend).toHaveBeenCalledWith({
+      keys: [IP, UKEY],
+      free: [
+        { key: `once:break-down:${UKEY}`, cap: 1, lifetime: true },
+        { key: `try:break-down:${IP}`, cap: 20, shared: true },
+      ],
+    });
+    const spent = setup({ env, entitlement: "free", spend: (req) => (req.free.length ? "free" : "ok") });
+    expect(await spent.call({ path: BREAK_DOWN_ROUTE, headers: withId, body })).toEqual({
+      status: 402,
+      body: { error: "Free limit reached" },
+    });
+    expect(spent.generatePlan).not.toHaveBeenCalled();
+    // Other Plus routes have no free try.
+    const evening = setup({ env, entitlement: "free" });
+    expect((await evening.call({ path: EVENING_ROUTE, headers: withId, body: { result: "good", tasks: [] } })).status).toBe(402);
+  });
+
   it("serves Plus users without any free caps", async () => {
     const t = setup({ env: enforce, entitlement: "plus" });
     expect((await t.call({ path: BRAIN_DUMP_ROUTE, headers: withId })).status).toBe(200);

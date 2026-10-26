@@ -357,6 +357,44 @@ describe("createBudget (Node)", () => {
     expect(budget.spend({ keys: ["ip:a"], free: [{ key: "free:user:v", cap: 1 }, { key: "free:ip:a", cap: 3 }] })).toBe("ok");
   });
 
+  it("keeps a lifetime allowance across days and gives it back on refund (1.5)", () => {
+    const clock = { t: NOW };
+    const budget = config.createBudget(cfg({ RATE_LIMIT_PER_MIN: "0" }), { now: () => clock.t });
+    const once = { key: "once:break-down:user:u", cap: 1, lifetime: true };
+    expect(budget.spend({ keys: ["ip:a"], free: [once] })).toBe("ok");
+    expect(budget.spend({ keys: ["ip:a"], free: [once] })).toBe("free");
+    clock.t += 2 * 24 * 60 * 60_000;
+    expect(budget.spend({ keys: ["ip:a"], free: [once] })).toBe("free");
+    budget.refund({ free: [once] });
+    expect(budget.spend({ keys: ["ip:a"], free: [once] })).toBe("ok");
+  });
+
+  it("remembers at most MAX_ONCE_KEYS lifetime ids, forgetting the oldest first", () => {
+    const budget = config.createBudget(cfg({ RATE_LIMIT_PER_MIN: "0", DAILY_LIMIT_PER_CLIENT: "0", GLOBAL_DAILY_LIMIT: "0" }));
+    const once = (i: number) => ({ key: `once:break-down:user:${i}`, cap: 1, lifetime: true });
+    for (let i = 0; i <= config.MAX_ONCE_KEYS; i++) expect(budget.spend({ keys: [], free: [once(i)] })).toBe("ok");
+    // The newest is still remembered; the very first was dropped to make room.
+    expect(budget.spend({ keys: [], free: [once(config.MAX_ONCE_KEYS)] })).toBe("free");
+    expect(budget.spend({ keys: [], free: [once(0)] })).toBe("ok");
+  });
+
+  it("a full shared ceiling says \"shared\" (not spent); the user's own used allowance says \"free\"", () => {
+    const budget = config.createBudget(cfg({ RATE_LIMIT_PER_MIN: "0" }));
+    const net = { key: "try:break-down:ip:a", cap: 1, shared: true };
+    const once = (u: string) => ({ key: `once:break-down:user:${u}`, cap: 1, lifetime: true });
+    expect(budget.spend({ keys: ["ip:a"], free: [once("u"), net] })).toBe("ok");
+    expect(budget.spend({ keys: ["ip:a"], free: [once("v"), net] })).toBe("shared");
+    expect(budget.spend({ keys: ["ip:a"], free: [once("u"), net] })).toBe("free");
+    // v's try wasn't spent by the refused request.
+    expect(budget.spend({ keys: ["ip:a"], free: [once("v")] })).toBe("ok");
+  });
+
+  it("reads the free break-down limits (1, and 20 per network a day, by default)", () => {
+    expect(config.readConfig({}).freeBreakDownsPerClient).toBe(1);
+    expect(config.readConfig({}).freeBreakDownsPerNetworkPerDay).toBe(20);
+    expect(config.readConfig({ FREE_BREAK_DOWNS_PER_CLIENT: "0" }).freeBreakDownsPerClient).toBe(0);
+  });
+
   it("treats a free cap of 0 as no free AI, never unlimited", () => {
     const budget = config.createBudget(cfg());
     expect(budget.spend({ keys: ["ip:a"], free: [{ key: "free:ip:a", cap: 0 }] })).toBe("free");

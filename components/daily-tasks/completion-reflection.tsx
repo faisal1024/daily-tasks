@@ -19,6 +19,11 @@ interface CompletionReflectionProps {
   onSave: (text: string) => void;
   /** Offer "Didn't get to it" (not on a day where everything got done). */
   allowMissed?: boolean;
+  /**
+   * The AI coach closes this day (Plus with the proxy). Otherwise the line
+   * says only what the on-device close does (1.5): nothing it can't keep.
+   */
+  coachDrafts?: boolean;
 }
 
 export function CompletionReflection({
@@ -27,6 +32,7 @@ export function CompletionReflection({
   onSelectResult,
   onSave,
   allowMissed = false,
+  coachDrafts = true,
 }: CompletionReflectionProps) {
   const colors = useColors();
   const [editing, setEditing] = useState(false);
@@ -66,7 +72,11 @@ export function CompletionReflection({
             How did today feel?
           </Text>
           <Text className="text-sm" style={{ color: colors.muted }}>
-            One tap and your coach drafts tomorrow&apos;s three. A note is optional.
+            {coachDrafts
+              ? "One tap and your coach drafts tomorrow's three. A note is optional."
+              : allowMissed
+                ? "One tap closes the day and carries what's open to tomorrow. A note is optional."
+                : "One tap closes the day. A note is optional."}
           </Text>
         </View>
       </View>

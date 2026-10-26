@@ -75,11 +75,15 @@ export function ipKey(ip) {
 /**
  * @typedef {{
  *   admit: (keys: string[]) => string | Promise<string>,
- *   spend: (req: { keys: string[], free: { key: string, cap: number }[] }) => string | Promise<string>,
+ *   spend: (req: { keys: string[], free: { key: string, cap: number, lifetime?: boolean, shared?: boolean }[] }) => string | Promise<string>,
+ *   refund?: (req: { free: { key: string, cap: number, lifetime?: boolean }[] }) => unknown,
  * }} Budget
  * admit: per-minute counting + a check (no spend) of the daily/global caps.
  * spend: atomically re-checks the caps (incl. free ones) and spends one unit;
- *        "ok" | "day" | "global" | "free". Called only right before the AI call.
+ *        "ok" | "day" | "global" | "free" | "shared". Called only right before the AI call.
+ *        A `lifetime` free allowance never resets (one free break-down per id).
+ *        "shared": only an allowance marked `shared` (a per-network ceiling) is full.
+ * refund: gives back lifetime allowances when the AI call then failed.
  */
 
 /**
@@ -114,6 +118,21 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
   const notPlusLog = throttledLog("request(s) from an id without Plus on a Plus route allowed (ENTITLEMENT_MODE=log)");
   const unknownLog = throttledLog("request(s) allowed because RevenueCat couldn't answer");
   const freeCapLog = throttledLog("free request(s) over the daily free cap allowed (ENTITLEMENT_MODE=log)");
+
+  // A free id's tries on a Plus route (routes.mjs `freeTries`): per id ever,
+  // and a looser daily ceiling per network (a reinstall gets a new id). None
+  // without an id or with either cap at 0.
+  const freeTriesFor = (route, userKey, ip) => {
+    if (route.freeTries !== "breakDown" || !userKey) return [];
+    const perClient = config.freeBreakDownsPerClient ?? 0;
+    const perNetwork = config.freeBreakDownsPerNetworkPerDay ?? 0;
+    if (perClient <= 0 || perNetwork <= 0) return [];
+    return [
+      { key: `once:${route.name}:${userKey}`, cap: perClient, lifetime: true },
+      // Shared: when only this is full the try isn't spent, just not now (429).
+      { key: `try:${route.name}:${ip}`, cap: perNetwork, shared: true },
+    ];
+  };
 
   const busy = () => ({
     status: 503,
@@ -220,7 +239,12 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
           // RevenueCat is down: never lock paying users out.
           unknownLog.note();
         } else if (status === "free") {
-          if (route.plusOnly) {
+          const tries = route.plusOnly ? freeTriesFor(route, userKey, ip) : [];
+          if (route.plusOnly && tries.length > 0) {
+            // A Plus route with a free try (Break it down, once per id ever):
+            // the spend below says "free" once it's used up.
+            free = tries;
+          } else if (route.plusOnly) {
             if (mode === "enforce") return { status: 402, body: { error: "Plus required" } };
             notPlusLog.note();
           } else {
@@ -237,12 +261,28 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
 
     // Spend one unit of every budget right before calling the AI.
     let spent = await budget.spend({ keys, free });
-    if (spent === "free") {
-      if (mode === "enforce") return { status: 402, body: { error: "Free limit reached" } };
+    // What a failed AI call gives back: the lifetime tries this request spent.
+    let spentOnce = free.filter((allowance) => allowance.lifetime);
+    if (spent === "free" || spent === "shared") {
+      // "free": this id's own allowance is used up (final, 402). "shared": only
+      // a shared ceiling (the network's free tries today) is full, so the try
+      // isn't lost: 429, and the app gives it back and says try later.
+      if (mode === "enforce") {
+        return spent === "shared" ? limited("day") : { status: 402, body: { error: "Free limit reached" } };
+      }
       freeCapLog.note();
+      spentOnce = [];
       spent = await budget.spend({ keys, free: [] });
     }
     if (spent !== "ok") return limited(spent);
+    const refundTries = async () => {
+      if (spentOnce.length === 0 || !budget.refund) return;
+      try {
+        await budget.refund({ free: spentOnce });
+      } catch {
+        // The answer to the app matters more than the refund.
+      }
+    };
 
     try {
       const result = await provider.generatePlan({
@@ -256,6 +296,7 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
       });
       if (!route.isValidResult(result, payload)) {
         logger.error(`[momentum-ai] ${provider.id} returned an invalid ${route.name}; keys=${summarizeForLog(result)}`);
+        await refundTries();
         return { status: 502, body: { error: `AI response did not include a valid ${route.name}` } };
       }
       // Return only validated fields, never raw model output.
@@ -263,6 +304,7 @@ export function createHandler({ provider, config, budget, entitlements, secretsM
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error(`[momentum-ai] ${provider.id} proxy error: ${message}`);
+      await refundTries();
       // Out of AI credit: say "busy" so the app shows its calm for-today copy.
       if (PROVIDER_QUOTA_PATTERN.test(message)) return busy();
       return { status: 502, body: { error: "Momentum AI request failed" } };

@@ -6,6 +6,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
+/** Most lifetime-allowance ids the Node server remembers (see createBudget). */
+export const MAX_ONCE_KEYS = 100_000;
 
 function positiveInt(value, fallback) {
   const parsed = Number(value);
@@ -54,6 +56,12 @@ export function readConfig(env = {}) {
     // Server-side ceiling on a free user's AI brain dumps per day (the app
     // gives 1 first-run sort + 3 to try; a retry after a timeout also counts).
     freeBrainDumpsPerDay: positiveInt(env.FREE_BRAIN_DUMPS_PER_DAY, 8),
+    // 1.5: a free user's Break it down tries, per app user id, ever (not per
+    // day; the app gives one). 0 turns the free try off.
+    freeBreakDownsPerClient: positiveInt(env.FREE_BREAK_DOWNS_PER_CLIENT, 1),
+    // A reinstall gets a new anonymous id (and so a new try): this caps free
+    // tries per network per day. 0 means none, never unlimited.
+    freeBreakDownsPerNetworkPerDay: positiveInt(env.FREE_BREAK_DOWNS_PER_NETWORK_PER_DAY, 20),
     // Requests without an app user id (old builds; supporters before their
     // grant) share this daily ceiling, so they can't use the whole budget.
     noIdDailyLimit: positiveInt(env.NO_ID_DAILY_LIMIT, 250),
@@ -189,6 +197,18 @@ export function createBudget(config, { now } = {}) {
     if (!freeLimiters.has(cap)) freeLimiters.set(cap, createRateLimiter({ perMinute: 0, perDay: cap, globalPerDay: 0, now }));
     return freeLimiters.get(cap);
   };
+  // Lifetime allowances (`lifetime: true`, e.g. one free break-down per id):
+  // never roll over. In memory, so a restart of this process forgets them;
+  // the Worker keeps them in its Durable Object. Capped at MAX_ONCE_KEYS ids
+  // (the oldest is forgotten first, which only means that id could get its
+  // free try again), so memory stays bounded on this legacy host.
+  const onceCounts = new Map();
+  const usedOnce = (key) => onceCounts.get(key) ?? 0;
+  const setOnce = (key, n) => {
+    onceCounts.delete(key);
+    if (onceCounts.size >= MAX_ONCE_KEYS) onceCounts.delete(onceCounts.keys().next().value);
+    onceCounts.set(key, n);
+  };
   return {
     limiter,
     admit(keys) {
@@ -206,13 +226,31 @@ export function createBudget(config, { now } = {}) {
         const result = limiter.peekDay(key);
         if (result !== "ok") return result;
       }
-      for (const { key, cap } of free) {
+      // The user's own allowance being used up ("free") wins over a full
+      // shared ceiling ("shared", e.g. per network): only the first is final.
+      let sharedFull = false;
+      for (const { key, cap, lifetime, shared } of free) {
         // 0 means "no free AI", never "unlimited".
-        if (cap <= 0 || freeLimiter(cap).admit(key) !== "ok") return "free";
+        const full = cap <= 0 || (lifetime ? usedOnce(key) >= cap : freeLimiter(cap).peekDay(key) !== "ok");
+        if (full && !shared) return "free";
+        if (full) sharedFull = true;
       }
+      if (sharedFull) return "shared";
       for (const key of keys) limiter.record(key);
-      for (const { key, cap } of free) freeLimiter(cap).record(key);
+      for (const { key, cap, lifetime } of free) {
+        if (lifetime) setOnce(key, usedOnce(key) + 1);
+        else freeLimiter(cap).record(key);
+      }
       return "ok";
+    },
+    /** Give back lifetime allowances spent on a request whose AI call failed. */
+    refund({ free }) {
+      for (const { key, lifetime } of free) {
+        if (!lifetime) continue;
+        const used = usedOnce(key);
+        if (used <= 1) onceCounts.delete(key);
+        else setOnce(key, used - 1);
+      }
     },
   };
 }
