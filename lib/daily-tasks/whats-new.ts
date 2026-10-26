@@ -213,8 +213,8 @@ export const NAG_FIRST_DAYS_ID = "1.5-nag-intro";
 
 /** The quiet Today card on a new install's first two days (1.5 D). */
 export const NAG_CARD_COPY = {
-  title: "Want a voice that won't let it go?",
-  body: "Mom, Dad, Partner, Coach or Drill sergeant.",
+  title: "Reminders with a personality?",
+  body: "Pick who nags you: Mom, Dad, Partner, Coach or Drill sergeant. Part of Plus.",
   button: "Meet Nag mode",
   dismiss: "Dismiss Nag mode card",
 } as const;

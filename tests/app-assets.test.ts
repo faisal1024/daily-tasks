@@ -69,3 +69,17 @@ describe("app assets", () => {
     expect(config).not.toContain("usernotifications.time-sensitive");
   });
 });
+
+describe("Share your day (1.5 D)", () => {
+  it("the picture's logomark is a small PNG with transparent corners", () => {
+    expect(readPngInfo("assets/brand/logomark-96.png")).toMatchObject({ width: 96, height: 96 });
+    expect(hasAlpha("assets/brand/logomark-96.png")).toBe(true);
+  });
+
+  it("Save Image in the share sheet has its Photos usage string (iOS ends an app without one)", () => {
+    const config = readFileSync(resolve(ROOT, "app.config.ts"), "utf8");
+    expect(config).toContain(
+      '"NSPhotoLibraryAddUsageDescription": "Saves the picture of your day to Photos when you choose Save Image."',
+    );
+  });
+});

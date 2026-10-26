@@ -5,7 +5,7 @@
 // (iOS only).
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AccessibilityInfo, Platform, Share } from "react-native";
-import { captureRef } from "react-native-view-shot";
+import { captureRef, releaseCapture } from "react-native-view-shot";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 
 import { DoneCard } from "@/components/daily-tasks/done-card";
@@ -63,7 +63,7 @@ describe("the preview", () => {
     expect(card().getByText("Day 12")).toBeOnTheScreen();
     expect(card().getByText("Monday, 26 October")).toBeOnTheScreen();
     for (const task of TASKS) expect(card().getByText(task.text)).toBeOnTheScreen();
-    expect(screen.getByTestId("share-day-summary")).toHaveTextContent("3 of 3");
+    expect(screen.getByTestId("share-day-summary")).toHaveTextContent("3 of 3 done");
     expect(card().getByText("Three Today")).toBeOnTheScreen();
     expect(screen.getByTestId("share-day-names").props.value).toBe(true);
   });
@@ -72,7 +72,7 @@ describe("the preview", () => {
     await render(<ShareDaySheet {...props()} />);
     await fireEvent(screen.getByTestId("share-day-names"), "valueChange", false);
     for (const task of TASKS) expect(card().queryByText(task.text)).toBeNull();
-    expect(screen.getByTestId("share-day-summary")).toHaveTextContent("3 of 3");
+    expect(screen.getByTestId("share-day-summary")).toHaveTextContent("3 of 3 done");
     expect(screen.getByTestId("share-day-card").props.accessibilityLabel).not.toMatch(/dentist|report|Walk/);
     await fireEvent(screen.getByTestId("share-day-names"), "valueChange", true);
     expect(card().getByText("Walk")).toBeOnTheScreen();
@@ -95,6 +95,21 @@ describe("the preview", () => {
     // And the setting flipping to hidden while it's open takes the names off at once.
     await rerender(<ShareDaySheet {...props({ hideTaskNames: true })} />);
     expect(card().queryByText("Walk")).toBeNull();
+  });
+});
+
+describe("the picture's look", () => {
+  it("rows are ticked, not struck through; a large Day N and the logomark beside the app's name", async () => {
+    await render(<ShareDaySheet {...props()} />);
+    for (const text of ["Call the dentist", "Write the report", "Walk"]) {
+      const style = [card().getByText(text).props.style].flat();
+      expect(style.some((part: { textDecorationLine?: string } | undefined) => part?.textDecorationLine === "line-through")).toBe(false);
+    }
+    const day = [screen.getByTestId("share-day-label").props.style].flat();
+    expect(day.some((part: { fontSize?: number } | undefined) => (part?.fontSize ?? 0) >= 20)).toBe(true);
+    expect(screen.getByTestId("share-day-label")).toHaveTextContent("Day 12");
+    expect(screen.getByTestId("share-day-logomark")).toBeOnTheScreen();
+    expect(card().getByText("Three Today")).toBeOnTheScreen();
   });
 });
 
@@ -179,6 +194,35 @@ describe("Share", () => {
     await act(async () => release("/tmp/x.png"));
     await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
     expect(sharedEvents()).toHaveLength(1);
+  });
+
+  it("the captured file is released once iOS is done with it: shared, cancelled or failed (it can hold task names)", async () => {
+    const release = releaseCapture as jest.Mock;
+    await render(<ShareDaySheet {...props()} />);
+    await pressShare();
+    await waitFor(() => expect(release).toHaveBeenCalledWith("/tmp/three-today-share.png"));
+    // Only after the share sheet answered.
+    expect(release.mock.invocationCallOrder[0]).toBeGreaterThan(share.mock.invocationCallOrder[0]);
+    await screen.unmount();
+    jest.clearAllMocks();
+    share.mockResolvedValueOnce({ action: Share.dismissedAction } as never);
+    await render(<ShareDaySheet {...props()} />);
+    await pressShare();
+    await waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    await screen.unmount();
+    jest.clearAllMocks();
+    share.mockRejectedValueOnce(new Error("boom"));
+    await render(<ShareDaySheet {...props()} />);
+    await pressShare();
+    await waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    await screen.unmount();
+    jest.clearAllMocks();
+    // No file when the capture itself failed: nothing to release.
+    capture.mockRejectedValueOnce(new Error("no view"));
+    await render(<ShareDaySheet {...props()} />);
+    await pressShare();
+    await waitFor(() => expect(screen.getByTestId("share-day-failed")).toBeOnTheScreen());
+    expect(release).not.toHaveBeenCalled();
   });
 
   it("closing with × shares nothing", async () => {

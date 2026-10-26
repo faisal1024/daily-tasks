@@ -148,7 +148,7 @@ import {
 } from "@/lib/daily-tasks/reorder";
 import { buildWeekSummary, todayPhase } from "@/lib/daily-tasks/today-phase";
 import { MAX_TASKS } from "@/lib/daily-tasks/types";
-import { claimFirstTick, FIRST_TICK_TOAST, isFirstTickEver } from "@/lib/daily-tasks/first-tick";
+import { claimFirstTick, FIRST_TICK_TOAST, isFirstTickEver, tickedBefore } from "@/lib/daily-tasks/first-tick";
 import {
   claimWelcomeShown,
   showsWelcomeBack,
@@ -843,6 +843,8 @@ export default function HomeScreen() {
   // the first check-off (or the next day), the widget tip from a later launch
   // or day after the first finished day. Never with first run or the rollover
   // card up. The state lives here, so where the cards sit never reloads it.
+  // Something was checked off on an earlier day (for "Meet Nag mode" on its own, 1.5 D).
+  const tickedEarlier = useMemo(() => tickedBefore(state.history, today), [state.history, today]);
   // "Meet Nag mode" opened from a new install's Nag card (1.5 D).
   const [nagCardOpen, setNagCardOpen] = useState(false);
   // "Share your day" (1.5 D): the finished day's picture, from the done card.
@@ -851,6 +853,8 @@ export default function HomeScreen() {
     today,
     appActive,
     nagOn: state.notifications.style === "nag",
+    // "Meet Nag mode" on its own only once the app has done something for them.
+    tickedEver: completedCount > 0 || tickedEarlier,
     onOpenNag: () => setNagCardOpen(true),
     active: ready && state.hasSeenOnboarding && !firstRunActive && !state.pendingRollover && appActive,
     version: firstDaysVersion,
@@ -1133,6 +1137,8 @@ export default function HomeScreen() {
       return;
     }
     setNagCardOpen(false);
+    // Seen once it's closed (or handed to the paywall): the card and the sheet's own showing are done.
+    firstDays.nagIntroSeen();
     afterNagSheet(next);
   };
   const afterNagSheet = (next?: "paywall") => {
@@ -1151,7 +1157,8 @@ export default function HomeScreen() {
   // (the user didn't close it), and comes back at a later foreground.
   whatsNewStepAside.current = () => {
     if (nagCardOpen) {
-      // The same for "Meet Nag mode" opened from its card (it can be opened again there).
+      // The same for "Meet Nag mode" opened from its card: not seen, so the
+      // card stays and it can be opened again there.
       setNagCardOpen(false);
       handOffWhatsNew();
       return true;
@@ -1513,8 +1520,10 @@ export default function HomeScreen() {
 
   const handleToggle = (id: string) => {
     const completing = !isCompleted(id);
-    // A light tap on every tick (1.5 D); the row's check pops in.
-    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    // A tap on every tick (1.5 D): firmer for done than for undone; the row's check pops in.
+    haptic(() =>
+      Haptics.impactAsync(completing ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light),
+    );
     toggleTask(id);
     if (completing) track("task_completed", { count: completedCount + 1 });
     // The very first tick on this install: one line, once (1.5 D).
@@ -2205,10 +2214,13 @@ export default function HomeScreen() {
         swapTargets={state.tasks.filter((task) => !isCompleted(task.id)).map((task) => ({ id: task.id, text: task.text }))}
         onSwapParked={(parkedId, taskId) => {
           const out = state.tasks.find((task) => task.id === taskId)?.text;
+          // Its timer goes with it (the store clears a session whose task leaves today): say so, as Not today does.
+          const timed = focusSessionRef.current?.taskId === taskId;
           if (!swapParkedTask(parkedId, taskId)) return;
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
           track("saved_swapped_in", { source: ideasSavedOnly ? "saved" : "ideas" });
-          const message = out ? `Swapped in. “${out}” is saved for later.` : "Swapped in.";
+          const swapped = out ? `Swapped in. “${out}” is saved for later.` : "Swapped in.";
+          const message = timed ? `${swapped} Timer stopped.` : swapped;
           AccessibilityInfo.announceForAccessibility(message);
           showToast(message);
         }}

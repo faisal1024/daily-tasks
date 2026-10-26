@@ -43,7 +43,7 @@ vi.mock("../lib/daily-tasks/analytics", () => ({ track: vi.fn() }));
 /** sha256 of the calm plans for the fixed inputs below, computed with main's code. */
 const CALM_DIGEST = "56180f9d63a6ae5a876c0eef17a73fd7c408c4468f0cc0331a1451f94fff5722";
 /** The same with two weeks of mornings and the day-7 line (1.5 D). */
-const CALM_DIGEST_15D = "2c0acdab2a52ce75f0dbea2d445db4b5e408046c20f31324a6eb133aa86e674c";
+const CALM_DIGEST_15D = "5e89d0c376e36dd4924a94f09b23750344f8abea3d527d8eea422c811faa64ef";
 
 /** mulberry32. */
 function seeded(seed: number) {

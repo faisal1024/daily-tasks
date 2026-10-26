@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  Alert,
   Modal,
   Platform,
   Pressable,
@@ -81,6 +80,9 @@ interface IdeasSheetProps {
 
 const keyOf = (text: string) => text.trim().toLowerCase();
 
+/** "Swap in" asks which of today's open tasks makes way (1.5 D). */
+export const SWAP_IN_QUESTION = "Which task should it replace? That one goes to Saved for later.";
+
 export function IdeasSheet({
   visible,
   savedOnly = false,
@@ -128,14 +130,23 @@ export function IdeasSheet({
   const parkedBlocked = full || locked;
   // A full, unlocked day: a saved item can swap places with an open task (1.5 D).
   const canSwap = full && !locked && Boolean(onSwapParked) && swapTargets.length > 0;
+  // Android: the choice opens under the item (an alert has room for three
+  // buttons, and three open tasks need a Cancel too).
+  const [swapChoosing, setSwapChoosing] = useState<string | null>(null);
+  useEffect(() => {
+    if (!visible || !canSwap) setSwapChoosing(null);
+  }, [visible, canSwap]);
   const chooseSwap = (item: { id: string; text: string }) => {
     if (!onSwapParked) return;
     const targets = swapTargets;
-    const title = `Swap in “${item.text}”`;
-    const message = "Pick the one it replaces. That one is saved for later.";
     if (Platform.OS === "ios") {
       showActionSheet(
-        { title, message, options: [...targets.map((t) => t.text), "Cancel"], cancelButtonIndex: targets.length },
+        {
+          title: `Swap in “${item.text}”`,
+          message: SWAP_IN_QUESTION,
+          options: [...targets.map((t) => t.text), "Cancel"],
+          cancelButtonIndex: targets.length,
+        },
         (index) => {
           const target = targets[index];
           if (target) onSwapParked(item.id, target.id);
@@ -143,13 +154,7 @@ export function IdeasSheet({
       );
       return;
     }
-    // Android shows at most three buttons: today's open ones (never more than three).
-    Alert.alert(
-      title,
-      message,
-      targets.slice(0, 3).map((target) => ({ text: target.text, onPress: () => onSwapParked(item.id, target.id) })),
-      { cancelable: true },
-    );
+    setSwapChoosing((current) => (current === item.id ? null : item.id));
   };
   // The saved-only view is just the saved items: no milestone group either.
   const shownMilestone = !savedOnly && milestoneGroup && milestoneGroup.ideas.length > 0 ? milestoneGroup : null;
@@ -404,8 +409,8 @@ export function IdeasSheet({
                 </Text>
               )}
               {parked.map((item) => (
+                <View key={item.id} className="gap-2">
                 <View
-                  key={item.id}
                   className="rounded-2xl border p-3 flex-row items-center gap-3"
                   style={{ borderColor: colors.border, backgroundColor: colors.surface }}
                 >
@@ -446,6 +451,44 @@ export function IdeasSheet({
                   >
                     <Ionicons name="close-circle-outline" size={20} color={colors.muted} />
                   </Pressable>
+                </View>
+                {canSwap && swapChoosing === item.id ? (
+                  <View className="gap-2 px-1" testID={`swap-choices-${item.id}`}>
+                    <Text className="text-sm" style={{ color: colors.muted }}>
+                      {SWAP_IN_QUESTION}
+                    </Text>
+                    <View className="flex-row flex-wrap gap-2">
+                      {swapTargets.map((target) => (
+                        <Pressable
+                          key={target.id}
+                          onPress={() => {
+                            setSwapChoosing(null);
+                            onSwapParked?.(item.id, target.id);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Replace ${target.text}`}
+                          className="rounded-full px-3 justify-center"
+                          style={{ minHeight: 44, borderWidth: 1, borderColor: colors.primary }}
+                        >
+                          <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                            {target.text}
+                          </Text>
+                        </Pressable>
+                      ))}
+                      <Pressable
+                        onPress={() => setSwapChoosing(null)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Cancel"
+                        className="rounded-full px-3 justify-center"
+                        style={{ minHeight: 44 }}
+                      >
+                        <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
+                          Cancel
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
                 </View>
               ))}
             </View>

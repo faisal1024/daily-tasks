@@ -48,6 +48,8 @@ export interface FirstDaysInput {
   appActive?: boolean;
   /** Nag mode is already the reminder style: no card, no sheet. */
   nagOn?: boolean;
+  /** Something has been checked off, today or on an earlier day: "Meet Nag mode" may come up on its own. */
+  tickedEver?: boolean;
   /** The Nag card's button: open "Meet Nag mode". */
   onOpenNag?: () => void;
 }
@@ -58,13 +60,13 @@ export interface FirstDaysCardsState {
   yes: () => Promise<void>;
   notNow: () => void;
   dismissTip: () => void;
-  /** The Nag card's button: the sheet opens and neither comes back. */
+  /** The Nag card's button: the sheet opens (closing it calls nagIntroSeen). */
   openNag: () => void;
   /** × on the Nag card: neither the card nor the sheet comes back. */
   dismissNag: () => void;
   /** A new install's next open after first run: "Meet Nag mode" may come up on its own, once. */
   nagIntroDue: boolean;
-  /** The sheet came up on its own and was closed: seen, so it and the card are done. */
+  /** The sheet (on its own or from the card) was closed: seen, so it and the card are done. */
   nagIntroSeen: () => void;
 }
 
@@ -87,6 +89,7 @@ export function useFirstDays({
   onAskNudge,
   appActive = true,
   nagOn = false,
+  tickedEver = false,
   onOpenNag,
 }: FirstDaysInput): FirstDaysCardsState {
   const [record, setRecord] = useState<FirstDaysRecord | null>(null);
@@ -202,8 +205,9 @@ export function useFirstDays({
     track("first_days_card", { kind: "widget", action: "dismissed" });
   };
 
+  // The sheet opens; it counts as seen when it's closed (nagIntroSeen), so a
+  // sheet that had to step aside (a focus prompt) leaves the card in place.
   const openNag = () => {
-    update(finishNagIntro);
     track("first_days_card", { kind: "nag", action: "open" });
     onOpenNag?.();
   };
@@ -223,7 +227,7 @@ export function useFirstDays({
     dismissTip,
     openNag,
     dismissNag,
-    nagIntroDue: active && nagIntroDue(record, nagOn),
+    nagIntroDue: active && nagIntroDue(record, nagOn, { today, tickedEver }),
     nagIntroSeen,
   };
 }

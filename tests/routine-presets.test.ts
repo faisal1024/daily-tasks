@@ -19,7 +19,7 @@ describe("ROUTINE_PRESETS", () => {
     expect(ROUTINE_PRESETS.map((p) => [p.text, [...p.days]])).toEqual([
       ["Stretch", [1, 2, 3, 4, 5]],
       ["Plan the week", [0]],
-      ["Inbox to zero", [1, 2, 3, 4, 5]],
+      ["10 minutes on email", [1, 2, 3, 4, 5]],
       ["Walk", [0, 1, 2, 3, 4, 5, 6]],
       ["Read 10 pages", [0, 1, 2, 3, 4, 5, 6]],
       ["Tidy desk", [5]],

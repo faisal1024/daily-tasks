@@ -166,7 +166,9 @@ export function RoutinesSheet({
     }
     if (result === "added" || result === "exists") markSaved(null, preset.text, days);
   };
-  const presets = presetsToOffer(routines);
+  // Only when one can be added: at the free limit they'd only open the paywall
+  // ("Add a routine" and the note under it already say so).
+  const presets = canAdd ? presetsToOffer(routines) : [];
 
   const confirmRemove = (routine: Routine) => {
     Alert.alert(
@@ -281,7 +283,7 @@ export function RoutinesSheet({
                         onPress={() => addPreset(preset)}
                         accessibilityRole="button"
                         accessibilityLabel={`Add ${preset.text}, ${describeDays([...preset.days], { spoken: true })}`}
-                        accessibilityHint={canAdd ? "Adds this routine" : "Free keeps two routines. Opens Plus."}
+                        accessibilityHint="Adds this routine"
                         className="rounded-2xl border px-3 py-2"
                         style={{ borderColor: colors.border, backgroundColor: colors.surface, minHeight: 44, justifyContent: "center" }}
                         testID={`routine-preset-${preset.text}`}

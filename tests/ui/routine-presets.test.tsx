@@ -107,10 +107,11 @@ describe("Routine presets", () => {
     expect(byText).toEqual({ "Plan the week": [0], "Tidy desk": [5] });
   });
 
-  it("free: the third tap meets the Plus gate and makes nothing", async () => {
+  it("free at the limit: no preset chips (they could only open the paywall); 'Add a routine' still meets the Plus gate", async () => {
     await openRoutines({ routines: [routine("r1", "Walk after lunch", [1]), routine("r2", "Read", [2])] });
-    expect(screen.getByTestId("routine-presets")).toBeOnTheScreen();
-    await fireEvent.press(preset("Stretch"));
+    expect(screen.queryByTestId("routine-presets")).toBeNull();
+    expect(screen.getByTestId("routines-limit-note")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByTestId("routines-add"));
     await waitFor(() => expect(mockOpenPaywall).toHaveBeenCalledWith("routines"), { timeout: 2000 });
     expect((await stored()).routines).toHaveLength(2);
     expect(eventsNamed("routine_created")).toEqual([]);

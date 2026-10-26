@@ -31,7 +31,10 @@ const config: ExpoConfig = {
         "ITSAppUsesNonExemptEncryption": false,
         // The focus session's Live Activity (1.3). Updated from the device
         // only: no push updates, so no push entitlement.
-        "NSSupportsLiveActivities": true
+        "NSSupportsLiveActivities": true,
+        // "Share your day" (1.5 D): the share sheet's Save Image writes to
+        // Photos, which needs this or the app is ended.
+        "NSPhotoLibraryAddUsageDescription": "Saves the picture of your day to Photos when you choose Save Image."
       }
   },
   android: {

@@ -37,7 +37,7 @@ export const DAY_PRESETS: { id: Exclude<DaysPreset, "custom">; label: string; da
 export const ROUTINE_PRESETS: readonly { text: string; days: readonly number[] }[] = [
   { text: "Stretch", days: WEEKDAYS },
   { text: "Plan the week", days: [0] },
-  { text: "Inbox to zero", days: WEEKDAYS },
+  { text: "10 minutes on email", days: WEEKDAYS },
   { text: "Walk", days: ALL_DAYS },
   { text: "Read 10 pages", days: ALL_DAYS },
   { text: "Tidy desk", days: [5] },

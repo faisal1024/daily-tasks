@@ -245,12 +245,22 @@ const cardOnly = (day = TODAY): FirstDaysRecord => startFirstDays(day);
 const saved = async () => (await loadFirstDays()) as FirstDaysRecord;
 
 describe("the Nag card on a new install", () => {
-  it("day 1: not until the first tick, then it appears under the greeting, once, with its 'shown' event", async () => {
+  it("day 1: never, not even after the first tick; day 2 it appears, once, with its 'shown' event", async () => {
     await openToday({}, cardOnly());
     await advance(3000);
     expect(nagCard()).toBeNull();
     await tick(/Task 1: Walk/);
     await flush();
+    await advance(3000);
+    expect(nagCard()).toBeNull();
+    expect(cardEvents().filter((event: { kind: string }) => event.kind === "nag")).toEqual([]);
+    await screen.unmount();
+    __resetStorageForTests();
+    await AsyncStorage.clear();
+    await save();
+    // The next day (first run ended yesterday).
+    await saveFirstDays(cardOnly(YESTERDAY));
+    await launch();
     expect(nagCard()).toBeOnTheScreen();
     const card = within(screen.getByTestId("nag-card"));
     expect(card.getByText(NAG_CARD_COPY.title)).toBeOnTheScreen();
@@ -345,12 +355,14 @@ describe("the Nag card on a new install", () => {
     expect(screen.queryByTestId("nag-intro-footer")).toBeNull();
     expect(cardEvents()).toContainEqual({ kind: "nag", action: "open" });
     expect(eventsNamed("whats_new_shown")).toEqual([{ id: NAG_FIRST_DAYS_ID, source: "card" }]);
-    expect(nagCard()).toBeNull();
-    expect((await saved()).nagIntro).toBe("done");
+    // Seen once it's closed (a sheet that had to step aside would leave the card).
+    expect((await saved()).nagIntro).not.toBe("done");
     // Close it.
     await fireEvent.press(within(screen.getByTestId("nag-intro-sheet")).getByRole("button", { name: "Not now" }));
     await advance(1000);
     expect(sheet()).toBeNull();
+    expect(nagCard()).toBeNull();
+    expect((await saved()).nagIntro).toBe("done");
     expect(eventsNamed("whats_new_action")).toEqual([
       expect.objectContaining({ id: NAG_FIRST_DAYS_ID, action: "dismiss", source: "card" }),
     ]);
@@ -402,8 +414,8 @@ describe("the Nag card on a new install", () => {
 });
 
 describe("the sheet on its own, once, on the next open after first run", () => {
-  it("not in the open first run ended in; at the next foreground it comes up, as a new install's", async () => {
-    await openToday({}, newInstall());
+  it("not in the open first run ended in; at the next foreground (a later day, after a tick) it comes up, as a new install's", async () => {
+    await openToday({ todayCompletions: ["t0"] }, newInstall(YESTERDAY));
     await advance(WHATS_NEW_DELAY_MS * 5);
     expect(sheet()).toBeNull();
     await comeBack();
@@ -415,7 +427,7 @@ describe("the sheet on its own, once, on the next open after first run", () => {
   });
 
   it("on a later launch it comes up after the quiet moment (not on the first frame)", async () => {
-    await openToday({}, dueOnLaunch());
+    await openToday({ todayCompletions: ["t0"] }, dueOnLaunch(YESTERDAY));
     expect(sheet()).toBeNull();
     await advance(WHATS_NEW_DELAY_MS - 100);
     expect(sheet()).toBeNull();
@@ -424,7 +436,7 @@ describe("the sheet on its own, once, on the next open after first run", () => {
   });
 
   it("is seen on close: the card and the sheet are done, and nothing comes back at any later open or launch", async () => {
-    await openToday({}, dueOnLaunch(YESTERDAY));
+    await openToday({ todayCompletions: ["t0"] }, dueOnLaunch(YESTERDAY));
     await settle();
     expect(sheet()).toBeOnTheScreen();
     await fireEvent.press(within(screen.getByTestId("nag-intro-sheet")).getByRole("button", { name: "Not now" }));
@@ -474,8 +486,27 @@ describe("the sheet on its own, once, on the next open after first run", () => {
     expect(sheet()).toBeNull();
   });
 
+  it("never on the first-run day, nor before anything was ever ticked", async () => {
+    // Due (a later open), first-run day, a tick: still not today.
+    await openToday({ todayCompletions: ["t0"] }, dueOnLaunch());
+    await advance(WHATS_NEW_DELAY_MS * 5);
+    await comeBack();
+    await settle();
+    expect(sheet()).toBeNull();
+    await screen.unmount();
+    __resetStorageForTests();
+    await AsyncStorage.clear();
+    // A later day, but nothing ticked yet, ever.
+    await openToday({}, dueOnLaunch(YESTERDAY));
+    await advance(WHATS_NEW_DELAY_MS * 5);
+    await comeBack();
+    await settle();
+    expect(sheet()).toBeNull();
+    expect(eventsNamed("whats_new_shown")).toEqual([]);
+  });
+
   it("a user who ticks first isn't interrupted in that open; the next open shows it", async () => {
-    await openToday({}, dueOnLaunch());
+    await openToday({}, dueOnLaunch(YESTERDAY));
     await advance(WHATS_NEW_DELAY_MS - 300);
     await tick(/Task 1: Walk/);
     await advance(WHATS_NEW_DELAY_MS * 5);
@@ -594,12 +625,12 @@ describe("first tick: the toast once ever, and a light haptic on every tick", ()
     expect(await AsyncStorage.getItem(FIRST_TICK_KEY)).toBeNull();
   });
 
-  it("a light impact on ticking and on un-ticking (never Medium)", async () => {
+  it("a firmer impact for done than for un-ticking: medium on ticking, light on un-ticking", async () => {
     await openToday({ history: { "2026-10-20": dayRecord("2026-10-20", 2) } });
     await tick(/Task 1: Walk/);
     await tick(/Task 1: Walk/);
     await tick(/Task 2: Stretch/);
-    expect(impact.mock.calls.map(([style]) => style)).toEqual(["light", "light", "light"]);
+    expect(impact.mock.calls.map(([style]) => style)).toEqual(["medium", "light", "medium"]);
   });
 });
 
@@ -613,6 +644,7 @@ describe("the optional name", () => {
     await flush(10);
     await advance(2000);
     expect(screen.getByTestId("first-run-name")).toBeOnTheScreen();
+    expect(screen.getByText("For your greeting. Change it anytime in Settings.")).toBeOnTheScreen();
   }
   const useThem = () => fireEvent.press(screen.getByRole("button", { name: /Use th(ese|is)/ }));
   const storedName = async () => JSON.parse((await AsyncStorage.getItem(KEY)) ?? "{}").momentumProfile?.name;
@@ -716,6 +748,7 @@ describe("Saved for later: Swap in", () => {
     expect(menu).toHaveBeenCalledTimes(1);
     const [options, answer] = menu.mock.calls[0];
     expect(options.options).toEqual(["Stretch", "Hydrate", "Cancel"]);
+    expect(options.message).toBe("Which task should it replace? That one goes to Saved for later.");
     await act(async () => answer(0));
     await flush();
     expect(screen.getByRole("checkbox", { name: /Task 1: Walk/ })).toBeOnTheScreen();
@@ -767,6 +800,8 @@ describe("Saved for later: Swap in", () => {
     await advance(1000);
     expect(screen.getByRole("checkbox", { name: /Task 2: Zulu/ })).toBeOnTheScreen();
     expect(JSON.parse((await AsyncStorage.getItem(KEY)) ?? "{}").focusSession).toBeNull();
+    // Said, like Not today.
+    expect(within(screen.getByTestId("today-toast")).getByText(/Swapped in\. .Stretch. is saved for later\. Timer stopped\./)).toBeOnTheScreen();
   });
 
   it("not offered on a locked day, nor when every task is done", async () => {
@@ -790,15 +825,26 @@ describe("Saved for later: Swap in", () => {
     expect(screen.queryByTestId("swap-in-p1")).toBeNull();
   });
 
-  it("on Android it asks in an alert with the open tasks as buttons", async () => {
+  it("on Android it asks under the item: the open tasks as buttons, and Cancel even with three", async () => {
     Platform.OS = "android";
     await openToday(FULL);
     await openSaved();
     await fireEvent.press(screen.getByTestId("swap-in-p1"));
     expect(menu).not.toHaveBeenCalled();
-    const [, , buttons] = (Alert.alert as jest.Mock).mock.calls[(Alert.alert as jest.Mock).mock.calls.length - 1];
-    expect(buttons.map((b: { text: string }) => b.text)).toEqual(["Walk", "Stretch", "Hydrate"]);
-    await act(async () => buttons[2].onPress());
+    const choices = within(screen.getByTestId("swap-choices-p1"));
+    expect(choices.getByText("Which task should it replace? That one goes to Saved for later.")).toBeOnTheScreen();
+    expect(choices.getAllByRole("button").map((button) => button.props.accessibilityLabel)).toEqual([
+      "Replace Walk",
+      "Replace Stretch",
+      "Replace Hydrate",
+      "Cancel",
+    ]);
+    // Cancel closes it and swaps nothing.
+    await fireEvent.press(choices.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("swap-choices-p1")).toBeNull();
+    expect(eventsNamed("saved_swapped_in")).toEqual([]);
+    await fireEvent.press(screen.getByTestId("swap-in-p1"));
+    await fireEvent.press(within(screen.getByTestId("swap-choices-p1")).getByRole("button", { name: "Replace Hydrate" }));
     await flush();
     expect(screen.getByRole("checkbox", { name: /Task 3: Zulu/ })).toBeOnTheScreen();
   });

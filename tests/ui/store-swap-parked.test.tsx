@@ -148,11 +148,9 @@ describe("swapParkedTask on the store", () => {
     expect(parkedTexts(hook)).toEqual(["Yankee", "Bravo"]);
   });
 
-  // P3, not fixed here: swapParkedTaskCb (lib/daily-tasks/store.tsx:2402-2415) checks the
-  // render-time `stateRef`, so a second call in the same frame still returns true (and Today
-  // would toast, buzz and track "saved_swapped_in" twice) although the reducer then ignores it.
-  // routinesRef (store.tsx ~2420) is the pattern for a ref updated at dispatch.
-  it.skip("two swaps in one frame on the same task: the second says false", async () => {
+  // swapParkedTaskCb sees the first swap before React renders it (swapRef), so
+  // Today toasts, buzzes and tracks "saved_swapped_in" once.
+  it("two swaps in one frame on the same task: the second says false", async () => {
     const hook = await renderStore();
     const landed: boolean[] = [];
     await act(async () => {

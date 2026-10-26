@@ -313,7 +313,7 @@ export const LAPSED_MORNING_DAY = 7;
 /** What that morning says (1.5 D). */
 export const LAPSED_MORNING_COPY: ReminderCopy = {
   title: GENERIC_REMINDER_COPY.morning.title,
-  body: "Your Day count is waiting. Three small things?",
+  body: "Your Day count is right where you left it. Three small things?",
 };
 
 /**

@@ -2399,16 +2399,22 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const addParkedTask = useCallback((id: string) => {
     dispatch({ type: "addParkedTask", id, today: ensureDay() });
   }, [ensureDay]);
+  // The state as of the last swap, before React has rendered it: two swaps in
+  // one frame must see the first (like routinesRef for routines).
+  const swapRef = useRef<{ from: AppState; to: AppState } | null>(null);
   const swapParkedTaskCb = useCallback(
     (parkedId: string, taskId: string): boolean => {
       const today = ensureDay();
       const at = new Date().toISOString();
       const newId = makeId();
       // The same pure step the reducer takes, on the latest state: says whether it will happen.
-      const current = stateRef.current;
+      const rendered = stateRef.current;
+      const current = swapRef.current && swapRef.current.from === rendered ? swapRef.current.to : rendered;
       // The day just turned: that task was yesterday's, nothing to swap.
       if (current.lastOpenedDate !== today) return false;
-      if (swapParkedTask(current, { parkedId, taskId, now: at, newId }) === current) return false;
+      const next = swapParkedTask(current, { parkedId, taskId, now: at, newId });
+      if (next === current) return false;
+      swapRef.current = { from: rendered, to: next };
       dispatch({ type: "swapParkedTask", parkedId, taskId, today, at, newId });
       return true;
     },

@@ -2,10 +2,10 @@
 // switch to leave the task names out, and Share, which opens the iOS share
 // sheet with the picture. The words are decided in lib/daily-tasks/share-card.ts.
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Share, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Share, Switch, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { captureRef } from "react-native-view-shot";
+import { captureRef, releaseCapture } from "react-native-view-shot";
 
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
@@ -33,6 +33,8 @@ export const SHARE_DAY_COPY = {
 
 /** The picture's width in points (it's captured at the screen's scale). */
 const CARD_WIDTH = 320;
+/** The sun-and-check logomark beside the app's name (a small copy of assets/brand/icon-1024-rounded.png). */
+const LOGOMARK = require("../../assets/brand/logomark-96.png");
 
 export function ShareDaySheet({
   visible,
@@ -74,8 +76,9 @@ export function ShareDaySheet({
     sharingRef.current = true;
     setSharing(true);
     setFailed(false);
+    let uri: string | null = null;
     try {
-      const uri = await captureRef(cardRef, { format: "png", quality: 1, result: "tmpfile" });
+      uri = await captureRef(cardRef, { format: "png", quality: 1, result: "tmpfile" });
       const url = uri.startsWith("file://") ? uri : `file://${uri}`;
       const result = await Share.share({ url });
       if (result.action === Share.sharedAction) {
@@ -86,6 +89,14 @@ export function ShareDaySheet({
     } catch {
       setFailed(true);
     } finally {
+      // The picture can hold task names: it doesn't stay in the app's temp folder.
+      if (uri) {
+        try {
+          releaseCapture(uri);
+        } catch {
+          // Gone already, or iOS clears it: nothing to do.
+        }
+      }
       sharingRef.current = false;
       setSharing(false);
     }
@@ -197,7 +208,11 @@ function ShareCard({ model, cardRef }: { model: ShareCardModel; cardRef: React.R
     >
       <View className="flex-row items-center justify-between gap-3">
         <View style={{ borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4, backgroundColor: "rgba(255,255,255,0.18)" }}>
-          <Text style={{ color: SHARE_CARD_INK, fontWeight: "800", fontSize: 14 }} allowFontScaling={false}>
+          <Text
+            style={{ color: SHARE_CARD_INK, fontFamily: Fonts.rounded, fontWeight: "800", fontSize: 22 }}
+            allowFontScaling={false}
+            testID="share-day-label"
+          >
             {model.dayLabel}
           </Text>
         </View>
@@ -221,8 +236,6 @@ function ShareCard({ model, cardRef }: { model: ShareCardModel; cardRef: React.R
                   color: SHARE_CARD_INK,
                   fontSize: 17,
                   fontWeight: "600",
-                  opacity: row.done ? 0.85 : 1,
-                  textDecorationLine: row.done ? "line-through" : "none",
                 }}
                 allowFontScaling={false}
                 numberOfLines={2}
@@ -235,16 +248,19 @@ function ShareCard({ model, cardRef }: { model: ShareCardModel; cardRef: React.R
       ) : null}
 
       <Text
-        style={{ color: SHARE_CARD_INK, fontFamily: Fonts.rounded, fontWeight: "800", fontSize: model.rows ? 28 : 56 }}
+        style={{ color: SHARE_CARD_INK, fontFamily: Fonts.rounded, fontWeight: "800", fontSize: model.rows ? 28 : 48 }}
         allowFontScaling={false}
         testID="share-day-summary"
       >
         {model.summary}
       </Text>
 
-      <Text style={{ color: SHARE_CARD_INK, opacity: 0.85, fontWeight: "700", fontSize: 14 }} allowFontScaling={false}>
-        {SHARE_CARD_BRAND}
-      </Text>
+      <View className="flex-row items-center gap-2">
+        <Image source={LOGOMARK} style={{ width: 24, height: 24, borderRadius: 6 }} accessibilityIgnoresInvertColors testID="share-day-logomark" />
+        <Text style={{ color: SHARE_CARD_INK, fontWeight: "700", fontSize: 15 }} allowFontScaling={false}>
+          {SHARE_CARD_BRAND}
+        </Text>
+      </View>
     </View>
   );
 }

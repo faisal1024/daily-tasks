@@ -81,10 +81,11 @@ export interface FirstDaysRecord {
   earnedOn?: string;
   /**
    * 1.5 D: the Nag mode card shows from `nagCardFrom` to `nagCardUntil`
-   * (YYYY-MM-DD, inclusive): the first-run day from its first check-off
-   * (never seconds after "picked"), and the day after. `nagCardUntil` null
-   * once it's dismissed or the sheet was seen. Absent (a record from before
-   * 1.5 D): no card.
+   * (YYYY-MM-DD, inclusive): the day after first run, never on the first-run
+   * day itself (it has the nudge and enough to take in). `nagCardFrom` is
+   * also the first day "Meet Nag mode" may come up on its own. `nagCardUntil`
+   * null once it's dismissed or the sheet was seen. Absent (a record from
+   * before 1.5 D): no card.
    */
   nagCardFrom?: string;
   nagCardUntil?: string | null;
@@ -104,8 +105,8 @@ export function startFirstDays(today: string, open: string = currentOpen()): Fir
     nudgeFrom: addDays(today, 1),
     nudgeDeclines: 0,
     widgetTip: "waiting",
-    // 1.5 D: the Nag mode card on the first two days (like the nudge, from
-    // the first check-off or the next day), and its sheet on the next open.
+    // 1.5 D: the Nag mode card on the day after first run (nothing more on
+    // day one), and its sheet on a later open, on a later day, after a tick.
     nagCardFrom: addDays(today, 1),
     nagCardUntil: addDays(today, NAG_CARD_DAYS - 1),
     nagIntro: "waiting",
@@ -115,18 +116,11 @@ export function startFirstDays(today: string, open: string = currentOpen()): Fir
 
 /**
  * A task checked off today brings a first nudge forward to today (never a
- * snoozed one), and the Nag card's start too (1.5 D).
+ * snoozed one). The Nag card keeps its day: day one has asked enough (1.5 D).
  */
 export function noteCheckOff(record: FirstDaysRecord, today: string, checkedOff: boolean): FirstDaysRecord {
-  if (!checkedOff) return record;
-  const nudgeSooner = record.nudgeDeclines === 0 && record.nudgeFrom !== null && record.nudgeFrom > today;
-  const nagSooner = typeof record.nagCardFrom === "string" && record.nagCardFrom > today;
-  if (!nudgeSooner && !nagSooner) return record;
-  return {
-    ...record,
-    ...(nudgeSooner ? { nudgeFrom: today } : {}),
-    ...(nagSooner ? { nagCardFrom: today } : {}),
-  };
+  if (!checkedOff || record.nudgeDeclines > 0 || record.nudgeFrom === null) return record;
+  return record.nudgeFrom > today ? { ...record, nudgeFrom: today } : record;
 }
 
 /** A date key `days` calendar days after `day` (local, DST-safe). */
@@ -215,9 +209,20 @@ export function openNagIntro(record: FirstDaysRecord, open: string): FirstDaysRe
   return { ...rest, nagIntro: "due" };
 }
 
-/** The sheet comes up on its own once (when Today is quiet): due, and Nag mode not already on. */
-export function nagIntroDue(record: FirstDaysRecord | null, nagOn: boolean): boolean {
-  return Boolean(record && record.nagIntro === "due" && !nagOn);
+/**
+ * The sheet comes up on its own once (when Today is quiet): due (a later open
+ * than first run's), on a later day than first run, once something has been
+ * checked off (ever), and Nag mode not already on. Not an ambush on the
+ * first visits: it waits until the app has done something for them.
+ */
+export function nagIntroDue(
+  record: FirstDaysRecord | null,
+  nagOn: boolean,
+  at: { today: string; tickedEver: boolean },
+): boolean {
+  if (!record || record.nagIntro !== "due" || nagOn || !at.tickedEver) return false;
+  // nagCardFrom is the day after first run (kept until the sheet is seen).
+  return !record.nagCardFrom || at.today >= record.nagCardFrom;
 }
 
 /**
@@ -232,8 +237,8 @@ export function finishNagIntro(record: FirstDaysRecord): FirstDaysRecord {
 }
 
 /**
- * "Want a voice that won't let it go?" on Today (1.5 D): on the first-run day
- * and the day after, until it's dismissed or the sheet is seen; not with Nag
+ * "Reminders with a personality?" on Today (1.5 D): the day after first run
+ * (not on day one), until it's dismissed or the sheet is seen; not with Nag
  * mode already on, not on a finished day (it would sit on the done card), and
  * one card at a time: the morning nudge goes first.
  */

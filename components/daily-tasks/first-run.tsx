@@ -360,6 +360,9 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
                   style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
                   testID="first-run-name"
                 />
+                <Text className="text-sm" style={{ color: colors.muted }}>
+                  For your greeting. Change it anytime in Settings.
+                </Text>
               </View>
             </>
           )}

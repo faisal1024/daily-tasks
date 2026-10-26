@@ -1,5 +1,5 @@
 // 1.5 D: two weeks of morning nudges; the one a week after the last sync asks
-// "Your Day count is waiting. Three small things?"; the first six days read
+// "Your Day count is right where you left it. Three small things?"; the first six days read
 // exactly as before; the whole plan fits iOS's 64 pending with room to spare.
 // Local-time fixtures (months with DST changes included).
 import { describe, expect, it } from "vitest";
@@ -60,10 +60,10 @@ describe("the morning a week on", () => {
 
   it("says the Day count line on exactly the 7th day ahead, with the morning title", () => {
     expect(LAPSED_MORNING_DAY).toBe(7);
-    expect(LAPSED_MORNING_COPY.body).toBe("Your Day count is waiting. Three small things?");
+    expect(LAPSED_MORNING_COPY.body).toBe("Your Day count is right where you left it. Three small things?");
     const seventh = plan[LAPSED_MORNING_DAY - 1];
     expect(toDateKey(seventh.at)).toBe("2026-11-02");
-    expect(seventh.body).toBe("Your Day count is waiting. Three small things?");
+    expect(seventh.body).toBe("Your Day count is right where you left it. Three small things?");
     expect(seventh.title).toBe(plan[0].title);
     expect(plan.filter((slot) => slot.body === LAPSED_MORNING_COPY.body)).toHaveLength(1);
   });

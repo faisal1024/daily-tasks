@@ -15,7 +15,7 @@ export interface ShareCardModel {
   dayLabel: string;
   /** e.g. "Monday, 26 October". */
   dateLabel: string;
-  /** "3 of 3". */
+  /** "3 of 3 done". */
   summary: string;
   /** The day's tasks in order, ticked or not; null when names are left out. */
   rows: ShareCardTask[] | null;
@@ -41,7 +41,7 @@ function clip(text: string): string {
 
 /**
  * The image's words. `showNames` false (Settings' "Hide task names", or the
- * sheet's own switch): no titles at all, only "3 of 3".
+ * sheet's own switch): no titles at all, only "3 of 3 done".
  */
 export function shareCardModel(input: {
   tasks: ShareCardTask[];
@@ -53,7 +53,7 @@ export function shareCardModel(input: {
   return {
     dayLabel: dayChipText(input.daysShowedUp),
     dateLabel: input.dateLabel,
-    summary: `${done} of ${input.tasks.length}`,
+    summary: `${done} of ${input.tasks.length} done`,
     rows: input.showNames ? input.tasks.map((task) => ({ text: clip(task.text), done: task.done })) : null,
   };
 }

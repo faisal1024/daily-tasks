@@ -23,7 +23,7 @@ describe("shareCardModel", () => {
     const model = shareCardModel({ ...base, showNames: true });
     expect(model.dayLabel).toBe("Day 12");
     expect(model.dateLabel).toBe("Monday, 26 October");
-    expect(model.summary).toBe("3 of 3");
+    expect(model.summary).toBe("3 of 3 done");
     expect(model.rows).toEqual(tasks);
   });
 
@@ -31,12 +31,12 @@ describe("shareCardModel", () => {
     const model = shareCardModel({ ...base, showNames: false });
     expect(model.rows).toBeNull();
     expect(JSON.stringify(model)).not.toMatch(/dentist|report|Walk/);
-    expect(model.summary).toBe("3 of 3");
+    expect(model.summary).toBe("3 of 3 done");
   });
 
   it("counts ticked of planned, not just rows (a partly done day)", () => {
     const model = shareCardModel({ ...base, tasks: [tasks[0], { text: "Read", done: false }], showNames: true });
-    expect(model.summary).toBe("1 of 2");
+    expect(model.summary).toBe("1 of 2 done");
     expect(model.rows?.map((row) => row.done)).toEqual([true, false]);
   });
 

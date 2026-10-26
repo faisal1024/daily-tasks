@@ -35,6 +35,7 @@ jest.mock("expo-haptics", () => ({
 // "Share your day" (1.5 D): the picture is a file on the device; no native module in tests.
 jest.mock("react-native-view-shot", () => ({
   captureRef: jest.fn(async () => "/tmp/three-today-share.png"),
+  releaseCapture: jest.fn(),
 }));
 
 jest.mock("@react-native-async-storage/async-storage", () =>
