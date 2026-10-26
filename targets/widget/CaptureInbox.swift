@@ -8,87 +8,78 @@
 // Edit targets/share/CaptureInbox.swift and copy it over:
 //   cp targets/share/CaptureInbox.swift targets/widget/
 //
-// Keys (see lib/daily-tasks/capture.ts and capture-bridge.ts):
-// - `capture.inbox`: thoughts to save for later, a JSON array of
-//   {seq, text, source, at}. Written only here (the share sheet, "Add to
-//   Three Today"); entries the app already saved are dropped on each append.
-// - `capture.processedSeq`: the last entry the app saved (written by the app).
-// - `capture.openRequest`: "open the brain dump" ({id, source, at}) from the
-//   "Brain dump" shortcut or the Dump control, for a cold start that misses
-//   the link. The app writes `capture.openHandled`.
+// The capture inbox (see lib/daily-tasks/capture.ts and capture-bridge.ts):
+// one small JSON file per capture, `{text, at, source}`, in the App Group
+// container's `capture-inbox/` folder, named `<at ms>-<uuid>.json` and
+// written atomically. Native code only ever adds files; the app reads them
+// oldest first and deletes each one only once it's saved (Saved for later)
+// for good. So no lock and no shared list: a writer and the app can never
+// lose each other's captures. At most `maxQueue` files: a full inbox refuses
+// a new capture (and says so) instead of dropping an old one.
+//
+// `capture.openRequest` (UserDefaults): "open the brain dump" ({id, source,
+// at}) from the "Brain dump" shortcut or the Dump control, for a cold start
+// that misses the link. The app writes `capture.openHandled`.
 
-import Darwin
 import Foundation
 
 enum CaptureGroup {
   static let group = "group.com.faisalislam.dailytasks"
-  static let inboxKey = "capture.inbox"
-  static let processedKey = "capture.processedSeq"
+  static let inboxFolder = "capture-inbox"
   static let openRequestKey = "capture.openRequest"
-  /// Kept short even if the app isn't opened for a long time.
+  /// The most captures waiting for the app (the app's Saved for later holds 50 too).
   static let maxQueue = 50
-  /// The app cuts saved items shorter; this only keeps the inbox small.
+  /// The app cuts saved items shorter; this only keeps the files small.
   static let maxChars = 1000
-  static let lockFileName = "CaptureInbox.lock"
 
-  static var defaults: UserDefaults? { UserDefaults(suiteName: group) }
-
-  struct Item: Codable {
-    let seq: Int
-    let text: String
-    let source: String
-    let at: Double
+  enum AppendResult: Equatable {
+    case saved
+    /// Only whitespace: nothing to save.
+    case empty
+    /// `maxQueue` captures are already waiting: open the app to sort them.
+    case full
+    /// The App Group couldn't be written.
+    case failed
   }
 
   static func nowMs(_ date: Date = Date()) -> Double { (date.timeIntervalSince1970 * 1000).rounded() }
 
-  /// Serialises the inbox's read-modify-write across processes (the share
-  /// extension and the app can append at once): an NSLock within the
-  /// process, plus an flock on a file in the App Group container.
-  static let lock = NSLock()
+  static var inboxURL: URL? {
+    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)?
+      .appendingPathComponent(inboxFolder, isDirectory: true)
+  }
 
-  static func withLock<T>(_ body: () -> T) -> T {
-    lock.lock()
-    defer { lock.unlock() }
-    let fd: Int32 =
-      FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
-      .map { open($0.appendingPathComponent(lockFileName).path, O_CREAT | O_RDWR, 0o644) } ?? -1
-    if fd >= 0 { flock(fd, LOCK_EX) }
-    defer {
-      if fd >= 0 {
-        flock(fd, LOCK_UN)
-        close(fd)
-      }
-    }
-    return body()
+  /// The captures waiting (file names), whatever their content.
+  static func waitingCount(in folder: URL) -> Int {
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+    return names.filter { $0.hasSuffix(".json") }.count
   }
 
   /// Saves a thought for the app to put in Saved for later when it next
-  /// opens. `source` is "share" or "intent". False when there's nothing to
-  /// save (only whitespace) or the App Group can't be written.
-  @discardableResult
-  static func append(_ raw: String, source: String) -> Bool {
+  /// opens. `source` is "share" or "intent".
+  static func append(_ raw: String, source: String) -> AppendResult {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty, let defaults else { return false }
-    let text = String(trimmed.prefix(maxChars))
-    return withLock {
-      let processed = defaults.integer(forKey: processedKey)
-      var items = (loadInbox() ?? []).filter { $0.seq > processed }
-      let next = max(items.map(\.seq).max() ?? 0, processed) + 1
-      items.append(Item(seq: next, text: text, source: source, at: nowMs()))
-      if items.count > maxQueue { items = Array(items.suffix(maxQueue)) }
-      guard let data = try? JSONEncoder().encode(items), let json = String(data: data, encoding: .utf8) else {
-        return false
-      }
-      defaults.set(json, forKey: inboxKey)
-      return true
+    guard !trimmed.isEmpty else { return .empty }
+    guard let folder = inboxURL else { return .failed }
+    do {
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    } catch {
+      return .failed
+    }
+    if waitingCount(in: folder) >= maxQueue { return .full }
+    let at = nowMs()
+    let entry: [String: Any] = ["text": String(trimmed.prefix(maxChars)), "at": at, "source": source]
+    guard let data = try? JSONSerialization.data(withJSONObject: entry) else { return .failed }
+    let file = folder.appendingPathComponent("\(Int64(at))-\(UUID().uuidString).json")
+    do {
+      try data.write(to: file, options: .atomic)
+      return .saved
+    } catch {
+      return .failed
     }
   }
 
-  static func loadInbox() -> [Item]? {
-    guard let raw = defaults?.string(forKey: inboxKey), let data = raw.data(using: .utf8) else { return nil }
-    return try? JSONDecoder().decode([Item].self, from: data)
-  }
+  static var defaults: UserDefaults? { UserDefaults(suiteName: group) }
 
   /// "Open the brain dump", left for the app (it acts on it once it's up,
   /// even from a cold start). `source` is "widget" or "intent". Returns its

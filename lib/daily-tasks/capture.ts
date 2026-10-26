@@ -9,10 +9,13 @@
 //   leaves the request in the App Group (`capture.openRequest`) in case a
 //   cold start missed the link. Today opens the brain dump sheet.
 // - Save a thought for later without opening the app: the share sheet's
-//   "Three Today" and the "Add to Three Today" shortcut append it to the
-//   capture inbox (`capture.inbox`). On the next open the app saves each one
-//   in Ideas → Saved for later and says so. Never onto today's three, and
-//   never a sheet the user didn't ask for.
+//   "Three Today" and the "Save for later" shortcut ("Add to Three Today")
+//   write it to the capture inbox, one file per capture in the App Group's
+//   `capture-inbox/` folder. On the next open the app saves them, oldest
+//   first, in Saved for later and says so; each file is deleted only once
+//   that's stored for good. Never onto today's three, never a sheet the user
+//   didn't ask for, and never a saved item pushed out: what doesn't fit
+//   waits in the inbox (and Today says Saved for later is full).
 //
 // Text never goes into a link (or analytics): only the App Group.
 
@@ -27,9 +30,19 @@ export interface CaptureOpenRequest {
   id?: string;
 }
 
+/** One capture file from the inbox, read and cleaned. */
 export interface CaptureItem {
-  seq: number;
+  /** The file's name: deleted by that name once saved for good. */
+  name: string;
   text: string;
+  /** When it was captured (epoch ms). */
+  at: number;
+}
+
+/** What's in the inbox, as the bridge reads it. */
+export interface CaptureFile {
+  name: string;
+  contents: string;
 }
 
 /** A request left in the App Group is only acted on this soon after it was made. */
@@ -100,43 +113,93 @@ export function cleanCaptureText(value: unknown): string | null {
 }
 
 /**
- * The inbox's captures the app hasn't saved yet (seq above `processedSeq`),
- * oldest first, and the last seq read (to mark processed, including entries
- * dropped as empty or malformed: those can never be saved). Malformed JSON
- * reads as empty.
+ * The inbox's captures, oldest first (by `at`, then name), and the files that
+ * can never be saved (malformed, or no text left): those are deleted at once.
  */
-export function parseCaptureInbox(
-  raw: string | null,
-  processedSeq: number,
-): { items: CaptureItem[]; lastSeq: number } {
-  const none = { items: [], lastSeq: processedSeq };
-  if (!raw) return none;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return none;
-  }
-  if (!Array.isArray(parsed)) return none;
-  let lastSeq = processedSeq;
+export function parseCaptureFiles(files: readonly CaptureFile[]): { items: CaptureItem[]; junk: string[] } {
   const items: CaptureItem[] = [];
-  for (const entry of parsed) {
-    if (!entry || typeof entry !== "object") continue;
-    const { seq, text } = entry as Record<string, unknown>;
-    if (typeof seq !== "number" || !Number.isInteger(seq) || seq <= processedSeq) continue;
-    lastSeq = Math.max(lastSeq, seq);
+  const junk: string[] = [];
+  for (const file of files) {
+    if (!file || typeof file.name !== "string" || !file.name) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(file.contents);
+    } catch {
+      junk.push(file.name);
+      continue;
+    }
+    const { text, at } = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
     const clean = cleanCaptureText(text);
-    if (clean) items.push({ seq, text: clean });
+    if (!clean) {
+      junk.push(file.name);
+      continue;
+    }
+    items.push({ name: file.name, text: clean, at: typeof at === "number" && Number.isFinite(at) ? at : 0 });
   }
-  items.sort((a, b) => a.seq - b.seq);
-  return { items, lastSeq };
+  items.sort((a, b) => a.at - b.at || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { items, junk };
 }
 
-/** What Today says once captures are saved. */
-export function captureToast(count: number): string {
-  return count === 1
-    ? "Your captured thought is saved for later in Ideas."
-    : `${count} captured thoughts saved for later in Ideas.`;
+const sameText = (text: string) => text.trim().toLowerCase();
+
+/**
+ * Which captures to save now. `save`: new ones, oldest first, only as many
+ * as Saved for later has room for (it never pushes a saved item out).
+ * `present`: already in Saved for later or on today's list (or earlier in
+ * this batch): nothing to add, their files can go. `waiting`: no room yet;
+ * they stay in the inbox until some saved items are cleared.
+ */
+export function planCaptureImport(
+  state: { parkedTasks: readonly { text: string }[]; tasks: readonly { text: string }[] },
+  items: readonly CaptureItem[],
+  maxSaved: number,
+): { save: CaptureItem[]; present: CaptureItem[]; waiting: CaptureItem[] } {
+  const taken = new Set([...state.parkedTasks, ...state.tasks].map((entry) => sameText(entry.text)));
+  let room = Math.max(0, maxSaved - state.parkedTasks.length);
+  const save: CaptureItem[] = [];
+  const present: CaptureItem[] = [];
+  const waiting: CaptureItem[] = [];
+  for (const item of items) {
+    const key = sameText(item.text);
+    if (taken.has(key)) present.push(item);
+    else if (room > 0) {
+      save.push(item);
+      taken.add(key);
+      room -= 1;
+    } else {
+      // No room: it waits (a later copy of the same text too; once one is
+      // saved, the other is already there).
+      waiting.push(item);
+    }
+  }
+  return { save, present, waiting };
+}
+
+/** What Today says once captures are saved, or when Saved for later is full. */
+export interface CaptureNotice {
+  /** How many were saved now. */
+  count: number;
+  /** The one saved, when it's one. */
+  text: string | null;
+  /** Some are still waiting: Saved for later is full. */
+  full: boolean;
+}
+
+const TOAST_QUOTE_CHARS = 40;
+export const CAPTURE_FULL_TOAST = "Saved for later is full. Clear a few in Ideas to bring in the rest.";
+
+export function captureToast(notice: CaptureNotice): string | null {
+  const parts: string[] = [];
+  if (notice.count === 1 && notice.text) {
+    const chars = Array.from(notice.text);
+    const quote =
+      chars.length > TOAST_QUOTE_CHARS ? `${chars.slice(0, TOAST_QUOTE_CHARS - 1).join("").trimEnd()}…` : notice.text;
+    parts.push(`Saved for later: “${quote}”`);
+  } else if (notice.count > 0) {
+    parts.push(`${notice.count} thoughts saved for later`);
+  }
+  if (notice.full) parts.push(CAPTURE_FULL_TOAST);
+  return parts.length > 0 ? parts.join(". ") : null;
 }
 
 // Links arrive before the store is ready (a cold start): they wait here.

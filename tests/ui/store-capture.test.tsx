@@ -1,8 +1,9 @@
 // Capture from anywhere (1.6 E) on the real store: the dump link (cold and
-// warm start, one id once, malformed links), the capture inbox (Saved for
-// later, never today; marked read only after the import; no double import) and
-// the analytics (source and count only, never text). The App Group is a pair
-// of variables each test fills in.
+// warm start, one id once, malformed links), the capture inbox (one file per
+// capture: Saved for later, never today, oldest first; each file deleted only
+// once it's stored; never pushing a saved item out; no double import) and the
+// analytics (source and count only, never text). The App Group is a map of
+// files and a variable each test fills in.
 import type { ReactNode } from "react";
 import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -11,25 +12,32 @@ import { act, renderHook } from "@testing-library/react-native";
 import { redirectSystemPath } from "@/app/+native-intent";
 import { track } from "@/lib/daily-tasks/analytics";
 import { __resetCaptureForTests, queueCaptureOpen } from "@/lib/daily-tasks/capture";
-import {
-  markCaptureInboxProcessed,
-  markCaptureOpenRequestHandled,
-} from "@/lib/daily-tasks/capture-bridge";
+import { deleteCaptureFile, markCaptureOpenRequestHandled } from "@/lib/daily-tasks/capture-bridge";
 import { navigateToToday } from "@/lib/daily-tasks/navigation";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
+import * as storage from "@/lib/daily-tasks/storage";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
-import { DEFAULT_AUTO_LOCK, type AppState as DailyState, type Task } from "@/lib/daily-tasks/types";
+import {
+  DEFAULT_AUTO_LOCK,
+  MAX_PARKED_TASKS,
+  type AppState as DailyState,
+  type ParkedTask,
+  type Task,
+} from "@/lib/daily-tasks/types";
 
 // --- The App Group -----------------------------------------------------------
 
-let mockInbox: { raw: string | null; processedSeq: number } = { raw: null, processedSeq: 0 };
+/** The inbox folder: file name → contents. */
+const mockFiles = new Map<string, string>();
 let mockOpen: { raw: string | null; handledId: string | null } = { raw: null, handledId: null };
-/** A write that doesn't stick (the App Group failed): the bridge swallows the error. */
-let mockMarkSticks = true;
+/** A delete that doesn't stick (the file stays and is read again next time). */
+let mockDeleteSticks = true;
 jest.mock("@/lib/daily-tasks/capture-bridge", () => ({
-  readCaptureInbox: jest.fn(() => mockInbox),
-  markCaptureInboxProcessed: jest.fn((seq: number) => {
-    if (mockMarkSticks) mockInbox = { ...mockInbox, processedSeq: seq };
+  readCaptureFiles: jest.fn(() => [...mockFiles].map(([name, contents]) => ({ name, contents }))),
+  deleteCaptureFile: jest.fn((name: string) => {
+    if (!mockDeleteSticks) return false;
+    mockFiles.delete(name);
+    return true;
   }),
   readCaptureOpenRequest: jest.fn(() => mockOpen),
   markCaptureOpenRequestHandled: jest.fn((id: string) => {
@@ -78,7 +86,7 @@ jest.mock("@/lib/daily-tasks/plus-context", () => ({
 
 const tracked = track as jest.Mock;
 const navigate = navigateToToday as jest.Mock;
-const markProcessed = markCaptureInboxProcessed as jest.Mock;
+const deleteFile = deleteCaptureFile as jest.Mock;
 const markOpenHandled = markCaptureOpenRequestHandled as jest.Mock;
 
 const START = new Date(2026, 8, 26, 9, 0);
@@ -126,7 +134,12 @@ async function openLink(path: string): Promise<string> {
 }
 
 const events = (name: string) => tracked.mock.calls.filter((call) => call[0] === name);
-const inboxJson = (...entries: { seq: number; text?: unknown }[]) => JSON.stringify(entries);
+/** A capture file as native code writes it. */
+const capture = (name: string, text: unknown, at = START.getTime()) =>
+  void mockFiles.set(name, JSON.stringify({ text, at, source: "share" }));
+const savedTexts = (state: DailyState) => state.parkedTasks.map((p) => p.text);
+const parked = (n: number): ParkedTask[] =>
+  Array.from({ length: n }, (_, i) => ({ id: `p${i}`, text: `saved ${i}`, parkedAt: START.toISOString() }));
 const openRequest = (over: Record<string, unknown> = {}) =>
   JSON.stringify({ id: "n1", source: "intent", at: START.getTime(), ...over });
 
@@ -134,9 +147,9 @@ beforeEach(async () => {
   jest.useFakeTimers({ now: START });
   __resetStorageForTests();
   __resetCaptureForTests();
-  mockInbox = { raw: null, processedSeq: 0 };
+  mockFiles.clear();
   mockOpen = { raw: null, handledId: null };
-  mockMarkSticks = true;
+  mockDeleteSticks = true;
   jest.clearAllMocks();
   await AsyncStorage.clear();
   const addEventListener = AppState.addEventListener as unknown as jest.Mock;
@@ -280,7 +293,7 @@ describe("the dump link", () => {
     (AppState as { currentState: unknown }).currentState = "background";
     try {
       redirectSystemPath({ path: "dailytasks://dump?id=bg", initial: true });
-      mockInbox = { raw: inboxJson({ seq: 1, text: "Buy stamps" }), processedSeq: 0 };
+      capture("1.json", "Buy stamps");
       const { result } = await renderStore();
       // A link arriving while the app is still in the background (the listener path).
       await act(async () => queueCaptureOpen({ source: "widget", id: "late" }));
@@ -288,7 +301,7 @@ describe("the dump link", () => {
       expect(result.current.dumpPrompt).toBeNull();
       expect(navigate).not.toHaveBeenCalled();
       expect(result.current.state.parkedTasks).toEqual([]);
-      expect(markProcessed).not.toHaveBeenCalled();
+      expect(deleteFile).not.toHaveBeenCalled();
       expect(events("capture_opened")).toEqual([]);
 
       (AppState as { currentState: unknown }).currentState = "active";
@@ -307,54 +320,84 @@ describe("the dump link", () => {
 // --- The capture inbox -------------------------------------------------------
 
 describe("the capture inbox", () => {
-  it("saves each capture for later, oldest first, never onto today's three, and says how many", async () => {
-    mockInbox = {
-      raw: inboxJson({ seq: 2, text: "  Book\ndentist " }, { seq: 1, text: "https://example.com/read" }, { seq: 3, text: "Buy stamps" }),
-      processedSeq: 0,
-    };
+  it("saves each capture for later, oldest first (by when it was captured), never onto today's three, and says so", async () => {
+    capture("b.json", "  Book\ndentist ", START.getTime() - 2000);
+    capture("a.json", "https://example.com/read", START.getTime() - 3000);
+    capture("c.json", "Buy stamps", START.getTime() - 1000);
     const { result } = await renderStore({ tasks: [TASKS[0]] });
     await flush();
-    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual([
-      "https://example.com/read",
-      "Book dentist",
-      "Buy stamps",
-    ]);
+    expect(savedTexts(result.current.state)).toEqual(["https://example.com/read", "Book dentist", "Buy stamps"]);
     // Today is exactly as it was: still one task, not completed, not locked.
     expect(result.current.state.tasks.map((t) => t.id)).toEqual(["t0"]);
     expect(result.current.state.todayCompletions).toEqual([]);
     expect(result.current.state.todayLocked).toBe(false);
-    expect(result.current.captureNotice).toMatchObject({ count: 3 });
+    expect(result.current.captureNotice).toMatchObject({ count: 3, text: null, full: false });
     expect(events("capture_imported")).toEqual([["capture_imported", { count: 3 }]]);
     // A capture is not a request to open the brain dump.
     expect(result.current.dumpPrompt).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
+    // Every file is gone once saved.
+    expect(mockFiles.size).toBe(0);
+  });
+
+  it("one capture: the notice carries its text (Today quotes it)", async () => {
+    capture("a.json", "Buy stamps");
+    const { result } = await renderStore();
+    await flush();
+    expect(result.current.captureNotice).toMatchObject({ count: 1, text: "Buy stamps", full: false });
   });
 
   it("on a full, locked day the capture still goes only to Saved for later", async () => {
-    mockInbox = { raw: inboxJson({ seq: 1, text: "Idea" }), processedSeq: 0 };
+    capture("a.json", "Idea");
     const { result } = await renderStore({ todayLocked: true, todayLockSource: "manual" });
     await flush();
     expect(result.current.state.tasks.map((t) => t.id)).toEqual(["t0", "t1", "t2"]);
     expect(result.current.state.todayLocked).toBe(true);
-    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Idea"]);
+    expect(savedTexts(result.current.state)).toEqual(["Idea"]);
   });
 
-  it("marks the inbox read to the last seq only after saving, and only once", async () => {
-    mockInbox = { raw: inboxJson({ seq: 4, text: "One" }, { seq: 5, text: "Two" }), processedSeq: 3 };
-    const { result } = await renderStore();
+  it("deletes each file only after Saved for later is stored with it", async () => {
+    const storedAtDelete: Promise<string | null>[] = [];
+    deleteFile.mockImplementation((name: string) => {
+      storedAtDelete.push(AsyncStorage.getItem("daily-tasks/state/v1"));
+      mockFiles.delete(name);
+      return true;
+    });
+    capture("1.json", "One", 1);
+    capture("2.json", "Two", 2);
+    await renderStore();
     await flush();
-    expect(markProcessed).toHaveBeenCalledTimes(1);
-    expect(markProcessed).toHaveBeenCalledWith(5);
-    // The saved list was written before the mark was made.
-    const order = markProcessed.mock.invocationCallOrder[0];
-    const savedWithin = await AsyncStorage.getItem("daily-tasks/state/v1");
-    expect(JSON.parse(savedWithin!).parkedTasks.map((p: { text: string }) => p.text)).toEqual(["One", "Two"]);
-    expect(order).toBeGreaterThan(0);
-    expect(result.current.state.parkedTasks).toHaveLength(2);
+    expect(deleteFile.mock.calls.map(([name]) => name).sort()).toEqual(["1.json", "2.json"]);
+    for (const stored of await Promise.all(storedAtDelete)) {
+      expect(savedTexts(JSON.parse(stored!))).toEqual(["One", "Two"]);
+    }
+  });
+
+  it("if storing fails, no file is deleted; the next foreground stores it and deletes them, without saying or counting it again", async () => {
+    const persist = jest.spyOn(storage, "persistState").mockResolvedValueOnce(false);
+    try {
+      capture("1.json", "Stamps");
+      const { result } = await renderStore();
+      await flush();
+      expect(savedTexts(result.current.state)).toEqual(["Stamps"]);
+      expect(deleteFile).not.toHaveBeenCalled();
+      expect(mockFiles.has("1.json")).toBe(true);
+      await act(async () => result.current.clearCaptureNotice());
+      tracked.mockClear();
+
+      await foreground();
+      await flush();
+      expect(mockFiles.size).toBe(0);
+      expect(savedTexts(result.current.state)).toEqual(["Stamps"]);
+      expect(result.current.captureNotice).toBeNull();
+      expect(events("capture_imported")).toEqual([]);
+    } finally {
+      persist.mockRestore();
+    }
   });
 
   it("repeated foregrounds don't import again, toast again or count again", async () => {
-    mockInbox = { raw: inboxJson({ seq: 1, text: "Once" }), processedSeq: 0 };
+    capture("1.json", "Once");
     const { result } = await renderStore();
     await flush();
     await act(async () => result.current.clearCaptureNotice());
@@ -362,14 +405,14 @@ describe("the capture inbox", () => {
     await foreground();
     await foreground();
     await flush();
-    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Once"]);
+    expect(savedTexts(result.current.state)).toEqual(["Once"]);
     expect(result.current.captureNotice).toBeNull();
     expect(events("capture_imported")).toHaveLength(1);
-    expect(markProcessed).toHaveBeenCalledTimes(1);
+    expect(deleteFile).toHaveBeenCalledTimes(1);
   });
 
   it("a thought saved, deleted from Saved for later, then a foreground: it doesn't come back", async () => {
-    mockInbox = { raw: inboxJson({ seq: 1, text: "Gone soon" }), processedSeq: 0 };
+    capture("1.json", "Gone soon");
     const { result } = await renderStore();
     await flush();
     const id = result.current.state.parkedTasks[0].id;
@@ -380,41 +423,35 @@ describe("the capture inbox", () => {
   });
 
   it("new captures after the first import are saved on the next foreground", async () => {
-    mockInbox = { raw: inboxJson({ seq: 1, text: "First" }), processedSeq: 0 };
+    capture("1.json", "First", 1);
     const { result } = await renderStore();
     await flush();
-    mockInbox = { ...mockInbox, raw: inboxJson({ seq: 1, text: "First" }, { seq: 2, text: "Second" }) };
+    capture("2.json", "Second", 2);
     await foreground();
     await flush();
-    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["First", "Second"]);
+    expect(savedTexts(result.current.state)).toEqual(["First", "Second"]);
     expect(events("capture_imported")).toEqual([
       ["capture_imported", { count: 1 }],
       ["capture_imported", { count: 1 }],
     ]);
   });
 
-  it("empty, whitespace and malformed captures save nothing, say nothing, and are still marked read", async () => {
-    mockInbox = { raw: inboxJson({ seq: 1, text: "   " }, { seq: 2, text: "" }, { seq: 3 }), processedSeq: 0 };
+  it("empty, whitespace and malformed files save nothing, say nothing, and are deleted", async () => {
+    capture("1.json", "   ");
+    capture("2.json", "");
+    mockFiles.set("3.json", JSON.stringify({ at: 3 }));
+    mockFiles.set("4.json", "{not json");
     const { result } = await renderStore();
     await flush();
     expect(result.current.state.parkedTasks).toEqual([]);
     expect(result.current.captureNotice).toBeNull();
     expect(events("capture_imported")).toEqual([]);
-    expect(markProcessed).toHaveBeenCalledWith(3);
-  });
-
-  it("malformed JSON in the inbox is ignored: nothing saved, nothing marked, no crash", async () => {
-    mockInbox = { raw: "[{not json", processedSeq: 2 };
-    const { result } = await renderStore();
-    await flush();
-    expect(result.current.state.parkedTasks).toEqual([]);
-    expect(result.current.captureNotice).toBeNull();
-    expect(markProcessed).not.toHaveBeenCalled();
+    expect(mockFiles.size).toBe(0);
     expect(result.current.state.tasks).toHaveLength(3);
   });
 
   it("an oversized capture is saved cut to one line", async () => {
-    mockInbox = { raw: inboxJson({ seq: 1, text: "word ".repeat(1000) }), processedSeq: 0 };
+    capture("1.json", "word ".repeat(1000));
     const { result } = await renderStore();
     await flush();
     const [saved] = result.current.state.parkedTasks;
@@ -424,45 +461,85 @@ describe("the capture inbox", () => {
   });
 
   it("the same thought twice is saved once, and one already on today's list isn't saved", async () => {
-    mockInbox = {
-      raw: inboxJson({ seq: 1, text: "Stamps" }, { seq: 2, text: "stamps " }, { seq: 3, text: "walk" }),
-      processedSeq: 0,
-    };
+    capture("1.json", "Stamps", 1);
+    capture("2.json", "stamps ", 2);
+    capture("3.json", "walk", 3);
     const { result } = await renderStore();
     await flush();
-    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Stamps"]);
+    expect(savedTexts(result.current.state)).toEqual(["Stamps"]);
+    expect(result.current.captureNotice).toMatchObject({ count: 1, text: "Stamps" });
+    expect(events("capture_imported")).toEqual([["capture_imported", { count: 1 }]]);
+    expect(mockFiles.size).toBe(0);
   });
 
-  // BUG (store.tsx syncCaptures, `track("capture_imported", { count: items.length })` and
-  // `setCaptureNotice({ count: items.length ...})`): the count is the number of non-empty
-  // inbox entries read, not the number parkTasks actually added. Sharing a link that is
-  // already in Saved for later, or text already on today's list, says "N captured thoughts
-  // saved for later" and counts capture_imported though nothing was saved. Un-skip once the
-  // count is the number actually added (compare parkedTasks length before and after).
-  it.skip("a duplicate batch (nothing new to save) still says nothing false: no saved-for-later toast for thoughts that weren't saved", async () => {
-    mockInbox = { raw: inboxJson({ seq: 1, text: "walk" }, { seq: 2, text: "READ" }), processedSeq: 0 };
+  it("a duplicate batch (nothing new to save) says nothing and counts nothing, and its files go", async () => {
+    capture("1.json", "walk", 1);
+    capture("2.json", "READ", 2);
     const { result } = await renderStore();
     await flush();
     expect(result.current.state.parkedTasks).toEqual([]);
     expect(result.current.captureNotice).toBeNull();
     expect(events("capture_imported")).toEqual([]);
+    expect(mockFiles.size).toBe(0);
   });
 
-  // BUG (same lines): when markCaptureInboxProcessed's write fails (the bridge swallows it),
-  // the next foreground re-reads the same entries, saves nothing new (parkTasks de-dupes) but
-  // still toasts and tracks capture_imported again.
-  it.skip("if marking the inbox read fails, the next foreground doesn't save, toast or count the same thoughts again", async () => {
-    mockMarkSticks = false;
-    mockInbox = { raw: inboxJson({ seq: 1, text: "Stamps" }), processedSeq: 0 };
+  it("if deleting a file fails, the next foreground doesn't save, toast or count the same thought again", async () => {
+    mockDeleteSticks = false;
+    capture("1.json", "Stamps");
     const { result } = await renderStore();
     await flush();
     await act(async () => result.current.clearCaptureNotice());
     tracked.mockClear();
     await foreground();
     await flush();
-    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Stamps"]);
+    expect(savedTexts(result.current.state)).toEqual(["Stamps"]);
     expect(result.current.captureNotice).toBeNull();
     expect(events("capture_imported")).toEqual([]);
+  });
+
+  it("Saved for later nearly full: saves only what fits, oldest first, never drops a saved item; the rest wait and Today says it's full", async () => {
+    capture("a.json", "First", 1);
+    capture("b.json", "Second", 2);
+    capture("c.json", "Third", 3);
+    const existing = parked(MAX_PARKED_TASKS - 1);
+    const { result } = await renderStore({ parkedTasks: existing });
+    await flush();
+    const texts = savedTexts(result.current.state);
+    expect(texts).toHaveLength(MAX_PARKED_TASKS);
+    // Every saved item is still there, and the oldest capture came in.
+    expect(texts.slice(0, MAX_PARKED_TASKS - 1)).toEqual(existing.map((p) => p.text));
+    expect(texts.at(-1)).toBe("First");
+    // The toast and the count are the one actually saved.
+    expect(result.current.captureNotice).toMatchObject({ count: 1, text: "First", full: true });
+    expect(events("capture_imported")).toEqual([["capture_imported", { count: 1 }]]);
+    // The other two wait in the inbox.
+    expect([...mockFiles.keys()].sort()).toEqual(["b.json", "c.json"]);
+
+    // Said once: another foreground with the same two waiting says nothing new.
+    await act(async () => result.current.clearCaptureNotice());
+    await foreground();
+    await flush();
+    expect(result.current.captureNotice).toBeNull();
+    expect(events("capture_imported")).toHaveLength(1);
+
+    // Room made: the next one comes in.
+    await act(async () => result.current.removeParkedTask("p0"));
+    await foreground();
+    await flush();
+    expect(savedTexts(result.current.state).at(-1)).toBe("Second");
+    expect([...mockFiles.keys()]).toEqual(["c.json"]);
+    expect(result.current.captureNotice).toMatchObject({ count: 1, text: "Second", full: true });
+  });
+
+  it("Saved for later full: nothing is saved, nothing is dropped, it says so", async () => {
+    capture("a.json", "Waiting");
+    const existing = parked(MAX_PARKED_TASKS);
+    const { result } = await renderStore({ parkedTasks: existing });
+    await flush();
+    expect(result.current.state.parkedTasks).toEqual(existing);
+    expect(result.current.captureNotice).toMatchObject({ count: 0, full: true });
+    expect(events("capture_imported")).toEqual([]);
+    expect([...mockFiles.keys()]).toEqual(["a.json"]);
   });
 });
 
@@ -472,7 +549,7 @@ describe("capture analytics", () => {
   it("capture_opened carries only the source and capture_imported only the count, never any text", async () => {
     const secret = "my-secret-thought-4412 https://example.com/private?token=abc";
     redirectSystemPath({ path: "dailytasks://dump?source=widget&id=x9&text=leak", initial: true });
-    mockInbox = { raw: inboxJson({ seq: 1, text: secret }), processedSeq: 0 };
+    capture("1.json", secret);
     await renderStore();
     await flush();
     const captureEvents = tracked.mock.calls.filter(([name]) => String(name).startsWith("capture_"));

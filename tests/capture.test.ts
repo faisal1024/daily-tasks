@@ -1,5 +1,5 @@
 // Capture from anywhere (1.6 E): the dump link, the App Group's open request
-// and the capture inbox, parsed by the JS side. Native code writes these
+// and the capture inbox (one file per capture), parsed by the JS side. Native code writes these
 // strings, so every parser must survive anything it might find.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,14 +7,17 @@ import {
   CAPTURE_REQUEST_MAX_AGE_MS,
   MAX_CAPTURE_CHARS,
   __resetCaptureForTests,
+  CAPTURE_FULL_TOAST,
   captureToast,
   cleanCaptureText,
-  parseCaptureInbox,
+  parseCaptureFiles,
   parseCaptureLink,
   parseCaptureOpenRequest,
   queueCaptureOpen,
   subscribeCaptureOpens,
+  planCaptureImport,
   takeCaptureOpens,
+  type CaptureItem,
 } from "../lib/daily-tasks/capture";
 
 describe("parseCaptureLink", () => {
@@ -106,71 +109,122 @@ describe("cleanCaptureText", () => {
   });
 });
 
-describe("parseCaptureInbox", () => {
-  const inbox = (...entries: unknown[]) => JSON.stringify(entries);
+// The inbox is one JSON file per capture ({text, at, source}) in the App Group.
+describe("parseCaptureFiles", () => {
+  const file = (name: string, entry: unknown) => ({ name, contents: JSON.stringify(entry) });
 
-  it("returns the unsaved items oldest first, and the last seq read", () => {
-    expect(
-      parseCaptureInbox(inbox({ seq: 3, text: "Third" }, { seq: 1, text: "First" }, { seq: 2, text: "Second" }), 0),
-    ).toEqual({
-      items: [
-        { seq: 1, text: "First" },
-        { seq: 2, text: "Second" },
-        { seq: 3, text: "Third" },
-      ],
-      lastSeq: 3,
-    });
+  it("returns the captures oldest first by when they were captured, whatever the file order", () => {
+    const { items, junk } = parseCaptureFiles([
+      file("c.json", { text: "Third", at: 300, source: "share" }),
+      file("a.json", { text: "First", at: 100, source: "intent" }),
+      file("b.json", { text: "Second", at: 200, source: "share" }),
+    ]);
+    expect(items).toEqual([
+      { name: "a.json", text: "First", at: 100 },
+      { name: "b.json", text: "Second", at: 200 },
+      { name: "c.json", text: "Third", at: 300 },
+    ]);
+    expect(junk).toEqual([]);
   });
 
-  it("skips what the app already saved (seq at or below processedSeq)", () => {
-    const raw = inbox({ seq: 4, text: "Old" }, { seq: 5, text: "Old too" }, { seq: 6, text: "New" });
-    expect(parseCaptureInbox(raw, 5)).toEqual({ items: [{ seq: 6, text: "New" }], lastSeq: 6 });
-    expect(parseCaptureInbox(raw, 6)).toEqual({ items: [], lastSeq: 6 });
+  it("breaks a tie on `at` by name, and reads a missing or bad `at` as oldest", () => {
+    const { items } = parseCaptureFiles([
+      file("200-b.json", { text: "B", at: 200 }),
+      file("200-a.json", { text: "A", at: 200 }),
+      file("x.json", { text: "No time" }),
+      file("y.json", { text: "Bad time", at: "soon" }),
+    ]);
+    expect(items.map((item) => item.text)).toEqual(["No time", "Bad time", "A", "B"]);
   });
 
-  it("reads one web link as an item", () => {
-    expect(parseCaptureInbox(inbox({ seq: 1, text: " https://example.com/read-later " }), 0).items).toEqual([
-      { seq: 1, text: "https://example.com/read-later" },
+  it("reads one web link as an item, trimmed", () => {
+    expect(parseCaptureFiles([file("l.json", { text: " https://example.com/read-later ", at: 1 })]).items).toEqual([
+      { name: "l.json", text: "https://example.com/read-later", at: 1 },
     ]);
   });
 
-  it("drops empty and whitespace entries but still marks them read (they can never be saved)", () => {
-    expect(parseCaptureInbox(inbox({ seq: 1, text: "   " }, { seq: 2, text: "" }, { seq: 3 }, { seq: 4, text: 9 }), 0)).toEqual({
-      items: [],
-      lastSeq: 4,
-    });
+  it("files that can never be saved are junk (deleted at once): empty text, no text, malformed JSON", () => {
+    const { items, junk } = parseCaptureFiles([
+      file("1.json", { text: "   ", at: 1 }),
+      file("2.json", { text: "", at: 2 }),
+      file("3.json", { at: 3 }),
+      file("4.json", { text: 9, at: 4 }),
+      { name: "5.json", contents: "{not json" },
+      { name: "6.json", contents: "null" },
+      file("7.json", { text: "Good", at: 7 }),
+    ]);
+    expect(items.map((item) => item.name)).toEqual(["7.json"]);
+    expect(junk).toEqual(["1.json", "2.json", "3.json", "4.json", "5.json", "6.json"]);
   });
 
   it("cuts oversized text", () => {
-    const [item] = parseCaptureInbox(inbox({ seq: 1, text: "x".repeat(5000) }), 0).items;
+    const [item] = parseCaptureFiles([file("big.json", { text: "x".repeat(5000), at: 1 })]).items;
     expect(Array.from(item.text)).toHaveLength(MAX_CAPTURE_CHARS);
   });
 
-  it("reads malformed JSON, a non-array and missing storage as empty, leaving processedSeq alone", () => {
-    for (const raw of [null, "", "{", "[{", "null", "{}", '"x"', "12"]) {
-      expect(parseCaptureInbox(raw, 7), String(raw)).toEqual({ items: [], lastSeq: 7 });
-    }
+  it("keeps duplicate texts (planCaptureImport decides)", () => {
+    const { items } = parseCaptureFiles([file("a.json", { text: "Same", at: 1 }), file("b.json", { text: "same ", at: 2 })]);
+    expect(items.map((item) => item.text)).toEqual(["Same", "same"]);
+  });
+});
+
+describe("planCaptureImport", () => {
+  const item = (name: string, text: string, at = 0): CaptureItem => ({ name, text, at });
+  const saved = (n: number) => Array.from({ length: n }, (_, i) => ({ text: `saved ${i}` }));
+
+  it("saves new captures in order, while there's room", () => {
+    const plan = planCaptureImport({ parkedTasks: [], tasks: [] }, [item("a", "One"), item("b", "Two")], 50);
+    expect(plan.save.map((i) => i.name)).toEqual(["a", "b"]);
+    expect(plan.present).toEqual([]);
+    expect(plan.waiting).toEqual([]);
   });
 
-  it("skips junk entries and bad seqs without losing the good ones", () => {
-    const raw = inbox(null, 5, "x", [], { seq: "2", text: "string seq" }, { seq: 1.5, text: "fraction" }, { seq: NaN, text: "nan" }, {
-      seq: -1,
-      text: "negative",
-    }, { seq: 2, text: "Good" });
-    expect(parseCaptureInbox(raw, 0)).toEqual({ items: [{ seq: 2, text: "Good" }], lastSeq: 2 });
+  it("never pushes a saved item out: only as many as there's room for, oldest first; the rest wait", () => {
+    const plan = planCaptureImport(
+      { parkedTasks: saved(48), tasks: [] },
+      [item("a", "One"), item("b", "Two"), item("c", "Three"), item("d", "Four")],
+      50,
+    );
+    expect(plan.save.map((i) => i.name)).toEqual(["a", "b"]);
+    expect(plan.waiting.map((i) => i.name)).toEqual(["c", "d"]);
   });
 
-  it("keeps duplicate texts (the store de-duplicates when it saves) and duplicate seqs stay stable", () => {
-    const { items, lastSeq } = parseCaptureInbox(inbox({ seq: 1, text: "Same" }, { seq: 2, text: "same " }, { seq: 2, text: "Same" }), 0);
-    expect(items.map((i) => i.text)).toEqual(["Same", "same", "Same"]);
-    expect(lastSeq).toBe(2);
+  it("a full Saved for later saves nothing; everything waits", () => {
+    const plan = planCaptureImport({ parkedTasks: saved(50), tasks: [] }, [item("a", "One")], 50);
+    expect(plan.save).toEqual([]);
+    expect(plan.waiting.map((i) => i.name)).toEqual(["a"]);
+  });
+
+  it("text already saved, already on today, or earlier in the batch is present (its file can go), and takes no room", () => {
+    const plan = planCaptureImport(
+      { parkedTasks: [{ text: "Stamps" }, ...saved(48)], tasks: [{ text: "Walk" }] },
+      [item("a", "stamps"), item("b", " WALK "), item("c", "New"), item("d", "new"), item("e", "Other")],
+      50,
+    );
+    expect(plan.present.map((i) => i.name)).toEqual(["a", "b", "d"]);
+    expect(plan.save.map((i) => i.name)).toEqual(["c"]);
+    expect(plan.waiting.map((i) => i.name)).toEqual(["e"]);
   });
 });
 
 describe("captureToast", () => {
-  it("says one thought, or the count, and where", () => {
-    expect(captureToast(1)).toBe("Your captured thought is saved for later in Ideas.");
-    expect(captureToast(3)).toBe("3 captured thoughts saved for later in Ideas.");
+  it("quotes one thought, counts several, and calls it Saved for later", () => {
+    expect(captureToast({ count: 1, text: "Buy stamps", full: false })).toBe("Saved for later: “Buy stamps”");
+    expect(captureToast({ count: 3, text: null, full: false })).toBe("3 thoughts saved for later");
+  });
+
+  it("cuts a long quote", () => {
+    const message = captureToast({ count: 1, text: "word ".repeat(30).trim(), full: false })!;
+    expect(message.startsWith("Saved for later: “word")).toBe(true);
+    expect(message.endsWith("…”")).toBe(true);
+    expect(Array.from(message).length).toBeLessThan(70);
+  });
+
+  it("says when Saved for later is full, with or without some saved now; nothing to say is null", () => {
+    expect(captureToast({ count: 0, text: null, full: true })).toBe(CAPTURE_FULL_TOAST);
+    expect(CAPTURE_FULL_TOAST).toBe("Saved for later is full. Clear a few in Ideas to bring in the rest.");
+    expect(captureToast({ count: 2, text: null, full: true })).toBe(`2 thoughts saved for later. ${CAPTURE_FULL_TOAST}`);
+    expect(captureToast({ count: 0, text: null, full: false })).toBeNull();
   });
 });
 

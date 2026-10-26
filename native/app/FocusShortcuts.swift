@@ -1,5 +1,5 @@
 // Siri and Shortcuts (1.3): "Start my next task" and "Start a 5-minute starter";
-// 1.6 E: "Brain dump" and "Add to Three Today".
+// 1.6 E: "Brain dump" and "Save for later" ("Add to Three Today").
 //
 // App target only: plugins/with-focus-app-intents.js adds this file (and a copy
 // of targets/widget/FocusIntents.swift, where the intents live) to the app at
@@ -51,8 +51,9 @@ struct FocusShortcuts: AppShortcutsProvider {
         "Add to \(.applicationName)",
         "Add a thought to \(.applicationName)",
         "Save a thought in \(.applicationName)",
+        "Save for later in \(.applicationName)",
       ],
-      shortTitle: "Add a thought",
+      shortTitle: "Save for later",
       systemImageName: "plus.bubble"
     )
   }

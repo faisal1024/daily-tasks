@@ -10,6 +10,10 @@ export interface WidgetStorageModule {
   setInt(key: string, value: number, group: string): void;
   getInt(key: string, group: string): number;
   reloadWidget(kind: string): void;
+  /** The capture inbox's files (1.6 E), each `{name, contents}`. Missing in builds before 1.6. */
+  listInboxFiles?(group: string, folder: string): { name: string; contents: string }[];
+  /** Deletes one capture file; true when it's gone (or was never there). */
+  deleteInboxFile?(group: string, folder: string, name: string): boolean;
 }
 
 export function loadWidgetStorage(): WidgetStorageModule | null {

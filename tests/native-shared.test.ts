@@ -81,11 +81,35 @@ describe("shared Swift sources", () => {
         "Edit targets/share's and copy it over: cp targets/share/CaptureInbox.swift targets/widget/",
     ).toBe(true);
     const bridge = read("lib/daily-tasks/capture-bridge.ts");
-    for (const key of ["capture.inbox", "capture.processedSeq", "capture.openRequest"]) {
-      expect(share).toContain(`"${key}"`);
-      expect(bridge).toContain(`"${key}"`);
-    }
+    expect(share).toContain('static let openRequestKey = "capture.openRequest"');
+    expect(bridge).toContain('"capture.openRequest"');
+    // The inbox folder is the same on both sides.
+    expect(share).toContain('static let inboxFolder = "capture-inbox"');
+    expect(bridge).toContain('CAPTURE_INBOX_FOLDER = "capture-inbox"');
     expect(share).toContain('"group.com.faisalislam.dailytasks"');
+  });
+
+  // The inbox redesign: one file per capture, written atomically; a full
+  // inbox refuses a capture instead of dropping an old one; no blocking lock.
+  // (There's no Swift test target in this repo: these read the source.)
+  it("the inbox writes one file per capture atomically, refuses when full, and never drops or locks", () => {
+    const share = read("targets/share/CaptureInbox.swift");
+    expect(share).toContain("try data.write(to: file, options: .atomic)");
+    expect(share).toContain("if waitingCount(in: folder) >= maxQueue { return .full }");
+    expect(share).toContain("static let maxQueue = 50");
+    expect(share).not.toMatch(/flock|suffix\(maxQueue\)|removeItem/);
+    // Every caller says when it couldn't save.
+    const intents = read("targets/widget/CaptureIntents.swift");
+    expect(intents).toContain('case .full:\n      return .result(dialog: "Your saved-for-later inbox is full. Open Three Today to sort it.")');
+    expect(intents).toContain("case .failed:");
+    const sheet = read("targets/share/ShareViewController.swift");
+    expect(sheet).toContain("case .full:");
+    expect(sheet).toContain("case .failed:");
+    // The app's module reads the same folder and deletes only a capture file's own name.
+    const module = read("modules/widget-storage/ios/WidgetStorageModule.swift");
+    expect(module).toContain('Function("listInboxFiles")');
+    expect(module).toContain('Function("deleteInboxFile")');
+    expect(module).toContain('!name.contains("/")');
   });
 
   it("points the app and the widget at the same App Group and keys as the JS bridge", () => {

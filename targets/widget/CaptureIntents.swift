@@ -63,24 +63,36 @@ struct BrainDumpIntent: AppIntent {
 }
 
 /// "Add to Three Today": saves a thought for later without opening the app.
-/// The app moves it to Saved for later when it next opens; it never goes on
-/// today's three by itself.
+/// The app moves it to Saved for later when it next opens; it never lands on
+/// today's three. A full inbox refuses it (never drops an older one).
 @available(iOS 16.0, *)
 struct AddToThreeTodayIntent: AppIntent {
-  static let title: LocalizedStringResource = "Add to Three Today"
+  static let title: LocalizedStringResource = "Save for later"
   static let description = IntentDescription(
-    "Saves a thought for later in Three Today without opening it. It waits in Ideas, never on today's three by itself."
+    "Saves a thought for later without opening the app. It never lands on today's three."
   )
   static let openAppWhenRun = false
 
   @Parameter(title: "Thought", requestValueDialog: IntentDialog("What's on your mind?"))
   var text: String
 
+  static var parameterSummary: some ParameterSummary {
+    Summary("Save \(\.$text) for later")
+  }
+
   init() {}
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    let saved = CaptureGroup.append(text, source: "intent")
-    return .result(dialog: saved ? "Saved for later in Three Today." : "There was nothing to save.")
+    switch CaptureGroup.append(text, source: "intent") {
+    case .saved:
+      return .result(dialog: "Saved for later.")
+    case .empty:
+      return .result(dialog: "There was nothing to save.")
+    case .full:
+      return .result(dialog: "Your saved-for-later inbox is full. Open Three Today to sort it.")
+    case .failed:
+      return .result(dialog: "Couldn't save that. Please try again.")
+    }
   }
 }
 #endif

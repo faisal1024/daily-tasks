@@ -1182,8 +1182,43 @@ export default function HomeScreen() {
   // widget or control, the "Brain dump" shortcut or a dump link: the brain
   // dump opens (on a locked day too: the sheet saves everything for later
   // and says so). Not over first run, and not over the paywall (a purchase
-  // under way); any other sheet steps aside first (one modal at a time on
-  // iOS) and the dump follows once it has animated away.
+  // under way); anything else on screen steps aside first (one modal at a
+  // time on iOS) and the dump follows once it has animated away.
+  //
+  // Step-aside hook: every sheet or overlay Today shows registers here. Each
+  // entry closes its own sheet if it's up and returns true (false if it
+  // wasn't up). A new sheet must add itself, or a dump request over it opens
+  // nothing (iOS shows one modal at a time).
+  const stepAsideForDump = useRef<Record<string, () => boolean>>({});
+  stepAsideForDump.current = {
+    // What's new and "Meet Nag mode" (whatsNewStepAside, set further down).
+    whatsNew: () => whatsNewStepAside.current(),
+    ideas: () => {
+      if (!ideasOpen) return false;
+      setIdeasOpen(false);
+      return true;
+    },
+    routines: () => {
+      if (!routinesOpen) return false;
+      setRoutinesOpen(false);
+      return true;
+    },
+    focus: () => {
+      if (focusTaskId === null) return false;
+      setFocusTaskId(null);
+      return true;
+    },
+    share: () => {
+      if (!shareOpen) return false;
+      setShareOpen(false);
+      return true;
+    },
+    celebration: () => {
+      if (!showCelebration) return false;
+      dismissCelebration();
+      return true;
+    },
+  };
   const dumpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -1195,12 +1230,10 @@ export default function HomeScreen() {
     if (!dumpPrompt) return;
     clearDumpPrompt();
     if (!state.hasSeenOnboarding || firstRunActive || paywallSource !== null || brainDumpOpen) return;
-    let stepped = whatsNewStepAside.current();
-    if (ideasOpen) setIdeasOpen(false);
-    if (routinesOpen) setRoutinesOpen(false);
-    if (focusTaskId !== null) setFocusTaskId(null);
-    if (shareOpen) setShareOpen(false);
-    stepped = stepped || ideasOpen || routinesOpen || focusTaskId !== null || shareOpen;
+    // Every entry runs (no short-circuit): all of them close.
+    const stepped = Object.values(stepAsideForDump.current)
+      .map((stepAside) => stepAside())
+      .some(Boolean);
     if (dumpTimer.current) clearTimeout(dumpTimer.current);
     dumpTimer.current = null;
     if (!stepped) {
@@ -1214,14 +1247,17 @@ export default function HomeScreen() {
     // Only when a new prompt arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dumpPrompt]);
-  // Captures from the share sheet or "Add to Three Today", just saved for later.
+  // Captures from the share sheet or "Save for later", just saved for later
+  // (or Saved for later is full). Not during onboarding or first run: it
+  // waits, and is said once they're done.
   useEffect(() => {
-    if (!captureNotice) return;
+    if (!captureNotice || !state.hasSeenOnboarding || firstRunActive) return;
     clearCaptureNotice();
-    showToast(captureToast(captureNotice.count));
-    // Only when a new notice arrives.
+    const message = captureToast(captureNotice);
+    if (message) showToast(message);
+    // When a notice arrives, or once onboarding is done.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [captureNotice]);
+  }, [captureNotice, state.hasSeenOnboarding, firstRunActive]);
 
   // The gentle aha paywall: once per install, after day 1, at a real win
   // (last night's draft used, Set, or a brain dump that filled the day's

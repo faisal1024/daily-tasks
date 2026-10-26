@@ -137,6 +137,22 @@ describe("Today: first run vs a capture request (1.6 E)", () => {
     expect(clearDumpPrompt).toHaveBeenCalledTimes(1);
   });
 
+  it("a capture toast waits for first run: nothing during it, said once it's done", async () => {
+    const clearCaptureNotice = jest.fn();
+    const notice = { count: 1, text: "Buy stamps", full: false, nonce: 1 };
+    mockStore = makeStore({}, { captureNotice: notice, clearCaptureNotice });
+    const view = await render(<HomeScreen />);
+    expect(screen.getByTestId("first-run-dump")).toBeOnTheScreen();
+    expect(screen.queryByTestId("today-toast")).toBeNull();
+    expect(clearCaptureNotice).not.toHaveBeenCalled();
+
+    await fireEvent.press(button("I'll add my own"));
+    mockStore = makeStore({ hasSeenOnboarding: true }, { captureNotice: notice, clearCaptureNotice });
+    await view.rerender(<HomeScreen />);
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Saved for later: “Buy stamps”/);
+    expect(clearCaptureNotice).toHaveBeenCalledTimes(1);
+  });
+
   it("first run ending later does not bring the dropped dump request back", async () => {
     mockStore = makeStore({ hasSeenOnboarding: false }, { dumpPrompt: { source: "link", nonce: 1 }, clearDumpPrompt: jest.fn() });
     const view = await render(<HomeScreen />);
