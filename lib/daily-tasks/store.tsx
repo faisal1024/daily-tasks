@@ -76,12 +76,15 @@ import {
   type AiFailureKind,
 } from "./ai-status";
 import { autoLockEligibleTaskCount, scheduledAutoLockAt, shouldAutoLockToday } from "./locking";
+import { parseLocalWhen } from "./resurface";
 import {
   canTakeParkedTask,
   clearTaskSteps,
   parkTasks,
   removeParkedTask,
+  setParkedWhen,
   swapParkedTask,
+  taskDates,
   unparkTexts,
   setTaskSteps,
   toggleTaskStep,
@@ -192,14 +195,15 @@ import type {
   ReviewTrigger,
   SundayResetState,
   TaskId,
+  TaskWhen,
 } from "./types";
 import { DEFAULT_NOTIFICATIONS, MAX_TASKS } from "./types";
 
 type Action =
   | { type: "hydrate"; state: AppState }
   | { type: "rollover"; today: string }
-  | { type: "addTask"; text: string; today: string; routineId?: string }
-  | { type: "addTasks"; texts: string[]; today: string }
+  | { type: "addTask"; text: string; today: string; routineId?: string; when?: TaskWhen }
+  | { type: "addTasks"; texts: string[]; today: string; whens?: Record<string, TaskWhen> }
   | { type: "editTask"; id: TaskId; text: string; today: string }
   | { type: "deleteTask"; id: TaskId; today: string }
   | { type: "notToday"; id: TaskId; today: string; at: string }
@@ -243,7 +247,8 @@ type Action =
   | { type: "markReviewPrompted"; at: string }
   | { type: "markReviewDue"; at: string; source: ReviewTrigger }
   | { type: "clearReviewDue" }
-  | { type: "parkTasks"; texts: string[]; at: string }
+  | { type: "parkTasks"; texts: string[]; at: string; dates?: Record<string, TaskWhen>; refDays?: (string | undefined)[] }
+  | { type: "setParkedWhen"; id: string; when: TaskWhen | null }
   | { type: "removeParkedTask"; id: string }
   | { type: "addParkedTask"; id: string; today: string }
   | { type: "swapParkedTask"; parkedId: string; taskId: string; today: string; at: string; newId: string }
@@ -370,6 +375,9 @@ function resetMilestonesIfGoalChanged(
   if (nextGoalTitle === state.momentumProfile.goalTitle) return {};
   return { completedMilestoneIds: [], pendingMilestoneCelebration: null };
 }
+
+// Case- and space-insensitive, like Saved for later's own matching (1.6 F).
+const looseTextKey = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
 
 export function reducer(state: AppState, action: Action): AppState {
   const next = keepGoalPath(state, action, reduce(state, action));
@@ -530,7 +538,10 @@ function reduce(state: AppState, action: Action): AppState {
       // Only what the card offered: tasks already on the list, finished or
       // dropped were filtered out of it and must not come back as saved.
       const leftovers = action.shown.filter((text) => !action.tasks.includes(text));
-      const next = reducer(state, { type: "addTasks", texts: action.tasks, today: action.today });
+      // Saved items in the draft bring their soft dates along (1.6 F).
+      const whens: Record<string, TaskWhen> = {};
+      for (const item of state.parkedTasks) if (item.when) whens[looseTextKey(item.text)] = item.when;
+      const next = reducer(state, { type: "addTasks", texts: action.tasks, today: action.today, whens });
       // Ticked ones now on Today leave Saved for later (no copy in both).
       const added = next.tasks.slice(state.tasks.length).map((task) => task.text);
       const unparked = unparkTexts(next, added);
@@ -539,7 +550,7 @@ function reduce(state: AppState, action: Action): AppState {
       const notAdded = action.tasks.filter((text) => !addedKeys.has(text.trim().toLowerCase()));
       // What didn't fit is saved for later rather than lost.
       const toPark = [...notAdded, ...leftovers];
-      const withLeftovers = toPark.length > 0 ? parkTasks(unparked, toPark, action.at) : unparked;
+      const withLeftovers = toPark.length > 0 ? parkTasks(unparked, toPark, action.at, undefined, { today: action.today }) : unparked;
       return { ...withLeftovers, tomorrowDraft: null };
     }
     case "setAgendaEnabled":
@@ -638,13 +649,24 @@ function reduce(state: AppState, action: Action): AppState {
         ? state
         : { ...state, analyticsEnabled: action.enabled };
     case "parkTasks":
-      return parkTasks(state, action.texts, action.at);
+      // Dates are read against the store's day (1.6 F), not the clock's.
+      return parkTasks(state, action.texts, action.at, action.dates, {
+        today: state.lastOpenedDate,
+        ...(action.refDays ? { refDays: action.refDays } : {}),
+      });
+    case "setParkedWhen":
+      return setParkedWhen(state, action.id, action.when);
     case "removeParkedTask":
       return removeParkedTask(state, action.id);
     case "addParkedTask": {
       const parked = state.parkedTasks.find((p) => p.id === action.id);
       if (!parked || !canTakeParkedTask(state)) return state;
-      const withTask = reducer(state, { type: "addTask", text: parked.text, today: action.today });
+      const withTask = reducer(state, {
+        type: "addTask",
+        text: parked.text,
+        today: action.today,
+        ...(parked.when ? { when: parked.when } : {}),
+      });
       return withTask === state ? state : removeParkedTask(withTask, action.id);
     }
     case "swapParkedTask": {
@@ -653,6 +675,7 @@ function reduce(state: AppState, action: Action): AppState {
         taskId: action.taskId,
         now: action.at,
         newId: action.newId,
+        today: action.today,
       });
       return swapped === state ? state : syncTodayHistory(swapped, action.today);
     }
@@ -780,6 +803,7 @@ function reduce(state: AppState, action: Action): AppState {
               createdAt: new Date().toISOString(),
               carriedOver: false,
               ...(action.routineId ? { routineId: action.routineId } : {}),
+              ...(action.when ? { when: action.when } : {}),
             },
           ],
           // Planning counts as showing up (no need to finish anything first).
@@ -801,12 +825,16 @@ function reduce(state: AppState, action: Action): AppState {
           ...state,
           tasks: [
             ...state.tasks,
-            ...texts.map((text) => ({
-              id: makeId(),
-              text,
-              createdAt: new Date().toISOString(),
-              carriedOver: false,
-            })),
+            ...texts.map((text) => {
+              const when = action.whens?.[looseTextKey(text)];
+              return {
+                id: makeId(),
+                text,
+                createdAt: new Date().toISOString(),
+                carriedOver: false,
+                ...(when ? { when } : {}),
+              };
+            }),
           ],
           journey: registerShowedUp(state.journey, action.today),
         },
@@ -822,9 +850,11 @@ function reduce(state: AppState, action: Action): AppState {
           ...state,
           tasks: state.tasks.map((task) => {
             if (task.id !== action.id || task.text === text) return task;
-            // Steps were written for the old wording; drop them when it changes.
-            const { steps: _staleSteps, ...rest } = task;
-            return { ...rest, text };
+            // Steps (and the soft date, 1.6 F) were for the old wording; drop
+            // them when it changes. A date in the new words is read afresh.
+            const { steps: _staleSteps, when: _staleWhen, ...rest } = task;
+            const when = parseLocalWhen(text, action.today);
+            return when ? { ...rest, text, when } : { ...rest, text };
           }),
         },
         action.today,
@@ -849,7 +879,8 @@ function reduce(state: AppState, action: Action): AppState {
       if (!task || state.todayCompletions.includes(action.id)) return state;
       // Off the list first: parkTasks skips anything still on today's list.
       const removed = { ...state, tasks: state.tasks.filter((item) => item.id !== action.id) };
-      return syncTodayHistory(parkTasks(removed, [task.text], action.at), action.today);
+      // Its date, if it came from Saved for later, goes back with it (1.6 F).
+      return syncTodayHistory(parkTasks(removed, [task.text], action.at, taskDates(task), { today: action.today, carried: true }), action.today);
     }
     case "toggleTask": {
       // Not one of today's tasks (e.g. it rolled over a moment ago): ignore,
@@ -1340,7 +1371,14 @@ interface StoreContextValue {
   suggestNewPath: () => void;
   /** Days with a plan (today included): the "Day N" chip. */
   daysShowedUp: number;
-  parkTasks: (texts: string[]) => void;
+  /**
+   * `dates`: soft dates from the AI sort, keyed by the text's loose key
+   * (1.6 F). `refDays`: per text, the day it was written (a capture), see
+   * ParkOptions in task-extras.ts.
+   */
+  parkTasks: (texts: string[], dates?: Record<string, TaskWhen>, refDays?: (string | undefined)[]) => void;
+  /** "Change day" on a saved item (1.6 F); null clears its date. */
+  setParkedWhen: (id: string, when: TaskWhen | null) => void;
   removeParkedTask: (id: string) => void;
   addParkedTask: (id: string) => void;
   /**
@@ -2425,11 +2463,20 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const editMilestones = useCallback((items: { id?: string; title: string; description?: string }[]) => {
     dispatch({ type: "setMilestones", items });
   }, []);
-  const parkTasksCb = useCallback((texts: string[]) => {
-    dispatch({ type: "parkTasks", texts, at: new Date().toISOString() });
+  const parkTasksCb = useCallback((texts: string[], dates?: Record<string, TaskWhen>, refDays?: (string | undefined)[]) => {
+    dispatch({
+      type: "parkTasks",
+      texts,
+      at: new Date().toISOString(),
+      ...(dates ? { dates } : {}),
+      ...(refDays ? { refDays } : {}),
+    });
   }, []);
   const removeParkedTaskCb = useCallback((id: string) => {
     dispatch({ type: "removeParkedTask", id });
+  }, []);
+  const setParkedWhenCb = useCallback((id: string, when: TaskWhen | null) => {
+    dispatch({ type: "setParkedWhen", id, when });
   }, []);
   const addParkedTask = useCallback((id: string) => {
     dispatch({ type: "addParkedTask", id, today: ensureDay() });
@@ -2447,7 +2494,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       const current = swapRef.current && swapRef.current.from === rendered ? swapRef.current.to : rendered;
       // The day just turned: that task was yesterday's, nothing to swap.
       if (current.lastOpenedDate !== today) return false;
-      const next = swapParkedTask(current, { parkedId, taskId, now: at, newId });
+      const next = swapParkedTask(current, { parkedId, taskId, now: at, newId, today });
       if (next === current) return false;
       swapRef.current = { from: rendered, to: next };
       dispatch({ type: "swapParkedTask", parkedId, taskId, today, at, newId });
@@ -2878,6 +2925,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       daysShowedUp,
       parkTasks: parkTasksCb,
       removeParkedTask: removeParkedTaskCb,
+      setParkedWhen: setParkedWhenCb,
       addParkedTask,
       swapParkedTask: swapParkedTaskCb,
       addRoutine,
@@ -2976,6 +3024,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       daysShowedUp,
       parkTasksCb,
       removeParkedTaskCb,
+      setParkedWhenCb,
       addParkedTask,
       swapParkedTaskCb,
       addRoutine,
