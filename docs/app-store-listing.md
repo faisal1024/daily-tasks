@@ -67,8 +67,13 @@ Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70
 ## What's New in 1.6 (draft)
 
 ```
-(Draft: fill in with the other 1.6 changes.)
-• Sunday reset (Plus): two minutes on Sunday evening for your week's wins, a dump for the week, and Monday's three.
+Catch it anywhere, see it again when it matters:
+• Save a thought for later from the share sheet, the Dump widget, Control Center or Siri ("Save for later in Three Today"). It never lands on today's three.
+• Saved items with a day ("dentist Friday") come back on that day. Missed deadlines show as Overdue. Tap a date to change it.
+• Nags now always fit the task they're about, and never mention one you've finished.
+• Snooze a nag for an hour or mark the task done right from the notification.
+• Plus: write your own nag lines.
+• Plus: Sunday reset. Two minutes on Sunday evening for your week's wins, a dump for the week, and Monday's three.
 ```
 
 ## What's New in 1.5 (draft)
