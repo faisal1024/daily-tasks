@@ -173,15 +173,15 @@ describe("Progress: Set a goal", () => {
 
 describe("Settings: Setting the day (Phase 10b)", () => {
   const walk = [{ id: "t1", text: "Walk", createdAt: "", carriedOver: false }];
-  const autoSwitch = () => screen.getByRole("switch", { name: "Set the day automatically" });
-  const picker = () => screen.getByLabelText("Time to set the day");
+  const autoSwitch = () => screen.getByRole("switch", { name: "Lock the day automatically" });
+  const picker = () => screen.getByLabelText("Time to lock the day");
 
   it("has no Today's Three list or switch any more (that lives on Today)", async () => {
     await renderWith(<SettingsScreen />, {
       tasks: walk,
       autoLock: { enabled: false, hour: 12, minute: 0 },
     });
-    await waitFor(() => expect(screen.getByText("Setting the day")).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByText("Locking the day")).toBeOnTheScreen());
     expect(screen.queryByRole("switch", { name: "Set today's three" })).toBeNull();
     expect(screen.queryByText("Today's Three")).toBeNull();
     expect(screen.queryByText("Walk")).toBeNull();
@@ -190,11 +190,11 @@ describe("Settings: Setting the day (Phase 10b)", () => {
 
   it("explains a set day, with a named auto-set switch and a 'Time' row", async () => {
     await renderWith(<SettingsScreen />, { autoLock: { enabled: false, hour: 12, minute: 0 } });
-    await waitFor(() => expect(screen.getByText("Setting the day")).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByText("Locking the day")).toBeOnTheScreen());
     expect(
-      screen.getByText("A set day keeps your three fixed; you can still check them off."),
+      screen.getByText("A locked day keeps your three fixed; you can still check them off."),
     ).toBeOnTheScreen();
-    expect(screen.getByText("Days with at least one task are set at this time.")).toBeOnTheScreen();
+    expect(screen.getByText("Days with at least one task lock at this time.")).toBeOnTheScreen();
     expect(screen.getByText("Time")).toBeOnTheScreen();
     expect(autoSwitch().props.value).toBe(false);
     // Off: the picker is disabled; turning auto-set on enables it.

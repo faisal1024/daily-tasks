@@ -34,6 +34,7 @@ import type {
 } from "./types";
 import {
   DEFAULT_AUTO_LOCK,
+  NEW_INSTALL_AUTO_LOCK,
   DEFAULT_MOMENTUM_PROFILE,
   DEFAULT_MOMENTUM_SETTINGS,
   DEFAULT_NOTIFICATIONS,
@@ -269,6 +270,12 @@ function normalizeMinute(value: unknown): number {
     : DEFAULT_AUTO_LOCK.minute;
 }
 
+// Migration note (1.5): new installs start with auto-lock OFF
+// (NEW_INSTALL_AUTO_LOCK, in buildInitialState). Reading a save never flips
+// it: a 1.4.x save always has `enabled` written out and keeps it as is, and an
+// older save without the field (or without autoLock at all) reads as ON, the
+// value those builds ran with. So only a brand-new install, or "Reset all
+// data", starts with it off.
 function normalizeAutoLock(value: unknown): AutoLockConfig {
   if (!isRecord(value)) {
     return DEFAULT_AUTO_LOCK;
@@ -722,7 +729,8 @@ export function buildInitialState(now: Date = new Date()): AppState {
       },
     },
     notifications: DEFAULT_NOTIFICATIONS,
-    autoLock: DEFAULT_AUTO_LOCK,
+    // Off for a new install from 1.5 (see normalizeAutoLock for saved state).
+    autoLock: NEW_INSTALL_AUTO_LOCK,
     hasSeenOnboarding: false,
     reorderHintSeen: false,
     // A new install: first run marks every current announcement seen when it ends.

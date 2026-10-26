@@ -247,7 +247,7 @@ export function IdeasSheet({
           ) : (
             <Text className="text-base" style={{ color: colors.muted }} testID="ideas-hint">
               {locked
-                ? "Today is set. Unlock it in Settings to add one."
+                ? "Today is locked. Unlock it to add one."
                 : savedOnly
                   ? "Your day is full. Free a slot to swap one of these in."
                   : full
@@ -400,12 +400,12 @@ export function IdeasSheet({
                 <Pressable
                   onPress={onLock}
                   accessibilityRole="button"
-                  accessibilityLabel="Set these three"
+                  accessibilityLabel="Lock these three"
                   className="rounded-2xl py-4 items-center"
                   style={{ backgroundColor: colors.primary }}
                 >
                   <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: colors.onPrimary }}>
-                    Set these three
+                    Lock these three
                   </Text>
                 </Pressable>
               )}

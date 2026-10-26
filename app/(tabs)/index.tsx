@@ -39,6 +39,8 @@ import { NagIntro } from "@/components/daily-tasks/nag-intro";
 import { RoutinesManager } from "@/components/daily-tasks/routines-manager";
 import { NextPathLink } from "@/components/daily-tasks/next-path-link";
 import { FirstRun } from "@/components/daily-tasks/first-run";
+import { FirstDaysCards } from "@/components/daily-tasks/first-days-cards";
+import { pickedNote, saveFirstDays, startFirstDays } from "@/lib/daily-tasks/first-days";
 import type { FocusSessionControls } from "@/components/daily-tasks/focus-check-in";
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { DoneCard } from "@/components/daily-tasks/done-card";
@@ -127,6 +129,8 @@ import {
   showIdeasEntry,
   todayProgress,
   todayStatus,
+  unlockConfirmation,
+  UNLOCKED_NOTE,
 } from "@/lib/daily-tasks/today-view";
 import {
   openTaskCount,
@@ -197,11 +201,15 @@ export default function HomeScreen() {
     makeTaskNext,
     toggleTask,
     lockToday,
+    unlockToday,
     noteOpenEdit,
     resolveRollover,
     markOnboardingSeen,
     markReorderHintSeen,
     requestNotificationPermission,
+    notificationPermission,
+    setNotificationsEnabled,
+    setNotificationEnabled,
     setTodayReflection,
     setTodayReflectionResult,
     requestMomentumPlan,
@@ -249,9 +257,12 @@ export default function HomeScreen() {
   winBackDueRef.current = winBackDue;
 
   // First run stays up until its last step; onboarding is marked seen only
-  // then, so a relaunch mid-way resumes (at the nudge once tasks are set).
+  // then, so a relaunch mid-way starts again at the dump (or, with tasks
+  // already on today, just finishes).
   const [firstRunActive, setFirstRunActive] = useState(false);
   const firstRunAiUsed = useRef(false);
+  // Bumped once first run has written the Today cards' record (1.5).
+  const [firstDaysVersion, setFirstDaysVersion] = useState(0);
   useEffect(() => {
     if (ready && !state.hasSeenOnboarding && !state.pendingRollover && !firstRunActive) {
       setFirstRunActive(true);
@@ -1258,11 +1269,36 @@ export default function HomeScreen() {
     Alert.alert(title, message, [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Set",
+        text: "Lock",
         onPress: () => {
           haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
           lockToday();
           offerAhaPaywall();
+        },
+      },
+    ]);
+  };
+
+  // "Unlock" on the status line (1.5; Settings keeps its row too). Always
+  // asks first: "Unlock" is the clear action, "Keep locked" the cancel.
+  const confirmUnlock = () => {
+    const copy = unlockConfirmation({
+      lockSource: state.todayLockSource,
+      autoLockTime: clockTimeOf(state.todayLockedAt) ?? formatClockTime(state.autoLock.hour, state.autoLock.minute),
+    });
+    Alert.alert(copy.title, copy.message, [
+      { text: copy.keep, style: "cancel" },
+      {
+        text: copy.unlock,
+        style: "default",
+        isPreferred: true,
+        onPress: () => {
+          // False when nothing was unlocked (the alert sat open past midnight).
+          if (!unlockToday()) return;
+          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+          track("day_unlocked", { source: "today" });
+          showToast(UNLOCKED_NOTE);
+          announcePolitely(UNLOCKED_NOTE);
         },
       },
     ]);
@@ -1609,11 +1645,10 @@ export default function HomeScreen() {
               ) : null}
 
               {/* A full three-for-three day: the card and gradient say it all.
-                  With room left, keep the line. A set day always keeps it, so
-                  the lock (and where to unlock) still shows on a finished
-                  three; nothing to tap here: unlocking is in Settings only (1.4). */}
+                  With room left, keep the line. A locked day always keeps it,
+                  so the lock and its Unlock (1.5) still show on a finished three. */}
               {(state.todayLocked || !(progress.isPerfect && total >= MAX_TASKS)) && (
-              <StatusLine status={status} onLock={confirmLock} />
+              <StatusLine status={status} onLock={confirmLock} onUnlock={confirmUnlock} />
               )}
               {/* Routines due today (1.3): right under the day's card, so
                   they're seen without opening Ideas. */}
@@ -1625,9 +1660,9 @@ export default function HomeScreen() {
                   onEdit={() => setRoutinesOpen(true)}
                 />
               )}
-              {/* A full or set day hides the ideas entry, but saved items
-                  must stay reachable (to view or remove; on a set day nothing
-                  swaps in until it's unlocked in Settings). */}
+              {/* A full or locked day hides the ideas entry, but saved items
+                  must stay reachable (to view or remove; on a locked day
+                  nothing swaps in until it's unlocked). */}
               {(state.todayLocked || remainingSlots === 0) && state.parkedTasks.length > 0 && (
                 <Pressable
                   onPress={() => {
@@ -1650,6 +1685,25 @@ export default function HomeScreen() {
               )}
               {/* The day-5 trial note: under the day's card and status, away from the rollover. */}
               {ready && !firstRunActive && <TrialNote today={today} active={appActive} />}
+              {/* First run's old last screens, as Today cards (1.5): the
+                  morning nudge on the first visits, the widget tip once
+                  after the first finished day. */}
+              <FirstDaysCards
+                today={today}
+                active={ready && state.hasSeenOnboarding && !firstRunActive && appActive}
+                version={firstDaysVersion}
+                dayFinished={progress.isPerfect && total >= MAX_TASKS}
+                permission={notificationPermission}
+                onAskNudge={async () => {
+                  const status = await requestNotificationPermission();
+                  if (status === "granted") {
+                    // "Yes" means the morning reminder: make sure it's on.
+                    setNotificationsEnabled(true);
+                    setNotificationEnabled("morning", true);
+                  }
+                  return status;
+                }}
+              />
             </View>
 
             {rightHasContent && (
@@ -2093,17 +2147,22 @@ export default function HomeScreen() {
           if (accepted.length > 0) addTasks(accepted);
           parkTasks([...picks.slice(room), ...parked]);
         }}
-        onAskNudge={async () => (await requestNotificationPermission()) === "granted"}
-        showWidgetStep={Platform.OS === "ios"}
-        // Relaunched after setting the three: pick up at the nudge, not the dump.
-        // Read only when it (re)appears, e.g. after a rollover mid-flow.
+        // Tasks already on today (an earlier first run added them, then
+        // didn't finish): it just finishes. Read only when it (re)appears.
         resumeCount={state.tasks.length}
-        onFinish={() => {
+        onFinish={(picked) => {
           markOnboardingSeen();
           setFirstRunActive(false);
-          track("onboarding_completed", { source: state.tasks.length > 0 ? "dump" : "own" });
-          // Offer the trial once, at the end of first run (closable).
-          if (paywallEnabled && !hasPlus) showPaywall("onboarding", { afterSheet: true, taskCount: state.tasks.length });
+          const count = Math.max(picked, state.tasks.length);
+          track("onboarding_completed", { source: count > 0 ? "dump" : "own", count });
+          // 1.5: no paywall at the end of first run (the aha paywall comes
+          // later); the nudge and widget tip become Today cards from here.
+          void saveFirstDays(startFirstDays(today)).then(() => setFirstDaysVersion((v) => v + 1));
+          const note = pickedNote(picked);
+          if (note) {
+            showToast(note);
+            announceLater(note);
+          }
         }}
       />
 

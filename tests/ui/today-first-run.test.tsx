@@ -1,6 +1,6 @@
 // Today wiring for the Phase 9b first run (FirstRun replaced OnboardingModal).
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, screen } from "@testing-library/react-native";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { sortBrainDump } from "@/lib/daily-tasks/ai-helpers";
@@ -116,11 +116,9 @@ const FREE_KEY = "daily-tasks/free-ai-dumps-used";
 const sortedEvents = () =>
   (track as jest.Mock).mock.calls.filter(([name]) => name === "brain_dump_sorted").map(([, props]) => props);
 
-/** Set the picks, skip the nudge, finish: back on an empty Today. */
-async function finishFirstRun(label = "Set my three") {
+/** Use the picks: first run is over, back on Today (three screens since 1.5). */
+async function finishFirstRun(label = "Use these three") {
   await fireEvent.press(button(label));
-  await fireEvent.press(button("Not now"));
-  await fireEvent.press(button("Done"));
   expect(screen.queryByTestId(/^first-run-/)).toBeNull();
 }
 
@@ -144,28 +142,33 @@ describe("Today: first run", () => {
     expect(screen.queryByText("old-onboarding-modal")).toBeNull();
   });
 
-  it("first sort uses the AI; set adds the kept picks and parks the rest (onboarding not yet marked seen)", async () => {
+  it("first sort uses the AI; using the picks adds the kept ones, parks the rest and ends first run on Today", async () => {
     mockStore = makeStore();
     await render(<HomeScreen />);
     await dump("walk, call mum, report");
     expect(sortBrainDump).toHaveBeenCalledWith({ text: "walk, call mum, report", openSlots: 3, goalTitle: null });
+    // Nothing is marked seen while the picks are still on screen.
+    expect(mockStore.markOnboardingSeen).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByRole("checkbox", { name: "Report" }));
-    await fireEvent.press(button("Set my two"));
+    await fireEvent.press(button("Use these two"));
     expect(mockStore.addTasks).toHaveBeenCalledWith(["Walk", "Call mum"]);
     expect(mockStore.parkTasks).toHaveBeenCalledWith(["Report", "Groceries"]);
-    // Only finishing marks it seen, so a relaunch mid-way resumes.
-    expect(mockStore.markOnboardingSeen).not.toHaveBeenCalled();
+    // Three screens (1.5): "Here are your three" is the last one.
+    expect(mockStore.markOnboardingSeen).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId(/^first-run-/)).toBeNull();
+    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Your two are picked\./);
+    expect(track).toHaveBeenCalledWith("onboarding_completed", { source: "dump", count: 2 });
   });
 
   it("a day set while the picks were on screen takes nothing: every pick is saved for later, none is lost", async () => {
     mockStore = makeStore();
     const { rerender } = await render(<HomeScreen />);
     await dump("walk, call mum, report");
-    expect(button("Set my three")).toBeOnTheScreen();
-    // Auto-set fires mid-dump (a task typed before first run was finished is on today).
+    expect(button("Use these three")).toBeOnTheScreen();
+    // Auto-lock fires mid-dump (a task typed before first run was finished is on today).
     mockStore = makeStore({ tasks: tasks("Stretch"), todayLocked: true, todayLockSource: "auto" });
     await rerender(<HomeScreen />);
-    await fireEvent.press(button("Set my three"));
+    await fireEvent.press(button("Use these three"));
     // The store would refuse the add, so nothing is handed to it; all four are kept in Ideas.
     expect(mockStore.addTasks).not.toHaveBeenCalled();
     expect(mockStore.parkTasks.mock.calls).toEqual([[["Walk", "Call mum", "Report", "Groceries"]]]);
@@ -177,7 +180,7 @@ describe("Today: first run", () => {
     await dump("walk, call mum, report");
     mockStore = makeStore({ tasks: tasks("Stretch", "Read") });
     await rerender(<HomeScreen />);
-    await fireEvent.press(button("Set my three"));
+    await fireEvent.press(button("Use these three"));
     expect(mockStore.addTasks.mock.calls).toEqual([[["Walk"]]]);
     expect(mockStore.parkTasks.mock.calls).toEqual([[["Call mum", "Report", "Groceries"]]]);
   });
@@ -236,28 +239,25 @@ describe("Today: first run", () => {
     expect(await AsyncStorage.getItem("daily-tasks/free-ai-dumps-used")).toBe("0");
   });
 
-  it("finishing asks for notifications, marks onboarding seen, and offers the trial to a free user", async () => {
+  it("finishing marks onboarding seen, asks for nothing, and shows no paywall to a free user (1.5)", async () => {
     mockStore = makeStore();
     await render(<HomeScreen />);
     await fireEvent.press(button("I'll add my own"));
-    await fireEvent.press(button("Yes, nudge me"));
-    expect(mockStore.requestNotificationPermission).toHaveBeenCalledTimes(1);
-    // jest-expo runs as iOS: the widget step shows.
-    await fireEvent.press(button("Done"));
     expect(mockStore.markOnboardingSeen).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId(/^first-run-/)).toBeNull();
-    // "I'll add my own": no tasks set, so the paywall gets the generic headline.
-    await waitFor(() => expect(mockOpenPaywall).toHaveBeenCalledWith("onboarding", { taskCount: 0 }), {
-      timeout: 2000,
-    });
+    // The morning nudge is a Today card now, not a first-run question.
+    expect(mockStore.requestNotificationPermission).not.toHaveBeenCalled();
+    expect(track).toHaveBeenCalledWith("onboarding_completed", { source: "own", count: 0 });
+    // Nothing picked here: no "picked" note.
+    expect(screen.queryByTestId("today-toast")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 
-  it("doesn't offer the trial to someone who already has Plus", async () => {
+  it("shows no paywall at the end of first run with Plus either", async () => {
     mockStore = makeStore({}, { hasPlus: true });
     await render(<HomeScreen />);
     await fireEvent.press(button("I'll add my own"));
-    await fireEvent.press(button("Not now"));
-    await fireEvent.press(button("Done"));
     expect(mockStore.markOnboardingSeen).toHaveBeenCalledTimes(1);
     await new Promise((resolve) => setTimeout(resolve, 800));
     expect(mockOpenPaywall).not.toHaveBeenCalled();
@@ -269,26 +269,26 @@ describe("Today: first run", () => {
     expect(screen.queryByTestId(/^first-run-/)).toBeNull();
   });
 
-  it("a relaunch with tasks already set resumes at the nudge", async () => {
+  it("a relaunch with tasks already on today (an older first run that didn't finish) just finishes it", async () => {
     mockStore = makeStore({ tasks: tasks("Walk", "Swim") });
     await render(<HomeScreen />);
-    expect(screen.getByTestId("first-run-nudge")).toBeOnTheScreen();
-    expect(screen.getByText("Your two are set.")).toBeOnTheScreen();
+    expect(mockStore.markOnboardingSeen).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId(/^first-run-/)).toBeNull();
   });
 
-  it("hides for a rollover mid-flow, then comes back at the nudge", async () => {
+  it("hides for a rollover mid-flow, then comes back fresh at the dump", async () => {
     mockStore = makeStore();
     const { rerender } = await render(<HomeScreen />);
     await dump("walk, call mum, report");
-    await fireEvent.press(button("Set my three"));
+    expect(screen.getByTestId("first-run-three")).toBeOnTheScreen();
     const seen = mockStore.markOnboardingSeen;
-    mockStore = makeStore({ tasks: tasks("Walk", "Call mum", "Report"), pendingRollover: ROLLOVER }, { markOnboardingSeen: seen });
+    mockStore = makeStore({ pendingRollover: ROLLOVER }, { markOnboardingSeen: seen });
     await rerender(<HomeScreen />);
     expect(screen.queryByTestId(/^first-run-/)).toBeNull();
-    mockStore = makeStore({ tasks: tasks("Walk", "Call mum", "Report") }, { markOnboardingSeen: seen });
+    mockStore = makeStore({}, { markOnboardingSeen: seen });
     await rerender(<HomeScreen />);
-    expect(screen.getByTestId("first-run-nudge")).toBeOnTheScreen();
-    expect(screen.getByText("Your three are set.")).toBeOnTheScreen();
+    expect(screen.getByTestId("first-run-dump")).toBeOnTheScreen();
+    expect(seen).not.toHaveBeenCalled();
   });
 });
 
@@ -371,7 +371,7 @@ describe("Today: first run, AI sort accounting", () => {
     mockStore = makeStore();
     await render(<HomeScreen />);
     await dump("swim");
-    await finishFirstRun("Set this one");
+    await finishFirstRun("Use this one");
     await openTodayBrainDump();
     expect(await screen.findByText("AI will sort this one. You have 3 free AI sorts to try.")).toBeOnTheScreen();
   });

@@ -65,7 +65,7 @@ describe("AddTaskRow", () => {
     expect(screen.queryByText("Room to breathe.")).toBeNull();
     await fireEvent.press(openSlot);
     expect(screen.queryByPlaceholderText("What's one thing for today?")).toBeNull();
-    expect(screen.queryByText("Today is set.")).toBeNull();
+    expect(screen.queryByText("Today is locked.")).toBeNull();
   });
 
   it("a locked slot the screen listens to can be tapped (to say why), and still opens no field (1.4)", async () => {
@@ -74,7 +74,7 @@ describe("AddTaskRow", () => {
     await render(<AddTaskRow remainingSlots={2} slotNumber={2} onAdd={onAdd} disabled onLockedPress={onLockedPress} />);
     const openSlot = screen.getByRole("button", { name: "Left open on purpose" });
     expect(openSlot).toBeEnabled();
-    expect(openSlot.props.accessibilityHint).toBe("Unlock in Settings");
+    expect(openSlot.props.accessibilityHint).toBe("Today is locked. Unlock it to add one.");
     await fireEvent.press(openSlot);
     expect(onLockedPress).toHaveBeenCalledTimes(1);
     expect(screen.queryByPlaceholderText("What's one thing for today?")).toBeNull();
@@ -142,53 +142,61 @@ describe("AddTaskRow", () => {
 });
 
 describe("StatusLine", () => {
-  it("offers Set today while choosing and calls onLock", async () => {
+  it("offers Lock today while choosing and calls onLock", async () => {
     const onLock = jest.fn();
     await render(
       <StatusLine
         status={todayStatus({ locked: false, lockSource: null, taskCount: 2, completedCount: 0 })}
         onLock={onLock}
+        onUnlock={jest.fn()}
       />,
     );
-    expect(screen.getByText("Set today")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "Set today's tasks" }));
+    expect(screen.getByText("Lock today")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Lock today" }));
     expect(onLock).toHaveBeenCalledTimes(1);
   });
 
-  it("offers no Set action once work has started or every task is done", async () => {
+  it("offers no Lock action once work has started or every task is done", async () => {
     const { rerender } = await render(
       <StatusLine
         status={todayStatus({ locked: false, lockSource: null, taskCount: 3, completedCount: 3 })}
         onLock={jest.fn()}
+        onUnlock={jest.fn()}
       />,
     );
     expect(screen.getByText("All done for today.")).toBeOnTheScreen();
-    expect(screen.queryByRole("button", { name: "Set today's tasks" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lock today" })).toBeNull();
 
     await rerender(
       <StatusLine
         status={todayStatus({ locked: false, lockSource: null, taskCount: 3, completedCount: 1 })}
         onLock={jest.fn()}
+        onUnlock={jest.fn()}
       />,
     );
     expect(screen.getByText("Keep going. 2 to go.")).toBeOnTheScreen();
-    expect(screen.queryByRole("button", { name: "Set today's tasks" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Lock today" })).toBeNull();
   });
 
-  it("shows a quiet locked state once the day is set, with no Change (1.4)", async () => {
+  it("a locked day reads 'Today is locked. N to go.' with one inline Unlock, and no Change (1.5)", async () => {
+    const onLock = jest.fn();
+    const onUnlock = jest.fn();
     await render(
       <StatusLine
         status={todayStatus({ locked: true, lockSource: "manual", taskCount: 2, completedCount: 0 })}
-        onLock={jest.fn()}
+        onLock={onLock}
+        onUnlock={onUnlock}
       />,
     );
     expect(screen.queryByText("Change")).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
-    expect(screen.getByText("Unlock in Settings")).toBeOnTheScreen();
-    expect(screen.getByTestId("status-line").props.accessibilityHint).toBe("Unlock in Settings");
+    expect(screen.getByText("Today is locked. 2 to go.")).toBeOnTheScreen();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    await fireEvent.press(screen.getByRole("button", { name: "Unlock today" }));
+    expect(onUnlock).toHaveBeenCalledTimes(1);
+    expect(onLock).not.toHaveBeenCalled();
   });
 
-  it("hides Set today once the day is set, and for an empty day", async () => {
+  it("hides Lock today once the day is locked, and for an empty day", async () => {
     const { rerender } = await render(
       <StatusLine
         status={todayStatus({
@@ -198,15 +206,17 @@ describe("StatusLine", () => {
           completedCount: 1,
         })}
         onLock={jest.fn()}
+        onUnlock={jest.fn()}
       />,
     );
-    expect(screen.getByText("Today is set. 2 to go.")).toBeOnTheScreen();
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText("Today is locked. 2 to go.")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Lock today" })).toBeNull();
 
     await rerender(
       <StatusLine
         status={todayStatus({ locked: false, lockSource: null, taskCount: 0, completedCount: 0 })}
         onLock={jest.fn()}
+        onUnlock={jest.fn()}
       />,
     );
     expect(screen.queryByRole("button")).toBeNull();

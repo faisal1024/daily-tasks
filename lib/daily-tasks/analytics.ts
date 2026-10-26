@@ -35,6 +35,9 @@ export type AnalyticsEvent =
   | "evening_closed"
   | "tomorrow_draft_used"
   | "onboarding_step"
+  // 1.5: the Today cards that replaced first run's nudge and widget screens
+  // (kind "nudge" | "widget", action "shown" | "yes" | "not_now" | "dismissed").
+  | "first_days_card"
   | "agenda_toggled"
   | "goal_set"
   | "task_not_today"

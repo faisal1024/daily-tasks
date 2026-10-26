@@ -13,7 +13,6 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 
 import { Fonts } from "@/constants/theme";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
@@ -30,7 +29,10 @@ const FALLBACK_NOTICE = "We couldn't sort this one, so here are the first few. U
 const FIRST_RUN_LIMIT_NOTICE =
   "Your free AI sorts are used up, so we kept the first things you wrote. Untick any that aren't for today.";
 
-export type FirstRunStep = "dump" | "sorting" | "three" | "nudge" | "widget";
+// Three screens since 1.5: the dump (with "sorting" while it's picked) and
+// "Here are your three", then Today. The morning nudge and the widget tip
+// became Today cards (components/daily-tasks/first-days-cards.tsx).
+export type FirstRunStep = "dump" | "sorting" | "three";
 
 interface FirstRunProps {
   visible: boolean;
@@ -38,31 +40,22 @@ interface FirstRunProps {
   onSort: (text: string) => Promise<SortedBrainDump>;
   /** The chosen three go on today's list; the rest is saved for later. */
   onSet: (picks: string[], parked: string[]) => void;
-  /** Ask for notification permission; resolves true when granted. */
-  onAskNudge: () => Promise<boolean>;
-  /** The Home Screen widget exists on iOS only. */
-  showWidgetStep: boolean;
   onStep?: (step: FirstRunStep) => void;
-  /** Tasks already set by an earlier, interrupted first run: resume at the nudge. */
+  /**
+   * Tasks already on today when it (re)appears (an earlier first run that
+   * added them but didn't get to finish): nothing left to ask, so it finishes.
+   */
   resumeCount?: number;
-  onFinish: () => void;
+  /** Over: on to Today. `picked` is how many went on today's list here. */
+  onFinish: (picked: number) => void;
 }
 
 /**
  * First run, in the app's own ritual: dump what's on your mind → we pick
- * three → they're set → a morning nudge → the widget. No questionnaire:
- * goal and name are asked later, when they're useful.
+ * three → Today. No questionnaire: goal and name are asked later, and the
+ * morning nudge and the widget tip on Today, when they're useful.
  */
-export function FirstRun({
-  visible,
-  onSort,
-  onSet,
-  onAskNudge,
-  showWidgetStep,
-  onStep,
-  onFinish,
-  resumeCount = 0,
-}: FirstRunProps) {
+export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount = 0 }: FirstRunProps) {
   const colors = useColors();
   const sheetAnimation = useSheetAnimation();
   const [step, setStep] = useState<FirstRunStep>("dump");
@@ -71,8 +64,6 @@ export function FirstRun({
   const [parked, setParked] = useState<string[]>([]);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
-  const [setCount, setSetCount] = useState(0);
-  const [asking, setAsking] = useState(false);
   const sortRun = useRef(0);
   // Guards against double taps (two sorts, or the three added twice).
   const committing = useRef(false);
@@ -96,11 +87,14 @@ export function FirstRun({
     setParked([]);
     setChosen(new Set());
     setNotice(null);
-    const resume = resumeCount > 0;
-    setSetCount(resume ? resumeCount : 0);
-    setStep(resume ? "nudge" : "dump");
-    onStep?.(resume ? "nudge" : "dump");
-    // onStep is an analytics callback; re-running on its identity would re-log.
+    setStep("dump");
+    if (resumeCount > 0) {
+      committing.current = true;
+      onFinish(0);
+      return;
+    }
+    onStep?.("dump");
+    // onStep / onFinish are callbacks; re-running on their identity would re-log.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
@@ -114,10 +108,11 @@ export function FirstRun({
     if (run !== sortRun.current) return;
     const { picks: nextPicks, parked: nextParked } = sorted.result;
     if (nextPicks.length === 0) {
-      // Nothing to pick (e.g. only notes): keep it all and move on.
+      // Nothing to pick (e.g. only notes): keep it all and move on to Today.
+      if (committing.current) return;
+      committing.current = true;
       onSet([], nextParked);
-      setSetCount(0);
-      go("nudge");
+      onFinish(0);
       return;
     }
     setPicks(nextPicks);
@@ -142,24 +137,7 @@ export function FirstRun({
     committing.current = true;
     const rest = [...picks.filter((pick) => !chosen.has(pick)), ...parked];
     onSet(use, rest);
-    setSetCount(use.length);
-    go("nudge");
-  };
-
-  const askNudge = async () => {
-    if (asking) return;
-    setAsking(true);
-    try {
-      await onAskNudge();
-    } finally {
-      setAsking(false);
-    }
-    afterNudge();
-  };
-
-  const afterNudge = () => {
-    if (showWidgetStep) go("widget");
-    else onFinish();
+    onFinish(use.length);
   };
 
   const toggle = (pick: string) => {
@@ -173,16 +151,6 @@ export function FirstRun({
 
   const chosenCount = picks.filter((pick) => chosen.has(pick)).length;
 
-  const setTitle =
-    setCount === 0 ? "Add your three on Today" : setCount === 1 ? "It's set." : `Your ${countWord(setCount)} are set.`;
-  const nudgeBody =
-    (setCount === 0
-      ? ""
-      : setCount === 1
-        ? "Do it today and tap it off. "
-        : "Do them today and tap each one off. ") +
-    "Want a nudge in the morning, a few gentle ones while your three are open, and some in the evening until you close the day? You can change these in Settings.";
-
   const footer = (() => {
     switch (step) {
       case "dump":
@@ -192,8 +160,9 @@ export function FirstRun({
             <Secondary
               label="I'll add my own"
               onPress={() => {
-                setSetCount(0);
-                go("nudge");
+                if (committing.current) return;
+                committing.current = true;
+                onFinish(0);
               }}
             />
           </>
@@ -213,7 +182,7 @@ export function FirstRun({
         return (
           <>
             <Primary
-              label={chosenCount === 1 ? "Set this one" : `Set my ${countWord(chosenCount)}`}
+              label={chosenCount === 1 ? "Use this one" : `Use these ${countWord(chosenCount)}`}
               disabled={chosenCount === 0}
               onPress={confirm}
             />
@@ -226,15 +195,6 @@ export function FirstRun({
             />
           </>
         );
-      case "nudge":
-        return (
-          <>
-            <Primary label={asking ? "Asking…" : "Yes, nudge me"} disabled={asking} onPress={() => void askNudge()} />
-            <Secondary label="Not now" onPress={afterNudge} />
-          </>
-        );
-      case "widget":
-        return <Primary label="Done" onPress={onFinish} />;
     }
   })();
 
@@ -349,33 +309,6 @@ export function FirstRun({
             </>
           )}
 
-          {step === "nudge" && <Title title={setTitle} body={nudgeBody} />}
-
-          {step === "widget" && (
-            <>
-              <Title
-                title="Keep your three in sight"
-                body="Add the widget so today's three are on your Home Screen."
-              />
-              <View className="rounded-2xl bg-surface border border-border p-4 gap-3">
-                {[
-                  "Touch and hold an empty spot on your Home Screen until the apps jiggle.",
-                  "Tap Edit, then Add Widget (on iOS 17, tap + at the top).",
-                  `Search for ${Constants.expoConfig?.name ?? "this app"}, pick a size, and tap Add Widget.`,
-                ].map((line, index) => (
-                  <View
-                    key={line}
-                    className="flex-row gap-3"
-                    accessible
-                    accessibilityLabel={`Step ${index + 1}: ${line}`}
-                  >
-                    <Text style={{ color: colors.primary, fontWeight: "700" }}>{index + 1}</Text>
-                    <Text className="flex-1 text-base text-foreground">{line}</Text>
-                  </View>
-                ))}
-              </View>
-            </>
-          )}
         </ScrollView>
         {/* Outside the scroll view so it rides above the keyboard. */}
         <View className="gap-2" style={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 36 }}>

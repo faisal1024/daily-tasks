@@ -96,7 +96,7 @@ describe("IdeasSheet: Today's routines", () => {
   it.each([
     // Same full-day line as Today's card (PR #86).
     ["full", { remainingSlots: 0 }, "Your three are picked. Free a slot to add one."],
-    ["set", { remainingSlots: 2, locked: true }, "Today is set. Unlock it in Settings to add one."],
+    ["set", { remainingSlots: 2, locked: true }, "Today is locked. Unlock it to add one."],
   ])("disables the rows and says why when today is %s", async (_label, overrides, reason) => {
     const p = props();
     await render(<IdeasSheet {...p} routines={ROUTINES} {...overrides} />);

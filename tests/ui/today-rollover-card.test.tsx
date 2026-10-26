@@ -199,10 +199,10 @@ describe("Today: rollover card next to last night's draft (real store)", () => {
       fireEvent.press(screen.getByTestId("tomorrow-draft-use"));
     });
     await act(async () => {
-      fireEvent.press(screen.getByRole("button", { name: "Set today's tasks" }));
+      fireEvent.press(screen.getByRole("button", { name: "Lock today" }));
     });
     const buttons = alert.mock.calls[0][2] as { text: string; onPress?: () => void }[];
-    await act(async () => buttons.find((b) => b.text === "Set")?.onPress?.());
+    await act(async () => buttons.find((b) => b.text === "Lock")?.onPress?.());
     alert.mockRestore();
 
     const apply = screen.queryByTestId("rollover-apply");

@@ -100,13 +100,13 @@ describe("todayStatus", () => {
     );
   });
 
-  it("offers Set today while choosing, with copy for a full list", () => {
+  it("offers Lock today while choosing, with copy for a full list", () => {
     expect(todayStatus(base)).toMatchObject({
       kind: "choosing",
       canLock: true,
-      text: "Still choosing. Set the day when it feels right.",
+      text: "Still choosing. Lock the day when it feels right.",
     });
-    expect(todayStatus({ ...base, taskCount: 3 }).text).toBe("Happy with these three? Set them.");
+    expect(todayStatus({ ...base, taskCount: 3 }).text).toBe("Happy with these three? Lock them in.");
   });
 
   it("once under way, says what's left and stops offering Set", () => {
@@ -132,13 +132,13 @@ describe("todayStatus", () => {
         canLock: false,
       });
     }
-    // A locked day keeps its own "set" copy even when everything is done.
+    // A locked day keeps its own "locked" copy even when everything is done.
     expect(todayStatus({ ...base, locked: true, lockSource: "manual", completedCount: 2 }).text).toBe(
-      "Today is set. All done.",
+      "Today is locked. All done.",
     );
   });
 
-  it("says 'set' for the day's status; 'unlock' only names the way back (1.4)", () => {
+  it("says 'lock' for the day, never 'set'; the way back is right there, not in Settings (1.5)", () => {
     const texts = [
       todayStatus(base).text,
       todayStatus({ ...base, taskCount: 3 }).text,
@@ -146,8 +146,14 @@ describe("todayStatus", () => {
       lockConfirmation(1).title,
       lockConfirmation(3).title,
     ];
-    for (const text of texts) expect(text).not.toMatch(/lock/i);
-    for (const count of [1, 3]) expect(lockConfirmation(count).message).toMatch(/unlock it in Settings/);
+    for (const text of texts) {
+      expect(text).toMatch(/lock/i);
+      expect(text).not.toMatch(/set/i);
+    }
+    for (const count of [1, 3]) {
+      expect(lockConfirmation(count).message).toMatch(/until you unlock it\./);
+      expect(lockConfirmation(count).message).not.toMatch(/Settings/);
+    }
   });
 
   it("distinguishes manual and automatic locks and shows what's left", () => {
@@ -155,7 +161,7 @@ describe("todayStatus", () => {
       todayStatus({ ...base, locked: true, lockSource: "manual", completedCount: 1 }),
     ).toMatchObject({
       kind: "set",
-      text: "Today is set. 1 to go.",
+      text: "Today is locked. 1 to go.",
       canLock: false,
     });
     expect(
@@ -166,12 +172,12 @@ describe("todayStatus", () => {
         completedCount: 2,
         autoLockTime: "12:00 PM",
       }).text,
-    ).toBe("Set automatically at 12:00 PM. All done.");
+    ).toBe("Locked automatically at 12:00 PM. All done.");
     expect(todayStatus({ ...base, locked: true, lockSource: "auto", completedCount: 0 }).text).toBe(
-      "Set automatically. 2 to go.",
+      "Locked automatically. 2 to go.",
     );
     expect(todayStatus({ ...base, locked: true, lockSource: "manual", taskCount: 0 }).text).toBe(
-      "Today is set.",
+      "Today is locked.",
     );
   });
 });
@@ -393,18 +399,18 @@ describe("ideasEntry", () => {
 describe("lockConfirmation", () => {
   it("explains what locking does and how to undo it", () => {
     const { title, message } = lockConfirmation(2);
-    expect(title).toBe("Set today?");
+    expect(title).toBe("Lock today?");
     expect(message).toBe(
-      "You can still check tasks off. Adding and editing pause until tomorrow, or until you unlock it in Settings. Your empty slot stays empty.",
+      "You can still check tasks off. Adding and editing pause until tomorrow, or until you unlock it. Your empty slot stays empty.",
     );
     expect(message).not.toMatch(/Change/);
   });
 
   it("keeps it light when all three are chosen (nothing is lost by locking)", () => {
     const { title, message } = lockConfirmation(3);
-    expect(title).toBe("Set today?");
+    expect(title).toBe("Lock today?");
     expect(message).toBe(
-      "You can still check tasks off. Editing pauses until tomorrow, or until you unlock it in Settings.",
+      "You can still check tasks off. Editing pauses until tomorrow, or until you unlock it.",
     );
     expect(message).not.toMatch(/empty slot/);
     expect(message).not.toMatch(/won't be able/);
@@ -495,8 +501,8 @@ describe("formatClockTime", () => {
       const autoLockTime = formatClockTime(12, 0, format);
       const status = todayStatus({ locked: true, lockSource: "auto", taskCount: 3, completedCount: 1, autoLockTime });
       const confirm = unlockConfirmation({ lockSource: "auto", autoLockTime });
-      expect(status.text).toBe(`Set automatically at ${autoLockTime}. 2 to go.`);
-      expect(confirm.message).toBe(`The app set today automatically at ${autoLockTime}. Unlocking keeps it open for the rest of today.`);
+      expect(status.text).toBe(`Locked automatically at ${autoLockTime}. 2 to go.`);
+      expect(confirm.message).toBe(`Today was locked automatically at ${autoLockTime}. Unlocking keeps it open for the rest of today.`);
     }
     expect(formatClockTime(12, 0, TWENTY_FOUR_HOUR)).toBe("12:00");
   });
@@ -510,9 +516,9 @@ describe("brainDumpToast", () => {
     expect(brainDumpToast(0, 0)).toBeNull();
   });
 
-  it("on a day set meanwhile says why everything was saved (1.4)", () => {
-    expect(brainDumpToast(0, 3, { locked: true })).toBe("Today is set. 3 saved for later in Ideas.");
-    expect(brainDumpToast(0, 1, { locked: true })).toBe("Today is set. 1 saved for later in Ideas.");
+  it("on a day locked meanwhile says why everything was saved (1.4)", () => {
+    expect(brainDumpToast(0, 3, { locked: true })).toBe("Today is locked. 3 saved for later in Ideas.");
+    expect(brainDumpToast(0, 1, { locked: true })).toBe("Today is locked. 1 saved for later in Ideas.");
     expect(brainDumpToast(0, 0, { locked: true })).toBeNull();
     // An open day reads as before.
     expect(brainDumpToast(0, 3, { locked: false })).toBe("3 saved for later in Ideas.");
@@ -522,10 +528,10 @@ describe("brainDumpToast", () => {
 describe("unlockConfirmation (1.4)", () => {
   const BUTTONS = { keep: "Keep locked", unlock: "Unlock" };
 
-  it("a day set by hand: the three open up, and it can be set again", () => {
+  it("a day locked by hand: the three open up, and it can be locked again", () => {
     expect(unlockConfirmation({ lockSource: "manual" })).toEqual({
       title: "Unlock today?",
-      message: "Your three will be open to change again. You can set today again any time.",
+      message: "Your three will be open to change again. You can lock today again any time.",
       ...BUTTONS,
     });
     // An older save without a source reads the same; the time is only for auto-set.
@@ -534,14 +540,14 @@ describe("unlockConfirmation (1.4)", () => {
     );
   });
 
-  it("a day set automatically: says when the app set it, and that unlocking holds for today", () => {
+  it("a day locked automatically: says when it locked, and that unlocking holds for today", () => {
     expect(unlockConfirmation({ lockSource: "auto", autoLockTime: "12:00 PM" })).toEqual({
       title: "Unlock today?",
-      message: "The app set today automatically at 12:00 PM. Unlocking keeps it open for the rest of today.",
+      message: "Today was locked automatically at 12:00 PM. Unlocking keeps it open for the rest of today.",
       ...BUTTONS,
     });
     expect(unlockConfirmation({ lockSource: "auto", autoLockTime: null }).message).toBe(
-      "The app set today automatically. Unlocking keeps it open for the rest of today.",
+      "Today was locked automatically. Unlocking keeps it open for the rest of today.",
     );
   });
 
@@ -552,19 +558,20 @@ describe("unlockConfirmation (1.4)", () => {
       expect(copy.message.length).toBeLessThan(110);
       expect(copy).toMatchObject({ title: "Unlock today?", ...BUTTONS });
     }
-    expect(LOCKED_CHANGE_NOTE).toBe("Today is set. Unlock it in Settings to change your three.");
+    expect(LOCKED_CHANGE_NOTE).toBe("Today is locked. Unlock it to change your three.");
     expect(UNLOCKED_NOTE).toBe("Today is unlocked.");
   });
 
-  it("a set day is always 'set', never 'locked': one word for the state on every line", () => {
+  it("a locked day is always 'locked', never 'set': one word for the state on every line (1.5)", () => {
     const said = [
       LOCKED_CHANGE_NOTE,
       brainDumpToast(0, 3, { locked: true }),
       todayStatus({ locked: true, lockSource: "manual", taskCount: 3, completedCount: 1 }).text,
       todayStatus({ locked: true, lockSource: "auto", taskCount: 3, completedCount: 1, autoLockTime: "12:00" }).text,
     ];
-    for (const line of said) expect(line).not.toMatch(/\block(ed)?\b/i);
-    expect(said.slice(0, 3).every((line) => line?.startsWith("Today is set."))).toBe(true);
+    for (const line of said) expect(line).not.toMatch(/\bset\b/i);
+    expect(said.slice(0, 3).every((line) => line?.startsWith("Today is locked."))).toBe(true);
+    expect(said[3]).toMatch(/^Locked automatically/);
   });
 });
 

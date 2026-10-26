@@ -145,14 +145,14 @@ describe("Settings: Unlock today (1.4)", () => {
     expect(button.props.accessibilityHint).toBe("Asks first, then lets you change today's three");
   });
 
-  it("asks first: 'Keep locked' is the cancel and the preferred button, 'Unlock' is plain (not red)", async () => {
+  it("asks first: 'Keep locked' is the cancel, 'Unlock' the clear (preferred, not red) action (1.5)", async () => {
     await renderSettings(MANUAL);
     const { title, message, buttons } = await openConfirm();
     expect(title).toBe("Unlock today?");
-    expect(message).toBe("Your three will be open to change again. You can set today again any time.");
+    expect(message).toBe("Your three will be open to change again. You can lock today again any time.");
     expect(buttons.map(({ text, style, isPreferred }) => ({ text, style, isPreferred: isPreferred ?? false }))).toEqual([
-      { text: "Keep locked", style: "cancel", isPreferred: true },
-      { text: "Unlock", style: "default", isPreferred: false },
+      { text: "Keep locked", style: "cancel", isPreferred: false },
+      { text: "Unlock", style: "default", isPreferred: true },
     ]);
     // Nothing happened yet: asking isn't unlocking.
     expect(mockUnlockToday).not.toHaveBeenCalled();
@@ -168,7 +168,7 @@ describe("Settings: Unlock today (1.4)", () => {
     await renderSettings({ autoLock: { ...NOON, hour: 12, minute: 15 } });
     await waitFor(() => expect(row()).toBeOnTheScreen());
     const { message } = await openConfirm();
-    expect(message).toBe("The app set today automatically at 12:15. Unlocking keeps it open for the rest of today.");
+    expect(message).toBe("Today was locked automatically at 12:15. Unlocking keeps it open for the rest of today.");
     expect(message).not.toMatch(/AM|PM/);
     for (const call of clock.mock.calls) expect(call).toEqual([undefined, { hour: "numeric", minute: "2-digit" }]);
     clock.mockRestore();
@@ -181,12 +181,12 @@ describe("Settings: Unlock today (1.4)", () => {
     const { title, message, buttons } = await openConfirm();
     expect(title).toBe("Unlock today?");
     expect(message).toBe(
-      "The app set today automatically at 12:00 PM. Unlocking keeps it open for the rest of today.",
+      "Today was locked automatically at 12:00 PM. Unlocking keeps it open for the rest of today.",
     );
     expect(message).not.toMatch(/—/);
     expect(buttons.map(({ text, style, isPreferred }) => ({ text, style, isPreferred: isPreferred ?? false }))).toEqual([
-      { text: "Keep locked", style: "cancel", isPreferred: true },
-      { text: "Unlock", style: "default", isPreferred: false },
+      { text: "Keep locked", style: "cancel", isPreferred: false },
+      { text: "Unlock", style: "default", isPreferred: true },
     ]);
   });
 
@@ -197,7 +197,7 @@ describe("Settings: Unlock today (1.4)", () => {
     expect(rowAt).toBeGreaterThanOrEqual(0);
     // Under the screen's title, and above every card and section that follows.
     expect(rowAt).toBeGreaterThan(json.indexOf("Tune your day"));
-    for (const later of ["Set the day automatically", "Setting the day", "settings-routines", "Rate Three Today"]) {
+    for (const later of ["Lock the day automatically", "Locking the day", "settings-routines", "Rate Three Today"]) {
       expect(json.indexOf(later)).toBeGreaterThan(rowAt);
     }
     // Nothing to tap or switch comes before it.
