@@ -22,9 +22,11 @@ import {
   subscribeNagResponses,
   syncNotifications,
   type FocusNotificationResponse,
+  type NagNotificationResponse,
 } from "./notifications";
 import { createDebounced, yesterdayOpenTexts, type ReminderContext } from "./reminder-plan";
-import { clearNagRecord, ensureNagDay, nagModeStrategy, stubNagRecord } from "./nag-day";
+import { clearNagRecord, ensureNagDay, nagModeStrategy, snoozeNagDay, stubNagRecord } from "./nag-day";
+import { normalizeNagOwnLines } from "./nag-own-lines";
 import type { NagLevel, NagPersona } from "./nag";
 import { adjustNagWindow, nagModeOn } from "./nag-plan";
 import {
@@ -215,6 +217,7 @@ type Action =
   | { type: "setNagPersona"; persona: NagPersona }
   | { type: "setNagLevel"; level: NagLevel }
   | { type: "setNagWindowEdge"; edge: "start" | "end"; minutes: number }
+  | { type: "setNagOwnLines"; lines: string[] }
   | { type: "setNagPausedDate"; date: string | null }
   | { type: "setAutoLockEnabled"; enabled: boolean }
   | { type: "setAutoLockTime"; hour: number; minute: number }
@@ -979,6 +982,13 @@ function reduce(state: AppState, action: Action): AppState {
       if (nagWindow.startMinutes === current.startMinutes && nagWindow.endMinutes === current.endMinutes) return state;
       return { ...state, notifications: { ...state.notifications, nagWindow } };
     }
+    case "setNagOwnLines": {
+      // Checked again here (nag-own-lines.ts): at most five usable lines.
+      const nagOwnLines = normalizeNagOwnLines(action.lines);
+      const current = state.notifications.nagOwnLines ?? [];
+      if (nagOwnLines.length === current.length && nagOwnLines.every((line, index) => line === current[index])) return state;
+      return { ...state, notifications: { ...state.notifications, nagOwnLines } };
+    }
     case "setNagPausedDate":
       if (state.notifications.nagPausedDate === action.date) return state;
       return { ...state, notifications: { ...state.notifications, nagPausedDate: action.date } };
@@ -1258,6 +1268,8 @@ interface StoreContextValue {
   setNagLevel: (level: NagLevel) => void;
   /** Sets one end of the nag window (minutes of the day); the other end moves to keep three hours. */
   setNagWindowEdge: (edge: "start" | "end", minutes: number) => void;
+  /** 1.6 G: the user's own nag lines (up to five; unusable ones are left out). On the phone only. */
+  setNagOwnLines: (lines: string[]) => void;
   /** "Stop nagging me today": no nags for the rest of today. */
   pauseNagToday: (source?: "settings" | "notification") => void;
   resumeNag: () => void;
@@ -2113,6 +2125,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
   const setNagWindowEdge = useCallback((edge: "start" | "end", minutes: number) => {
     dispatch({ type: "setNagWindowEdge", edge, minutes });
   }, []);
+  const setNagOwnLines = useCallback((lines: string[]) => {
+    dispatch({ type: "setNagOwnLines", lines });
+  }, []);
   const pauseNagToday = useCallback((source: "settings" | "notification" = "settings") => {
     const date = todayRef.current;
     if (stateRef.current.notifications.nagPausedDate === date) return;
@@ -2659,27 +2674,47 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     // One call, each category in turn: two registrations in flight can wipe each other.
     void registerNotificationCategories();
   }, []);
-  // "Stop for today" on a nag (1.4): the same as the button in Settings, for
-  // the day the nag was for. A tap that launched the app waits for the saved
-  // state, so the pause isn't overwritten by the load.
-  const pendingNagStops = useRef<string[]>([]);
-  const handleNagStop = useRef<(dayKey: string) => void>(() => {});
-  handleNagStop.current = (dayKey) => {
-    if (dayKey === todayRef.current) pauseNagToday("notification");
+  // A nag's buttons (1.4 Stop for today; 1.6 G Mark done and Snooze 1 hour),
+  // for the day the nag was for. A tap that launched the app waits for the
+  // saved state, so what it does isn't overwritten by the load.
+  // - Stop for today: the same as the button in Settings.
+  // - Mark done: ticks the task the nag was about, as the focus notification's
+  //   Mark done does (on Today; nothing when it is already ticked or gone).
+  //   The tick rewrites the reminders, so the day's nags follow.
+  // - Snooze 1 hour: the next nag comes an hour after the tap (snoozeNagDay).
+  const pendingNagActions = useRef<NagNotificationResponse[]>([]);
+  const handleNagAction = useRef<(response: NagNotificationResponse) => void>(() => {});
+  handleNagAction.current = (response) => {
+    if (response.dayKey !== todayRef.current) return;
+    track("nag_action", { action: response.action });
+    if (response.action === "stop") {
+      pauseNagToday("notification");
+      return;
+    }
+    if (response.action === "snooze") {
+      void snoozeNagDay({ today: response.dayKey, window: stateRef.current.notifications.nagWindow }, { onChange: setNagVersion });
+      return;
+    }
+    navigateToToday();
+    const current = stateRef.current;
+    const taskId = response.taskId;
+    if (!taskId || !current.tasks.some((task) => task.id === taskId) || current.todayCompletions.includes(taskId)) return;
+    toggleTask(taskId);
+    track("task_completed", { count: countCompleted(current) + 1, source: "notification" });
   };
   useEffect(
     () =>
       subscribeNagResponses((response) => {
-        if (readyRef.current) handleNagStop.current(response.dayKey);
-        else pendingNagStops.current.push(response.dayKey);
+        if (readyRef.current) handleNagAction.current(response);
+        else pendingNagActions.current.push(response);
       }),
     [],
   );
   useEffect(() => {
     if (!ready) return;
-    const pending = pendingNagStops.current;
-    pendingNagStops.current = [];
-    pending.forEach((dayKey) => handleNagStop.current(dayKey));
+    const pending = pendingNagActions.current;
+    pendingNagActions.current = [];
+    pending.forEach((response) => handleNagAction.current(response));
   }, [ready]);
   useEffect(
     () =>
@@ -2799,6 +2834,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setNagPersona,
       setNagLevel,
       setNagWindowEdge,
+      setNagOwnLines,
       pauseNagToday,
       resumeNag,
       setAutoLockEnabled,
@@ -2896,6 +2932,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setNagPersona,
       setNagLevel,
       setNagWindowEdge,
+      setNagOwnLines,
       pauseNagToday,
       resumeNag,
       setAutoLockEnabled,

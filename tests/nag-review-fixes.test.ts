@@ -97,7 +97,7 @@ describe("built-in lines", () => {
       "Hey, champ. First play of the day: {task}.",
       "Eyes front, recruit. Today's mission: {task}.",
       "Inspection time. The list is waiting, recruit.",
-      "Roll call. {task} is still present, recruit.",
+      "Roll call. {task}: still not ticked, recruit.",
       "{task} is STILL on my board, recruit. I checked.",
       "I did not polish these boots to watch a list sit there. MOVE.",
     ]) {

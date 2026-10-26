@@ -109,6 +109,20 @@ function oneLine(value: string): string {
   return withoutStrayJoiners(value.replace(FORMAT, "")).replace(CONTROL, " ").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * 1.6 G: a line of the user's own (nag-own-lines.ts) cleaned as an AI line is:
+ * one line, no invisible format characters (bidi marks and overrides
+ * included), control characters as spaces.
+ */
+export function cleanNagText(value: string): string {
+  return oneLine(value);
+}
+
+/** 1.6 G: `value` holds a link, read as the AI's lines are (LINK_PATTERN, joiners ignored). */
+export function nagTextHasLink(value: string): boolean {
+  return LINK_PATTERN.test(withoutJoiners(value));
+}
+
 function cut(value: string, max: number): string {
   return Array.from(value).slice(0, max).join("").trim();
 }
@@ -180,6 +194,93 @@ export function nagTaskIsSensitive(text: string): boolean {
   return typeof text === "string" && SENSITIVE_TASK.test(withoutJoiners(oneLine(text)).replace(/[\u2018\u2019]/g, "'"));
 }
 
+// ---------------------------------------------------------------------------
+// 1.6 G: an AI line names the task it is for, and only that one
+// ---------------------------------------------------------------------------
+
+/** A task long enough that a line may quote only its first words (names are cut near 40 characters). */
+const NAG_NAME_CUT_AT = 40;
+/** The shortest first words of a long task a line may quote. */
+const NAG_NAME_MIN_PREFIX = 12;
+/** A task's words found unquoted in a line count as naming it from this many characters. */
+const NAG_NAME_MIN_MENTION = 4;
+// Text in double quotes, curly or straight.
+const QUOTED_NAME = /[\u201C"]([^\u201C\u201D"]{1,200})[\u201D"]/g;
+
+// Emoji, their variation selectors and joiners (plain ranges: Hermes).
+const NAME_EMOJI = /[\uD83C-\uD83E][\uDC00-\uDFFF]|[\u2600-\u27BF\uFE0F\u200D\u20E3]/g;
+
+/** A name as the match reads it: one line, any case, accents off, straight apostrophes, no end punctuation. */
+function foldName(value: string): string {
+  return withoutJoiners(oneLine(value))
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036F]/g, "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    // Emoji don't count (the proxy may take one out of a line).
+    .replace(NAME_EMOJI, " ")
+    .replace(/\s+/g, " ")
+    .replace(/(?:\.\.\.|[\s.,;:!?\u2026])+$/, "")
+    .trim();
+}
+
+// Letters and digits of any script; punctuation (curly quotes, the ellipsis) is not one.
+const isWordChar = (char: string) => char !== "" && /[a-z0-9\u00C0-\u1FFF\u2070-\uFFFF]/i.test(char);
+
+/** `name` is in `folded` as whole words. */
+function holdsWords(folded: string, name: string): boolean {
+  for (let at = folded.indexOf(name); at !== -1; at = folded.indexOf(name, at + 1)) {
+    if (!isWordChar(folded.charAt(at - 1)) && !isWordChar(folded.charAt(at + name.length))) return true;
+  }
+  return false;
+}
+
+/** A quoted name is this task: its words exactly (any case), or the first whole words of a long one. */
+function quoteIsTask(quote: string, task: string): boolean {
+  const q = foldName(quote);
+  const t = foldName(task);
+  if (!q || !t) return false;
+  if (q === t) return true;
+  // Cut mid-word only with an ellipsis ("“Pneumonoultra…”").
+  const cut = /(?:\u2026|\.\.\.)\s*$/.test(quote);
+  return Array.from(t).length > NAG_NAME_CUT_AT && Array.from(q).length >= NAG_NAME_MIN_PREFIX && t.startsWith(q) && (!isWordChar(t.charAt(q.length)) || cut);
+}
+
+/**
+ * 1.6 G: an AI line reads right for the task it is attached to. A line for
+ * task `taskIndex` names that task: it quotes its words (exactly, any case;
+ * the first whole words of a task over 40 characters) or has its whole
+ * words as they are. A paraphrase ("the walk" for "Walk 20 minutes") or no
+ * name at all is not enough: the line is dropped, so a line written for
+ * one task can't go out as another's or as a general one. It quotes no
+ * other task and has no other task's words in it (outside its own task's
+ * words). A general line
+ * (`taskIndex` null) quotes no task and has none of their words. Task words
+ * under four characters aren't looked for unquoted. The proxy runs the same
+ * check (nagLineFitsTask in server/providers/nag-contract.mjs).
+ */
+export function nagLineFitsTask(text: string, taskIndex: number | null, taskTexts: readonly string[]): boolean {
+  const quotes = Array.from(text.matchAll(QUOTED_NAME), (match) => match[1]);
+  const mentions = (rest: string, task: string) => {
+    const name = foldName(task);
+    return Array.from(name).length >= NAG_NAME_MIN_MENTION && holdsWords(foldName(rest), name);
+  };
+  if (taskIndex === null) {
+    return !quotes.some((quote) => taskTexts.some((task) => quoteIsTask(quote, task))) && !taskTexts.some((task) => mentions(text, task));
+  }
+  const own = taskTexts[taskIndex];
+  if (typeof own !== "string") return false;
+  // Named: quoted (as the prompt asks), or its whole words as they are. A
+  // task with no words to look for (emoji only) can't be checked: let through.
+  if (foldName(own) && !(quotes.some((quote) => quoteIsTask(quote, own)) || mentions(text, own))) return false;
+  if (quotes.some((quote) => !quoteIsTask(quote, own) && taskTexts.some((task, index) => index !== taskIndex && quoteIsTask(quote, task)))) return false;
+  // Another task's words, outside the quote of this one (and not part of this task's own words).
+  const rest = text.replace(QUOTED_NAME, (whole, quote: string) => (quoteIsTask(quote, own) ? " | " : whole));
+  const ownName = foldName(own);
+  return !taskTexts.some((task, index) => index !== taskIndex && !ownName.includes(foldName(task)) && mentions(rest, task));
+}
+
 function clampCount(count: number): number {
   const whole = Number.isFinite(count) ? Math.floor(count) : MIN_NAG_COUNT;
   return Math.min(Math.max(whole, MIN_NAG_COUNT), MAX_NAG_COUNT);
@@ -214,6 +315,8 @@ export function parseNagResponse(
     const text = oneLine(rawText);
     if (!text || Array.from(text).length > MAX_NAG_LINE || LINK_PATTERN.test(withoutJoiners(text))) return;
     if (isAffectionateNagLine(text, ownTexts)) return;
+    // 1.6 G: it names the task it is for, and no other (nagLineFitsTask).
+    if (ownTexts.length > 0 && !nagLineFitsTask(text, taskIndex as number | null, ownTexts)) return;
     candidates.push({ step, position, taskIndex: taskIndex as number | null, text });
   });
   candidates.sort((a, b) => a.step - b.step || a.position - b.position);
@@ -485,7 +588,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
       "Your list is open. I noticed. I notice things.",
       "Just a small poke about the list. The first of several.",
       "I'm sure you've seen the list. I'm mentioning it anyway.",
-      "Pick any one to start. I'll be watching. Supportively.",
+      "Start anywhere on the list. I'll be watching. Supportively.",
       "Fresh list. I'd rather not bring it up again. I will, though.",
     ],
     mid: {
@@ -534,7 +637,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
       "Fresh start. Pick one thing and go.",
       "Game plan's simple today. Start with {task}.",
       "Good to see you. Let's get a first point on the board.",
-      "Lace up. {task} is a great place to start.",
+      "Game face on. {task} is a great place to start.",
       "Huddle up. One task, one tick. That's the whole play.",
       "You showed up, and that counts. Now pick a task and go.",
       "Easy start, champ. One item, nice and smooth.",
@@ -542,7 +645,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
     ],
     mid: {
       gentle: [
-        "Nice and steady. {task} is your next rep.",
+        "Nice and steady. {task} is up next.",
         "Quick huddle: you're doing fine. {task} is still open.",
         "Halftime check. One small push on the list?",
         "Good pace, champ. One more rep on the list when you're ready.",
@@ -550,7 +653,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
       ],
       firm: [
         "Clock's running. {task} needs you on the field.",
-        "No more stretching. Time to move on {task}.",
+        "No more stalling. Time to move on {task}.",
         "Eyes up. The list is still open and you're still in this.",
         "Time out's over. Back on the field, the list is waiting.",
         "I'm pointing at the list, champ. You know what that means.",
@@ -559,7 +662,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
     late: {
       gentle: [
         "Still time on the clock. {task}, nice and easy.",
-        "One good rep on {task} and today counts.",
+        "One good push on {task} and today counts.",
         "Whatever's left, finish at your own pace. Proud of the effort.",
         "One more tick and we call it a good game. Your pace.",
       ],
@@ -584,12 +687,12 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
       "Eyes front, recruit. Today's mission: {task}.",
       "Recruit! {task} is on the board. Carry on.",
       "Inspection time. The list is waiting, recruit.",
-      "Mission briefing: {task}. Simple. Doable. Yours.",
-      "Fall in, recruit. {task} reports for duty.",
+      "Mission briefing: {task}. Doable. Yours.",
+      "Fall in, recruit. On the board: {task}.",
       "Boots on, recruit. That list won't march itself.",
       "Attention, recruit. The list is standing by for orders.",
       "Formation check. One list, one recruit. Good odds.",
-      "Recruit! Pick an item and move out. Any item.",
+      "Recruit! Pick the next item and move out. Now.",
       "Orders of the day: tick something. That is all, recruit.",
     ],
     mid: {
@@ -602,7 +705,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
       ],
       // Three of the five are rude (see NAG_DRILL_RUDE).
       firm: [
-        "Recruit! {task} is still standing. Fix that.",
+        "Recruit! {task} is still open. Fix that.",
         "Is that the best you've got, maggot? {task} is STILL open.",
         "That list is not going to clear itself. MOVE, recruit.",
         "My boots have more hustle than you, slacker. The list. MOVE.",
@@ -611,7 +714,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
     },
     late: {
       gentle: [
-        "Roll call. {task} is still present, recruit.",
+        "Roll call. {task}: still not ticked, recruit.",
         "One last patrol, recruit: {task}. Then stand down.",
         "Good effort today, recruit. Anything left can be quick.",
         "Final formation, recruit. One more tick, then at ease.",

@@ -6,6 +6,7 @@ import { migrateCompletedMilestoneIds, migrateMilestoneId } from "./milestones";
 import { DEFAULT_JOURNEY, type Journey } from "./journey";
 import { MAX_SESSION_MS, type FocusSession } from "./focus-session";
 import { NAG_LEVELS, NAG_PERSONAS } from "./nag";
+import { normalizeNagOwnLines } from "./nag-own-lines";
 import { NAG_STORAGE_KEY, normalizeNagWindow } from "./nag-plan";
 import { normalizeRoutines } from "./routines";
 import { isReviewTrigger } from "./review-prompt";
@@ -191,7 +192,7 @@ function getLegacySlotEnabled(value: unknown): boolean | undefined {
  */
 function normalizeNagSettings(
   value: Record<string, unknown>,
-): Pick<NotificationConfig, "style" | "nagConfirmed" | "nagPersona" | "nagLevel" | "nagWindow" | "nagPausedDate"> {
+): Pick<NotificationConfig, "style" | "nagConfirmed" | "nagPersona" | "nagLevel" | "nagWindow" | "nagPausedDate" | "nagOwnLines"> {
   const style = value.style === "nag" ? "nag" : "calm";
   return {
     style,
@@ -208,6 +209,8 @@ function normalizeNagSettings(
       typeof value.nagPausedDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.nagPausedDate)
         ? value.nagPausedDate
         : null,
+    // 1.6 G: checked again on load (nag-own-lines.ts); anything unusable is left out.
+    nagOwnLines: normalizeNagOwnLines(value.nagOwnLines),
   };
 }
 

@@ -28,8 +28,10 @@ import {
   NAG_STORAGE_KEY,
   normalizeNagRecord,
   planNagDay,
+  snoozeNagRecord,
   type NagDayRecord,
 } from "./nag-plan";
+import type { NagWindow } from "./types";
 import { taskAwareStrategy, type ReminderContext, type ReminderPlan, type ReminderStrategy } from "./reminder-plan";
 
 /** A nag request gives up sooner than the other AI calls: the built-in lines are already in place. */
@@ -214,6 +216,36 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
   }
   // A count and where the lines came from, never the lines.
   if (planned || asked) track("nag_lines_loaded", { source: record.source, count: record.lines.length });
+}
+
+/**
+ * 1.6 G: "Snooze 1 hour" on one of today's nags (snoozeNagRecord): the next
+ * nag comes an hour after the tap. Queued behind the runs (one writer at a
+ * time), so a request for lines that was under way is saved first and the
+ * snooze is applied to what it saved. Only for the record of `today`, which
+ * is the clock's day; nothing once the record was removed or emptied since
+ * it was asked for. `onChange` gets the new version, so the reminders are
+ * written again. Never throws.
+ */
+export function snoozeNagDay(
+  { today, window, now }: { today: string; window: NagWindow; now?: Date },
+  { onChange }: Pick<NagDayDeps, "onChange"> = {},
+): Promise<void> {
+  const epoch = cleared;
+  const run = queue
+    .then(() => stubbing)
+    .then(async () => {
+      if (cleared !== epoch) return;
+      const at = now ?? new Date();
+      if (today !== toDateKey(at)) return;
+      const record = await loadNagRecord();
+      if (!record || record.dayKey !== today || cleared !== epoch) return;
+      const next = snoozeNagRecord(record, at, window);
+      if (cleared === epoch && (await saveNagRecord(next))) onChange?.(next.version);
+    })
+    .catch(() => {});
+  queue = run;
+  return run;
 }
 
 /**

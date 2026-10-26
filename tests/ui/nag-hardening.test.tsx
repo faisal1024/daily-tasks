@@ -107,9 +107,12 @@ const PROXY = "https://proxy.test/api/momentum/plan";
 const taskAt = (id: string, text: string): Task => ({ id, text, createdAt: new Date(2026, 9, 12, 7).toISOString(), carriedOver: false });
 // Made-up words: none is in any reminder's or nag's own wording.
 const TASKS = [taskAt("t0", "Zorvex the plimth"), taskAt("t1", "Quandle a brispo"), taskAt("t2", "Fennock wuxley")];
-const TASK_WORDS = /zorvex|plimth|quandle|brispo|fennock|wuxley|drambo|kleptu/i;
+// Whole words only: the salt, the hashes in the day's record and analytics'
+// random ids are letters and digits, and one could hold "babe" or "champ"
+// inside it (a flake). A word of a line or a task is never glued to others.
+const TASK_WORDS = /\b(?:zorvex|plimth|quandle|brispo|fennock|wuxley|drambo|kleptu)\b/i;
 // Words only a nag's line has: the AI's (below) and a few from each built-in voice.
-const LINE_WORDS = /AI \d+:|please\.|friend|friend|your mother|recruit|champ|better half|babe/i;
+const LINE_WORDS = /\bAI \d+:|\bplease\.|\b(?:friend|your mother|recruit|champ|better half|babe)\b/i;
 const NAG_ON: NotificationConfig = { ...DEFAULT_NOTIFICATIONS, style: "nag", nagConfirmed: true };
 
 const savedState = (notifications: Partial<NotificationConfig>, extra: Partial<AppState> = {}): AppState => {

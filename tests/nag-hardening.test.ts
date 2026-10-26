@@ -353,8 +353,9 @@ describe("the sanitiser against adversarial model output", () => {
       expect(server.hitsNagBlocklist(text), text).toBe(true);
       expect(server.cleanNagLine(text, { persona: "mom" }), text).toBe("");
     }
-    const result = { lines: [{ step: 1, taskIndex: null, text: `One, ${word}.` }, { step: 2, taskIndex: 0, text: "Two." }, { step: 3, taskIndex: 1, text: "Three." }] };
-    expect(server.sanitizeNagLines(result, PAYLOAD).lines).toEqual([{ step: 1, taskIndex: 0, text: "Two." }, { step: 2, taskIndex: 1, text: "Three." }]);
+    // 1.6 G: a line about a task names it (nagLineFitsTask).
+    const result = { lines: [{ step: 1, taskIndex: null, text: `One, ${word}.` }, { step: 2, taskIndex: 0, text: "Two: “Walk the dog”." }, { step: 3, taskIndex: 1, text: "Three: “Read ten pages”." }] };
+    expect(server.sanitizeNagLines(result, PAYLOAD).lines).toEqual([{ step: 1, taskIndex: 0, text: "Two: “Walk the dog”." }, { step: 2, taskIndex: 1, text: "Three: “Read ten pages”." }]);
     expect(server.isValidNagLines(result, PAYLOAD)).toBe(false);
   });
 
@@ -372,8 +373,9 @@ describe("the sanitiser against adversarial model output", () => {
     const payload = { persona: "drill", level: "relentless", tasks: [{ text: "Kill the weeds" }, { text: "Take the pills" }], count: 6, firstName: "Dick" };
     const kept = (text: string) => server.sanitizeNagLines({ lines: [{ step: 1, taskIndex: 0, text }] }, payload).lines.length === 1;
     expect(kept("Kill the weeds, recruit.")).toBe(true);
-    expect(kept("Those weeds won't kill themselves, Dick.")).toBe(true);
-    expect(kept("Take the pills, then the weeds.")).toBe(true);
+    // 1.6 G: a line about a task names it, whole (nagLineFitsTask): the task's words still excuse "kill".
+    expect(kept("“Kill the weeds”. Those weeds won't kill themselves, Dick.")).toBe(true);
+    expect(kept("Kill the weeds. The weeds won't take the hint.")).toBe(true);
     // Not theirs: dropped, even with their words in the same line.
     expect(kept("Kill the weeds, you idiot.")).toBe(false);
     expect(kept("Kill the weeds or else.")).toBe(false);

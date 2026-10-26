@@ -531,7 +531,7 @@ describe("the phone's own filter for affectionate AI lines", () => {
   it("parseNagResponse drops such a line and keeps the rest, renumbered", () => {
     const data = {
       lines: [
-        { step: 1, taskIndex: 0, text: "The report. I'm mentioning it." },
+        { step: 1, taskIndex: 0, text: "“Write the report”. I'm mentioning it." },
         { step: 2, taskIndex: null, text: "I love you. The list is still open." },
         { step: 3, taskIndex: null, text: "Reminder number several." },
         { step: 4, taskIndex: 0, text: "Hi sweetie. The report." },
@@ -540,17 +540,17 @@ describe("the phone's own filter for affectionate AI lines", () => {
       ],
     };
     expect(parseNagResponse(data, { taskCount: 2, count: 6, ownTexts: ["Write the report", "Buy honey"] })).toEqual([
-      { step: 1, taskIndex: 0, text: "The report. I'm mentioning it." },
+      { step: 1, taskIndex: 0, text: "“Write the report”. I'm mentioning it." },
       { step: 2, taskIndex: null, text: "Reminder number several." },
       { step: 3, taskIndex: 1, text: "Buy honey. Still open." },
     ]);
     // Without the tasks' words nothing is excused.
-    expect(parseNagResponse(data, { taskCount: 2, count: 6 }).map((line) => line.text)).toEqual(["The report. I'm mentioning it.", "Reminder number several."]);
+    expect(parseNagResponse(data, { taskCount: 2, count: 6 }).map((line) => line.text)).toEqual(["“Write the report”. I'm mentioning it.", "Reminder number several."]);
   });
 
   it("requestNagLines excuses the tasks it sent, and an answer that is mostly affection counts as failed", async () => {
     const answer = (texts: string[]) =>
-      (async () => new Response(JSON.stringify({ lines: texts.map((text, index) => ({ step: index + 1, taskIndex: null, text })) }), { status: 200 })) as unknown as typeof fetch;
+      (async () => new Response(JSON.stringify({ lines: texts.map((text, index) => ({ step: index + 1, taskIndex: text.includes("Buy honey") ? 0 : null, text })) }), { status: 200 })) as unknown as typeof fetch;
     const ask = (texts: string[]) =>
       requestNagLines({ persona: "spouse", level: "firm", tasks: [{ text: "Buy honey" }], count: 4, planUrl: "https://proxy.test/api/momentum/plan", fetchImpl: answer(texts) });
     expect((await ask(["Buy honey. Still.", "Love you. The list.", "Reminder two.", "Reminder three."])).lines.map((line) => line.text)).toEqual([

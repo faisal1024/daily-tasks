@@ -160,7 +160,9 @@ export const NAG_SYSTEM_PROMPT = [
   "",
   "Format rules:",
   `- Each line is one notification: at most ${NAG_LINE_TARGET_CHARS} characters, one or two short sentences, written in the persona's voice and addressed to the user.`,
-  "- Each line names at most one task, by a short name taken from its text (two to five words). Rotate through the tasks so each gets its turn. Set taskIndex to that task's number minus one. A general line that names no task has taskIndex null; use a few of those.",
+  "- Each line names at most one task. To name it, quote the task's text exactly as written, inside curly double quotes, e.g. \u201CCall the dentist\u201D; if the task is longer than 40 characters, quote its first few whole words instead. Never paraphrase, shorten or reword a task, and never name a task without quoting it. Set taskIndex to that task's number minus one. Rotate through the tasks so each gets its turn.",
+  "- A line about one task fits that task and only that one: read what kind of thing it is (a call, an email or message, a workout, a chore, an errand, an appointment, writing, reading) and write the line for that kind of thing, grammatical with the exact quoted words. Never imply it is a different kind of task (no running jokes for an email, no phone jokes for a chore) and never mention another task in it. If you can't tell what kind of task it is, keep the line neutral.",
+  "- A general line that names no task has taskIndex null; use a few of those. It never quotes a task or uses a task's words, and it doesn't assume how many tasks are open (say 'the list', not 'all three' or 'these tasks').",
   "- step runs from 1 (first nudge of the day) to the number of lines asked for (last nudge), one line per step, in order. Follow the level's curve across the steps.",
   "- Every line must be different from the others and make sense on its own.",
   "- Plain punctuation only. No em dashes, no hashtags, no links, no phone numbers, no ALL CAPS sentences unless the persona says so, and no quotation marks around the whole line.",
@@ -511,12 +513,84 @@ export function cleanNagLine(value, { persona, ownTexts = [] } = {}) {
   return text;
 }
 
+const NAG_NAME_CUT_AT = 40;
+const NAG_NAME_MIN_PREFIX = 12;
+const NAG_NAME_MIN_MENTION = 4;
+const QUOTED_NAME = /[\u201C"]([^\u201C\u201D"]{1,200})[\u201D"]/g;
+
+/** A name as the match reads it (the app's foldName): any case, accents off, straight apostrophes, no end punctuation. */
+function foldName(value) {
+  return foldForMatch(oneLine(value).replace(JOINERS, ""))
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    // Emoji don't count (cleanNagLine may take one out of a line).
+    .replace(/\p{Extended_Pictographic}|[\uFE0F\u200D\u20E3]|\p{Emoji_Modifier}/gu, " ")
+    .replace(/\s+/g, " ")
+    .replace(/(?:\.\.\.|[\s.,;:!?\u2026])+$/u, "")
+    .trim();
+}
+
+const isWordChar = (char) => char !== "" && /[\p{L}\p{N}]/u.test(char);
+
+function holdsWords(folded, name) {
+  for (let at = folded.indexOf(name); at !== -1; at = folded.indexOf(name, at + 1)) {
+    if (!isWordChar(folded.charAt(at - 1)) && !isWordChar(folded.charAt(at + name.length))) return true;
+  }
+  return false;
+}
+
+function quoteIsTask(quote, task) {
+  const q = foldName(quote);
+  const t = foldName(task);
+  if (!q || !t) return false;
+  if (q === t) return true;
+  // Cut mid-word only with an ellipsis ("“Pneumonoultra…”").
+  const cut = /(?:\u2026|\.\.\.)\s*$/.test(quote);
+  return charLength(t) > NAG_NAME_CUT_AT && charLength(q) >= NAG_NAME_MIN_PREFIX && t.startsWith(q) && (!isWordChar(t.charAt(q.length)) || cut);
+}
+
+/**
+ * 1.6 G: a line reads right for the task it is attached to (the app runs the
+ * same check, nagLineFitsTask in lib/daily-tasks/nag.ts). A line for task
+ * `taskIndex` names that task: it quotes its words (exactly, any case; the
+ * first whole words of a task over 40 characters) or has its whole words as
+ * they are. A paraphrase or no name at all is not enough: the line is
+ * dropped. It quotes no other task and has no other task's words in it
+ * outside its own task's words. A general line
+ * (`taskIndex` null) quotes no task and has none of their words. Task words
+ * under four characters aren't looked for unquoted.
+ *
+ * @param {string} text
+ * @param {number | null} taskIndex
+ * @param {string[]} taskTexts
+ */
+export function nagLineFitsTask(text, taskIndex, taskTexts) {
+  const quotes = Array.from(text.matchAll(QUOTED_NAME), (match) => match[1]);
+  const mentions = (rest, task) => {
+    const name = foldName(task);
+    return charLength(name) >= NAG_NAME_MIN_MENTION && holdsWords(foldName(rest), name);
+  };
+  if (taskIndex === null) {
+    return !quotes.some((quote) => taskTexts.some((task) => quoteIsTask(quote, task))) && !taskTexts.some((task) => mentions(text, task));
+  }
+  const own = taskTexts[taskIndex];
+  if (typeof own !== "string") return false;
+  // Named: quoted (as the prompt asks), or its whole words as they are. A
+  // task with no words to look for (emoji only) can't be checked: let through.
+  if (foldName(own) && !(quotes.some((quote) => quoteIsTask(quote, own)) || mentions(text, own))) return false;
+  if (quotes.some((quote) => !quoteIsTask(quote, own) && taskTexts.some((task, index) => index !== taskIndex && quoteIsTask(quote, task)))) return false;
+  const rest = text.replace(QUOTED_NAME, (whole, quote) => (quoteIsTask(quote, own) ? " | " : whole));
+  const ownName = foldName(own);
+  return !taskTexts.some((task, index) => index !== taskIndex && !ownName.includes(foldName(task)) && mentions(rest, task));
+}
+
 /**
  * Rebuild the response from checked fields only. Lines are kept in the
  * model's step order and renumbered 1..n (n <= count); a line is dropped when
  * its shape is wrong, its taskIndex isn't null or the index of a task sent,
- * its text fails cleanNagLine, or the same text (ignoring case) was already
- * kept.
+ * its text fails cleanNagLine, it doesn't name the task it is for (and only
+ * that one: nagLineFitsTask, 1.6 G), or the same text (ignoring case) was
+ * already kept.
  */
 export function sanitizeNagLines(result, payload) {
   const clean = cleanNagPayload(payload);
@@ -532,7 +606,7 @@ export function sanitizeNagLines(result, payload) {
     if (typeof step !== "number" || !Number.isFinite(step)) return;
     if (taskIndex !== null && !(Number.isInteger(taskIndex) && taskIndex >= 0 && taskIndex < taskTexts.length)) return;
     const text = cleanNagLine(item.text, { persona: clean.persona, ownTexts });
-    if (!text) return;
+    if (!text || !nagLineFitsTask(text, taskIndex, taskTexts)) return;
     candidates.push({ step, position, taskIndex, text });
   });
   // The model's order of escalation, ties broken by where the line came.

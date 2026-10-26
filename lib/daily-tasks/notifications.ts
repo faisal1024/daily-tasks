@@ -11,7 +11,7 @@ import {
   type ReminderPlanItem,
   type ReminderStrategy,
 } from "./reminder-plan";
-import { MANAGED_REMINDER_PREFIX, NAG_CATEGORY_ID, NAG_KIND } from "./reminders";
+import { MANAGED_REMINDER_PREFIX, NAG_CATEGORY_ID, NAG_GENERAL_CATEGORY_ID, NAG_KIND } from "./reminders";
 import type { NotificationPermissionState } from "./types";
 
 let handlerConfigured = false;
@@ -573,21 +573,30 @@ export function subscribeFocusResponses(listener: (response: FocusNotificationRe
   return () => subscription?.remove();
 }
 
-// Nag mode (1.4): a nag carries one button, "Stop for today". Like the focus
-// buttons it opens the app, so the tap is handled even when the app wasn't
-// running (a background action is lost then). A tap on the nag itself just
-// opens the app, on Today.
+// Nag mode: a nag about a task carries Mark done, Snooze 1 hour and Stop for
+// today (1.6 G; Stop for today only in 1.4 and 1.5), one about the list in
+// general Snooze 1 hour and Stop for today. Like the focus buttons they all
+// open the app, so the tap is handled even when the app wasn't running (a
+// background action is lost then). A tap on the nag itself just opens the
+// app, on Today. Never time-sensitive (the category doesn't change that).
 export const NAG_ACTION_STOP = "nag-stop-today";
+export const NAG_ACTION_DONE = "nag-done";
+export const NAG_ACTION_SNOOZE = "nag-snooze-hour";
 let nagCategoryReady = false;
 
-/** Registers the nag category's button. Best-effort: without it a nag still arrives. At launch, use registerNotificationCategories. */
+/** Registers the nag categories' buttons. Best-effort: without them a nag still arrives. At launch, use registerNotificationCategories. */
 export function registerNagCategory(): Promise<void> {
   if (Platform.OS === "web") return Promise.resolve();
   return inCategoryQueue(async () => {
     if (nagCategoryReady || typeof Notifications.setNotificationCategoryAsync !== "function") return;
+    const snooze = { identifier: NAG_ACTION_SNOOZE, buttonTitle: "Snooze 1 hour", options: { opensAppToForeground: true } };
+    const stop = { identifier: NAG_ACTION_STOP, buttonTitle: "Stop for today", options: { opensAppToForeground: true } };
     await Notifications.setNotificationCategoryAsync(NAG_CATEGORY_ID, [
-      { identifier: NAG_ACTION_STOP, buttonTitle: "Stop for today", options: { opensAppToForeground: true } },
+      { identifier: NAG_ACTION_DONE, buttonTitle: "Mark done", options: { opensAppToForeground: true } },
+      snooze,
+      stop,
     ]);
+    await Notifications.setNotificationCategoryAsync(NAG_GENERAL_CATEGORY_ID, [snooze, stop]);
     nagCategoryReady = true;
   }).catch(() => {});
 }
@@ -612,26 +621,37 @@ export async function registerNotificationCategories(): Promise<void> {
   }
 }
 
-/** A tap on a nag's "Stop for today". */
+/** A tap on one of a nag's buttons. */
 export interface NagNotificationResponse {
-  action: "stop";
+  /** done: tick the task it was about; snooze: the next nag in an hour; stop: no more nags today. */
+  action: "done" | "snooze" | "stop";
   /** The day the nag was for (yyyy-MM-dd), from its id. */
   dayKey: string;
+  /** The task the nag was about (its data), or null (a nag about the list in general). */
+  taskId: string | null;
 }
+
+const NAG_ACTIONS = new Map<string, NagNotificationResponse["action"]>([
+  [NAG_ACTION_DONE, "done"],
+  [NAG_ACTION_SNOOZE, "snooze"],
+  [NAG_ACTION_STOP, "stop"],
+]);
 
 /** The nag response in a notification response, or null for anything else (a plain tap included). */
 export function parseNagNotificationResponse(response: Notifications.NotificationResponse | null | undefined): NagNotificationResponse | null {
   const request = response?.notification?.request;
-  if (!request || !isManaged(request.identifier) || response?.actionIdentifier !== NAG_ACTION_STOP) return null;
+  const action = typeof response?.actionIdentifier === "string" ? NAG_ACTIONS.get(response.actionIdentifier) : undefined;
+  if (!request || !isManaged(request.identifier) || !action) return null;
   const [dayKey, kind] = request.identifier.slice(MANAGED_REMINDER_PREFIX.length).split(":");
   if (kind !== NAG_KIND || !/^\d{4}-\d{2}-\d{2}$/.test(dayKey ?? "")) return null;
-  return { action: "stop", dayKey };
+  const taskId = (request.content?.data as Record<string, unknown> | undefined)?.taskId;
+  return { action, dayKey, taskId: typeof taskId === "string" && taskId ? taskId : null };
 }
 
 /**
- * Calls `listener` for each "Stop for today": while the app runs, and once
- * for the tap that launched it. Each tap is passed on once. Returns the
- * unsubscribe.
+ * Calls `listener` for each tap on a nag's button (Mark done, Snooze 1 hour,
+ * Stop for today): while the app runs, and once for the tap that launched
+ * it. Each tap is passed on once. Returns the unsubscribe.
  */
 export function subscribeNagResponses(listener: (response: NagNotificationResponse) => void): () => void {
   if (Platform.OS === "web") return () => {};
@@ -639,14 +659,14 @@ export function subscribeNagResponses(listener: (response: NagNotificationRespon
   const handle = (response: Notifications.NotificationResponse | null | undefined) => {
     const parsed = parseNagNotificationResponse(response);
     if (!parsed || !response) return;
-    const key = `${response.notification.request.identifier}|${response.notification.date}`;
+    const key = `${response.notification.request.identifier}|${response.actionIdentifier}|${response.notification.date}`;
     if (seen.has(key)) return;
     seen.add(key);
     listener(parsed);
     try {
       Notifications.clearLastNotificationResponse?.();
     } catch {
-      // A replay only pauses a day that is already paused.
+      // A replay only pauses a paused day, ticks a ticked task (skipped) or snoozes again.
     }
   };
   let subscription: { remove: () => void } | null = null;

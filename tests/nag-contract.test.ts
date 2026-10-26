@@ -392,7 +392,7 @@ describe("sanitizeNagLines", () => {
   it("keeps only step, taskIndex and text of well-formed lines", () => {
     const result = {
       lines: [
-        { step: 1, taskIndex: 0, text: "Dentist, friend. Just asking.", mood: "x" },
+        { step: 1, taskIndex: 0, text: "“Call the dentist”, friend. Just asking.", mood: "x" },
         null,
         "a string",
         ["array"],
@@ -407,7 +407,7 @@ describe("sanitizeNagLines", () => {
     };
     expect(sanitizeNagLines(result, PAYLOAD)).toEqual({
       lines: [
-        { step: 1, taskIndex: 0, text: "Dentist, friend. Just asking." },
+        { step: 1, taskIndex: 0, text: "“Call the dentist”, friend. Just asking." },
         { step: 2, taskIndex: null, text: "The list is still open, friend." },
       ],
     });
@@ -416,8 +416,8 @@ describe("sanitizeNagLines", () => {
   it("drops a line whose taskIndex isn't null or the index of a task sent", () => {
     const result = {
       lines: [
-        line(1, "Zero is fine.", 0),
-        line(2, "One is fine.", 1),
+        line(1, "Zero is fine: “Call the dentist”.", 0),
+        line(2, "One is fine: “Water the plants”.", 1),
         line(3, "Two is past the tasks sent.", 2),
         line(4, "Negative.", -1),
         line(5, "A fraction.", 0.5),
@@ -426,7 +426,7 @@ describe("sanitizeNagLines", () => {
         line(8, "Null is fine."),
       ],
     };
-    expect(texts(result, { ...PAYLOAD, count: 16 })).toEqual(["Zero is fine.", "One is fine.", "Null is fine."]);
+    expect(texts(result, { ...PAYLOAD, count: 16 })).toEqual(["Zero is fine: “Call the dentist”.", "One is fine: “Water the plants”.", "Null is fine."]);
   });
 
   it("orders by the model's step and renumbers 1..n, whatever numbers it used", () => {
@@ -465,9 +465,9 @@ describe("sanitizeNagLines", () => {
 
   it("uses the persona for emoji and the tasks and name for the blocklist", () => {
     const payload = { persona: "drill", level: "relentless", tasks: [{ text: "Kill the weeds" }], count: 4, firstName: "Dick" };
-    const result = { lines: [line(1, "Those weeds won't kill themselves, Dick 💪", 0), line(2, "You idiot.")] };
+    const result = { lines: [line(1, "Kill the weeds. Those weeds won't kill themselves, Dick 💪", 0), line(2, "You idiot.")] };
     expect(sanitizeNagLines(result, payload).lines).toEqual([
-      { step: 1, taskIndex: 0, text: "Those weeds won't kill themselves, Dick" },
+      { step: 1, taskIndex: 0, text: "Kill the weeds. Those weeds won't kill themselves, Dick" },
     ]);
   });
 
@@ -493,8 +493,8 @@ describe("the nag-lines route", () => {
   const RC = `$RCAnonymousID:${"0123456789abcdef".repeat(2)}`;
   const GOOD = {
     lines: [
-      line(1, "Dentist, friend. Just asking.", 0),
-      line(2, "The plants are thirsty, friend.", 1),
+      line(1, "“Call the dentist”, friend. Just asking.", 0),
+      line(2, "“Water the plants”, friend. They are thirsty.", 1),
       line(3, "I'm not mad. The list is still open."),
       line(4, "You idiot."),
     ],
@@ -557,8 +557,8 @@ describe("the nag-lines route", () => {
       status: 200,
       body: {
         lines: [
-          { step: 1, taskIndex: 0, text: "Dentist, friend. Just asking." },
-          { step: 2, taskIndex: 1, text: "The plants are thirsty, friend." },
+          { step: 1, taskIndex: 0, text: "“Call the dentist”, friend. Just asking." },
+          { step: 2, taskIndex: 1, text: "“Water the plants”, friend. They are thirsty." },
           { step: 3, taskIndex: null, text: "I'm not mad. The list is still open." },
         ],
       },

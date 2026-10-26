@@ -412,6 +412,17 @@ The model's answer is rebuilt by `sanitizeNagLines`, never passed through:
   The app picks when a line is shown, so "tonight" could arrive at ten in
   the morning. The task's own words don't count: a line may name "Book
   dinner".
+- 1.6 G: a line is also **dropped** when it doesn't read right for its task
+  (`nagLineFitsTask`; the app runs the same check). A line with a
+  `taskIndex` must name that task: quote its words (any case; the first
+  whole words, at least 12 characters, of a task over 40, or a cut ending in
+  an ellipsis) or have its whole words as they are. A paraphrase ("the
+  dentist thing") or no name is dropped, and so is a line that quotes another
+  task or has another task's words (four characters or more) outside its own.
+  A general line (`taskIndex: null`) that quotes a task or has its words is
+  dropped. A task with no words to look for (emoji only) isn't checked. The
+  prompt asks for the task quoted exactly, a line fitted to what kind of task
+  it is, and general lines that don't count the tasks.
 - The checks read a folded copy of the line (`foldForMatch`): NFKC, with
   accents and other combining marks, zero-width characters and soft hyphens
   taken out. So a full-width letter, an accent or a zero-width space inside
