@@ -10,6 +10,8 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 |---|---|
 | Today's three, set/change, rollover, history, streaks, reminders, progress | AI brain dump sorting, Break it down, AI goal ideas ("New ideas", "Refresh with AI"), AI evening close, plan around your calendar |
 | Brain dump: the first-run sort + 3 AI sorts to try (per install, `lib/daily-tasks/free-uses.ts`), then the simple on-device split | |
+| Break it down: one free try per install (1.5; the proxy allows one per app user id, ever), then the paywall | |
+| Evening close on the device: a kind note, and what's still open carried to tomorrow; on a perfect day, a teaser of the coach's draft (1.5) | |
 | Goal ideas from the on-device template plan | |
 | Home/lock-screen widgets (view today, progress, next task) | Tick tasks off from the widget |
 | Weekly review, including patterns (Progress tab), free since Phase 11a | |
@@ -24,9 +26,32 @@ Phase 4 of the revamp (docs/Momentum_Master_Plan.md §0.6). Both features are
 - After the paywall closes, the gated action resumes: Break it down runs if the user now
   has Plus, and the brain dump / ideas sheet reopens.
 - **Paywall placement:** once at the end of first run (closable), and at value moments:
-  Break it down, "Get Plus" in the brain dump (only after the free sorts), "New ideas",
-  the calendar setting, and Settings › Plus. Lifetime is shown only from Settings.
-  Restore purchases is on the paywall and in Settings.
+  Break it down (after its one free try), "Get Plus" in the brain dump (only after the
+  free sorts), "New ideas", the calendar setting, the evening teaser ("Have my coach draft
+  tomorrow", source `evening_draft`) and Settings › Plus. Lifetime is shown from Settings
+  and, from 1.5, on every paywall once this install has closed `LIFETIME_AFTER_DISMISSALS`
+  (2) paywalls without buying (count in its own AsyncStorage key, kept by "Reset all
+  data"). Only paywalls the user reached for count (not onboarding, aha or win-back), and
+  only once their plans had loaded. A lapsed subscriber (expired, or Apple retrying a
+  failed renewal) isn't offered lifetime this way, since a retried renewal could charge
+  twice. Restore purchases is on the paywall and in Settings.
+- **Benefit order (1.5):** Nag mode, "Your coach drafts tomorrow", Smart brain dump,
+  Break it down, then the rest. The paywall a feature opened leads with that feature
+  (Nag mode, the evening draft, Break it down, the brain dump, ideas, calendar,
+  routines); generic and onboarding paywalls keep Nag mode first.
+- **Evening teaser (1.5):** a free user who closes a day where every task was done (and at
+  least `EVENING_TEASER_MIN_DONE`, 3 = perfect days), in a build that can reach the AI
+  evening coach, sees "Tomorrow could start with", one real line and two placeholder
+  shapes under the coach's note, "Plus drafts a full three each night, from how today
+  went. Your three stay free either way." and a secondary "Have my coach draft tomorrow".
+  No AI is called (the evening route is Plus-only), and nothing suggests a draft exists.
+  The line is the user's own (the oldest saved for later, else the built-in idea for the
+  next step on the goal path; no line = no teaser); the shapes are hidden from VoiceOver
+  and never hide content (`lib/daily-tasks/evening-teaser.ts`). Buying from it closes the
+  day again with the AI coach; if that falls back with nothing drafted, "Couldn't draft
+  tomorrow." offers Try again. The check-in card, done card, "Tonight" line and "Drafting
+  tomorrow…" (else "Closing the day…") only promise a coach's draft once Plus is
+  confirmed and the coach is reachable.
 - **Onboarding paywall (1.3):** echoes what first run just did ("Your three are set." with
   three tasks, "Today's set." with one or two, then "Want help like this every
   morning?"); with no tasks set ("I'll add my own") it falls back to the generic
@@ -134,7 +159,7 @@ bought with it carry `offer: true`.
 1. **App Store Connect:** sign the Paid Apps agreement (banking + tax). Create a
    subscription group "Three Today Plus" with `plus_annual` ($34.99/yr, 7-day free-trial
    introductory offer) and `plus_monthly` ($4.99/mo, 7-day free trial); plus a non-consumable
-   `plus_lifetime` ($79.99, shown only from Settings). Enrol in the Small Business Program.
+   `plus_lifetime` ($79.99, shown from Settings, and on every paywall after two dismissals). Enrol in the Small Business Program.
 2. **RevenueCat:** create the project + iOS app (App Store Connect API key, and upload the
    **In-App Purchase Key**: needed for StoreKit 2 and win-back offers), entitlement **`plus`** attached to all three products, and a
    current offering with the `$rc_annual`, `$rc_monthly` and `$rc_lifetime` packages.
@@ -154,11 +179,13 @@ bought with it carry `offer: true`.
 ## Events
 
 `paywall_viewed` / `paywall_closed` carry `source`: `onboarding`, `aha`, `settings`,
-`brain_dump`, `break_down`, `new_ideas`, `calendar`, `win_back`.
+`brain_dump`, `break_down`, `new_ideas`, `calendar`, `win_back`, `routines`, `nag_mode`,
+`evening_draft` (1.5).
 
 `app_opened` (once per day), `onboarding_completed`, `task_completed`, `perfect_day`,
-`brain_dump_sorted`, `break_down_used`, `plus_gate_hit`, `paywall_viewed`,
-`paywall_closed`, `paywall_monthly_nudge_tapped` (`source`), `purchase_started`, `purchase_completed`, `purchase_failed`
+`brain_dump_sorted`, `break_down_used` (`source: free_try` for the free one), `plus_gate_hit`, `paywall_viewed`,
+`paywall_closed`, `paywall_dismissed` (1.5: closed without buying; `source`, `count` =
+dismissals so far on this install), `paywall_monthly_nudge_tapped` (`source`), `purchase_started`, `purchase_completed`, `purchase_failed`
 (failed or pending/Ask to Buy, with `outcome`), `purchase_cancelled` (the user backed
 out of Apple's purchase sheet; `plan`, `source`, `trial`), `restore_completed`,
 `redeem_code_opened`, `path_edited`, `path_regenerated`,

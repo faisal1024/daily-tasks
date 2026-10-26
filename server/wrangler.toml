@@ -12,6 +12,10 @@ RATE_LIMIT_PER_MIN = "30"
 DAILY_LIMIT_PER_CLIENT = "40"
 GLOBAL_DAILY_LIMIT = "500"
 FREE_BRAIN_DUMPS_PER_DAY = "8"
+# 1.5: one free Break it down per app user id, ever (kept in the Limits object),
+# and at most this many free tries per network per day (a reinstall gets a new id).
+FREE_BREAK_DOWNS_PER_CLIENT = "1"
+FREE_BREAK_DOWNS_PER_NETWORK_PER_DAY = "20"
 # Enforced since Oct 2026: 1.3+ builds send the secret ("log" to roll back).
 SECRET_MODE = "enforce"
 # Enforced since Oct 2026 (1.4 live): Plus routes need Plus, free cap applies.

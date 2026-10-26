@@ -1,6 +1,6 @@
 # Privacy Policy — Three Today
 
-**Effective date: 26 October 2026 (last updated for completion stats sent with smart features, and "What your coach remembers")**
+**Effective date: 26 October 2026 (last updated for the free Break it down try, completion stats sent with smart features, and "What your coach remembers")**
 
 <!-- Keep in sync with the published copy (gist a43d6373453761af70d495d640e38ffa,
      privacy-policy.html), which App Store Connect links to. The app links here. -->
@@ -39,7 +39,7 @@ Six optional features use an AI model. When you use them, the app sends a reques
 
 These requests do **not** include your name, an account, an advertising identifier, contact details, or location.
 
-In versions of the app that offer Plus, each request also includes the anonymous app user ID that RevenueCat created on your device (see Purchases). Our server uses it only to ask RevenueCat whether Plus is active (and, if you had Plus for free as an early supporter, to record that with RevenueCat) and to apply fair-use limits. It is not sent to the AI provider and isn't linked to your name or Apple ID; for the limits, our server keeps only a one-way hash of it, for about a day.
+In versions of the app that offer Plus, each request also includes the anonymous app user ID that RevenueCat created on your device (see Purchases). Our server uses it only to ask RevenueCat whether Plus is active (and, if you had Plus for free as an early supporter, to record that with RevenueCat) and to apply fair-use limits. It is not sent to the AI provider and isn't linked to your name or Apple ID; for the limits, our server keeps only a one-way hash of it, for about a day. The one exception is the single free Break it down try: to make sure it's used only once, our server keeps a one-way hash of the ID with a note that the try was used. It can't be turned back into the ID and contains nothing else (no task text).
 
 Our server does not store the requests themselves; it forwards each request to the AI provider and returns the result to your device. The AI provider processes the request to generate a response and may retain it for a limited period under its own API data policies (for example, for abuse and safety monitoring); it does not use this data to train its models. If an AI response is malformed, our server may record which fields it contained (not their content) in a short-lived error log for debugging.
 
@@ -75,7 +75,7 @@ Three Today is suitable for all ages and does not knowingly collect personal inf
 
 ## Your control
 
-You can delete all data stored on your device at any time from Settings → Reset all data in the app, or by deleting the app. Reset keeps a few small counters that aren't personal data (how many free AI sorts were used, and whether a Plus offer was already shown), so free trials aren't repeated; deleting the app removes them too. We do not keep a copy of your tasks or history on our servers. You can turn off anonymous usage stats in Settings, and manage or cancel a subscription in your Apple ID settings.
+You can delete all data stored on your device at any time from Settings → Reset all data in the app, or by deleting the app. Reset keeps a few small counters that aren't personal data (how many free AI sorts were used, whether the free Break it down try was used, how many times the Plus screen was closed, and whether a Plus offer was already shown), so free trials aren't repeated; deleting the app removes them too. We do not keep a copy of your tasks or history on our servers. You can turn off anonymous usage stats in Settings, and manage or cancel a subscription in your Apple ID settings.
 
 ## Changes to this policy
 

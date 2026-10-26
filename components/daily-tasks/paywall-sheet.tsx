@@ -58,6 +58,8 @@ interface PaywallSheetProps {
   remindersAllowed?: boolean;
   /** The monthly nudge was tapped (analytics live in plus-context). */
   onMonthlyNudge?: () => void;
+  /** Paywalls closed without buying on this install (lifetime shows after LIFETIME_AFTER_DISMISSALS). */
+  dismissals?: number;
 }
 
 /** After an offer purchase fails: the plans are reloaded, never bought at full price. */
@@ -85,6 +87,7 @@ export function PaywallSheet({
   taskCount,
   remindersAllowed = false,
   onMonthlyNudge,
+  dismissals = 0,
 }: PaywallSheetProps) {
   const colors = useColors();
   const { fontScale } = useWindowDimensions();
@@ -125,8 +128,8 @@ export function PaywallSheet({
     setPackages([]);
     setSelectedId(null);
     try {
-      // Lifetime only when opened from Settings: the trial plans lead elsewhere.
-      const loaded = sortPackages(visiblePackages(await loadPackages(), source));
+      // Lifetime from Settings, or once two paywalls were closed without buying.
+      const loaded = sortPackages(visiblePackages(await loadPackages(), source, dismissals));
       if (mine !== session.current) return;
       if (loaded.length === 0) {
         setLoad("error");
@@ -553,6 +556,8 @@ export function PaywallHost() {
       taskCount={plus.paywallTaskCount}
       remindersAllowed={remindersAllowed}
       onMonthlyNudge={plus.trackMonthlyNudge}
+      // A lapsed subscriber isn't offered lifetime for dismissals (a retried renewal could charge twice).
+      dismissals={plus.subscriptionLapsed ? 0 : plus.paywallDismissals}
     />
   );
 }

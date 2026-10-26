@@ -63,6 +63,21 @@ function parseOfferCheck(raw: string | null): OfferCheck | null {
 export const INSTALL_DAY_KEY = "daily-tasks/install-day";
 export const AHA_SHOWN_KEY = "daily-tasks/plus-aha-shown";
 export const LAST_PAYWALL_KEY = "daily-tasks/plus-last-paywall-shown-at";
+// Paywalls closed without buying (1.5): from LIFETIME_AFTER_DISMISSALS on,
+// every paywall offers lifetime too. Own key, so "Reset all data" keeps it.
+export const PAYWALL_DISMISSALS_KEY = "daily-tasks/plus-paywall-dismissals";
+
+/**
+ * Paywalls the app shows on its own (first run, the aha moment, win-back):
+ * closing one isn't a "no thanks" to a feature the user reached for, so it
+ * doesn't count toward lifetime.
+ */
+const AUTO_PAYWALL_SOURCES: ReadonlySet<PaywallSource> = new Set<PaywallSource>(["onboarding", "aha", "win_back"]);
+
+function parseDismissals(raw: string | null): number {
+  const n = raw === null ? 0 : Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
 
 /** Read (and on the very first launch, record) what the aha rule needs. Null on a storage error. */
 async function loadAhaState(): Promise<AhaPaywallState | null> {
@@ -140,6 +155,13 @@ export interface PlusContextValue {
   trial: PlusTrial | null;
   /** What the aha paywall rule needs; null while loading or unreadable (no offer). */
   ahaPaywallState: AhaPaywallState | null;
+  /** Paywalls this install has closed without buying (lifetime shows from LIFETIME_AFTER_DISMISSALS). */
+  paywallDismissals: number;
+  /**
+   * Plus lapsed (expired, or Apple is retrying a failed renewal): lifetime
+   * isn't offered for dismissals then, since a retried renewal could charge twice.
+   */
+  subscriptionLapsed: boolean;
 }
 
 const noPaywall: PlusContextValue = {
@@ -164,6 +186,8 @@ const noPaywall: PlusContextValue = {
   checkWinBackOffer: async () => false,
   trial: null,
   ahaPaywallState: null,
+  paywallDismissals: 0,
+  subscriptionLapsed: false,
 };
 
 const PlusContext = createContext<PlusContextValue>(noPaywall);
@@ -266,6 +290,40 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, []);
+  // Paywalls closed without buying, read once at launch (0 until then).
+  const [paywallDismissals, setPaywallDismissals] = useState(0);
+  const dismissalsRef = useRef(0);
+  const dismissalsLoaded = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(PAYWALL_DISMISSALS_KEY)
+      .then(parseDismissals)
+      .catch(() => 0)
+      .then((stored) => {
+        if (cancelled) return;
+        dismissalsLoaded.current = true;
+        // A dismissal counted while this was loading adds to the stored count.
+        const next = stored + dismissalsRef.current;
+        dismissalsRef.current = next;
+        setPaywallDismissals(next);
+        if (next !== stored) void AsyncStorage.setItem(PAYWALL_DISMISSALS_KEY, String(next)).catch(() => {});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const noteDismissal = useCallback((source: PaywallSource) => {
+    const next = dismissalsRef.current + 1;
+    dismissalsRef.current = next;
+    setPaywallDismissals(next);
+    if (dismissalsLoaded.current) void AsyncStorage.setItem(PAYWALL_DISMISSALS_KEY, String(next)).catch(() => {});
+    // Ids and counts only.
+    track("paywall_dismissed", { source, count: next });
+  }, []);
+  // Set when this open ended in Plus (bought or restored): its close isn't a dismissal.
+  const acquiredRef = useRef(false);
+  // This open's plans loaded: a close before that isn't a choice about the prices.
+  const plansLoadedRef = useRef(false);
   const lapsedRef = useRef<string | null>(null);
   lapsedRef.current = lapsedAt;
   const entitlementRef = useRef(false);
@@ -353,6 +411,8 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const beginOpen = useCallback((source: PaywallSource, taskCount: number | undefined) => {
     sourceRef.current = source;
     shownRef.current = false;
+    acquiredRef.current = false;
+    plansLoadedRef.current = false;
     openedAt.current = Date.now();
     openSeq.current += 1;
     clearViewedCap();
@@ -455,11 +515,21 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
     offerLookup.current = null;
     clearViewedCap();
     if (shownRef.current) track("paywall_closed", { source: sourceRef.current });
+    // Counted toward lifetime: a paywall the user reached for, on screen with
+    // its plans, closed without buying.
+    if (
+      shownRef.current &&
+      plansLoadedRef.current &&
+      !acquiredRef.current &&
+      !AUTO_PAYWALL_SOURCES.has(sourceRef.current)
+    ) {
+      noteDismissal(sourceRef.current);
+    }
     sourceRef.current = null;
     shownRef.current = false;
     setPaywallSource(null);
     setPaywallTaskCount(undefined);
-  }, [trackViewed, clearViewedCap]);
+  }, [trackViewed, clearViewedCap, noteDismissal]);
   const trackMonthlyNudge = useCallback(() => {
     if (sourceRef.current) track("paywall_monthly_nudge_tapped", { source: sourceRef.current });
   }, []);
@@ -484,11 +554,15 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
         markWinBack("offerShownFor", lookup.lapse);
       }
     };
-    if (!forOpen) return loadSdkPackages();
+    const loaded = (packages: PlusPackage[]) => {
+      if (seq === openSeq.current && packages.length > 0) plansLoadedRef.current = true;
+      return packages;
+    };
+    if (!forOpen) return loaded(await loadSdkPackages());
     try {
       const packages = await loadSdkPackages({ winBack: true });
       settle(packages.some((pkg) => shownWinBackOffer(pkg) !== null));
-      return packages;
+      return loaded(packages);
     } catch (error) {
       settle(false);
       throw error;
@@ -544,6 +618,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       setPurchasing(false);
     });
     if (result.active) {
+      acquiredRef.current = true;
       setEntitlementActive(true);
       setEntitlementAnswered(true);
       setLapsedAt(null);
@@ -553,6 +628,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       });
     }
     if (result.outcome === "purchased") {
+      acquiredRef.current = true;
       setPurchaseCount((count) => count + 1);
       // Also covers a paywall reopened while this purchase was running.
       closePaywallRef.current();
@@ -575,6 +651,7 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
   const restore = useCallback(async () => {
     const active = await restorePurchases();
     if (active) {
+      acquiredRef.current = true;
       setEntitlementActive(true);
       setEntitlementAnswered(true);
       setLapsedAt(null);
@@ -616,6 +693,8 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       checkWinBackOffer,
       trial,
       ahaPaywallState,
+      paywallDismissals,
+      subscriptionLapsed: lapsedAt !== null,
     }),
     [
       paywallBuild,
@@ -639,6 +718,8 @@ export function PlusProvider({ children }: { children: React.ReactNode }) {
       checkWinBackOffer,
       trial,
       ahaPaywallState,
+      paywallDismissals,
+      lapsedAt,
     ],
   );
 
