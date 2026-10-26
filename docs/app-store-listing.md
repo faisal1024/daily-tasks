@@ -64,6 +64,19 @@ Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html
 ```
 
+## What's New in 1.5 (draft)
+
+```
+A calmer start and a coach that remembers:
+• Getting started is three steps: dump, pick, go.
+• Each of your three now shows why it was picked.
+• Your coach remembers what you finish and what keeps coming back. See it in Settings.
+• "Lock today" replaces "Set", with Unlock right on Today.
+• Back after a few days? Your Day count is still yours.
+• Share your finished day as a picture.
+• Routine ideas to add in one tap, Swap in from Saved for later, and a few small touches.
+```
+
 ## What's New in 1.4.1 (draft)
 
 ```
