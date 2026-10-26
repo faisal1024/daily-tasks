@@ -340,6 +340,17 @@ export interface AppState {
    * how an updater is told from a new install (first run marks them all).
    */
   whatsNewSeen: string[];
+  /**
+   * Saved for later's "add a day" tip is done (1.6; saved-date-tip.ts): a
+   * dated item was saved once, or the tip was closed. Absent in older saves.
+   */
+  savedDateTipDone?: boolean;
+  /**
+   * Something was saved for later from the share sheet or Siri (1.6 E's
+   * capture inbox), ever: a new install's "Save for later from anywhere"
+   * card isn't needed. Absent in older saves.
+   */
+  capturedEver?: boolean;
   todayReflection: string | null;
   todayReflectionResult: ReflectionResult | null;
   momentumProfile: MomentumProfile;

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type Ref } from "react";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 
 import { SectionLabel } from "@/components/daily-tasks/section-label";
@@ -24,7 +24,7 @@ export const PLUS_NOTES_LINE = "Plus adds notes your coach writes after each eve
  * a confirm) empties the notes and starts the basic memory again from
  * tomorrow; the history itself stays.
  */
-export function CoachMemorySection() {
+export function CoachMemorySection({ headerRef }: { headerRef?: Ref<View> } = {}) {
   const colors = useColors();
   const { state, today, hasPlus, setCoachMemory, clearCoachMemory } = useDailyTasks();
   const clearedAt = state.memoryClearedAt ?? null;
@@ -61,7 +61,7 @@ export function CoachMemorySection() {
   return (
     <View className="gap-3" testID="coach-memory-section">
       <View className="gap-1.5">
-        <SectionLabel icon="bulb-outline" label="What your coach remembers" />
+        <SectionLabel icon="bulb-outline" label="What your coach remembers" viewRef={headerRef} />
         <Text className="text-sm mt-0.5" style={{ color: colors.muted }}>
           {COACH_MEMORY_INTRO}
         </Text>

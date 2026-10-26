@@ -3,7 +3,7 @@
 // three, never two in a row; nag-own-lines.ts). Kept on the phone only:
 // never sent to the AI service or to analytics.
 
-import { useState } from "react";
+import { useState, type Ref } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -28,7 +28,7 @@ export const NAG_OWN_LINES_HIDDEN_NOTE = "With task names hidden, lines with {ta
 export const NAG_OWN_LINES_EMPTY = "None yet. Built-in lines are used.";
 export const nagOwnLinesFullNote = (count: number) => `${count} of ${MAX_NAG_OWN_LINES} lines`;
 
-export function NagOwnLines() {
+export function NagOwnLines({ headerRef }: { headerRef?: Ref<Text> } = {}) {
   const colors = useColors();
   const { state, setNagOwnLines } = useDailyTasks();
   const lines = state.notifications.nagOwnLines ?? [];
@@ -58,7 +58,7 @@ export function NagOwnLines() {
 
   return (
     <View className="gap-2" testID="settings-nag-own-lines">
-      <Text className="text-sm font-semibold text-foreground" accessibilityRole="header">
+      <Text ref={headerRef} className="text-sm font-semibold text-foreground" accessibilityRole="header">
         In your own words
       </Text>
       <Text className="text-xs" style={{ color: colors.muted }}>

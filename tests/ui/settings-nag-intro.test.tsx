@@ -123,18 +123,20 @@ describe("Settings: What is Nag mode?", () => {
     expect(sheet()).toBeNull();
     await openIntro();
     expect(inSheet().getByRole("header", { name: "Meet Nag mode" })).toBeOnTheScreen();
-    expect(inSheet().getByText("New in 1.4")).toBeOnTheScreen();
+    // No 1.4 label from 1.6 (its What's new supersedes the 1.4 announcement); the quiet-times line is there.
+    expect(inSheet().queryByText("New in 1.4")).toBeNull();
+    expect(screen.getByTestId("nag-intro-footer")).toBeOnTheScreen();
     expect(screen.getByTestId("nag-intro-sample").props.children).toContain("“Call the dentist”");
     expect(eventsNamed("whats_new_shown")).toEqual([{ id: ID, source: "settings" }]);
   });
 
-  it("a 1.5 D install (its first run wrote the Nag intro's record): not 'New in 1.4', and its own id", async () => {
+  it("a 1.5 D install (its first run wrote the Nag intro's record): the same sheet, with its own id", async () => {
     await saveFirstDays(startFirstDays("2026-10-11", "earlier#0"));
     await renderSettings({}, { whatsNewSeen: [ID] });
     await openIntro();
     expect(inSheet().getByRole("header", { name: "Meet Nag mode" })).toBeOnTheScreen();
     expect(screen.queryByTestId("nag-intro-label")).toBeNull();
-    expect(screen.queryByTestId("nag-intro-footer")).toBeNull();
+    expect(screen.getByTestId("nag-intro-footer")).toBeOnTheScreen();
     expect(eventsNamed("whats_new_shown")).toEqual([{ id: "1.5-nag-intro", source: "settings" }]);
   });
 

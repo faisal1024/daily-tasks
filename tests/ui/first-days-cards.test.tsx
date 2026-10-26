@@ -51,12 +51,13 @@ const props = (over: Partial<Props> = {}): Props => ({
 
 const seed = (record: FirstDaysRecord) => saveFirstDays(record);
 /**
- * First run's record without 1.5 D's Nag card and sheet: these tests are
- * about the nudge and the widget tip (the Nag card has its own tests).
+ * First run's record without 1.5 D's Nag card and sheet or 1.6's capture
+ * card: these tests are about the nudge and the widget tip (the others have
+ * their own tests).
  */
 const aRecord = (day: string): FirstDaysRecord => {
-  const { nagCardFrom, nagCardUntil, nagIntro, nagIntroOpen, ...record } = startFirstDays(day);
-  void [nagCardFrom, nagCardUntil, nagIntro, nagIntroOpen];
+  const { nagCardFrom, nagCardUntil, nagIntro, nagIntroOpen, openDays, captureCard, ...record } = startFirstDays(day);
+  void [nagCardFrom, nagCardUntil, nagIntro, nagIntroOpen, openDays, captureCard];
   return record;
 };
 /** A record whose nudge is due on D1 (first run ended the day before, or a task was checked off). */
@@ -212,6 +213,8 @@ describe("widget tip", () => {
     await render(<FirstDaysCards {...props({ permission: "granted", dayFinished: true })} />);
     await waitFor(() => expect(tip()).toBeOnTheScreen());
     expect(screen.getByText("Keep your three on your Home Screen")).toBeOnTheScreen();
+    // 1.6: it names the Dump widget too.
+    expect(screen.getByText(/The Dump widget is a Lock Screen or Home Screen button that opens a brain dump\.$/)).toBeOnTheScreen();
     expect((await stored()).widgetTip).toBe("due");
   });
 

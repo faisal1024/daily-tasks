@@ -350,9 +350,9 @@ describe("the Nag card on a new install", () => {
     await flush();
     expect(sheet()).toBeOnTheScreen();
     expect(within(screen.getByTestId("nag-intro-sheet")).getByText(NAG_INTRO_COPY.title)).toBeOnTheScreen();
-    // Nothing is new to them: no 'New in 1.4' label and no 'Also new' line.
+    // Nothing is new to them: no "New in 1.4" label (gone from 1.6); the quiet-times footer is the same for everyone.
     expect(screen.queryByTestId("nag-intro-label")).toBeNull();
-    expect(screen.queryByTestId("nag-intro-footer")).toBeNull();
+    expect(screen.getByTestId("nag-intro-footer")).toBeOnTheScreen();
     expect(cardEvents()).toContainEqual({ kind: "nag", action: "open" });
     expect(eventsNamed("whats_new_shown")).toEqual([{ id: NAG_FIRST_DAYS_ID, source: "card" }]);
     // Seen once it's closed (a sheet that had to step aside would leave the card).
@@ -422,7 +422,7 @@ describe("the sheet on its own, once, on the next open after first run", () => {
     await settle();
     expect(sheet()).toBeOnTheScreen();
     expect(screen.queryByTestId("nag-intro-label")).toBeNull();
-    expect(screen.queryByTestId("nag-intro-footer")).toBeNull();
+    expect(screen.getByTestId("nag-intro-footer")).toBeOnTheScreen();
     expect(eventsNamed("whats_new_shown")).toEqual([{ id: NAG_FIRST_DAYS_ID, source: "today" }]);
   });
 

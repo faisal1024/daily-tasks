@@ -29,6 +29,7 @@ import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/sto
 import { DEFAULT_AUTO_LOCK, DEFAULT_NOTIFICATIONS, type AppState, type Task } from "@/lib/daily-tasks/types";
 import {
   __setAnnouncementsForTests,
+  NAG_ANNOUNCEMENT,
   nagIntroSamples,
   WHATS_NEW_DELAY_MS,
   WHATS_NEW_MAX_TRIES,
@@ -140,8 +141,10 @@ const realCurrentState = appState.currentState;
 beforeEach(async () => {
   jest.useFakeTimers({ now: START });
   jest.clearAllMocks();
-  // The released announcements (the suite's setup turns them off for everyone else).
-  __setAnnouncementsForTests(null);
+  // 1.4's announcement on its own, as 1.4 and 1.5 shipped it (1.6's, which
+  // supersedes it, is tests/ui/whats-new-16.test.tsx). The suite's setup turns
+  // announcements off for everyone else.
+  __setAnnouncementsForTests([NAG_ANNOUNCEMENT]);
   mockPlus = { ...PLUS };
   mockWindow = PHONE;
   mockOpenPaywall.mockImplementation(() => true);
@@ -644,19 +647,26 @@ describe("it shows once", () => {
 });
 
 describe("the sheet", () => {
-  it("says what it is: label, title as a header (where VoiceOver starts), the line, the points, the footer", async () => {
+  it("says what it is: title as a header (where VoiceOver starts), the line, the points, the footer; no 1.4 label (1.6)", async () => {
     await openSheet();
     const view = inSheet();
     expect(screen.getByTestId("nag-intro-sheet").props.accessibilityViewIsModal).toBe(true);
-    expect(view.getByText("New in 1.4")).toBeOnTheScreen();
+    // 1.6's What's new supersedes the 1.4 announcement: the sheet is an introduction only.
+    expect(view.queryByText("New in 1.4")).toBeNull();
+    expect(screen.queryByTestId("nag-intro-label")).toBeNull();
     expect(view.getByRole("header", { name: "Meet Nag mode" })).toBeOnTheScreen();
     expect(view.getByText("Reminders with a personality. Pick who nags you and how hard.")).toBeOnTheScreen();
-    expect(view.getByText("Random times, at most one an hour.")).toBeOnTheScreen();
-    expect(view.getByText("Gets pushier while your tasks stay open.")).toBeOnTheScreen();
-    expect(view.getByText("One tap stops it for the day. It stays quiet during Do Not Disturb and Focus.")).toBeOnTheScreen();
     expect(
-      view.getByText("Also new: drag to reorder your three, reminders that name your tasks, and ideas for your next milestone."),
+      view.getByText("Random times. Gets pushier while your tasks stay open, and always about the task in front of you."),
     ).toBeOnTheScreen();
+    expect(view.getByText("Long-press a nag to Snooze an hour or Mark it done.")).toBeOnTheScreen();
+    expect(
+      view.getByText("Plus: write your own lines. “{task}. Now. I mean it.” becomes “Gym. Now. I mean it.”"),
+    ).toBeOnTheScreen();
+    expect(
+      view.getByText("“No more nags today” on a nag stops it until tomorrow. It stays quiet during Do Not Disturb and Focus."),
+    ).toBeOnTheScreen();
+    expect(view.queryByText(/^Also new/)).toBeNull();
     // Focus is sent to the title as it opens (a frame later, and again once it is on screen).
     await advance(50);
     expect(focusEvents).toHaveBeenCalled();

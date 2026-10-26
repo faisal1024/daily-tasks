@@ -12,6 +12,8 @@ import {
   __setAnnouncementsForTests,
   allAnnouncementIds,
   currentAnnouncements,
+  FEATURES_16_ID,
+  NAG_ANNOUNCEMENT,
   NAG_ANNOUNCEMENT_ID,
   NAG_INTRO_COPY,
   NAG_INTRO_SETTINGS_ROW,
@@ -40,15 +42,21 @@ const state = (overrides: Partial<WhatsNewState> = {}): WhatsNewState => ({
 });
 
 describe("who is shown what's new", () => {
-  it("1.4 announces Nag mode, under an id analytics will accept", () => {
-    expect(allAnnouncementIds()).toEqual(["1.4-nag"]);
+  it("1.4 announces Nag mode and 1.6 its features, under ids analytics will accept", () => {
+    expect(allAnnouncementIds()).toEqual(["1.4-nag", "1.6-features"]);
+    expect(FEATURES_16_ID).toMatch(/^[a-z0-9_.-]{1,40}$/i);
     expect(NAG_ANNOUNCEMENT_ID).toBe("1.4-nag");
     // The shape analytics keeps for a string property (sanitizeProps).
     expect(NAG_ANNOUNCEMENT_ID).toMatch(/^[a-z0-9_.-]{1,40}$/i);
   });
 
-  it("someone who used the app before 1.4 (onboarding done, none seen) is shown it", () => {
-    expect(whatsNewDecision(state())).toEqual({ show: currentAnnouncements()[0], skip: [] });
+  it("someone who used the app before 1.4 (onboarding done, none seen) is shown 1.6's, and 1.4's is marked seen quietly", () => {
+    expect(whatsNewDecision(state())).toEqual({ show: currentAnnouncements()[1], skip: ["1.4-nag"] });
+  });
+
+  it("with 1.4 alone (as 1.4 and 1.5 shipped), an updater is shown 1.4's", () => {
+    __setAnnouncementsForTests([NAG_ANNOUNCEMENT]);
+    expect(whatsNewDecision(state())).toEqual({ show: NAG_ANNOUNCEMENT, skip: [] });
   });
 
   it("not before first run has finished", () => {
@@ -56,11 +64,14 @@ describe("who is shown what's new", () => {
   });
 
   it("not once it has been seen", () => {
+    expect(whatsNewDecision(state({ whatsNewSeen: ["1.4-nag", "1.6-features"] }))).toEqual({ show: null, skip: [] });
+    __setAnnouncementsForTests([NAG_ANNOUNCEMENT]);
     expect(whatsNewDecision(state({ whatsNewSeen: ["1.4-nag"] }))).toEqual({ show: null, skip: [] });
   });
 
   it("someone with Nag as their saved style isn't shown it: it is marked seen instead", () => {
     const nag = { ...DEFAULT_NOTIFICATIONS, style: "nag" as const, nagConfirmed: true };
+    __setAnnouncementsForTests([NAG_ANNOUNCEMENT]);
     expect(whatsNewDecision(state({ notifications: nag }))).toEqual({ show: null, skip: ["1.4-nag"] });
   });
 
@@ -150,20 +161,20 @@ describe("whatsNewSeen in the saved state", () => {
     const loaded = normalizeState(JSON.parse(JSON.stringify(old)));
     expect(loaded).not.toBeNull();
     expect(loaded!.whatsNewSeen).toEqual([]);
-    expect(whatsNewDecision(loaded!).show?.id).toBe("1.4-nag");
+    expect(whatsNewDecision(loaded!).show?.id).toBe("1.6-features");
   });
 
   it("a much older save without hasSeenOnboarding counts as an updater too", () => {
     const { whatsNewSeen: _a, hasSeenOnboarding: _b, reorderHintSeen: _c, ...old } = buildInitialState(new Date(2026, 5, 1));
     const loaded = normalizeState(JSON.parse(JSON.stringify(old)))!;
     expect(loaded.hasSeenOnboarding).toBe(true);
-    expect(whatsNewDecision(loaded).show?.id).toBe("1.4-nag");
+    expect(whatsNewDecision(loaded).show?.id).toBe("1.6-features");
   });
 
   it("round-trips what was seen", () => {
-    const saved = { ...buildInitialState(new Date(2026, 9, 12)), hasSeenOnboarding: true, whatsNewSeen: ["1.4-nag"] };
+    const saved = { ...buildInitialState(new Date(2026, 9, 12)), hasSeenOnboarding: true, whatsNewSeen: ["1.4-nag", "1.6-features"] };
     const loaded = normalizeState(JSON.parse(JSON.stringify(saved)))!;
-    expect(loaded.whatsNewSeen).toEqual(["1.4-nag"]);
+    expect(loaded.whatsNewSeen).toEqual(["1.4-nag", "1.6-features"]);
     expect(whatsNewDecision(loaded).show).toBeNull();
   });
 
@@ -189,7 +200,6 @@ describe("whatsNewSeen in the saved state", () => {
 
 describe("the Meet Nag mode sheet's words", () => {
   const strings = [
-    NAG_INTRO_COPY.label,
     NAG_INTRO_COPY.title,
     NAG_INTRO_COPY.lede,
     NAG_INTRO_COPY.voice,
@@ -208,13 +218,12 @@ describe("the Meet Nag mode sheet's words", () => {
   ];
 
   it("are the agreed ones", () => {
-    expect(NAG_INTRO_COPY.label).toBe("New in 1.4");
     expect(NAG_INTRO_COPY.title).toBe("Meet Nag mode");
     expect(NAG_INTRO_COPY.lede).toBe("Reminders with a personality. Pick who nags you and how hard.");
     expect(NAG_INTRO_COPY.points.map((point) => point.text)).toEqual([
-      "Random times, at most one an hour.",
-      "Gets pushier while your tasks stay open.",
-      "One tap stops it for the day. It stays quiet during Do Not Disturb and Focus.",
+      "Random times. Gets pushier while your tasks stay open, and always about the task in front of you.",
+      "Long-press a nag to Snooze an hour or Mark it done.",
+      "Plus: write your own lines. “{task}. Now. I mean it.” becomes “Gym. Now. I mean it.”",
     ]);
     expect(NAG_INTRO_COPY.plus).toBe("Nag mode is part of Plus. Calm reminders stay free.");
     expect(NAG_INTRO_COPY.primary).toBe("Try Nag mode");
@@ -223,7 +232,7 @@ describe("the Meet Nag mode sheet's words", () => {
     expect(NAG_INTRO_COPY.primaryFreeHint).toBe("Shows what Plus includes");
     expect(NAG_INTRO_COPY.secondary).toBe("Not now");
     expect(NAG_INTRO_COPY.footer).toBe(
-      "Also new: drag to reorder your three, reminders that name your tasks, and ideas for your next milestone.",
+      "“No more nags today” on a nag stops it until tomorrow. It stays quiet during Do Not Disturb and Focus.",
     );
     expect(NAG_ON_TOAST).toBe("Nag mode is on. Change it in Settings › Reminders.");
     expect(NAG_INTRO_SETTINGS_ROW).toBe("What is Nag mode?");

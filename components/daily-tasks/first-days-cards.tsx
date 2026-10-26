@@ -5,24 +5,33 @@ import Constants from "expo-constants";
 
 import { useColors } from "@/hooks/use-colors";
 import { track } from "@/lib/daily-tasks/analytics";
+import { SaveLaterHowTo } from "@/components/daily-tasks/save-later-how-to";
 import {
   answerNudge,
+  CAPTURE_CARD_COPY,
+  captureCardShownOn,
   claimShownToday,
   declineNudge,
   dismissWidgetTip,
+  finishCaptureCard,
   finishNagIntro,
   loadFirstDays,
+  loadShownDays,
+  markCaptureCardShown,
   nagIntroDue,
   noteAppForeground,
   noteCheckOff,
   noteFinishedDay,
   openFirstDays,
   saveFirstDays,
+  shouldShowCaptureCard,
   shouldShowNagCard,
   shouldShowNudgeCard,
   shouldShowWidgetTip,
+  widgetTipCopy,
   type FirstDaysCardKind,
   type FirstDaysRecord,
+  type ShownDays,
 } from "@/lib/daily-tasks/first-days";
 import { NAG_CARD_COPY } from "@/lib/daily-tasks/whats-new";
 import type { NotificationPermissionState } from "@/lib/daily-tasks/types";
@@ -52,6 +61,8 @@ export interface FirstDaysInput {
   tickedEver?: boolean;
   /** The Nag card's button: open "Meet Nag mode". */
   onOpenNag?: () => void;
+  /** Something was saved from the share sheet or Siri (1.6): no "Save for later from anywhere" card. */
+  capturedEver?: boolean;
 }
 
 export interface FirstDaysCardsState {
@@ -68,6 +79,10 @@ export interface FirstDaysCardsState {
   nagIntroDue: boolean;
   /** The sheet (on its own or from the card) was closed: seen, so it and the card are done. */
   nagIntroSeen: () => void;
+  /** "Show me" on the capture card opened its how-to (1.6). */
+  captureHowTo: () => void;
+  /** "Got it" on the capture card: it's done. */
+  dismissCapture: () => void;
 }
 
 /**
@@ -91,6 +106,7 @@ export function useFirstDays({
   nagOn = false,
   tickedEver = false,
   onOpenNag,
+  capturedEver = false,
 }: FirstDaysInput): FirstDaysCardsState {
   const [record, setRecord] = useState<FirstDaysRecord | null>(null);
   // The latest record, for answers that land after an await (the permission prompt).
@@ -108,9 +124,15 @@ export function useFirstDays({
     wasAppActive.current = appActive;
   }, [appActive]);
 
+  // The day each card last showed (1.6): the capture card never shares a day
+  // with another. Null until read: no capture card before then.
+  const [shownDays, setShownDays] = useState<ShownDays | null>(null);
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
+    void loadShownDays().then((days) => {
+      if (!cancelled) setShownDays((current) => ({ ...days, ...current }));
+    });
     void loadFirstDays().then((loaded) => {
       if (cancelled) return;
       // An earned tip is due only on a later launch or day (never this session).
@@ -143,17 +165,31 @@ export function useFirstDays({
     if (record && checkedOff) update((current) => noteCheckOff(current, today, true));
   }, [record, dayFinished, checkedOff, today]);
 
-  // One card at a time: the morning nudge, then the Nag card, then the widget tip.
-  const showNudge = active && shouldShowNudgeCard({ record, today, permission, dayFinished });
+  // One card at a time: the morning nudge, then the Nag card, then the widget
+  // tip, then (1.6) "Save for later from anywhere", which has a day to itself.
+  const captureToday = captureCardShownOn(record, today);
+  const showNudge = active && !captureToday && shouldShowNudgeCard({ record, today, permission, dayFinished });
   const showNag =
-    active && shouldShowNagCard({ record, today, nagOn, nudgeShowing: showNudge, dayFinished });
+    active && !captureToday && shouldShowNagCard({ record, today, nagOn, nudgeShowing: showNudge, dayFinished });
   const showWidget =
     active &&
+    !captureToday &&
     shouldShowWidgetTip({
       record,
       widgetsSupported: Platform.OS === "ios",
       nudgeShowing: showNudge,
       nagShowing: showNag,
+    });
+  const showCapture =
+    active &&
+    shownDays !== null &&
+    shouldShowCaptureCard({
+      record,
+      today,
+      tickedEver,
+      capturedEver,
+      otherShowing: showNudge || showNag || showWidget,
+      shownToday: shownDays,
     });
   const showing: FirstDaysCardKind | null = !record
     ? null
@@ -163,11 +199,22 @@ export function useFirstDays({
         ? "nag"
         : showWidget
           ? "widget"
-          : null;
+          : showCapture
+            ? "capture"
+            : null;
+
+  // The capture card shows once: from its first showing, for that day only.
+  useEffect(() => {
+    if (showing === "capture" && record?.captureCard === "waiting") {
+      update((current) => markCaptureCardShown(current, today));
+    }
+  }, [showing, record, today]);
 
   // "shown" once per card per day, deduped in storage (survives remounts and relaunches).
   useEffect(() => {
     if (!showing) return;
+    // Known at once in this session too, whatever storage says.
+    setShownDays((current) => (current?.[showing] === today ? current : { ...current, [showing]: today }));
     let cancelled = false;
     void claimShownToday(showing, today).then((first) => {
       if (first && !cancelled) track("first_days_card", { kind: showing, action: "shown" });
@@ -219,6 +266,12 @@ export function useFirstDays({
 
   const nagIntroSeen = () => update(finishNagIntro);
 
+  const captureHowTo = () => track("first_days_card", { kind: "capture", action: "how_to" });
+  const dismissCapture = () => {
+    update(finishCaptureCard);
+    track("first_days_card", { kind: "capture", action: "dismissed" });
+  };
+
   return {
     showing,
     asking,
@@ -229,6 +282,8 @@ export function useFirstDays({
     dismissNag,
     nagIntroDue: active && nagIntroDue(record, nagOn, { today, tickedEver }),
     nagIntroSeen,
+    captureHowTo,
+    dismissCapture,
   };
 }
 
@@ -240,8 +295,53 @@ export function FirstDaysCards(props: FirstDaysInput) {
 /** What useFirstDays says to show. */
 export function FirstDaysCardsView({ cards }: { cards: FirstDaysCardsState }) {
   const colors = useColors();
-  const { showing, asking, yes, notNow, dismissTip, openNag, dismissNag } = cards;
+  const { showing, asking, yes, notNow, dismissTip, openNag, dismissNag, captureHowTo, dismissCapture } = cards;
+  const [howToOpen, setHowToOpen] = useState(false);
   if (!showing) return null;
+
+  if (showing === "capture") {
+    return (
+      <Card icon="bookmark-outline" testID="capture-card">
+        <Text className="text-sm font-semibold text-foreground" accessibilityRole="header">
+          {CAPTURE_CARD_COPY.title}
+        </Text>
+        <Text className="text-sm text-muted">{CAPTURE_CARD_COPY.body}</Text>
+        {howToOpen ? <SaveLaterHowTo testID="capture-card-how-to" /> : null}
+        <View className="flex-row flex-wrap items-center gap-x-4 mt-1">
+          <Pressable
+            onPress={() => {
+              if (!howToOpen) captureHowTo();
+              setHowToOpen(!howToOpen);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={CAPTURE_CARD_COPY.showMe}
+            accessibilityState={{ expanded: howToOpen }}
+            hitSlop={8}
+            className="justify-center"
+            style={{ minHeight: 44 }}
+            testID="capture-card-show-me"
+          >
+            <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+              {howToOpen ? CAPTURE_CARD_COPY.hide : CAPTURE_CARD_COPY.showMe}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={dismissCapture}
+            accessibilityRole="button"
+            accessibilityLabel={CAPTURE_CARD_COPY.gotIt}
+            hitSlop={8}
+            className="justify-center"
+            style={{ minHeight: 44 }}
+            testID="capture-card-got-it"
+          >
+            <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+              {CAPTURE_CARD_COPY.gotIt}
+            </Text>
+          </Pressable>
+        </View>
+      </Card>
+    );
+  }
 
   if (showing === "nag") {
     return (
@@ -313,7 +413,7 @@ export function FirstDaysCardsView({ cards }: { cards: FirstDaysCardsState }) {
     );
   }
 
-  const appName = Constants.expoConfig?.name ?? "this app";
+  const tipCopy = widgetTipCopy(Constants.expoConfig?.name ?? "this app");
   return (
     <Card
       icon="apps-outline"
@@ -322,11 +422,9 @@ export function FirstDaysCardsView({ cards }: { cards: FirstDaysCardsState }) {
       onDismiss={dismissTip}
     >
       <Text className="text-sm font-semibold text-foreground" accessibilityRole="header">
-        Keep your three on your Home Screen
+        {tipCopy.title}
       </Text>
-      <Text className="text-sm text-muted">
-        Touch and hold an empty spot on your Home Screen, tap Edit, then Add Widget, and search for {appName}.
-      </Text>
+      <Text className="text-sm text-muted">{tipCopy.body}</Text>
     </Card>
   );
 }

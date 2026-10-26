@@ -198,7 +198,7 @@ describe("the saved record", () => {
     expect(await loadFirstDays()).toBeNull();
   });
 
-  it("round-trips, and first run writes nudge-from-tomorrow + tip waiting (+ 1.5 D's Nag card and sheet)", async () => {
+  it("round-trips, and first run writes nudge-from-tomorrow + tip waiting (+ 1.5 D's Nag card and sheet, 1.6's capture card)", async () => {
     await saveFirstDays(startFirstDays("2026-10-01", "launch#0"));
     expect(JSON.parse(store.data.get(FIRST_DAYS_KEY) ?? "null")).toEqual({
       nudgeFrom: "2026-10-02",
@@ -208,6 +208,8 @@ describe("the saved record", () => {
       nagCardUntil: "2026-10-02",
       nagIntro: "waiting",
       nagIntroOpen: "launch#0",
+      openDays: ["2026-10-01"],
+      captureCard: "waiting",
     });
     expect(await loadFirstDays()).toEqual(startFirstDays("2026-10-01", "launch#0"));
   });

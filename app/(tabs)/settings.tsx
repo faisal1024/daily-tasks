@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
+import { useReducedMotion } from "react-native-reanimated";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { ChoiceChips } from "@/components/daily-tasks/choice-chips";
@@ -51,6 +52,11 @@ import {
 import { NAG_LEVEL_COUNT_NOTE, nagLevelRudeNote } from "@/lib/daily-tasks/nag-copy";
 import { loadFirstDays } from "@/lib/daily-tasks/first-days";
 import { sundayResetOf } from "@/lib/daily-tasks/sunday-reset";
+import {
+  subscribeSettingsFocus,
+  takeSettingsFocus,
+  type SettingsFocusTarget,
+} from "@/lib/daily-tasks/settings-focus";
 import { NAG_ANNOUNCEMENT_ID, NAG_FIRST_DAYS_ID, NAG_INTRO_SETTINGS_ROW } from "@/lib/daily-tasks/whats-new";
 import { plusStatusLabel } from "@/lib/daily-tasks/plus";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -315,10 +321,10 @@ export default function SettingsScreen() {
     requestNag();
   };
 
-  // "What is Nag mode?": the sheet people updating to 1.4 were shown, again.
+  // "What is Nag mode?": the "Meet Nag mode" sheet, again.
   const [nagIntroOpen, setNagIntroOpen] = useState(false);
-  // A 1.5 D install (its first run wrote the Nag intro's record): the sheet
-  // isn't news to them, so no "New in 1.4" (1.5 D). Read before it opens.
+  // A 1.5 D install (its first run wrote the Nag intro's record): its events
+  // carry the first days' id, not 1.4's announcement. Read before it opens.
   const [nagIntroFresh, setNagIntroFresh] = useState(false);
   const openNagIntro = () => {
     void loadFirstDays().then((record) => {
@@ -334,6 +340,49 @@ export default function SettingsScreen() {
     },
     [],
   );
+  // A place to bring into view, asked for by What's new (1.6): "Write your
+  // lines" (Nag's own lines) or "See what it remembers" (coach memory). Taken
+  // as Settings mounts or while it's up; once laid out, it scrolls there and
+  // VoiceOver moves to its header.
+  const scrollRef = useRef<ScrollView>(null);
+  const ownLinesRef = useRef<View>(null);
+  const ownLinesHeaderRef = useRef<Text>(null);
+  const coachMemoryRef = useRef<View>(null);
+  const coachMemoryHeaderRef = useRef<View>(null);
+  const reduceMotion = useReducedMotion();
+  const [focusTarget, setFocusTarget] = useState<SettingsFocusTarget | null>(() => takeSettingsFocus());
+  useEffect(
+    () =>
+      subscribeSettingsFocus(() => {
+        const target = takeSettingsFocus();
+        if (target) setFocusTarget(target);
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (!focusTarget) return;
+    const timer = setTimeout(() => {
+      setFocusTarget(null);
+      const section = focusTarget === "coach-memory" ? coachMemoryRef.current : ownLinesRef.current;
+      const header = focusTarget === "coach-memory" ? coachMemoryHeaderRef.current : ownLinesHeaderRef.current;
+      const scroll = scrollRef.current;
+      try {
+        const inner = scroll?.getInnerViewNode();
+        if (section && scroll && inner) {
+          section.measureLayout(
+            inner,
+            (_x, y) => scroll.scrollTo({ y: Math.max(0, y - 16), animated: !reduceMotion }),
+            () => {},
+          );
+        }
+      } catch {
+        // Not laid out (or no native view, as in tests): Settings stays where it is.
+      }
+      if (header) AccessibilityInfo.sendAccessibilityEvent(header, "focus");
+    }, SHEET_SWAP_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [focusTarget, reduceMotion]);
+
   const closeNagIntro = () => {
     setNagIntroOpen(false);
     // VoiceOver goes back to the row that opened it (gone once Nag is on).
@@ -480,6 +529,7 @@ export default function SettingsScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
       <ScrollView
+        ref={scrollRef}
         // Readable width on iPad.
         contentContainerStyle={{
           padding: 24,
@@ -662,7 +712,9 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        <CoachMemorySection />
+        <View ref={coachMemoryRef} collapsable={false}>
+          <CoachMemorySection headerRef={coachMemoryHeaderRef} />
+        </View>
 
         <Section
           icon="options-outline"
@@ -1014,7 +1066,9 @@ export default function SettingsScreen() {
                   </Text>
                 </Pressable>
               </View>
-              <NagOwnLines />
+              <View ref={ownLinesRef} collapsable={false}>
+                <NagOwnLines headerRef={ownLinesHeaderRef} />
+              </View>
               <View className="gap-3">
                 <Pressable
                   onPress={() => setNagHoursOpen(!nagHoursOpen)}

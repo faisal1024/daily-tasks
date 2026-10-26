@@ -1,5 +1,6 @@
-// "Meet Nag mode" (1.4): the sheet that introduces Nag mode to people who
-// update, and that Settings › Reminders opens again from "What is Nag mode?".
+// "Meet Nag mode" (1.4): the sheet that introduces Nag mode (to a new install
+// on its first days, from 1.6's What's new, and from "What is Nag mode?" in
+// Settings › Reminders).
 // Only what it looks like and says: who sees it and what its buttons do are
 // in NagIntro (nag-intro.tsx).
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -48,15 +49,9 @@ export function NagIntroSheet({
   onTry,
   onDismiss,
   onShow,
-  fresh = false,
 }: {
   visible: boolean;
   hasPlus: boolean;
-  /**
-   * A new install's own introduction (1.5 D): nothing is new to them, so no
-   * "New in 1.4" label and no "Also new" line.
-   */
-  fresh?: boolean;
   /** The chips' starting choice: the saved voice and level. */
   initial: NagChoice;
   /** An open task for the preview to name; null when there is none or names are hidden. */
@@ -192,18 +187,7 @@ export function NagIntroSheet({
         testID="nag-intro-sheet"
       >
         <View className="flex-row items-center justify-between gap-3 px-5">
-          {fresh ? (
-            <View className="flex-1" />
-          ) : (
-            <Text
-              className="flex-1 text-sm font-semibold"
-              style={{ color: colors.primary }}
-              maxFontSizeMultiplier={1.6}
-              testID="nag-intro-label"
-            >
-              {NAG_INTRO_COPY.label}
-            </Text>
-          )}
+          <View className="flex-1" />
           <Pressable
             onPress={() => onDismiss(choice)}
             accessibilityRole="button"
@@ -334,11 +318,9 @@ export function NagIntroSheet({
 
           {inlineButtons ? buttons : null}
 
-          {fresh ? null : (
-            <Text className="text-xs" style={{ color: colors.muted }} testID="nag-intro-footer">
-              {NAG_INTRO_COPY.footer}
-            </Text>
-          )}
+          <Text className="text-xs" style={{ color: colors.muted }} testID="nag-intro-footer">
+            {NAG_INTRO_COPY.footer}
+          </Text>
         </ScrollView>
 
         {inlineButtons ? null : (

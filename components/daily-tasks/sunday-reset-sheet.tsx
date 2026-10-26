@@ -54,7 +54,7 @@ import {
 import { MAX_TASKS, type TaskWhen } from "@/lib/daily-tasks/types";
 
 type Stage = "wins" | "dump" | "sorting" | "three" | "done";
-export type SundayResetSource = "today" | "progress" | "notification";
+export type SundayResetSource = "today" | "progress" | "notification" | "whats_new";
 
 /** What the provider can ask of an open sheet. */
 export interface SundayResetSheetHandle {
