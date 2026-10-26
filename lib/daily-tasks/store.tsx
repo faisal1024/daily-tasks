@@ -13,6 +13,7 @@ import { Platform, AppState as RNAppState, type AppStateStatus } from "react-nat
 import { storeDayFor, todayKey } from "./date";
 import {
   cancelFocusTimerNotification,
+  cancelPendingNagsBefore,
   dismissFocusTimerNotification,
   getNotificationPermissionStatus,
   registerNotificationCategories,
@@ -28,7 +29,7 @@ import { createDebounced, yesterdayOpenTexts, type ReminderContext } from "./rem
 import { clearNagRecord, ensureNagDay, nagModeStrategy, snoozeNagDay, stubNagRecord } from "./nag-day";
 import { normalizeNagOwnLines } from "./nag-own-lines";
 import type { NagLevel, NagPersona } from "./nag";
-import { adjustNagWindow, nagModeOn } from "./nag-plan";
+import { adjustNagWindow, nagModeOn, nagSnoozeNote, nagSnoozeUntil } from "./nag-plan";
 import {
   clampSessionMinutes,
   extend as extendSession,
@@ -204,6 +205,8 @@ type Action =
   | { type: "deleteTask"; id: TaskId; today: string }
   | { type: "notToday"; id: TaskId; today: string; at: string }
   | { type: "toggleTask"; id: TaskId; today: string }
+  // 1.6 G: ticks a task, never unticks it (a nag's Mark done: two taps queued at launch tick once).
+  | { type: "completeTask"; id: TaskId; today: string }
   | { type: "moveTask"; taskId: TaskId; toIndex: number; today: string }
   | { type: "makeTaskNext"; taskId: TaskId; today: string }
   | { type: "lockToday"; today: string; at: string }
@@ -838,6 +841,9 @@ function reduce(state: AppState, action: Action): AppState {
       const removed = { ...state, tasks: state.tasks.filter((item) => item.id !== action.id) };
       return syncTodayHistory(parkTasks(removed, [task.text], action.at), action.today);
     }
+    case "completeTask":
+      if (!state.tasks.some((task) => task.id === action.id) || state.todayCompletions.includes(action.id)) return state;
+      return reducer(state, { type: "toggleTask", id: action.id, today: action.today });
     case "toggleTask": {
       // Not one of today's tasks (e.g. it rolled over a moment ago): ignore,
       // or it would add a phantom completion and XP to the new day.
@@ -1396,6 +1402,12 @@ interface StoreContextValue {
    */
   focusPrompt: { taskId: TaskId; source: "widget" | "siri" | "live_activity" | "notification"; nonce: number } | null;
   clearFocusPrompt: () => void;
+  /**
+   * 1.6 G: what a nag's Snooze 1 hour did, for Today to show ("Next nag
+   * around 3:40 PM"); a new nonce for each tap.
+   */
+  nagNote: { message: string; nonce: number } | null;
+  clearNagNote: () => void;
   refreshNotificationPermission: () => Promise<NotificationPermissionState>;
   requestNotificationPermission: () => Promise<NotificationPermissionState>;
   resetAll: () => Promise<void>;
@@ -2674,32 +2686,58 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     // One call, each category in turn: two registrations in flight can wipe each other.
     void registerNotificationCategories();
   }, []);
-  // A nag's buttons (1.4 Stop for today; 1.6 G Mark done and Snooze 1 hour),
-  // for the day the nag was for. A tap that launched the app waits for the
-  // saved state, so what it does isn't overwritten by the load.
-  // - Stop for today: the same as the button in Settings.
+  // A nag's buttons (1.4 Stop for today, now "No more nags today"; 1.6 G
+  // Mark done and Snooze 1 hour), for the day the nag was for. A tap that
+  // launched the app waits for the saved state, so what it does isn't
+  // overwritten by the load.
+  // - No more nags today: the same as the button in Settings.
   // - Mark done: ticks the task the nag was about, as the focus notification's
-  //   Mark done does (on Today; nothing when it is already ticked or gone).
-  //   The tick rewrites the reminders, so the day's nags follow.
-  // - Snooze 1 hour: the next nag comes an hour after the tap (snoozeNagDay).
+  //   Mark done does (on Today; nothing when it is already ticked or gone),
+  //   also from last night's nag when the task is still open today. Never
+  //   unticks (completeTask). The tick rewrites the reminders, so the day's
+  //   nags follow.
+  // - Snooze 1 hour: the next nag comes an hour after the tap, or at its own
+  //   time when that is later (snoozeNagDay); Today says when (nagNote).
   const pendingNagActions = useRef<NagNotificationResponse[]>([]);
   const handleNagAction = useRef<(response: NagNotificationResponse) => void>(() => {});
+  const [nagNote, setNagNote] = useState<StoreContextValue["nagNote"]>(null);
+  const clearNagNote = useCallback(() => setNagNote(null), []);
+  // Tasks ticked by a nag's Mark done since the last render: two taps handled
+  // before the state catches up count once.
+  const nagTicked = useRef(new Set<TaskId>());
+  useEffect(() => {
+    nagTicked.current.clear();
+  }, [state.todayCompletions]);
   handleNagAction.current = (response) => {
-    if (response.dayKey !== todayRef.current) return;
+    const current = stateRef.current;
+    const taskId = response.taskId;
+    const stillOpen =
+      !!taskId && current.tasks.some((task) => task.id === taskId) && !current.todayCompletions.includes(taskId) && !nagTicked.current.has(taskId);
+    // Another day's nag does nothing, except Mark done on a task still open
+    // today (a nag from last night, tapped after midnight).
+    if (response.dayKey !== todayRef.current && !(response.action === "done" && stillOpen)) return;
     track("nag_action", { action: response.action });
     if (response.action === "stop") {
       pauseNagToday("notification");
       return;
     }
     if (response.action === "snooze") {
-      void snoozeNagDay({ today: response.dayKey, window: stateRef.current.notifications.nagWindow }, { onChange: setNagVersion });
+      const at = new Date();
+      // Off the phone at once: the record waits behind any request for lines.
+      void cancelPendingNagsBefore(nagSnoozeUntil(at), at);
+      // On Today, where the note says when the next nag comes.
+      navigateToToday();
+      void snoozeNagDay(
+        { today: response.dayKey, window: current.notifications.nagWindow, now: at },
+        { onChange: setNagVersion, onSnoozed: (outcome) => setNagNote({ message: nagSnoozeNote(outcome), nonce: Date.now() }) },
+      );
       return;
     }
     navigateToToday();
-    const current = stateRef.current;
-    const taskId = response.taskId;
-    if (!taskId || !current.tasks.some((task) => task.id === taskId) || current.todayCompletions.includes(taskId)) return;
-    toggleTask(taskId);
+    if (!taskId || !stillOpen) return;
+    nagTicked.current.add(taskId);
+    // Never a toggle: a second tap must not untick it.
+    dispatch({ type: "completeTask", id: taskId, today: ensureDay() });
     track("task_completed", { count: countCompleted(current) + 1, source: "notification" });
   };
   useEffect(
@@ -2900,6 +2938,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       stopFocusSession,
       focusPrompt,
       clearFocusPrompt,
+      nagNote,
+      clearNagNote,
       refreshNotificationPermission,
       requestNotificationPermission: requestPermission,
       resetAll,
@@ -2997,6 +3037,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       stopFocusSession,
       focusPrompt,
       clearFocusPrompt,
+      nagNote,
+      clearNagNote,
       refreshNotificationPermission,
       requestPermission,
       resetAll,

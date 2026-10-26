@@ -1,5 +1,5 @@
-// 1.6 G: "Snooze 1 hour" on a nag. The next nag comes an hour after the tap
-// (later or earlier than planned), any nag left less than an hour after it is
+// 1.6 G: "Snooze 1 hour" on a nag. The next nag comes an hour after the tap,
+// or at its own time when that was later (a snooze never brings a nag sooner), any nag left less than an hour after it is
 // taken out, outside the window the day goes quiet, and `snoozedUntil` holds
 // a redrawn day back. Local-time fixtures, so it passes under any TZ
 // (America/New_York, Asia/Kolkata, Pacific/Kiritimati, Pacific/Pago_Pago).
@@ -38,11 +38,11 @@ const times = (record: NagDayRecord) => record.slots.map((item) => item.fireAtMs
 const W: NagWindow = DEFAULT_NAG_WINDOW; // 09:00 to 21:00
 
 describe("Snooze 1 hour: the next nag is moved to the tap plus an hour", () => {
-  it("a nag that was later is moved earlier, keeping its id, step and words; the nags an hour or more after it stay", () => {
+  it("a nag that was later stays where it was (never sooner), keeping its id, step and words; the nags after it stay", () => {
     const record = recordOf([slot(1, 10, 0), slot(2, 11, 30), slot(3, 12, 30), slot(4, 14, 0), slot(5, 16, 0)]);
     const next = snoozeNagRecord(record, at(10, 5), W);
-    expect(times(next)).toEqual([ms(10, 0), ms(11, 5), ms(12, 30), ms(14, 0), ms(16, 0)]);
-    expect(next.slots[1]).toEqual({ ...record.slots[1], fireAtMs: ms(11, 5) });
+    expect(times(next)).toEqual([ms(10, 0), ms(11, 30), ms(12, 30), ms(14, 0), ms(16, 0)]);
+    expect(next.slots[1]).toEqual(record.slots[1]);
     expect(NAG_SNOOZE_MINUTES).toBe(60);
     expect(next.snoozedUntil).toBe(ms(11, 5));
     expect(next.version).toBe(8);
@@ -78,8 +78,10 @@ describe("Snooze 1 hour: the next nag is moved to the tap plus an hour", () => {
             if (index > 0) expect(item.fireAtMs - future[index - 1].fireAtMs, ctx).toBeGreaterThanOrEqual(60 * MIN);
             expect(item.fireAtMs, ctx).toBeLessThanOrEqual(ms(21, 0));
           });
-          // The first nag after the tap is exactly the snooze, when it is in the window.
-          if (until <= ms(21, 0) && planned.slots.some((item) => item.fireAtMs > tap.getTime())) expect(future[0]?.fireAtMs, ctx).toBe(until);
+          // The first nag after the tap is the snooze, or its own time when that was later (never sooner).
+          const planNext = planned.slots.find((item) => item.fireAtMs > tap.getTime() && item.text !== "");
+          const expected = planNext ? Math.max(until, planNext.fireAtMs) : null;
+          if (until <= ms(21, 0) && expected !== null) expect(future[0]?.fireAtMs, ctx).toBe(expected);
           // Nobody gained a nag or a time.
           const original = new Set(planned.slots.map((item) => item.fireAtMs));
           out.slots.filter((item) => item.fireAtMs !== until).forEach((item) => expect(original.has(item.fireAtMs), ctx).toBe(true));
@@ -93,8 +95,12 @@ describe("Snooze 1 hour: the next nag is moved to the tap plus an hour", () => {
   it("a slot with no words isn't the snoozed one: the first nag with words is, and the wordless ones before it go", () => {
     const record = recordOf([slot(1, 10, 0), slot(2, 10, 40, ""), slot(3, 11, 45), slot(4, 14, 0)]);
     const next = snoozeNagRecord(record, at(10, 5), W);
-    expect(times(next)).toEqual([ms(10, 0), ms(11, 5), ms(14, 0)]);
+    // 11:45 is after 11:05, so it keeps its time.
+    expect(times(next)).toEqual([ms(10, 0), ms(11, 45), ms(14, 0)]);
     expect(next.slots[1].text).toBe("Line 3");
+    const sooner = snoozeNagRecord(recordOf([slot(1, 10, 0), slot(2, 10, 40, ""), slot(3, 10, 50), slot(4, 14, 0)]), at(10, 5), W);
+    expect(times(sooner)).toEqual([ms(10, 0), ms(11, 5), ms(14, 0)]);
+    expect(sooner.slots[1].text).toBe("Line 3");
   });
 
   it("does not change the record it is given", () => {

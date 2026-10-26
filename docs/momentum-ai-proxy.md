@@ -420,9 +420,19 @@ The model's answer is rebuilt by `sanitizeNagLines`, never passed through:
   dentist thing") or no name is dropped, and so is a line that quotes another
   task or has another task's words (four characters or more) outside its own.
   A general line (`taskIndex: null`) that quotes a task or has its words is
-  dropped. A task with no words to look for (emoji only) isn't checked. The
-  prompt asks for the task quoted exactly, a line fitted to what kind of task
-  it is, and general lines that don't count the tasks.
+  dropped. A task with no words to look for (emoji only) isn't checked.
+  PR 109 review: one **distinctive word** is enough (`nagDistinctiveWords`:
+  four letters or more, not all digits, not on `NAG_STOPWORDS`, a plural "s"
+  off). A task's line with a distinctive word of another task (one its own
+  task doesn't have) is dropped ("“Walk the dog” before the dentist
+  closes."), and so is a general line with a distinctive word of any task
+  sent ("Don't forget the dentist.", "Your report is waiting."). Common verbs
+  and task words (call, email, make, work, list, today, time...) are on
+  `NAG_STOPWORDS`, the same list as the app's, so they never drop a line. The
+  prompt asks for the task quoted exactly (a noun like "Dentist" or a command
+  like "Call mom"), a line fitted to what kind of task it is and to its
+  effort, no word of another task, and general lines that don't count the
+  tasks.
 - The checks read a folded copy of the line (`foldForMatch`): NFKC, with
   accents and other combining marks, zero-width characters and soft hyphens
   taken out. So a full-width letter, an accent or a zero-width space inside

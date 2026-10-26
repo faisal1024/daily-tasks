@@ -19,7 +19,7 @@
 // - At most 1 in 3 of the day's nags is one of them, never two in a row
 //   (nagOwnSteps), and none is said twice in a day.
 
-import { cleanNagText, nagTaskName, nagTextHasLink, seededRandom } from "./nag";
+import { cleanNagText, MAX_NAG_LINE, nagTaskName, nagTextHasLink, seededRandom } from "./nag";
 
 export const MAX_NAG_OWN_LINES = 5;
 export const MAX_NAG_OWN_LINE_CHARS = 80;
@@ -33,10 +33,25 @@ export const NAG_OWN_LINE_PROBLEMS: Record<NagOwnLineProblem, string> = {
   empty: "Write a few words first.",
   long: `Keep it to ${MAX_NAG_OWN_LINE_CHARS} characters.`,
   link: "Links can't go in a nag.",
-  placeholder: "Use {task} once at most, for the task's name.",
+  placeholder: "Braces only go in {task}, once. Take out any other { or }.",
   duplicate: "You already have that one.",
   full: `That's ${MAX_NAG_OWN_LINES} already. Remove one to add another.`,
 };
+
+/** Said instead of the placeholder problem when a brace has no partner ("Do {task now"). */
+export const NAG_OWN_LINE_UNMATCHED = "A brace is missing its partner. Write {task} with both, or take it out.";
+
+/** What to say about `problem` for the line `raw` (unmatched braces get their own message). */
+export function nagOwnLineProblemMessage(problem: NagOwnLineProblem, raw: string): string {
+  if (problem === "placeholder") {
+    const text = typeof raw === "string" ? raw : "";
+    if ((text.match(/\{/g) ?? []).length !== (text.match(/\}/g) ?? []).length) return NAG_OWN_LINE_UNMATCHED;
+  }
+  return NAG_OWN_LINE_PROBLEMS[problem];
+}
+
+/** From this many characters the editor shows how many are used. */
+export const NAG_OWN_LINE_COUNTER_FROM = 60;
 
 const PLACEHOLDER = /\{\s*task\s*\}/gi;
 
@@ -74,11 +89,15 @@ export function nagOwnLineNamesTask(line: string): boolean {
   return line.includes(NAG_OWN_TASK);
 }
 
-/** The line as the nag says it: `{task}` is the task's name, cleaned and quoted (nagTaskName). */
+/**
+ * The line as the nag says it: `{task}` is the task's name, cleaned and quoted
+ * (nagTaskName). Never over MAX_NAG_LINE (an AI line's cap), whatever it holds.
+ */
 export function fillNagOwnLine(line: string, taskText: string | null): string | null {
-  if (!nagOwnLineNamesTask(line)) return line;
-  if (!taskText) return null;
-  return line.replace(NAG_OWN_TASK, () => nagTaskName(taskText));
+  const filled = !nagOwnLineNamesTask(line) ? line : taskText ? line.replace(NAG_OWN_TASK, () => nagTaskName(taskText)) : null;
+  if (filled === null) return null;
+  const chars = Array.from(filled);
+  return chars.length > MAX_NAG_LINE ? chars.slice(0, MAX_NAG_LINE - 1).join("").trimEnd() + "\u2026" : filled;
 }
 
 const fold = (value: string) => cleanNagText(value).toLowerCase().replace(/[‘’]/g, "'");

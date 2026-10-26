@@ -236,6 +236,56 @@ function holdsWords(folded: string, name: string): boolean {
   return false;
 }
 
+/**
+ * 1.6 G: words too common to tie a line to a task. Function words, and the
+ * verbs and nouns any task can have ("call", "email", "work", "list",
+ * "today"), so "Time to make a start" isn't taken for "Make the bed". The
+ * same list on the proxy (NAG_STOPWORDS in nag-contract.mjs; a test keeps them equal).
+ */
+export const NAG_STOPWORDS: readonly string[] = [
+  // Function words.
+  "about", "above", "after", "again", "also", "around", "away", "back", "been", "before", "being", "below", "both", "cant", "could",
+  "didnt", "does", "doesnt", "doing", "dont", "down", "each", "even", "ever", "every", "from", "have", "here", "into", "isnt",
+  "just", "less", "like", "more", "most", "much", "must", "never", "next", "once", "only", "onto", "other", "over", "really",
+  "should", "some", "soon", "still", "than", "that", "their", "them", "then", "there", "these", "they", "this", "those", "under",
+  "until", "upon", "very", "well", "were", "what", "when", "where", "which", "while", "will", "with", "wont", "would", "your",
+  "yours", "yourself", "maybe", "please", "okay", "sure", "yeah", "another", "first", "last", "later", "already", "always",
+  // Verbs any task can have.
+  "make", "work", "read", "call", "send", "check", "finish", "start", "write", "reply", "text", "message", "plan", "review",
+  "update", "look", "find", "take", "give", "help", "need", "want", "keep", "pick", "sort", "clean", "tidy", "book", "order",
+  "file", "print", "move", "come", "going", "goes", "getting", "done", "tick", "ticked", "open", "stop", "wait", "think",
+  "know", "said", "says", "tell", "talk", "sign", "deal", "handle", "prep", "prepare", "change", "continue",
+  // Nouns and words any task, or any nag, can have.
+  "today", "tomorrow", "task", "thing", "stuff", "time", "email", "list", "item", "minute", "hour", "week", "month", "year",
+  "quick", "easy", "good", "nice", "little", "small", "great", "best", "right", "part", "kind", "piece", "whole", "full",
+  "anything", "something", "nothing", "everything", "everyone", "someone", "anyone", "whatever", "ready", "left", "long",
+  "same", "fine", "mind", "word", "number", "point", "count", "push", "chance", "remind", "reminder", "nagging",
+];
+const STOPWORDS = new Set(NAG_STOPWORDS);
+// A run of letters and digits (the same ranges as isWordChar; plain ranges, so the pattern runs on Hermes).
+const WORD_RUN = /[a-z0-9\u00C0-\u1FFF\u2070-\uFFFF]+/gi;
+/** The shortest distinctive word. */
+const NAG_DISTINCTIVE_MIN = 4;
+// "reports" and "report" are one word to the check.
+const stemWord = (word: string) => (word.length > NAG_DISTINCTIVE_MIN && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word);
+
+/**
+ * 1.6 G: a task's distinctive words (or a line's): four letters or more, not
+ * all digits, not on NAG_STOPWORDS, any case, accents off, a plural "s" off.
+ * A line holding one of another task's is about that task too.
+ */
+export function nagDistinctiveWords(value: string): string[] {
+  const words = foldName(typeof value === "string" ? value : "").match(WORD_RUN) ?? [];
+  const out = new Set<string>();
+  for (const raw of words) {
+    const word = raw.toLowerCase();
+    const stem = stemWord(word);
+    if (Array.from(word).length < NAG_DISTINCTIVE_MIN || /^[0-9]+$/.test(word) || STOPWORDS.has(word) || STOPWORDS.has(stem)) continue;
+    out.add(stem);
+  }
+  return [...out];
+}
+
 /** A quoted name is this task: its words exactly (any case), or the first whole words of a long one. */
 function quoteIsTask(quote: string, task: string): boolean {
   const q = foldName(quote);
@@ -255,10 +305,13 @@ function quoteIsTask(quote: string, task: string): boolean {
  * name at all is not enough: the line is dropped, so a line written for
  * one task can't go out as another's or as a general one. It quotes no
  * other task and has no other task's words in it (outside its own task's
- * words). A general line
- * (`taskIndex` null) quotes no task and has none of their words. Task words
- * under four characters aren't looked for unquoted. The proxy runs the same
- * check (nagLineFitsTask in server/providers/nag-contract.mjs).
+ * words), not even one distinctive word of another task (nagDistinctiveWords:
+ * "“Walk the dog” before the dentist closes." is not a line for the walk). A
+ * general line (`taskIndex` null) quotes no task, has none of their words and
+ * not one distinctive word of any task ("Don't forget the dentist."). Common
+ * words (NAG_STOPWORDS: "call", "email", "list", "today") never count, so a
+ * generic word doesn't drop a line. The proxy runs the same check
+ * (nagLineFitsTask in server/providers/nag-contract.mjs).
  */
 export function nagLineFitsTask(text: string, taskIndex: number | null, taskTexts: readonly string[]): boolean {
   const quotes = Array.from(text.matchAll(QUOTED_NAME), (match) => match[1]);
@@ -266,8 +319,14 @@ export function nagLineFitsTask(text: string, taskIndex: number | null, taskText
     const name = foldName(task);
     return Array.from(name).length >= NAG_NAME_MIN_MENTION && holdsWords(foldName(rest), name);
   };
+  const lineWords = new Set(nagDistinctiveWords(text));
   if (taskIndex === null) {
-    return !quotes.some((quote) => taskTexts.some((task) => quoteIsTask(quote, task))) && !taskTexts.some((task) => mentions(text, task));
+    return (
+      !quotes.some((quote) => taskTexts.some((task) => quoteIsTask(quote, task))) &&
+      !taskTexts.some((task) => mentions(text, task)) &&
+      // Not one distinctive word of any task ("Don't forget the dentist.").
+      !taskTexts.some((task) => nagDistinctiveWords(task).some((word) => lineWords.has(word)))
+    );
   }
   const own = taskTexts[taskIndex];
   if (typeof own !== "string") return false;
@@ -278,7 +337,11 @@ export function nagLineFitsTask(text: string, taskIndex: number | null, taskText
   // Another task's words, outside the quote of this one (and not part of this task's own words).
   const rest = text.replace(QUOTED_NAME, (whole, quote: string) => (quoteIsTask(quote, own) ? " | " : whole));
   const ownName = foldName(own);
-  return !taskTexts.some((task, index) => index !== taskIndex && !ownName.includes(foldName(task)) && mentions(rest, task));
+  if (taskTexts.some((task, index) => index !== taskIndex && !ownName.includes(foldName(task)) && mentions(rest, task))) return false;
+  // Not one distinctive word of another task, unless this task has it too
+  // ("“Walk the dog” before the dentist closes." for the walk).
+  const ownWords = new Set(nagDistinctiveWords(own));
+  return !taskTexts.some((task, index) => index !== taskIndex && nagDistinctiveWords(task).some((word) => !ownWords.has(word) && lineWords.has(word)));
 }
 
 function clampCount(count: number): number {
@@ -298,7 +361,22 @@ function clampCount(count: number): number {
  */
 export function parseNagResponse(
   data: unknown,
-  { taskCount, count, ownTexts = [] }: { taskCount: number; count: number; ownTexts?: readonly string[] },
+  {
+    taskCount,
+    count,
+    ownTexts = [],
+    fitTexts = ownTexts,
+  }: {
+    taskCount: number;
+    count: number;
+    ownTexts?: readonly string[];
+    /**
+     * 1.6 G: the texts nagLineFitsTask checks a line against: the tasks sent
+     * first (so `taskIndex` points into them), then any other open task, so a
+     * line can't name one the proxy wasn't shown. The tasks sent by default.
+     */
+    fitTexts?: readonly string[];
+  },
 ): NagLine[] {
   const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
   const list = Array.isArray(record.lines) ? record.lines : [];
@@ -316,7 +394,7 @@ export function parseNagResponse(
     if (!text || Array.from(text).length > MAX_NAG_LINE || LINK_PATTERN.test(withoutJoiners(text))) return;
     if (isAffectionateNagLine(text, ownTexts)) return;
     // 1.6 G: it names the task it is for, and no other (nagLineFitsTask).
-    if (ownTexts.length > 0 && !nagLineFitsTask(text, taskIndex as number | null, ownTexts)) return;
+    if (fitTexts.length > 0 && !nagLineFitsTask(text, taskIndex as number | null, fitTexts)) return;
     candidates.push({ step, position, taskIndex: taskIndex as number | null, text });
   });
   candidates.sort((a, b) => a.step - b.step || a.position - b.position);
@@ -395,7 +473,13 @@ export async function requestNagLines({
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     ...(fetchImpl ? { fetchImpl } : {}),
   });
-  const lines = parseNagResponse(data, { taskCount: sent.length, count: wanted, ownTexts: sent.map(({ text }) => text) }).map((line) => ({
+  // Every open task is checked against, also one past the three sent.
+  const unsent = tasks
+    .map((task, from) => ({ from, text: oneLine(typeof task?.text === "string" ? task.text : "") }))
+    .filter(({ from, text }) => text && !sent.some((item) => item.from === from))
+    .map(({ text }) => text);
+  const sentTexts = sent.map(({ text }) => text);
+  const lines = parseNagResponse(data, { taskCount: sent.length, count: wanted, ownTexts: sentTexts, fitTexts: [...sentTexts, ...unsent] }).map((line) => ({
     ...line,
     taskIndex: line.taskIndex === null ? null : sent[line.taskIndex].from,
   }));
@@ -533,7 +617,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
       "I see {task} on the list. I'm just going to stand here and look at it.",
       "Funny thing about {task}. It doesn't do itself. I checked.",
       "I'm not saying anything about the list. I'm just adjusting the thermostat.",
-      "Small list today. I've mowed bigger lawns. Still, a list is a list.",
+      "The list is open. I'm not making a big thing of it. A medium thing, maybe.",
       "I'd tell you a joke about the list, but it's still unfinished.",
       "I'm just going to leave this here. The list, I mean.",
       "The list has been open so long I can feel a draft.",
@@ -610,13 +694,13 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
     late: {
       gentle: [
         "One quick thing, and I know I've said it: {task}.",
-        "Are you doing {task}, or are you 'about to' do it?",
+        "Is {task} ticked, or is it 'about to' be ticked?",
         "However today went, I'm on your team. One more tick, though?",
         "I'll stop mentioning the list soon. Not yet. Soon.",
       ],
       firm: [
         "I'm running out of polite ways to say {task}.",
-        "I put {task} on the list so I wouldn't have to say it. Here I am.",
+        "I was going to let {task} go. I'm not letting it go.",
         "The list is still open. I checked. Twice. Then once more.",
         "I'm not going to say it again. I'm saying it again: the list.",
         "Sigh. The list. That is the whole reminder.",
@@ -649,11 +733,11 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
         "Quick huddle: you're doing fine. {task} is still open.",
         "Halftime check. One small push on the list?",
         "Good pace, champ. One more rep on the list when you're ready.",
-        "Water break's over. The list is ready when you are.",
+        "Break's over. The list is ready when you are.",
       ],
       firm: [
         "Clock's running. {task} needs you on the field.",
-        "No more stalling. Time to move on {task}.",
+        "No more stalling. {task} is next. Let's go.",
         "Eyes up. The list is still open and you're still in this.",
         "Time out's over. Back on the field, the list is waiting.",
         "I'm pointing at the list, champ. You know what that means.",
@@ -667,7 +751,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
         "One more tick and we call it a good game. Your pace.",
       ],
       firm: [
-        "Fourth quarter. {task}. Leave it all out there.",
+        "Fourth quarter. {task} is still open. Finish strong.",
         "I need one more push. {task}. Right now.",
         "Whistle's about to blow. One more tick on the board.",
         "Dig in, champ. The list is still open and so is the game.",
@@ -729,7 +813,7 @@ export const NAG_TEMPLATES: Record<NagPersona, NagTemplates> = {
       ],
       // Four of the five are rude.
       relentless: [
-        "{task}! DROP AND GIVE ME TEN MINUTES, MAGGOT!",
+        "{task}! STILL NOT TICKED! TICK IT, MAGGOT!",
         "I've seen glaciers tick faster than you, recruit. {task}. MOVE.",
         "I am YELLING at a to-do list. That's what {task} has done to me.",
         "I've seen houseplants with more hustle. TICK SOMETHING, WORM.",

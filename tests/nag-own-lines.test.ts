@@ -371,13 +371,10 @@ describe("lines of the user's own changed during the day", () => {
     }
   });
 
-  // REAL APP BUG (P3), found by this test, not fixed here: the own steps are drawn from the number of
-  // usable lines (ownLinesFor, lib/daily-tasks/nag-plan.ts:966), so adding a line after one was said
-  // moves them, and "was the previous nag one of mine" is read as `past && ownStep !== undefined &&
-  // slot.sent !== undefined` (nag-plan.ts:935): a nag that said an own line at a step that is no longer
-  // an own step isn't counted, and the next nag can be an own line too (two in a row, seed 8).
-  // Fix idea: remember that a slot said an own line (e.g. compare slot.sent with the saved lines).
-  it.skip("adding lines after one was said doesn't put two of them in a row", () => {
+  // Found by this test (seed 8): the own steps used to be drawn from the number of usable lines, so
+  // adding lines after one was said moved them, and two own lines could come in a row. Now the own
+  // steps are marked on the slots when the day is planned (NagSlot.own), whatever the line count.
+  it("adding lines after one was said doesn't put two of them in a row", () => {
     const first = settingsWith({ nagOwnLines: ["Own line one."] });
     const more = settingsWith({ nagOwnLines: ["Own line one.", "Own line two.", "Own line three."] });
     const mine = new Set(["Own line one.", "Own line two.", "Own line three."]);

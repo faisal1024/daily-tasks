@@ -127,12 +127,14 @@ async function readPending(): Promise<PendingState> {
     .filter((request) => isManaged(request.identifier))
     .map((request) => {
       const data = request.content?.data;
+      const category = (request.content as { categoryIdentifier?: unknown } | undefined)?.categoryIdentifier;
       return {
         id: request.identifier,
         fireAt: pendingTime(data, request.trigger),
         title: request.content?.title ?? "",
         body: request.content?.body ?? "",
         ...(data && typeof data === "object" ? { data: data as Record<string, unknown> } : {}),
+        ...(typeof category === "string" && category ? { categoryId: category } : {}),
       };
     })
     .sort((a, b) => (a.fireAt?.getTime() ?? Infinity) - (b.fireAt?.getTime() ?? Infinity));
@@ -263,13 +265,35 @@ export function applyReminderPlan(plan: ReminderPlan, now: Date = new Date(), op
   return queueSync(() => runPlan(plan, now, options));
 }
 
-/** A pending reminder that already is what the plan wants: same words, same time. */
+/**
+ * 1.6 G: takes the nags due before `untilMs` off the phone at once (Snooze 1
+ * hour), not behind the day's record, which can wait on a request for lines.
+ * The next sync writes the snoozed day's nags. Other reminders are left alone.
+ */
+export function cancelPendingNagsBefore(untilMs: number, now: Date = new Date()): Promise<void> {
+  if (Platform.OS === "web") return Promise.resolve();
+  return queueSync(async () => {
+    const { managed } = await readPending();
+    for (const item of managed) {
+      const at = item.fireAt?.getTime();
+      if (item.data?.kind !== NAG_KIND || at === undefined || at <= now.getTime() || at >= untilMs) continue;
+      await cancelOne(item.id);
+    }
+  }).catch(() => {});
+}
+
+/**
+ * A pending reminder that already is what the plan wants: same words, same
+ * time, same buttons (1.6 G: so a nag scheduled by 1.5 with the old category
+ * is scheduled again with the right one).
+ */
 function alreadyPending(pending: PendingReminder | undefined, item: ReminderPlanItem): boolean {
   return (
     !!pending &&
     pending.fireAt !== null &&
     pending.title === item.title &&
     pending.body === item.body &&
+    (pending.categoryId || undefined) === (item.categoryId || undefined) &&
     Math.abs(pending.fireAt.getTime() - item.fireAt.getTime()) < 1000
   );
 }
@@ -573,9 +597,9 @@ export function subscribeFocusResponses(listener: (response: FocusNotificationRe
   return () => subscription?.remove();
 }
 
-// Nag mode: a nag about a task carries Mark done, Snooze 1 hour and Stop for
-// today (1.6 G; Stop for today only in 1.4 and 1.5), one about the list in
-// general Snooze 1 hour and Stop for today. Like the focus buttons they all
+// Nag mode: a nag about a task carries Mark done, Snooze 1 hour and No more
+// nags today (1.6 G; before, only "Stop for today", the same button), one about
+// the list in general Snooze 1 hour and No more nags today. Like the focus buttons they all
 // open the app, so the tap is handled even when the app wasn't running (a
 // background action is lost then). A tap on the nag itself just opens the
 // app, on Today. Never time-sensitive (the category doesn't change that).
@@ -590,7 +614,7 @@ export function registerNagCategory(): Promise<void> {
   return inCategoryQueue(async () => {
     if (nagCategoryReady || typeof Notifications.setNotificationCategoryAsync !== "function") return;
     const snooze = { identifier: NAG_ACTION_SNOOZE, buttonTitle: "Snooze 1 hour", options: { opensAppToForeground: true } };
-    const stop = { identifier: NAG_ACTION_STOP, buttonTitle: "Stop for today", options: { opensAppToForeground: true } };
+    const stop = { identifier: NAG_ACTION_STOP, buttonTitle: "No more nags today", options: { opensAppToForeground: true } };
     await Notifications.setNotificationCategoryAsync(NAG_CATEGORY_ID, [
       { identifier: NAG_ACTION_DONE, buttonTitle: "Mark done", options: { opensAppToForeground: true } },
       snooze,

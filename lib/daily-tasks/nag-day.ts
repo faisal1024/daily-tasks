@@ -26,6 +26,7 @@ import {
   nagRecordStub,
   nagRecordWithPlannedWords,
   NAG_STORAGE_KEY,
+  nagSnoozeOutcome,
   normalizeNagRecord,
   planNagDay,
   snoozeNagRecord,
@@ -225,11 +226,20 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
  * snooze is applied to what it saved. Only for the record of `today`, which
  * is the clock's day; nothing once the record was removed or emptied since
  * it was asked for. `onChange` gets the new version, so the reminders are
- * written again. Never throws.
+ * written again, and `onSnoozed` when the next nag comes (null: none left
+ * today) and whether the hour runs past the nag window, for the app's note.
+ * Never throws.
+ *
+ * Queued behind a request for lines that may take 20 seconds: the store
+ * takes the nags due within the hour off the phone first
+ * (cancelPendingNagsBefore), so none goes off while this waits.
  */
 export function snoozeNagDay(
   { today, window, now }: { today: string; window: NagWindow; now?: Date },
-  { onChange }: Pick<NagDayDeps, "onChange"> = {},
+  {
+    onChange,
+    onSnoozed,
+  }: Pick<NagDayDeps, "onChange"> & { onSnoozed?: (outcome: { nextAt: number | null; pastWindow: boolean }) => void } = {},
 ): Promise<void> {
   const epoch = cleared;
   const run = queue
@@ -241,7 +251,10 @@ export function snoozeNagDay(
       const record = await loadNagRecord();
       if (!record || record.dayKey !== today || cleared !== epoch) return;
       const next = snoozeNagRecord(record, at, window);
-      if (cleared === epoch && (await saveNagRecord(next))) onChange?.(next.version);
+      if (cleared === epoch && (await saveNagRecord(next))) {
+        onChange?.(next.version);
+        onSnoozed?.(nagSnoozeOutcome(next, at, window));
+      }
     })
     .catch(() => {});
   queue = run;

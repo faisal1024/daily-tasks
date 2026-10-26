@@ -161,8 +161,11 @@ export const NAG_SYSTEM_PROMPT = [
   "Format rules:",
   `- Each line is one notification: at most ${NAG_LINE_TARGET_CHARS} characters, one or two short sentences, written in the persona's voice and addressed to the user.`,
   "- Each line names at most one task. To name it, quote the task's text exactly as written, inside curly double quotes, e.g. \u201CCall the dentist\u201D; if the task is longer than 40 characters, quote its first few whole words instead. Never paraphrase, shorten or reword a task, and never name a task without quoting it. Set taskIndex to that task's number minus one. Rotate through the tasks so each gets its turn.",
-  "- A line about one task fits that task and only that one: read what kind of thing it is (a call, an email or message, a workout, a chore, an errand, an appointment, writing, reading) and write the line for that kind of thing, grammatical with the exact quoted words. Never imply it is a different kind of task (no running jokes for an email, no phone jokes for a chore) and never mention another task in it. If you can't tell what kind of task it is, keep the line neutral.",
-  "- A general line that names no task has taskIndex null; use a few of those. It never quotes a task or uses a task's words, and it doesn't assume how many tasks are open (say 'the list', not 'all three' or 'these tasks').",
+  "- A task may be a noun (\u201CDentist\u201D, \u201CGroceries\u201D) or a command (\u201CCall mom\u201D). Either way, quote it exactly and write the sentence around it so it reads right with those exact words: \u201CDentist\u201D is still on the list, not 'do \u201CDentist\u201D'.",
+  "- A line about one task fits that task and only that one: read what kind of thing it is (a call, an email or message, a workout, a chore, an errand, an appointment, writing, reading) and write the line for that kind of thing, grammatical with the exact quoted words. Never imply it is a different kind of task (no running jokes for an email, no phone jokes for a chore). If you can't tell what kind of task it is, keep the line neutral.",
+  "- Match the nag to the effort of the task: a two-minute reply is not a marathon, and a big job is not 'quick'. Don't invent a duration or a size the task doesn't state.",
+  "- Never mention another task in a line, not even one word of it: a line about one task uses no word from the others' text.",
+  "- A general line that names no task has taskIndex null; use a few of those. It never quotes a task or uses any word from a task's text, and it doesn't assume how many tasks are open (say 'the list', not 'all three' or 'these tasks').",
   "- step runs from 1 (first nudge of the day) to the number of lines asked for (last nudge), one line per step, in order. Follow the level's curve across the steps.",
   "- Every line must be different from the others and make sense on its own.",
   "- Plain punctuation only. No em dashes, no hashtags, no links, no phone numbers, no ALL CAPS sentences unless the persona says so, and no quotation marks around the whole line.",
@@ -513,6 +516,56 @@ export function cleanNagLine(value, { persona, ownTexts = [] } = {}) {
   return text;
 }
 
+/**
+ * 1.6 G: words too common to tie a line to a task (the app's NAG_STOPWORDS in
+ * lib/daily-tasks/nag.ts; a test keeps them equal). Function words, and the
+ * verbs and nouns any task can have, so a generic word never drops a line.
+ */
+export const NAG_STOPWORDS = [
+  // Function words.
+  "about", "above", "after", "again", "also", "around", "away", "back", "been", "before", "being", "below", "both", "cant", "could",
+  "didnt", "does", "doesnt", "doing", "dont", "down", "each", "even", "ever", "every", "from", "have", "here", "into", "isnt",
+  "just", "less", "like", "more", "most", "much", "must", "never", "next", "once", "only", "onto", "other", "over", "really",
+  "should", "some", "soon", "still", "than", "that", "their", "them", "then", "there", "these", "they", "this", "those", "under",
+  "until", "upon", "very", "well", "were", "what", "when", "where", "which", "while", "will", "with", "wont", "would", "your",
+  "yours", "yourself", "maybe", "please", "okay", "sure", "yeah", "another", "first", "last", "later", "already", "always",
+  // Verbs any task can have.
+  "make", "work", "read", "call", "send", "check", "finish", "start", "write", "reply", "text", "message", "plan", "review",
+  "update", "look", "find", "take", "give", "help", "need", "want", "keep", "pick", "sort", "clean", "tidy", "book", "order",
+  "file", "print", "move", "come", "going", "goes", "getting", "done", "tick", "ticked", "open", "stop", "wait", "think",
+  "know", "said", "says", "tell", "talk", "sign", "deal", "handle", "prep", "prepare", "change", "continue",
+  // Nouns and words any task, or any nag, can have.
+  "today", "tomorrow", "task", "thing", "stuff", "time", "email", "list", "item", "minute", "hour", "week", "month", "year",
+  "quick", "easy", "good", "nice", "little", "small", "great", "best", "right", "part", "kind", "piece", "whole", "full",
+  "anything", "something", "nothing", "everything", "everyone", "someone", "anyone", "whatever", "ready", "left", "long",
+  "same", "fine", "mind", "word", "number", "point", "count", "push", "chance", "remind", "reminder", "nagging",
+];
+const STOPWORDS = new Set(NAG_STOPWORDS);
+// A run of letters and digits: the app's ranges exactly, so both sides split a line the same way.
+const WORD_RUN = /[a-z0-9\u00C0-\u1FFF\u2070-\uFFFF]+/gi;
+const NAG_DISTINCTIVE_MIN = 4;
+const stemWord = (word) => (word.length > NAG_DISTINCTIVE_MIN && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word);
+
+/**
+ * A task's distinctive words (or a line's), as the app finds them
+ * (nagDistinctiveWords): four letters or more, not all digits, not on
+ * NAG_STOPWORDS, any case, accents off, a plural "s" off.
+ *
+ * @param {string} value
+ * @returns {string[]}
+ */
+export function nagDistinctiveWords(value) {
+  const words = foldName(typeof value === "string" ? value : "").match(WORD_RUN) ?? [];
+  const out = new Set();
+  for (const raw of words) {
+    const word = raw.toLowerCase();
+    const stem = stemWord(word);
+    if (charLength(word) < NAG_DISTINCTIVE_MIN || /^[0-9]+$/.test(word) || STOPWORDS.has(word) || STOPWORDS.has(stem)) continue;
+    out.add(stem);
+  }
+  return [...out];
+}
+
 const NAG_NAME_CUT_AT = 40;
 const NAG_NAME_MIN_PREFIX = 12;
 const NAG_NAME_MIN_MENTION = 4;
@@ -556,9 +609,10 @@ function quoteIsTask(quote, task) {
  * first whole words of a task over 40 characters) or has its whole words as
  * they are. A paraphrase or no name at all is not enough: the line is
  * dropped. It quotes no other task and has no other task's words in it
- * outside its own task's words. A general line
- * (`taskIndex` null) quotes no task and has none of their words. Task words
- * under four characters aren't looked for unquoted.
+ * outside its own task's words, not even one distinctive word of another task
+ * (nagDistinctiveWords). A general line (`taskIndex` null) quotes no task, has
+ * none of their words and not one distinctive word of any task. Words on
+ * NAG_STOPWORDS never count.
  *
  * @param {string} text
  * @param {number | null} taskIndex
@@ -570,8 +624,13 @@ export function nagLineFitsTask(text, taskIndex, taskTexts) {
     const name = foldName(task);
     return charLength(name) >= NAG_NAME_MIN_MENTION && holdsWords(foldName(rest), name);
   };
+  const lineWords = new Set(nagDistinctiveWords(text));
   if (taskIndex === null) {
-    return !quotes.some((quote) => taskTexts.some((task) => quoteIsTask(quote, task))) && !taskTexts.some((task) => mentions(text, task));
+    return (
+      !quotes.some((quote) => taskTexts.some((task) => quoteIsTask(quote, task))) &&
+      !taskTexts.some((task) => mentions(text, task)) &&
+      !taskTexts.some((task) => nagDistinctiveWords(task).some((word) => lineWords.has(word)))
+    );
   }
   const own = taskTexts[taskIndex];
   if (typeof own !== "string") return false;
@@ -581,7 +640,10 @@ export function nagLineFitsTask(text, taskIndex, taskTexts) {
   if (quotes.some((quote) => !quoteIsTask(quote, own) && taskTexts.some((task, index) => index !== taskIndex && quoteIsTask(quote, task)))) return false;
   const rest = text.replace(QUOTED_NAME, (whole, quote) => (quoteIsTask(quote, own) ? " | " : whole));
   const ownName = foldName(own);
-  return !taskTexts.some((task, index) => index !== taskIndex && !ownName.includes(foldName(task)) && mentions(rest, task));
+  if (taskTexts.some((task, index) => index !== taskIndex && !ownName.includes(foldName(task)) && mentions(rest, task))) return false;
+  // Not one distinctive word of another task, unless this task has it too.
+  const ownWords = new Set(nagDistinctiveWords(own));
+  return !taskTexts.some((task, index) => index !== taskIndex && nagDistinctiveWords(task).some((word) => !ownWords.has(word) && lineWords.has(word)));
 }
 
 /**

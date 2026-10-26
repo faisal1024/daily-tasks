@@ -286,7 +286,8 @@ describe("requestNagLines", () => {
 
 describe("built-in templates", () => {
   // A 60-character task name: the longest a line has to carry is its cut.
-  const LONG_TASK = "Reorganise the whole garage shelving unit before the weekend"; // 60
+  // Not "garage": Dad's general "garage door" line would then be about it (nagLineFitsTask, 1.6 G).
+  const LONG_TASK = "Reorganise the whole attic shelving unit before the weekend!"; // 60
   const SERVER_PAYLOAD = (persona: NagPersona, level: NagLevel) => ({ persona, level, tasks: [{ text: LONG_TASK }], count: 16 });
 
   it("the long test task is 60 characters and is cut to 40 inside quotes", () => {

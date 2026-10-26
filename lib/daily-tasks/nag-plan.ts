@@ -15,11 +15,13 @@
 //   day's built-in lines (weight 1 + times moved, at most 3; see
 //   nagTaskWeights). Times and counts don't change.
 
-import { fromDateKey, toDateKey } from "./date";
+import { formatTime, fromDateKey, toDateKey } from "./date";
 import {
   builtInNagLines,
   isAffectionateNagLine,
   NAG_DRILL_RUDE,
+  nagDistinctiveWords,
+  nagLineFitsTask,
   NAG_LEVELS,
   NAG_PERSONAS,
   nagTaskIsSensitive,
@@ -29,7 +31,7 @@ import {
   type NagLine,
   type NagPersona,
 } from "./nag";
-import { fillNagOwnLine, nagOwnLineHoldsTask, nagOwnLineNamesTask, nagOwnSteps } from "./nag-own-lines";
+import { fillNagOwnLine, MAX_NAG_OWN_LINES, nagOwnLineHoldsTask, nagOwnLineNamesTask, nagOwnSteps } from "./nag-own-lines";
 import type { ReminderContext, ReminderPlan } from "./reminder-plan";
 import { NAG_CATEGORY_ID, NAG_GENERAL_CATEGORY_ID, NAG_KIND } from "./reminders";
 import {
@@ -256,6 +258,26 @@ function nagTaskKey(task: NagOpenTask): string {
   return textKey(`${task.id}\u0001${task.text.trim()}`);
 }
 
+/** 1.6 G: one distinctive word as the record keeps it: a hash, never the word. */
+function wordKey(word: string): string {
+  return textKey(`w\u0001${word}`);
+}
+
+/** 1.6 G: hashes of each task's distinctive words (nagDistinctiveWords), by task id. */
+export function nagTaskWordKeys(tasks: readonly NagOpenTask[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const task of tasks) out[task.id] = nagDistinctiveWords(task.text).map(wordKey);
+  return out;
+}
+
+/** `earlier` and `later` together: a task's hashes from both, so a task edited today keeps its old words too. */
+function mergeWordKeys(earlier: Readonly<Record<string, string[]>> | undefined, later: Readonly<Record<string, string[]>>): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [id, keys] of Object.entries(earlier ?? {})) out[id] = [...keys];
+  for (const [id, keys] of Object.entries(later)) out[id] = [...new Set([...(out[id] ?? []), ...keys])];
+  return out;
+}
+
 /** The open tasks as a short key (hashes of each task's id and words, never the words). */
 export function nagTasksKey(open: NagOpenTask[]): string {
   return [...new Set(open.map(nagTaskKey))].sort().join(",");
@@ -318,6 +340,13 @@ export interface NagSlot {
    * saved before 1.4.1 and whenever the slot says its own words.
    */
   sent?: string;
+  /**
+   * 1.6 G: one of the day's steps for the user's own lines (nagOwnSteps),
+   * marked when the slot is planned. So which nags say one doesn't depend on
+   * what was written back, or on how many lines there are; and "never two
+   * in a row" reads it for nags that went off. Absent on other slots.
+   */
+  own?: true;
 }
 
 /** What a slot that went off said: the words it was scheduled with. */
@@ -368,6 +397,20 @@ export interface NagDayRecord {
    * Absent when it wasn't (and in records saved before 1.6).
    */
   snoozedUntil?: number;
+  /**
+   * 1.6 G: hashes of the distinctive words (nagDistinctiveWords) of every
+   * task the day was planned for, by task id (nagTaskWordKeys), never the
+   * words. So a line that holds a word of a task since ticked or removed is
+   * known for one (nagSlotWords). Absent in records saved before.
+   */
+  taskWords?: Record<string, string[]>;
+  /**
+   * 1.6 G: the open tasks (nagTasksKey) the AI's `lines` were written for.
+   * `aiFor` is what was last asked about, also when that request failed, so
+   * it can be newer than the lines. Absent in records saved before (aiFor
+   * is used then).
+   */
+  linesFor?: string;
 }
 
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
@@ -383,7 +426,7 @@ function asNagLine(value: unknown): NagLine | null {
 
 function asNagSlot(value: unknown): NagSlot | null {
   if (!value || typeof value !== "object") return null;
-  const { id, fireAtMs, step, text, taskId, sent } = value as Record<string, unknown>;
+  const { id, fireAtMs, step, text, taskId, sent, own } = value as Record<string, unknown>;
   if (typeof id !== "string" || !id.startsWith("daily-tasks:")) return null;
   // A moment a Date can hold (up to 8.64e15 ms): anything else would be an Invalid Date in the plan.
   if (typeof fireAtMs !== "number" || !Number.isFinite(fireAtMs) || fireAtMs <= 0 || fireAtMs > MAX_DATE_MS) return null;
@@ -395,7 +438,17 @@ function asNagSlot(value: unknown): NagSlot | null {
     text,
     taskId: typeof taskId === "string" && taskId ? taskId : null,
     ...(typeof sent === "string" && sent && sent !== text ? { sent } : {}),
+    ...(own === true ? { own: true as const } : {}),
   };
+}
+
+function asWordKeys(value: unknown): Record<string, string[]> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out: Record<string, string[]> = {};
+  for (const [id, keys] of Object.entries(value as Record<string, unknown>)) {
+    if (id && Array.isArray(keys)) out[id] = keys.filter((key): key is string => typeof key === "string" && key !== "");
+  }
+  return out;
 }
 
 /** A saved record, checked; null for anything that isn't one. */
@@ -432,6 +485,8 @@ export function normalizeNagRecord(value: unknown): NagDayRecord | null {
     ...(typeof raw.snoozedUntil === "number" && Number.isFinite(raw.snoozedUntil) && raw.snoozedUntil > 0 && raw.snoozedUntil <= MAX_DATE_MS
       ? { snoozedUntil: raw.snoozedUntil }
       : {}),
+    ...(asWordKeys(raw.taskWords) ? { taskWords: asWordKeys(raw.taskWords) as Record<string, string[]> } : {}),
+    ...(typeof raw.linesFor === "string" ? { linesFor: raw.linesFor } : {}),
   };
 }
 
@@ -448,9 +503,12 @@ export function normalizeNagRecord(value: unknown): NagDayRecord | null {
  */
 export function nagRecordStub(record: NagDayRecord, now: Date): NagDayRecord {
   const nowMs = now.getTime();
-  const slots = record.slots.filter((slot) => slot.fireAtMs <= nowMs).map((slot) => ({ ...unsent(slot), text: "", taskId: null }));
+  const slots = record.slots
+    .filter((slot) => slot.fireAtMs <= nowMs)
+    .map(({ own: _own, ...slot }) => ({ ...unsent(slot), text: "", taskId: null }));
+  const { taskWords: _taskWords, linesFor: _linesFor, ...rest } = record;
   return {
-    ...record,
+    ...rest,
     tasksKey: "",
     lines: [],
     lineTasks: [],
@@ -471,7 +529,9 @@ export function isNagRecordStub(record: NagDayRecord, now: Date): boolean {
     record.lineTasks.length === 0 &&
     record.tasksKey === "" &&
     record.timingKey === "" &&
-    record.slots.every((slot) => slot.fireAtMs <= nowMs && slot.text === "" && slot.taskId === null && slot.sent === undefined)
+    record.taskWords === undefined &&
+    record.linesFor === undefined &&
+    record.slots.every((slot) => slot.fireAtMs <= nowMs && slot.text === "" && slot.taskId === null && slot.sent === undefined && slot.own === undefined)
   );
 }
 
@@ -484,11 +544,35 @@ export function nagAiKey(persona: NagPersona, level: NagLevel, open: NagOpenTask
   return `${persona}|${level}|${nagTasksKey(open)}`;
 }
 
-/** The AI's lines in `record` still fit: same persona, level and no task they don't know. */
-function aiLinesFit(record: NagDayRecord, persona: NagPersona, level: NagLevel, open: NagOpenTask[]): boolean {
-  if (record.source !== "ai" || record.aiFor === null || record.lines.length === 0) return false;
-  const [forPersona, forLevel, forTasks = ""] = record.aiFor.split("|");
-  return forPersona === persona && forLevel === level && !nagTasksChanged(forTasks, open);
+/**
+ * The AI's lines in `record` that still fit (null when none can: another
+ * persona or level, or no AI lines). With the same tasks, all of them. After
+ * an edit (1.6 G: one edit no longer drops every line), the lines of a task
+ * whose words changed go, and every other line is kept when it still reads
+ * right with the open tasks as they are now (nagLineFitsTask: a general line
+ * names none of them, a task's line no other). A line about a task since
+ * ticked or removed is kept: the plan points it at an open task.
+ */
+function aiLinesThatFit(record: NagDayRecord, persona: NagPersona, level: NagLevel, open: NagOpenTask[]): Set<NagLine> | null {
+  if (record.source !== "ai" || record.aiFor === null || record.lines.length === 0) return null;
+  const [forPersona, forLevel, askedFor = ""] = record.aiFor.split("|");
+  if (forPersona !== persona || forLevel !== level) return null;
+  const forTasks = record.linesFor ?? askedFor;
+  if (!nagTasksChanged(forTasks, open)) return new Set(record.lines);
+  const known = new Set(forTasks.split(",").filter(Boolean));
+  const openTexts = open.map((task) => task.text);
+  const kept = new Set<NagLine>();
+  for (const line of record.lines) {
+    if (line.taskIndex === null) {
+      if (nagLineFitsTask(line.text, null, openTexts)) kept.add(line);
+      continue;
+    }
+    const id = record.lineTasks[line.taskIndex];
+    const at = open.findIndex((task) => task.id === id);
+    if (at === -1) kept.add(line);
+    else if (known.has(nagTaskKey(open[at])) && nagLineFitsTask(line.text, at, openTexts)) kept.add(line);
+  }
+  return kept;
 }
 
 /**
@@ -498,17 +582,26 @@ function aiLinesFit(record: NagDayRecord, persona: NagPersona, level: NagLevel, 
  * nags of a day say the same thing. And so does a slot whose line is
  * affectionate (isAffectionateNagLine; `ownTexts` are the open tasks' words,
  * which are excused): the batch may be one saved before Nag mode stopped
- * saying such things, and the slot's built-in line is used instead.
+ * saying such things, and the slot's built-in line is used instead. So does a
+ * slot whose line isn't `usable` (an edited task's: aiLinesThatFit), each
+ * line keeping its step, so the other slots say what they said before.
  */
 function withLines(
   slots: NagSlot[],
-  { lines, lineTasks, total, nowMs, ownTexts }: { lines: NagLine[]; lineTasks: string[]; total: number; nowMs: number; ownTexts: string[] },
+  {
+    lines,
+    lineTasks,
+    total,
+    nowMs,
+    ownTexts,
+    usable,
+  }: { lines: NagLine[]; lineTasks: string[]; total: number; nowMs: number; ownTexts: string[]; usable?: ReadonlySet<NagLine> },
 ): NagSlot[] {
   const said = new Set(slots.filter((slot) => slot.fireAtMs <= nowMs && saidText(slot)).map(saidText));
   return slots.map((slot) => {
     if (slot.fireAtMs <= nowMs) return slot;
     const line = lineForStep(lines, slot.step, total);
-    if (!line || said.has(line.text) || isAffectionateNagLine(line.text, ownTexts)) {
+    if (!line || (usable && !usable.has(line)) || said.has(line.text) || isAffectionateNagLine(line.text, ownTexts)) {
       if (slot.text) said.add(slot.text);
       return slot;
     }
@@ -617,6 +710,11 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
     }));
   }
 
+  // 1.6 G: the steps for the user's own lines, marked on the slots still to
+  // come (the same on every plan of the same draw; at most one in three).
+  const ownSteps = new Set(nagOwnSteps(total, MAX_NAG_OWN_LINES, `${dayKey}|${salt}`));
+  future = future.map(({ own: _own, ...slot }) => (ownSteps.has(slot.step) ? { ...slot, own: true as const } : slot));
+
   const tasks = hideNames ? [] : open;
   const sensitiveDay = open.some((task) => nagTaskIsSensitive(task.text));
   const lines = builtInNagLines({
@@ -637,9 +735,17 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
     return { ...unsent(slot), text: line.text, taskId: line.taskIndex === null ? null : (tasks[line.taskIndex]?.id ?? null) };
   });
 
-  const keepAi = sameDay && !hideNames && aiLinesFit(previous, persona, level, open);
+  const fitting = sameDay && !hideNames ? aiLinesThatFit(previous, persona, level, open) : null;
+  const keepAi = previous !== null && fitting !== null && fitting.size > 0;
   if (keepAi) {
-    slots = withLines([...past, ...slots], { lines: previous.lines, lineTasks: previous.lineTasks, total, nowMs, ownTexts: open.map((task) => task.text) }).slice(past.length);
+    slots = withLines([...past, ...slots], {
+      lines: previous.lines,
+      lineTasks: previous.lineTasks,
+      total,
+      nowMs,
+      ownTexts: open.map((task) => task.text),
+      usable: fitting,
+    }).slice(past.length);
   }
 
   return {
@@ -650,6 +756,8 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
     tasksKey: nagTasksKey(open),
     lines: keepAi ? previous.lines : lines,
     lineTasks: keepAi ? previous.lineTasks : tasks.map((task) => task.id),
+    // What the kept lines were written for, pinned (an older record's from what was asked).
+    ...(keepAi ? { linesFor: previous.linesFor ?? (previous.aiFor ?? "").split("|")[2] ?? "" } : {}),
     source: keepAi ? "ai" : "local",
     slots: [...past, ...slots],
     total,
@@ -662,6 +770,7 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
     aiFor: sameDay ? previous.aiFor : null,
     version: (previous?.version ?? 0) + 1,
     ...(sameDay && typeof previous.snoozedUntil === "number" ? { snoozedUntil: previous.snoozedUntil } : {}),
+    taskWords: mergeWordKeys(sameDay ? previous.taskWords : undefined, nagTaskWordKeys(open)),
   };
 }
 
@@ -669,10 +778,9 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
  * 1.6 G: "Snooze 1 hour" on a nag, tapped at `now`: the next nag of the day
  * comes an hour after the tap (whole minute), and then the day carries on.
  *
- * - The first nag still to come with words is moved to that moment, later if
- *   it was sooner and earlier if it was later (a Gentle day's next nag can be
- *   three hours off: snooze means "again in an hour"). It keeps its id, step
- *   and words.
+ * - The first nag still to come with words is moved to that moment when it
+ *   was sooner; one already planned for later stays where it was (a snooze
+ *   never brings a nag sooner). It keeps its id, step and words.
  * - Every other nag still to come that would be less than an hour after it
  *   is taken out of the day (so the hour between nags still holds), as are
  *   the wordless slots before it; the later ones keep their times.
@@ -687,18 +795,50 @@ export function planNagDay({ previous, now, dayKey, settings, open, salt: freshS
  */
 export function snoozeNagRecord(record: NagDayRecord, now: Date, window: NagWindow): NagDayRecord {
   const nowMs = now.getTime();
-  const until = Math.ceil((nowMs + NAG_SNOOZE_MINUTES * MINUTE_MS) / MINUTE_MS) * MINUTE_MS;
+  const until = nagSnoozeUntil(now);
   const startMs = nagMinuteAt(record.dayKey, window.startMinutes).getTime();
   const endMs = nagMinuteAt(record.dayKey, window.endMinutes).getTime();
   const past = record.slots.filter((slot) => slot.fireAtMs <= nowMs);
   const future = record.slots.filter((slot) => slot.fireAtMs > nowMs);
   const inWindow = until >= startMs && until <= endMs && toDateKey(new Date(until)) === record.dayKey;
   const next = inWindow ? (future.find((slot) => slot.text !== "") ?? null) : null;
+  // Never sooner than it was planned for.
+  const nextAt = next ? Math.max(until, next.fireAtMs) : until;
   const kept = next
-    ? future.filter((slot) => slot !== next && slot.fireAtMs > next.fireAtMs && slot.fireAtMs >= until + GAP_MS)
+    ? future.filter((slot) => slot !== next && slot.fireAtMs > next.fireAtMs && slot.fireAtMs >= nextAt + GAP_MS)
     : future.filter((slot) => slot.fireAtMs >= until);
-  const slots = [...past, ...(next ? [{ ...next, fireAtMs: until }] : []), ...kept].sort((a, b) => a.fireAtMs - b.fireAtMs);
+  const slots = [...past, ...(next ? [{ ...next, fireAtMs: nextAt }] : []), ...kept].sort((a, b) => a.fireAtMs - b.fireAtMs);
   return { ...record, slots, snoozedUntil: Math.max(until, record.snoozedUntil ?? 0), version: record.version + 1 };
+}
+
+/**
+ * 1.6 G: what a snooze tapped at `now` leaves, for the note the app shows:
+ * when the next nag with words comes (ms; null when none is left today), and
+ * whether the hour runs past the end of the nag window.
+ */
+export function nagSnoozeOutcome(record: NagDayRecord, now: Date, window: NagWindow): { nextAt: number | null; pastWindow: boolean } {
+  const nowMs = now.getTime();
+  const until = nagSnoozeUntil(now);
+  const endMs = nagMinuteAt(record.dayKey, window.endMinutes).getTime();
+  const next = record.slots.find((slot) => slot.fireAtMs > nowMs && slot.text !== "") ?? null;
+  return { nextAt: next ? next.fireAtMs : null, pastWindow: until > endMs || toDateKey(new Date(until)) !== record.dayKey };
+}
+
+/** 1.6 G: the moment a snooze tapped at `now` ends (the tap plus an hour, whole minute). */
+export function nagSnoozeUntil(now: Date): number {
+  return Math.ceil((now.getTime() + NAG_SNOOZE_MINUTES * MINUTE_MS) / MINUTE_MS) * MINUTE_MS;
+}
+
+/** 1.6 G: the note the app shows after a snooze ("Next nag around 3:40 PM"). */
+export function nagSnoozeNote(
+  { nextAt, pastWindow }: { nextAt: number | null; pastWindow: boolean },
+  format: (hour: number, minute: number) => string = formatTime,
+): string {
+  if (nextAt !== null) {
+    const next = new Date(nextAt);
+    return `Next nag around ${format(next.getHours(), next.getMinutes())}`;
+  }
+  return pastWindow ? "No more nags today (past your nag hours)" : "No more nags today";
 }
 
 /**
@@ -742,6 +882,8 @@ export function applyAiNagLines(record: NagDayRecord, lines: NagLine[], open: Na
     source: "ai",
     slots: withLines(record.slots, { lines, lineTasks, total: record.total, nowMs: now.getTime(), ownTexts: open.map((task) => task.text) }),
     version: record.version + 1,
+    taskWords: mergeWordKeys(record.taskWords, nagTaskWordKeys(open)),
+    linesFor: nagTasksKey(open),
   };
 }
 
@@ -881,6 +1023,14 @@ function nagSlotWords(
   const insensitive = (slot: NagSlot) =>
     (record.source === "local" && slot.taskId !== null && sensitiveIds.has(slot.taskId)) ||
     (sensitiveDay && record.persona === "drill" && NAG_DRILL_RUDE.test(slot.text));
+  // 1.6 G: a task ticked or removed today (one the day was planned for, or a
+  // ticked one on the list), by its distinctive words' hashes; a word an open
+  // task has too doesn't count. A line of the AI's, general or not, that holds
+  // one isn't said: it gets the stand-in a ticked task's slot gets.
+  const closedWords = closedTaskWords(record, context, open, openIds);
+  const holdsClosedWord = (text: string) => closedWords.size > 0 && nagDistinctiveWords(text).some((word) => closedWords.has(wordKey(word)));
+  const aiTexts = new Set(record.source === "ai" ? record.lines.map((line) => line.text) : []);
+  const aboutClosedTask = (slot: NagSlot) => aiTexts.has(slot.text) && holdsClosedWord(slot.text);
   // A nag that went off counts with the words it was scheduled with.
   const used = new Set<string>();
   for (const slot of record.slots) {
@@ -889,7 +1039,7 @@ function nagSlotWords(
     if (text && (!rewrite || past)) used.add(text);
   }
   // 1.6 G: the user's own lines (nag-own-lines.ts) at their steps of the day.
-  const own = ownLinesFor(record, context, open, { hide, sensitiveIds, next });
+  const own = ownLinesFor(record, context, open, { hide, sensitiveIds, next, holdsClosedWord });
   const snoozedUntil = typeof record.snoozedUntil === "number" ? record.snoozedUntil : -Infinity;
   let lastWasOwn = false;
   const slots: { slot: NagSlot; past: boolean; words: NagWords | null }[] = [];
@@ -920,7 +1070,12 @@ function nagSlotWords(
       if (past) continue;
       const line = unsaidLine(general, slot.step, record.total, used);
       words = line ? { text: line.text, taskId: null } : null;
-    } else if ((slot.taskId !== null && (!openIds.has(slot.taskId) || staleIds.has(slot.taskId))) || affectionate(slot) || insensitive(slot)) {
+    } else if (
+      (slot.taskId !== null && (!openIds.has(slot.taskId) || staleIds.has(slot.taskId))) ||
+      affectionate(slot) ||
+      insensitive(slot) ||
+      (!past && aboutClosedTask(slot))
+    ) {
       const line = unsaidLine(forNext, slot.step, record.total, used);
       words = line ? { text: line.text, taskId: line.taskIndex === null || !next ? null : next.id } : null;
     }
@@ -929,10 +1084,10 @@ function nagSlotWords(
       continue;
     }
     used.add(words.text);
-    // A nag that went off at one of the steps with words put in for it said
-    // one of the user's lines (or a stand-in for a ticked task: counted the
-    // same, so the next own line waits a nag either way).
-    lastWasOwn = past && ownStep !== undefined && slot.sent !== undefined;
+    // A nag that went off at one of the own steps counts as one of the
+    // user's lines (marked when planned, so it doesn't wait on a write-back),
+    // and the next own line waits a nag.
+    lastWasOwn = past && ownStep !== undefined;
     slots.push({ slot, past, words });
   }
   return { persona: record.persona, hide, rewrite, slots };
@@ -956,14 +1111,28 @@ function ownLinesFor(
   record: NagDayRecord,
   context: NagPlanContext,
   open: NagOpenTask[],
-  { hide, sensitiveIds, next }: { hide: boolean; sensitiveIds: ReadonlySet<string>; next: NagOpenTask | null },
+  {
+    hide,
+    sensitiveIds,
+    next,
+    holdsClosedWord,
+  }: { hide: boolean; sensitiveIds: ReadonlySet<string>; next: NagOpenTask | null; holdsClosedWord: (text: string) => boolean },
 ): { steps: Map<number, number>; pick: (ordinal: number, slot: NagSlot, used: ReadonlySet<string>) => NagWords | null } {
   const saved = Array.isArray(context.settings.nagOwnLines) ? context.settings.nagOwnLines : [];
   const openTexts = open.map((task) => task.text);
   const lines = saved.filter(
-    (line) => typeof line === "string" && line !== "" && (nagOwnLineNamesTask(line) ? !hide : !(hide && nagOwnLineHoldsTask(line, openTexts))),
+    (line) =>
+      typeof line === "string" &&
+      line !== "" &&
+      (nagOwnLineNamesTask(line) ? !hide : !(hide && nagOwnLineHoldsTask(line, openTexts))) &&
+      // 1.6 G: not a line about a task ticked or removed today ("Dentist, now!" once the dentist is done).
+      !holdsClosedWord(line),
   );
-  const steps = new Map(nagOwnSteps(record.total, lines.length, `${record.dayKey}|${record.salt}`).map((step, ordinal) => [step, ordinal]));
+  // The steps marked when the day was planned (NagSlot.own); a record planned
+  // before they were marked works them out the same way.
+  const marked = record.slots.filter((slot) => slot.own === true).map((slot) => slot.step);
+  const ownSteps = marked.length > 0 ? marked : nagOwnSteps(record.total, MAX_NAG_OWN_LINES, `${record.dayKey}|${record.salt}`);
+  const steps = new Map([...new Set(ownSteps)].sort((a, b) => a - b).map((step, ordinal) => [step, ordinal]));
   const pick = (ordinal: number, slot: NagSlot, used: ReadonlySet<string>): NagWords | null => {
     const ownTask = open.find((task) => task.id === slot.taskId && !sensitiveIds.has(task.id)) ?? next;
     for (let turn = 0; turn < lines.length; turn += 1) {
@@ -975,5 +1144,24 @@ function ownLinesFor(
     }
     return null;
   };
-  return { steps, pick };
+  // No line to say: no step is an own one (so a past one doesn't hold the next nag back).
+  return { steps: lines.length > 0 ? steps : new Map(), pick };
+}
+
+/**
+ * 1.6 G: hashes of the distinctive words of the tasks ticked or removed
+ * today: the ones the day was planned for (`taskWords`) that aren't open,
+ * and the ticked ones on the list. A word an open task has too is left out.
+ */
+function closedTaskWords(record: NagDayRecord, context: NagPlanContext, open: NagOpenTask[], openIds: ReadonlySet<string>): Set<string> {
+  const openWords = new Set(open.flatMap((task) => nagDistinctiveWords(task.text)).map(wordKey));
+  const closed = new Set<string>();
+  for (const [id, keys] of Object.entries(record.taskWords ?? {})) {
+    if (!openIds.has(id)) for (const key of keys) if (!openWords.has(key)) closed.add(key);
+  }
+  for (const task of context.tasks) {
+    if (!task.done || typeof task.text !== "string" || (task.id !== undefined && openIds.has(task.id))) continue;
+    for (const word of nagDistinctiveWords(task.text)) if (!openWords.has(wordKey(word))) closed.add(wordKey(word));
+  }
+  return closed;
 }

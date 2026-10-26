@@ -13,10 +13,10 @@ import SettingsScreen from "@/app/(tabs)/settings";
 import { NagOwnLines } from "@/components/daily-tasks/nag-own-lines";
 import { __resetAnalyticsForTests, __setAnalyticsFetchForTests, flush } from "@/lib/daily-tasks/analytics";
 import { loadNagRecord } from "@/lib/daily-tasks/nag-day";
-import { NAG_OWN_LINE_PROBLEMS } from "@/lib/daily-tasks/nag-own-lines";
+import { NAG_OWN_LINE_PROBLEMS, NAG_OWN_LINE_UNMATCHED } from "@/lib/daily-tasks/nag-own-lines";
 import { nagAiKey, NAG_STORAGE_KEY, nagSlotId, planNagDay, type NagDayRecord } from "@/lib/daily-tasks/nag-plan";
 import { navigateToToday } from "@/lib/daily-tasks/navigation";
-import { NAG_ACTION_DONE, NAG_ACTION_SNOOZE, NAG_ACTION_STOP } from "@/lib/daily-tasks/notifications";
+import { cancelPendingNagsBefore, NAG_ACTION_DONE, NAG_ACTION_SNOOZE, NAG_ACTION_STOP } from "@/lib/daily-tasks/notifications";
 import { REMINDER_SYNC_DEBOUNCE_MS } from "@/lib/daily-tasks/reminder-plan";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider, useDailyTasks } from "@/lib/daily-tasks/store";
@@ -258,15 +258,15 @@ describe("Mark done on a nag", () => {
     expect(events.filter((e) => e.event === "nag_action").map(ownProps)).toEqual([{ action: "done" }]);
   }, 30_000);
 
-  it("a task that is gone, a nag about no task and another day's nag tick nothing; only today's still open Today", async () => {
+  it("a task that is gone, a nag about no task and another day's nag about a gone task tick nothing; only today's still open Today", async () => {
     const { result } = await openApp(NAG_ON, { record: RECORD(), now: at(10, 5) });
     const before = [...result.current.state.todayCompletions];
     await tap(response(nagId(10, 0), NAG_ACTION_DONE, { kind: "nag", step: 1, taskId: "ghost" }));
     expect(navigateToToday).toHaveBeenCalledTimes(1);
     await tap(response(nagId(10, 0), NAG_ACTION_DONE, { kind: "nag", step: 1 }));
     expect(navigateToToday).toHaveBeenCalledTimes(2);
-    // Yesterday's nag, with a task that is open today: nothing at all happens.
-    await tap(response(nagId(20, 5, "2026-10-11"), NAG_ACTION_DONE, { kind: "nag", step: 1, taskId: "t0" }));
+    // Yesterday's nag, about a task that isn't on today's list: nothing at all happens.
+    await tap(response(nagId(20, 5, "2026-10-11"), NAG_ACTION_DONE, { kind: "nag", step: 1, taskId: "ghost" }));
     expect(navigateToToday).toHaveBeenCalledTimes(2);
     expect(result.current.state.todayCompletions).toEqual(before);
     const events = await sentEvents();
@@ -286,11 +286,19 @@ describe("Mark done on a nag", () => {
     expect(events.filter((e) => e.event === "nag_action").map(ownProps)).toEqual([{ action: "done" }]);
   }, 30_000);
 
-  it("a cold launch from a nag of another day does nothing", async () => {
+  it("a cold launch from a nag of another day: Snooze does nothing, Mark done still ticks a task open today (after midnight)", async () => {
+    mocked.getLastNotificationResponse.mockImplementation(() => response(nagId(20, 5, "2026-10-11"), NAG_ACTION_SNOOZE, { kind: "nag", step: 1, taskId: "t0" }));
+    const first = await openApp(NAG_ON, { record: RECORD(), now: at(10, 5) });
+    expect(first.result.current.state.todayCompletions).toEqual([]);
+    expect(navigateToToday).not.toHaveBeenCalled();
+    expect((await loadNagRecord())?.snoozedUntil).toBeUndefined();
+    first.unmount();
+
+    // 1.6 G review: last night's Mark done, tapped after midnight, on a task still open today.
     mocked.getLastNotificationResponse.mockImplementation(() => response(nagId(20, 5, "2026-10-11"), NAG_ACTION_DONE, { kind: "nag", step: 1, taskId: "t0" }));
     const { result } = await openApp(NAG_ON, { record: RECORD(), now: at(10, 5) });
-    expect(result.current.state.todayCompletions).toEqual([]);
-    expect(navigateToToday).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.state.todayCompletions).toEqual(["t0"]));
+    expect(navigateToToday).toHaveBeenCalled();
   }, 30_000);
 
   it("with task names hidden every nag is general: no Mark done category, no task id", async () => {
@@ -304,21 +312,23 @@ describe("Mark done on a nag", () => {
 });
 
 describe("Snooze 1 hour on a nag", () => {
-  it("moves the next nag an hour after the tap (earlier than planned), drops none an hour later, and says so as ids only", async () => {
+  it("never brings the next nag sooner: one planned after the hour keeps its time; drops none, opens Today and says so as ids only", async () => {
     const record = craftRecord([[10, 0], [11, 30], [14, 0], [16, 0], [18, 0]]);
-    await openApp(NAG_ON, { record, now: at(10, 5) });
+    const { result } = await openApp(NAG_ON, { record, now: at(10, 5) });
     expect(nagTimes()).toEqual([ms(11, 30), ms(14, 0), ms(16, 0), ms(18, 0)]);
     await tap(response(nagId(10, 0), NAG_ACTION_SNOOZE));
     await settle();
-    await eventually(() => expect(nagTimes()).toEqual([ms(11, 5), ms(14, 0), ms(16, 0), ms(18, 0)]));
-    expect((await loadNagRecord())?.snoozedUntil).toBe(ms(11, 5));
-    expect(navigateToToday).not.toHaveBeenCalled();
+    await eventually(async () => expect((await loadNagRecord())?.snoozedUntil).toBe(ms(11, 5)));
+    expect(nagTimes()).toEqual([ms(11, 30), ms(14, 0), ms(16, 0), ms(18, 0)]);
+    // Today says when the next one comes.
+    expect(navigateToToday).toHaveBeenCalled();
+    await eventually(() => expect(result.current.nagNote?.message).toMatch(/^Next nag around 11:30/));
     const events = await sentEvents();
     expect(events.filter((e) => e.event === "nag_action").map(ownProps)).toEqual([{ action: "snooze" }]);
     // The app coming back later in the day keeps the snooze.
     jest.setSystemTime(at(10, 30));
     await settle();
-    expect(nagTimes()[0]).toBe(ms(11, 5));
+    expect(nagTimes()[0]).toBe(ms(11, 30));
   }, 30_000);
 
   it("a nag planned sooner than the hour is moved later, and nags within the hour after it are dropped", async () => {
@@ -358,7 +368,7 @@ describe("Snooze 1 hour on a nag", () => {
 
   it("the tap that launched the app is applied once: the hour is not pushed again by later syncs", async () => {
     mocked.getLastNotificationResponse.mockImplementation(() => response(nagId(10, 0), NAG_ACTION_SNOOZE));
-    await openApp(NAG_ON, { record: craftRecord([[10, 0], [11, 30], [14, 0], [16, 0]]), now: at(10, 5) });
+    await openApp(NAG_ON, { record: craftRecord([[10, 0], [10, 50], [14, 0], [16, 0]]), now: at(10, 5) });
     await eventually(() => expect(nagTimes()).toEqual([ms(11, 5), ms(14, 0), ms(16, 0)]));
     jest.setSystemTime(at(10, 20));
     await settle();
@@ -534,5 +544,94 @@ describe("Settings: In your own words", () => {
     );
     await waitFor(() => expect(screen.getByRole("header", { name: "Reminder style" })).toBeOnTheScreen());
     expect(screen.queryByTestId("settings-nag-own-lines")).toBeNull();
+  });
+});
+
+// PR 109 review fixes, in the running store.
+describe("review fixes: Mark done, Snooze and the scheduler", () => {
+  const RECORD = () => craftRecord([[10, 0], [11, 30], [14, 0], [16, 0], [18, 0]]);
+
+  it("Mark done ticks the task and the remaining nags are written again without it", async () => {
+    const { result } = await openApp(NAG_ON, { record: RECORD(), now: at(10, 5) });
+    const about = nags().find((item) => item.content.data?.taskId === "t0") ?? nags().find((item) => typeof item.content.data?.taskId === "string")!;
+    const taskId = String(about.content.data!.taskId);
+    const words = TASKS.find((task) => task.id === taskId)!.text;
+    const before = nags().map((item) => `${item.identifier}|${item.content.body}`);
+    await tap(response(about.identifier, NAG_ACTION_DONE, about.content.data));
+    expect(result.current.state.todayCompletions).toEqual([taskId]);
+    await settle();
+    await settle();
+    const after = nags().map((item) => `${item.identifier}|${item.content.body}`);
+    expect(after).not.toEqual(before);
+    for (const nag of nags()) expect(nag.content.body).not.toContain(words);
+  }, 30_000);
+
+  it("two Mark done taps handled before the state catches up tick once and never untick", async () => {
+    const { result } = await openApp(NAG_ON, { record: RECORD(), now: at(10, 5) });
+    const given = response(nagId(10, 0), NAG_ACTION_DONE, { kind: "nag", step: 1, taskId: "t1" });
+    await act(async () => {
+      for (const [listener] of mocked.addNotificationResponseReceivedListener.mock.calls) {
+        listener(given);
+        listener(given);
+      }
+    });
+    expect(result.current.state.todayCompletions).toEqual(["t1"]);
+    const events = await sentEvents();
+    expect(events.filter((e) => e.event === "task_completed")).toHaveLength(1);
+  }, 30_000);
+
+  it("Snooze takes the nags due within the hour off the phone at once; other reminders stay", async () => {
+    pending.set(nagId(10, 30), { identifier: nagId(10, 30), content: { title: "t", body: "b", data: { kind: "nag", fireAt: ms(10, 30) } }, at: at(10, 30) });
+    pending.set(nagId(12, 0), { identifier: nagId(12, 0), content: { title: "t", body: "b", data: { kind: "nag", fireAt: ms(12, 0) } }, at: at(12, 0) });
+    const other = `daily-tasks:${D}:progress:1040`;
+    pending.set(other, { identifier: other, content: { title: "t", body: "b", data: { kind: "progress", fireAt: ms(10, 40) } }, at: at(10, 40) });
+    await act(async () => cancelPendingNagsBefore(ms(11, 5), at(10, 5)));
+    expect([...pending.keys()].sort()).toEqual([other, nagId(12, 0)].sort());
+  });
+
+  it("a nag pending with an old category (1.5) is scheduled again with the right one", async () => {
+    const first = await openApp(NAG_ON, { record: RECORD(), now: at(10, 5) });
+    const nag = nags()[0];
+    expect(nag.content.categoryIdentifier).toMatch(/^three-today:nag/);
+    first.unmount();
+    // As 1.5 left it: the same words and time, no category.
+    pending.set(nag.identifier, { ...nag, content: { ...nag.content, categoryIdentifier: undefined } });
+    await openApp(NAG_ON, { record: RECORD(), now: at(10, 6) });
+    await eventually(() => expect(pending.get(nag.identifier)?.content.categoryIdentifier).toBe(nag.content.categoryIdentifier));
+  }, 30_000);
+});
+
+describe("review fixes: the own-lines editor", () => {
+  const tree = () => (
+    <DailyTasksProvider>
+      <NagOwnLines />
+    </DailyTasksProvider>
+  );
+  async function open(notifications: Partial<NotificationConfig> = {}) {
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(savedState({ ...NAG_ON, ...notifications })));
+    await render(tree());
+    await waitFor(() => expect(screen.getByTestId("settings-nag-own-lines")).toBeOnTheScreen());
+  }
+
+  it("says what {task} does, how often the lines are used, and that built-in lines are used for now", async () => {
+    await open();
+    expect(screen.getByText(/About one nag in three uses your lines/)).toBeOnTheScreen();
+    expect(screen.getByTestId("settings-nag-own-task-help")).toHaveTextContent(/\{task\} becomes the task's name/);
+    expect(screen.getByTestId("settings-nag-own-empty")).toHaveTextContent("None yet. Built-in lines are used.");
+  });
+
+  it("counts characters from 60, says 5 of 5 when full, and explains an unmatched brace", async () => {
+    await open({ nagOwnLines: ["One", "Two", "Three", "Four"] });
+    expect(screen.queryByTestId("settings-nag-own-empty")).toBeNull();
+    await act(async () => fireEvent.changeText(screen.getByTestId("settings-nag-own-input"), "x".repeat(59)));
+    expect(screen.queryByTestId("settings-nag-own-counter")).toBeNull();
+    await act(async () => fireEvent.changeText(screen.getByTestId("settings-nag-own-input"), "x".repeat(61)));
+    expect(screen.getByTestId("settings-nag-own-counter")).toHaveTextContent("61 of 80 characters");
+    await act(async () => fireEvent.changeText(screen.getByTestId("settings-nag-own-input"), "Do {task now"));
+    await act(async () => fireEvent.press(screen.getByTestId("settings-nag-own-add")));
+    expect(screen.getByTestId("settings-nag-own-problem")).toHaveTextContent(NAG_OWN_LINE_UNMATCHED);
+    await act(async () => fireEvent.changeText(screen.getByTestId("settings-nag-own-input"), "Five"));
+    await act(async () => fireEvent.press(screen.getByTestId("settings-nag-own-add")));
+    expect(screen.getByTestId("settings-nag-own-full")).toHaveTextContent("5 of 5 lines");
   });
 });

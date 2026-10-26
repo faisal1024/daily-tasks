@@ -351,9 +351,8 @@ describe("the proxy's sanitiser: affection", () => {
       "A lovely day to tick one thing.",
       "Still open ❤️",
     ].map((text, index) => ({ step: index + 1, taskIndex: null, text }));
+    // 1.6 G: the two general lines that name a task ("the report", "The dentist") go too (nagLineFitsTask).
     expect(server.sanitizeNagLines({ lines }, payload).lines.map((line: NagLine) => line.text)).toEqual([
-      "Reminder number several: the report.",
-      "The dentist. I'm mentioning it again.",
       "A lovely day to tick one thing.",
       "Still open",
     ]);

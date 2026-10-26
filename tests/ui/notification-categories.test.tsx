@@ -60,8 +60,8 @@ function expectAll(mod: NotificationsModule) {
   expect(titles(mod.FOCUS_CATEGORY_ID)).toEqual(["5 more minutes", "Take a break", "Mark done"]);
   expect(titles(mod.FOCUS_STARTER_CATEGORY_ID)).toEqual(["Keep going", "Stop for now", "Mark done"]);
   // 1.6 G: Mark done on a nag about a task; Snooze 1 hour on every nag.
-  expect(titles(NAG_CATEGORY_ID)).toEqual(["Mark done", "Snooze 1 hour", "Stop for today"]);
-  expect(titles(NAG_GENERAL_CATEGORY_ID)).toEqual(["Snooze 1 hour", "Stop for today"]);
+  expect(titles(NAG_CATEGORY_ID)).toEqual(["Mark done", "Snooze 1 hour", "No more nags today"]);
+  expect(titles(NAG_GENERAL_CATEGORY_ID)).toEqual(["Snooze 1 hour", "No more nags today"]);
 }
 
 beforeEach(() => {
@@ -120,7 +120,7 @@ describe("notification categories are registered one at a time", () => {
       return lossySet(id, actions);
     }) as never);
     await expect(mod.registerNotificationCategories()).resolves.toBeUndefined();
-    expect(titles(NAG_CATEGORY_ID)).toEqual(["Mark done", "Snooze 1 hour", "Stop for today"]);
+    expect(titles(NAG_CATEGORY_ID)).toEqual(["Mark done", "Snooze 1 hour", "No more nags today"]);
     // The next launch (or the next schedule) tries the focus ones again.
     mocked.setNotificationCategoryAsync.mockImplementation(lossySet as never);
     await mod.registerNotificationCategories();

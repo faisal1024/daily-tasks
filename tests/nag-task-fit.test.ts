@@ -109,7 +109,7 @@ describe("a nag never names a task as it no longer is", () => {
     expectEachNagFitsItsTask(items, swappedIn);
   });
 
-  it("the AI's lines are kept only for the same tasks with the same words: after a swap of words they're not", () => {
+  it("the AI's lines are kept only for the same tasks with the same words: after a swap of words those two tasks' lines go", () => {
     const record = plan();
     const ai = applyAiNagLines(
       record,
@@ -126,8 +126,14 @@ describe("a nag never names a task as it no longer is", () => {
     expect(sameTasks.source).toBe("ai");
     const swapped = TASKS.map((task) => (task.id === "t0" ? { ...task, text: "Write the report" } : task.id === "t1" ? { ...task, text: "Call the dentist" } : task));
     const after = planNagDay({ previous: { ...ai, aiFor: `mom|relentless|${nagTasksKey(open(TASKS))}` }, now: at(8, 1), dayKey: DAY, settings: NAG_ON, open: open(swapped), salt: "fit" });
-    expect(after.source).toBe("local");
-    expect(after.slots.some((slot) => slot.text.startsWith("AI:"))).toBe(false);
+    // 1.6 G review: one edit no longer drops every AI line. The swapped tasks'
+    // lines go; the untouched task's line and the general one stay.
+    expect(after.source).toBe("ai");
+    const texts = after.slots.map((slot) => slot.text);
+    expect(texts.some((text) => /dentist|report/i.test(text) && text.startsWith("AI:"))).toBe(false);
+    expect(texts).toContain("AI: “Walk the dog”, please.");
+    expect(texts).toContain("AI: the list, please.");
+    expectEachNagFitsItsTask(nagPlanFromRecord(after, context(swapped, { now: at(8, 1) })), swapped);
     // Before it is planned again, the stale AI slots aren't said about the wrong task either.
     expectEachNagFitsItsTask(nagPlanFromRecord(ai, context(swapped)), swapped);
   });

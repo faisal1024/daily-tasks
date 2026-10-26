@@ -63,6 +63,8 @@ export interface PendingReminder {
   title: string;
   body: string;
   data?: Record<string, unknown>;
+  /** 1.6 G: its notification category (its buttons), when it has one. */
+  categoryId?: string;
 }
 
 /**
