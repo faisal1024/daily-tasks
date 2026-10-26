@@ -263,6 +263,12 @@ export interface NotificationConfig {
   nagWindow: NagWindow;
   /** The day (yyyy-MM-dd) "Stop nagging me today" was used; null when not. */
   nagPausedDate: string | null;
+  /**
+   * 1.6 G (Plus): up to five lines of the user's own, mixed into the day's
+   * nags (nag-own-lines.ts). On the phone only: never sent to the AI service
+   * or to analytics.
+   */
+  nagOwnLines: string[];
 }
 
 export type ReminderStyle = "calm" | "nag";
@@ -409,6 +415,7 @@ export const DEFAULT_NOTIFICATIONS: NotificationConfig = {
   nagLevel: "firm",
   nagWindow: DEFAULT_NAG_WINDOW,
   nagPausedDate: null,
+  nagOwnLines: [],
 };
 
 /**

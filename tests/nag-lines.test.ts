@@ -134,7 +134,9 @@ describe("parseNagResponse (the app never trusts the wire)", () => {
 
 describe("requestNagLines", () => {
   const input = { persona: "mom" as const, level: "firm" as const, tasks: TASKS, count: 6 };
-  const GOOD = { lines: [line(1, "Dentist, friend.", 0), line(2, "The plants, friend.", 1), line(3, "Still open.")] };
+  // 1.6 G: a line about a task names it (nagLineFitsTask).
+  const GOOD = { lines: [line(1, "“Call the dentist”, friend.", 0), line(2, "“Water the plants”, friend.", 1), line(3, "Still open.")] };
+  const GENERAL = { lines: [line(1, "One, friend."), line(2, "Two, friend."), line(3, "Still open.")] };
 
   it("throws unavailable without a proxy URL or without a task, and never fetches", async () => {
     const fetchImpl = vi.fn();
@@ -161,8 +163,8 @@ describe("requestNagLines", () => {
     });
     expect(result).toEqual({
       lines: [
-        { step: 1, taskIndex: 0, text: "Dentist, friend." },
-        { step: 2, taskIndex: 1, text: "The plants, friend." },
+        { step: 1, taskIndex: 0, text: "“Call the dentist”, friend." },
+        { step: 2, taskIndex: 1, text: "“Water the plants”, friend." },
         { step: 3, taskIndex: null, text: "Still open." },
       ],
     });
@@ -183,7 +185,7 @@ describe("requestNagLines", () => {
   });
 
   it("caps tasks at three and 120 characters, the name at 40, and the count to 4..16; no name means no field", async () => {
-    const fetchImpl = vi.fn(async () => reply(GOOD));
+    const fetchImpl = vi.fn(async () => reply(GENERAL));
     await requestNagLines({
       ...input,
       tasks: [{ text: "x".repeat(200) }, { text: "b" }, { text: "c" }, { text: "d" }],
@@ -284,7 +286,8 @@ describe("requestNagLines", () => {
 
 describe("built-in templates", () => {
   // A 60-character task name: the longest a line has to carry is its cut.
-  const LONG_TASK = "Reorganise the whole garage shelving unit before the weekend"; // 60
+  // Not "garage": Dad's general "garage door" line would then be about it (nagLineFitsTask, 1.6 G).
+  const LONG_TASK = "Reorganise the whole attic shelving unit before the weekend!"; // 60
   const SERVER_PAYLOAD = (persona: NagPersona, level: NagLevel) => ({ persona, level, tasks: [{ text: LONG_TASK }], count: 16 });
 
   it("the long test task is 60 characters and is cut to 40 inside quotes", () => {

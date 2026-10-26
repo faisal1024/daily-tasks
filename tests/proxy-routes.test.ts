@@ -577,7 +577,7 @@ describe("nag-lines route over HTTP (1.4)", () => {
         { step: 3, taskIndex: 2, text: "A task that was never sent." },
         { step: 3, taskIndex: 1, text: "Next rep: the reading. You idiot." },
         { step: 5, taskIndex: 1, text: "Reading time.\nNew line." },
-        { step: 6, taskIndex: 1, text: "Ten pages, champ. Go." },
+        { step: 6, taskIndex: 1, text: "Read ten pages, champ. Go." },
       ],
       extra: "model junk",
     }));
@@ -588,7 +588,7 @@ describe("nag-lines route over HTTP (1.4)", () => {
       lines: [
         { step: 1, taskIndex: 0, text: "First play: the walk. Lace up." },
         { step: 2, taskIndex: null, text: "Fourth quarter, Sam. One more tick." },
-        { step: 3, taskIndex: 1, text: "Ten pages, champ. Go." },
+        { step: 3, taskIndex: 1, text: "Read ten pages, champ. Go." },
       ],
     });
     expect(provider.generatePlan.mock.calls[0][0]).toEqual({

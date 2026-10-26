@@ -26,10 +26,14 @@ import {
   nagRecordStub,
   nagRecordWithPlannedWords,
   NAG_STORAGE_KEY,
+  nagSnoozeOutcome,
+  nagSnoozeUntil,
   normalizeNagRecord,
   planNagDay,
+  snoozeNagRecord,
   type NagDayRecord,
 } from "./nag-plan";
+import type { NagWindow } from "./types";
 import { taskAwareStrategy, type ReminderContext, type ReminderPlan, type ReminderStrategy } from "./reminder-plan";
 
 /** A nag request gives up sooner than the other AI calls: the built-in lines are already in place. */
@@ -62,6 +66,19 @@ let cleared = 0;
 // overwritten by a stub of the record from before.
 let stubbing: Promise<void> = Promise.resolve();
 
+// 1.6 G: a snooze tapped but not saved yet (it waits behind a request for
+// lines, up to 20 seconds). Until it lands, the strategies plan as if it had,
+// so a sync meanwhile doesn't put back the nags the tap took off the phone.
+// In memory only; cleared once the snooze is saved, dropped or reset.
+let snoozeInFlight: { dayKey: string; until: number } | null = null;
+
+/** `record` as the plan should see it while a snooze is on its way (snoozeInFlight). */
+function withSnoozeInFlight(record: NagDayRecord | null): NagDayRecord | null {
+  const snooze = snoozeInFlight;
+  if (!record || !snooze || record.dayKey !== snooze.dayKey || (record.snoozedUntil ?? 0) >= snooze.until) return record;
+  return { ...record, snoozedUntil: snooze.until };
+}
+
 /**
  * Removes the day's record entirely: on "Reset all data". At once, not
  * behind a run in progress (a request for lines can take 20 seconds); that
@@ -69,6 +86,7 @@ let stubbing: Promise<void> = Promise.resolve();
  */
 export async function clearNagRecord(): Promise<void> {
   cleared += 1;
+  snoozeInFlight = null;
   try {
     await AsyncStorage.removeItem(NAG_STORAGE_KEY);
   } catch {
@@ -87,6 +105,7 @@ export async function clearNagRecord(): Promise<void> {
  */
 export function stubNagRecord(now: Date = new Date()): Promise<void> {
   cleared += 1;
+  snoozeInFlight = null;
   const epoch = cleared;
   const run = (async () => {
     try {
@@ -217,6 +236,55 @@ async function runNagDay(input: NagDayInput, { request = requestNagLines, onChan
 }
 
 /**
+ * 1.6 G: "Snooze 1 hour" on one of today's nags (snoozeNagRecord): the next
+ * nag comes an hour after the tap. Queued behind the runs (one writer at a
+ * time), so a request for lines that was under way is saved first and the
+ * snooze is applied to what it saved. Only for the record of `today`, which
+ * is the clock's day; nothing once the record was removed or emptied since
+ * it was asked for. `onChange` gets the new version, so the reminders are
+ * written again, and `onSnoozed` when the next nag comes (null: none left
+ * today) and whether the hour runs past the nag window, for the app's note.
+ * Never throws.
+ *
+ * Queued behind a request for lines that may take 20 seconds: the store
+ * takes the nags due within the hour off the phone first
+ * (cancelPendingNagsBefore), so none goes off while this waits.
+ */
+export function snoozeNagDay(
+  { today, window, now }: { today: string; window: NagWindow; now?: Date },
+  {
+    onChange,
+    onSnoozed,
+  }: Pick<NagDayDeps, "onChange"> & { onSnoozed?: (outcome: { nextAt: number | null; pastWindow: boolean }) => void } = {},
+): Promise<void> {
+  const epoch = cleared;
+  // The tap's moment, taken now: the run may wait behind a request for lines.
+  const at = now ?? new Date();
+  const mine = today === toDateKey(at) ? { dayKey: today, until: nagSnoozeUntil(at) } : null;
+  if (mine) snoozeInFlight = mine;
+  const run = queue
+    .then(() => stubbing)
+    .then(async () => {
+      if (cleared !== epoch) return;
+      if (today !== toDateKey(at)) return;
+      const record = await loadNagRecord();
+      if (!record || record.dayKey !== today || cleared !== epoch) return;
+      const next = snoozeNagRecord(record, at, window);
+      if (cleared === epoch && (await saveNagRecord(next))) {
+        onChange?.(next.version);
+        onSnoozed?.(nagSnoozeOutcome(next, at, window));
+      }
+    })
+    .catch(() => {})
+    .finally(() => {
+      // Saved (the record says it now), or dropped: either way no longer in flight.
+      if (snoozeInFlight === mine) snoozeInFlight = null;
+    });
+  queue = run;
+  return run;
+}
+
+/**
  * When the plan put new words into slots still to come (a ticked task's
  * nag pointed at the next one, and the like: nagRecordWithPlannedWords),
  * they are written back into the record, so the record knows what each nag
@@ -256,7 +324,7 @@ function savePlannedWords(record: NagDayRecord | null, context: ReminderContext)
 export const nagStrategy: ReminderStrategy = async (context) => {
   try {
     const record = await loadNagRecord();
-    const plan = nagPlanFromRecord(record, context);
+    const plan = nagPlanFromRecord(withSnoozeInFlight(record), context);
     savePlannedWords(record, context);
     return plan;
   } catch {
@@ -287,7 +355,7 @@ export const nagModeStrategy: ReminderStrategy = async (context) => {
     record = null;
   }
   if (!nagRecordApplies(record, context)) return calm;
-  const nags = nagPlanFromRecord(record, context);
+  const nags = nagPlanFromRecord(withSnoozeInFlight(record), context);
   savePlannedWords(record, context);
   const taken = new Set<string>();
   return [...mornings(calm), ...nags].filter((item) => {

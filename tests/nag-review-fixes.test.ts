@@ -93,11 +93,11 @@ describe("built-in lines", () => {
       "Do I have to come over there about {task}?",
       "I've lost count of my reminders. I'm starting the count over.",
       "{task} is on today's list. Just saying. I'll say it again.",
-      "Are you doing {task}, or are you 'about to' do it?",
+      "Is {task} ticked, or is it 'about to' be ticked?",
       "Hey, champ. First play of the day: {task}.",
       "Eyes front, recruit. Today's mission: {task}.",
       "Inspection time. The list is waiting, recruit.",
-      "Roll call. {task} is still present, recruit.",
+      "Roll call. {task}: still not ticked, recruit.",
       "{task} is STILL on my board, recruit. I checked.",
       "I did not polish these boots to watch a list sit there. MOVE.",
     ]) {

@@ -265,6 +265,8 @@ export default function HomeScreen() {
     stopFocusSession,
     focusPrompt,
     clearFocusPrompt,
+    nagNote,
+    clearNagNote,
     dumpPrompt,
     clearDumpPrompt,
     captureNotice,
@@ -382,6 +384,12 @@ export default function HomeScreen() {
     },
     [],
   );
+  // 1.6 G: a nag's Snooze 1 hour says when the next nag comes.
+  useEffect(() => {
+    if (!nagNote) return;
+    showToast(nagNote.message);
+    clearNagNote();
+  }, [nagNote, clearNagNote]);
   const [breakingTaskId, setBreakingTaskId] = useState<string | null>(null);
   // A ref, not just state: two quick taps in one render must not both start.
   const breakingRef = useRef<string | null>(null);

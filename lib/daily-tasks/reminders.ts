@@ -14,8 +14,13 @@ export type { ReminderKind } from "./reminder-copy";
 export const MANAGED_REMINDER_PREFIX = "daily-tasks:";
 /** Nag mode (1.4): a nag's `kind`, in its id (`daily-tasks:<day>:nag:<HHmm>`) and its data. */
 export const NAG_KIND = "nag";
-/** The notification category that gives a nag its "Stop for today" button. */
+/**
+ * The notification category of a nag about a task: Mark done, Snooze 1 hour and
+ * Stop for today (1.6 G; "Stop for today" only before).
+ */
 export const NAG_CATEGORY_ID = "three-today:nag";
+/** 1.6 G: a nag about the list in general (no task to tick): Snooze 1 hour and Stop for today. */
+export const NAG_GENERAL_CATEGORY_ID = "three-today:nag-general";
 
 export const REMINDER_HOURS = {
   weekdayMorningStart: 8,
