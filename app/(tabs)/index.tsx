@@ -169,7 +169,8 @@ import {
   whatsNewActivity,
   whatsNewMoment,
 } from "@/lib/daily-tasks/whats-new";
-import { whatsNew16Cards, type WhatsNew16Action } from "@/lib/daily-tasks/whats-new-16";
+import { TRY_NAG_16_ID, whatsNew16Cards, type WhatsNew16Action } from "@/lib/daily-tasks/whats-new-16";
+import { isSunday } from "@/lib/daily-tasks/sunday-reset";
 import { requestSettingsFocus } from "@/lib/daily-tasks/settings-focus";
 import { showSavedDateTip } from "@/lib/daily-tasks/saved-date-tip";
 import {
@@ -1209,10 +1210,14 @@ export default function HomeScreen() {
   // A focus prompt while the sheet is up: the sheet steps aside, not seen
   // (the user didn't close it), and comes back at a later foreground.
   whatsNewStepAside.current = () => {
-    // A 1.6 card's button waiting for the sheet to go: something else needs the screen.
+    // A 1.6 card's button waiting for the sheet to go: something else needs
+    // the screen. The action is dropped, but the sheet is still sliding away:
+    // what comes next waits for it as for any sheet stepping aside.
     if (whatsNew16Timer.current) {
       clearTimeout(whatsNew16Timer.current);
       whatsNew16Timer.current = null;
+      handOffWhatsNew();
+      return true;
     }
     if (nagFrom16Open) {
       setNagFrom16Open(false);
@@ -1243,10 +1248,20 @@ export default function HomeScreen() {
   // hand-off does. Events: ids only.
   const nagOn = state.notifications.style === "nag" && hasPlus;
   const whatsNew16Open = whatsNew.openId === FEATURES_16_ID;
-  const whatsNew16CardsShown = useMemo(() => whatsNew16Cards({ nagOn, hasPlus }), [nagOn, hasPlus]);
+  const sunday = isSunday(today);
+  const whatsNew16CardsShown = useMemo(() => whatsNew16Cards({ nagOn, hasPlus, sunday }), [nagOn, hasPlus, sunday]);
+  // "shown" once per opening, when iOS has it on screen (not when it's asked
+  // for: a dropped sheet is asked for again).
+  const whatsNew16ShownSent = useRef(false);
   useEffect(() => {
-    if (whatsNew16Open) track("whats_new_shown", { id: FEATURES_16_ID, source: "today" });
+    if (!whatsNew16Open) whatsNew16ShownSent.current = false;
   }, [whatsNew16Open]);
+  const onWhatsNew16Show = () => {
+    whatsNew.shown();
+    if (whatsNew16ShownSent.current) return;
+    whatsNew16ShownSent.current = true;
+    track("whats_new_shown", { id: FEATURES_16_ID, source: "today" });
+  };
   const trackWhatsNew16 = (action: WhatsNew16Action | "dismiss") =>
     track("whats_new_action", { id: FEATURES_16_ID, action, source: "today" });
   const closeWhatsNew16 = () => {
@@ -1280,6 +1295,18 @@ export default function HomeScreen() {
       }
     }, SHEET_SWAP_DELAY_MS);
   };
+  // Stable for the memoized sheet: they read the latest render's handlers.
+  const whatsNew16Latest = useRef({ act: actOnWhatsNew16, close: closeWhatsNew16, show: onWhatsNew16Show, how: trackWhatsNew16 });
+  whatsNew16Latest.current = { act: actOnWhatsNew16, close: closeWhatsNew16, show: onWhatsNew16Show, how: trackWhatsNew16 };
+  const whatsNew16Handlers = useMemo(
+    () => ({
+      onAction: (action: Exclude<WhatsNew16Action, "how_to">) => whatsNew16Latest.current.act(action),
+      onHowTo: () => whatsNew16Latest.current.how("how_to"),
+      onGotIt: () => whatsNew16Latest.current.close(),
+      onShow: () => whatsNew16Latest.current.show(),
+    }),
+    [],
+  );
 
   // Capture from anywhere (1.6 E; see lib/daily-tasks/capture.ts). The Dump
   // widget or control, the "Brain dump" shortcut or a dump link: the brain
@@ -2585,10 +2612,10 @@ export default function HomeScreen() {
       <WhatsNew16Sheet
         visible={whatsNew16Open}
         cards={whatsNew16CardsShown}
-        onAction={actOnWhatsNew16}
-        onHowTo={() => trackWhatsNew16("how_to")}
-        onGotIt={closeWhatsNew16}
-        onShow={whatsNew.shown}
+        onAction={whatsNew16Handlers.onAction}
+        onHowTo={whatsNew16Handlers.onHowTo}
+        onGotIt={whatsNew16Handlers.onGotIt}
+        onShow={whatsNew16Handlers.onShow}
       />
 
       <NagIntro
@@ -2603,7 +2630,7 @@ export default function HomeScreen() {
         }
         id={
           nagFrom16Open
-            ? FEATURES_16_ID
+            ? TRY_NAG_16_ID
             : whatsNew.openId === NAG_ANNOUNCEMENT_ID
               ? NAG_ANNOUNCEMENT_ID
               : NAG_FIRST_DAYS_ID

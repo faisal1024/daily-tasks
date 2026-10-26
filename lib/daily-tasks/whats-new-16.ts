@@ -5,9 +5,22 @@
 // whatsNewDecision (whats-new.ts), under FEATURES_16_ID.
 
 /** What a card's button does. Sent as whats_new_action's `action` (an id, never words). */
-export type WhatsNew16Action = "how_to" | "write_lines" | "try_nag" | "try_reset" | "coach_memory";
+export type WhatsNew16Action =
+  | "how_to"
+  | "write_lines"
+  | "try_nag"
+  | "try_reset"
+  | "coach_memory";
 
-export type WhatsNew16CardId = "save_later" | "own_lines" | "sunday_reset" | "coach_memory" | "nag_answer";
+/** "Meet Nag mode" opened from the own-lines card's "Try Nag mode": its own id in the events, so it doesn't add to 1.6-features'. */
+export const TRY_NAG_16_ID = "1.6-try-nag";
+
+export type WhatsNew16CardId =
+  | "save_later"
+  | "own_lines"
+  | "sunday_reset"
+  | "coach_memory"
+  | "nag_answer";
 
 export interface WhatsNew16Card {
   id: WhatsNew16CardId;
@@ -31,21 +44,36 @@ export const WHATS_NEW_16_COPY = {
   saveLater: {
     title: "Save for later from anywhere",
     body: "Share from any app, or tell Siri “Save for later in Three Today”. Add a day (“dentist Friday”) and it comes back that day.",
-    button: "Show me",
-    hideButton: "Hide how",
+    button: "How it works",
+    hideButton: "Hide",
     steps: [
-      { icon: "share-outline", text: "In any app, tap Share, then Three Today." },
-      { icon: "mic-outline", text: "Or say to Siri: “Save for later in Three Today”." },
-      { icon: "apps-outline", text: "For a quick brain dump, add the Dump widget to your Home Screen." },
+      {
+        icon: "mic-outline",
+        text: "Say to Siri: “Save for later in Three Today”.",
+      },
+      {
+        icon: "share-outline",
+        text: "In Safari or any app, tap Share on text or a link. Pick Three Today. Not there? Scroll the app row, tap More, and turn it on.",
+      },
+      {
+        icon: "apps-outline",
+        text: "For a quick brain dump, add the Dump widget. Touch and hold your Home Screen, tap Edit, then Add Widget. On the Lock Screen: touch and hold, tap Customize, then pick a spot.",
+      },
     ],
   },
   ownLines: {
+    /** With Nag mode on: they know it. */
     title: "Nag in your own words",
     body: "Write the lines you want to hear. {task} becomes the task's name.",
+    /** With it off: someone who never met Nag mode is told what it is first. */
+    titleOff: "Nag mode, in your own words",
+    bodyOff:
+      "Reminders with a personality that get pushier while your tasks stay open. With Plus, write your own lines: {task} becomes the task's name.",
     example: {
       line: "“{task}. Now. I mean it.”",
       filled: "“Gym. Now. I mean it.”",
-      spoken: "For example, {task}. Now. I mean it. becomes: Gym. Now. I mean it.",
+      spoken:
+        "For example, {task}. Now. I mean it. becomes: Gym. Now. I mean it.",
     },
     write: "Write your lines",
     writeHint: "Opens your own lines in Settings",
@@ -55,10 +83,13 @@ export const WHATS_NEW_16_COPY = {
   sundayReset: {
     title: "Sunday reset",
     body: "Two quiet minutes on Sunday evening: your week's wins, a dump for the week, and Monday's three.",
+    /** On a Sunday: the reset itself. */
     tryIt: "Try it now",
+    /** Any other day the same sheet is "Plan tomorrow", and the button says so. */
+    planTomorrow: "Plan tomorrow now",
     /** Without Plus the button opens the paywall, and says so (as the 1.4 sheet's "See Plus"). */
     seePlus: "See Plus",
-    seePlusHint: "Shows what Plus includes",
+    seePlusHint: "Sunday reset is part of Plus",
   },
   coachMemory: {
     title: "Your coach remembers",
@@ -68,7 +99,8 @@ export const WHATS_NEW_16_COPY = {
   },
   nagAnswer: {
     title: "Answer a nag right away",
-    body: "Long-press a nag to Snooze an hour or Mark it done. Nags now always fit the task they're about.",
+    // The buttons' own names (notifications.ts).
+    body: "Long-press a nag to Snooze 1 hour or Mark done. Nags now always fit the task they're about.",
   },
 } as const;
 
@@ -78,7 +110,17 @@ export const WHATS_NEW_16_COPY = {
  * get). `nagOn`: the Nag style with Plus (a saved Nag style without Plus
  * behaves as Calm, so it's off here too).
  */
-export function whatsNew16Cards({ nagOn, hasPlus }: { nagOn: boolean; hasPlus: boolean }): WhatsNew16Card[] {
+export function whatsNew16Cards({
+  nagOn,
+  hasPlus,
+  sunday = true,
+}: {
+  nagOn: boolean;
+  hasPlus: boolean;
+  /** Today is a Sunday: the reset is "Try it now"; other days it opens as Plan tomorrow. */
+  sunday?: boolean;
+}): WhatsNew16Card[] {
+  const nag = nagOn && hasPlus;
   const c = WHATS_NEW_16_COPY;
   const cards: WhatsNew16Card[] = [
     {
@@ -92,14 +134,21 @@ export function whatsNew16Cards({ nagOn, hasPlus }: { nagOn: boolean; hasPlus: b
     {
       id: "own_lines",
       icon: "create-outline",
-      title: c.ownLines.title,
-      body: c.ownLines.body,
+      title: nag ? c.ownLines.title : c.ownLines.titleOff,
+      body: nag ? c.ownLines.body : c.ownLines.bodyOff,
       plus: !hasPlus,
       example: c.ownLines.example,
-      button:
-        nagOn && hasPlus
-          ? { action: "write_lines", label: c.ownLines.write, hint: c.ownLines.writeHint }
-          : { action: "try_nag", label: c.ownLines.tryNag, hint: c.ownLines.tryNagHint },
+      button: nag
+        ? {
+            action: "write_lines",
+            label: c.ownLines.write,
+            hint: c.ownLines.writeHint,
+          }
+        : {
+            action: "try_nag",
+            label: c.ownLines.tryNag,
+            hint: c.ownLines.tryNagHint,
+          },
     },
     {
       id: "sunday_reset",
@@ -108,8 +157,15 @@ export function whatsNew16Cards({ nagOn, hasPlus }: { nagOn: boolean; hasPlus: b
       body: c.sundayReset.body,
       plus: !hasPlus,
       button: hasPlus
-        ? { action: "try_reset", label: c.sundayReset.tryIt }
-        : { action: "try_reset", label: c.sundayReset.seePlus, hint: c.sundayReset.seePlusHint },
+        ? {
+            action: "try_reset",
+            label: sunday ? c.sundayReset.tryIt : c.sundayReset.planTomorrow,
+          }
+        : {
+            action: "try_reset",
+            label: c.sundayReset.seePlus,
+            hint: c.sundayReset.seePlusHint,
+          },
     },
     {
       id: "coach_memory",
@@ -117,10 +173,14 @@ export function whatsNew16Cards({ nagOn, hasPlus }: { nagOn: boolean; hasPlus: b
       title: c.coachMemory.title,
       body: c.coachMemory.body,
       plus: false,
-      button: { action: "coach_memory", label: c.coachMemory.button, hint: c.coachMemory.hint },
+      button: {
+        action: "coach_memory",
+        label: c.coachMemory.button,
+        hint: c.coachMemory.hint,
+      },
     },
   ];
-  if (nagOn && hasPlus) {
+  if (nag) {
     cards.push({
       id: "nag_answer",
       icon: "notifications-outline",

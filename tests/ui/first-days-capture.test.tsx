@@ -76,7 +76,7 @@ describe("when it shows", () => {
     expect(
       screen.getByText("Share from any app, or tell Siri “Save for later in Three Today”. It waits in Ideas, never on today's three."),
     ).toBeOnTheScreen();
-    for (const name of ["Show me", "Got it"]) {
+    for (const name of ["How it works", "Got it"]) {
       expect(screen.getByRole("button", { name }).props.style).toMatchObject({ minHeight: 44 });
     }
     expect(cardEvents()).toEqual([{ kind: "capture", action: "shown" }]);
@@ -170,21 +170,25 @@ describe("it shows once", () => {
   });
 });
 
-describe("Show me", () => {
+describe("How it works", () => {
   it("opens the same how-to as What's new, in place; ids only in the events", async () => {
     await saveFirstDays(opened());
     await render(<FirstDaysCards {...props()} />);
     await waitFor(() => expect(card()).toBeOnTheScreen());
-    const showMe = screen.getByRole("button", { name: "Show me" });
+    const showMe = screen.getByRole("button", { name: "How it works" });
     expect(showMe.props.accessibilityState).toMatchObject({ expanded: false });
     await fireEvent.press(showMe);
     expect(screen.getByTestId("capture-card-how-to")).toBeOnTheScreen();
-    expect(screen.getByText("In any app, tap Share, then Three Today.")).toBeOnTheScreen();
-    expect(screen.getByText("Or say to Siri: “Save for later in Three Today”.")).toBeOnTheScreen();
-    expect(screen.getByText("For a quick brain dump, add the Dump widget to your Home Screen.")).toBeOnTheScreen();
-    expect(screen.getByRole("button", { name: "Show me" }).props.accessibilityState).toMatchObject({ expanded: true });
-    expect(screen.getByText("Hide how")).toBeOnTheScreen();
-    // Still on screen: Show me doesn't dismiss it.
+    expect(screen.getByText("Say to Siri: “Save for later in Three Today”.")).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        "In Safari or any app, tap Share on text or a link. Pick Three Today. Not there? Scroll the app row, tap More, and turn it on.",
+      ),
+    ).toBeOnTheScreen();
+    expect(screen.getByText(/^For a quick brain dump, add the Dump widget\./)).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "How it works" }).props.accessibilityState).toMatchObject({ expanded: true });
+    expect(screen.getByText("Hide")).toBeOnTheScreen();
+    // Still on screen: How it works doesn't dismiss it.
     expect(card()).toBeOnTheScreen();
     expect(cardEvents()).toEqual([
       { kind: "capture", action: "shown" },

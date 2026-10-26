@@ -5,7 +5,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { showSavedDateTip, withSavedDateTip, SAVED_DATE_TIP } from "../lib/daily-tasks/saved-date-tip";
-import { requestSettingsFocus, subscribeSettingsFocus, takeSettingsFocus } from "../lib/daily-tasks/settings-focus";
+import {
+  requestSettingsFocus,
+  settingsSectionOffset,
+  subscribeSettingsFocus,
+  takeSettingsFocus,
+} from "../lib/daily-tasks/settings-focus";
 import { buildInitialState, normalizeState } from "../lib/daily-tasks/storage";
 import { parkTasks } from "../lib/daily-tasks/task-extras";
 import { DEFAULT_NOTIFICATIONS, type AppState } from "../lib/daily-tasks/types";
@@ -113,13 +118,33 @@ describe("which cards show", () => {
     expect(card(true, false, "own_lines").button).toMatchObject({ action: "try_nag", label: "Try Nag mode" });
   });
 
-  it("Sunday reset: 'Try it now' with Plus; without, 'See Plus' (it opens the paywall, and says so)", () => {
+  it("Sunday reset: 'Try it now' with Plus on a Sunday, 'Plan tomorrow now' other days; without Plus, 'See Plus'", () => {
     expect(card(false, true, "sunday_reset").button).toEqual({ action: "try_reset", label: "Try it now" });
-    expect(card(false, false, "sunday_reset").button).toEqual({
-      action: "try_reset",
-      label: "See Plus",
-      hint: "Shows what Plus includes",
+    const weekday = whatsNew16Cards({ nagOn: false, hasPlus: true, sunday: false }).find((each) => each.id === "sunday_reset")!;
+    expect(weekday.button).toEqual({ action: "try_reset", label: "Plan tomorrow now" });
+    for (const sunday of [true, false]) {
+      const free = whatsNew16Cards({ nagOn: false, hasPlus: false, sunday }).find((each) => each.id === "sunday_reset")!;
+      expect(free.button).toEqual({ action: "try_reset", label: "See Plus", hint: "Sunday reset is part of Plus" });
+    }
+  });
+
+  it("own lines: with Nag on it's about the lines; with it off it says what Nag mode is first", () => {
+    expect(card(true, true, "own_lines")).toMatchObject({
+      title: "Nag in your own words",
+      body: "Write the lines you want to hear. {task} becomes the task's name.",
     });
+    for (const [nagOn, hasPlus] of [
+      [false, true],
+      [false, false],
+      [true, false],
+    ] as const) {
+      expect(card(nagOn, hasPlus, "own_lines")).toMatchObject({
+        title: "Nag mode, in your own words",
+        body: "Reminders with a personality that get pushier while your tasks stay open. With Plus, write your own lines: {task} becomes the task's name.",
+      });
+      // The same example either way.
+      expect(card(nagOn, hasPlus, "own_lines").example?.filled).toBe("“Gym. Now. I mean it.”");
+    }
   });
 
   it("the Plus tag shows on the Plus cards only without Plus", () => {
@@ -173,9 +198,12 @@ describe("the words", () => {
       body: "It learns what you finish and what keeps getting pushed, and plans with that in mind. You can see and clear it anytime.",
       button: "See what it remembers",
     });
+    // The nag buttons' own names (notifications.ts).
     expect(c.nagAnswer.body).toBe(
-      "Long-press a nag to Snooze an hour or Mark it done. Nags now always fit the task they're about.",
+      "Long-press a nag to Snooze 1 hour or Mark done. Nags now always fit the task they're about.",
     );
+    expect(c.saveLater.button).toBe("How it works");
+    expect(c.saveLater.hideButton).toBe("Hide");
     expect(c.gotIt).toBe("Got it");
   });
 
@@ -189,12 +217,12 @@ describe("the words", () => {
     expect(all()).not.toMatch(/\b(AI|LLM|App Group|intent|extension)\b/);
   });
 
-  it("the how-to is three short steps: Share, Siri, the Dump widget", () => {
-    const steps = WHATS_NEW_16_COPY.saveLater.steps.map((step) => step.text);
-    expect(steps).toHaveLength(3);
-    expect(steps[0]).toMatch(/Share.*Three Today/);
-    expect(steps[1]).toContain("“Save for later in Three Today”");
-    expect(steps[2]).toContain("Dump widget");
+  it("the how-to is three steps: Siri first, then Share (with where to find it), then the Dump widget", () => {
+    expect(WHATS_NEW_16_COPY.saveLater.steps.map((step) => step.text)).toEqual([
+      "Say to Siri: “Save for later in Three Today”.",
+      "In Safari or any app, tap Share on text or a link. Pick Three Today. Not there? Scroll the app row, tap More, and turn it on.",
+      "For a quick brain dump, add the Dump widget. Touch and hold your Home Screen, tap Edit, then Add Widget. On the Lock Screen: touch and hold, tap Customize, then pick a spot.",
+    ]);
   });
 });
 
@@ -216,12 +244,22 @@ describe("Settings focus requests", () => {
   });
 });
 
+describe("where Settings scrolls to", () => {
+  it("coach memory: its own y; the own lines: Reminders + Nag card + their own; null until all are laid out", () => {
+    expect(settingsSectionOffset("coach-memory", { coachMemory: 900 })).toBe(900);
+    expect(settingsSectionOffset("coach-memory", {})).toBeNull();
+    expect(settingsSectionOffset("nag-own-lines", { reminders: 1200, nagCard: 180, ownLines: 420 })).toBe(1800);
+    expect(settingsSectionOffset("nag-own-lines", { reminders: 1200, ownLines: 420 })).toBeNull();
+    expect(settingsSectionOffset("nag-own-lines", { reminders: 0, nagCard: 0, ownLines: 0 })).toBe(0);
+  });
+});
+
 describe("Saved for later's 'add a day' tip", () => {
   const NOW = "2026-10-26T09:00:00.000Z";
   const base = (): AppState => ({ ...buildInitialState(new Date(2026, 9, 26, 9)), hasSeenOnboarding: true });
 
   it("the words", () => {
-    expect(SAVED_DATE_TIP).toBe("Tip: add a day (“dentist Friday”) and it comes back then.");
+    expect(SAVED_DATE_TIP).toBe("Tip: add a day, like “dentist Friday”, and it comes back then.");
   });
 
   it("shows with nothing saved with a day, and the tip never closed", () => {

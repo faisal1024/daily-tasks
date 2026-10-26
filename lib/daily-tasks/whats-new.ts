@@ -215,8 +215,9 @@ export const NAG_INTRO_COPY = {
       icon: "trending-up-outline",
       text: "Random times. Gets pushier while your tasks stay open, and always about the task in front of you.",
     },
-    { icon: "hand-left-outline", text: "Long-press a nag to Snooze an hour or Mark it done." },
-    { icon: "create-outline", text: "Plus: write your own lines. “{task}. Now. I mean it.” becomes “Gym. Now. I mean it.”" },
+    // The nag buttons' own names (notifications.ts).
+    { icon: "hand-left-outline", text: "Long-press a nag to Snooze 1 hour or Mark done." },
+    { icon: "create-outline", text: "With Plus, write your own lines: “{task}. Now. I mean it.” becomes “Gym. Now. I mean it.”" },
   ],
   /** Without Plus, directly above the main button. */
   plus: "Nag mode is part of Plus. Calm reminders stay free.",

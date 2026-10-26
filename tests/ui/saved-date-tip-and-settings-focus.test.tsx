@@ -4,7 +4,8 @@
 // - Settings brings the place a What's new button asked for into view
 //   ("Write your lines", "See what it remembers"), with VoiceOver on its header.
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AccessibilityInfo } from "react-native";
+import { AccessibilityInfo, ScrollView } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react-native";
 
 import SettingsScreen from "@/app/(tabs)/settings";
@@ -50,7 +51,7 @@ jest.mock("expo-notifications", () => ({
   SchedulableTriggerInputTypes: { DAILY: "daily", DATE: "date", TIME_INTERVAL: "timeInterval" },
 }));
 
-const TIP = "Tip: add a day (“dentist Friday”) and it comes back then.";
+const TIP = "Tip: add a day, like “dentist Friday”, and it comes back then.";
 const NOW = new Date(2026, 9, 26, 9);
 const TODAY = "2026-10-26";
 
@@ -115,16 +116,20 @@ describe("the 'add a day' tip in the Ideas sheet", () => {
       expect(showSavedDateTip(gone)).toBe(false);
     });
 
-    it("a capture with a day (share sheet, Siri) ends it too, and counts as having captured", () => {
+    it("a capture with a day (share sheet, Siri) ends it too", () => {
       const next = reducer(base(), { type: "parkCaptures", texts: ["dentist friday"], at, refDays: [TODAY] });
       expect(next.savedDateTipDone).toBe(true);
-      expect(next.capturedEver).toBe(true);
     });
 
-    it("a capture without a day counts as having captured, the tip stays", () => {
+    it("a capture without a day: the tip stays", () => {
       const next = reducer(base(), { type: "parkCaptures", texts: ["Buy shoes"], at, refDays: [TODAY] });
-      expect(next.capturedEver).toBe(true);
       expect(showSavedDateTip(next)).toBe(true);
+    });
+
+    it("noteCaptured (an import found captures, saved or not) marks the share sheet or Siri as used, once", () => {
+      const next = reducer(base(), { type: "noteCaptured" });
+      expect(next.capturedEver).toBe(true);
+      expect(reducer(next, { type: "noteCaptured" })).toBe(next);
     });
 
     it("closing it ends it; a second close changes nothing", () => {
@@ -188,6 +193,47 @@ describe("Settings: brought into view from What's new", () => {
     await act(async () => requestSettingsFocus("coach-memory"));
     await wait(SHEET_SWAP_DELAY_MS + 100);
     expect(focusedHeaders()).toEqual(["What your coach remembers"]);
+  });
+
+  const layout = (testID: string, y: number) =>
+    act(async () =>
+      fireEvent(screen.getByTestId(testID), "layout", { nativeEvent: { layout: { x: 0, y, width: 300, height: 100 } } }),
+    );
+  const scrollTo = () => ScrollView.prototype.scrollTo as unknown as jest.Mock;
+
+  it("scrolls to the own lines: the Reminders section's y + the Nag card's + the lines' own, less a little room", async () => {
+    await renderSettings();
+    await layout("settings-reminders", 1200);
+    await layout("settings-nag", 180);
+    await layout("settings-nag-own-lines-place", 420);
+    scrollTo().mockClear();
+    await act(async () => requestSettingsFocus("nag-own-lines"));
+    await wait(SHEET_SWAP_DELAY_MS + 100);
+    expect(scrollTo()).toHaveBeenCalledWith({ y: 1200 + 180 + 420 - 16, animated: true });
+  });
+
+  it("scrolls to coach memory (in the content itself); without animation under Reduce Motion", async () => {
+    (useReducedMotion as jest.Mock).mockReturnValue(true);
+    try {
+      await renderSettings();
+      await layout("settings-coach-memory-place", 900);
+      scrollTo().mockClear();
+      await act(async () => requestSettingsFocus("coach-memory"));
+      await wait(SHEET_SWAP_DELAY_MS + 100);
+      expect(scrollTo()).toHaveBeenCalledWith({ y: 884, animated: false });
+    } finally {
+      (useReducedMotion as jest.Mock).mockReturnValue(false);
+    }
+  });
+
+  it("not laid out yet: no scroll, VoiceOver still moves", async () => {
+    await renderSettings();
+    scrollTo().mockClear();
+    focusEvents.mockClear();
+    await act(async () => requestSettingsFocus("nag-own-lines"));
+    await wait(SHEET_SWAP_DELAY_MS + 100);
+    expect(scrollTo()).not.toHaveBeenCalled();
+    expect(focusedHeaders()).toEqual(["In your own words"]);
   });
 
   it("nothing asked: nothing moved", async () => {

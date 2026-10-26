@@ -3,6 +3,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Linking,
+  type LayoutChangeEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -53,6 +54,7 @@ import { NAG_LEVEL_COUNT_NOTE, nagLevelRudeNote } from "@/lib/daily-tasks/nag-co
 import { loadFirstDays } from "@/lib/daily-tasks/first-days";
 import { sundayResetOf } from "@/lib/daily-tasks/sunday-reset";
 import {
+  settingsSectionOffset,
   subscribeSettingsFocus,
   takeSettingsFocus,
   type SettingsFocusTarget,
@@ -343,12 +345,16 @@ export default function SettingsScreen() {
   // A place to bring into view, asked for by What's new (1.6): "Write your
   // lines" (Nag's own lines) or "See what it remembers" (coach memory). Taken
   // as Settings mounts or while it's up; once laid out, it scrolls there and
-  // VoiceOver moves to its header.
+  // VoiceOver moves to its header. Offsets come from onLayout (each y is in
+  // its parent, so a nested section adds up its parents'): measureLayout
+  // against a node number is ignored on the New Architecture.
   const scrollRef = useRef<ScrollView>(null);
-  const ownLinesRef = useRef<View>(null);
   const ownLinesHeaderRef = useRef<Text>(null);
-  const coachMemoryRef = useRef<View>(null);
   const coachMemoryHeaderRef = useRef<View>(null);
+  const layoutY = useRef<{ reminders?: number; nagCard?: number; ownLines?: number; coachMemory?: number }>({});
+  const onLayoutY = (key: keyof typeof layoutY.current) => (event: LayoutChangeEvent) => {
+    layoutY.current[key] = event.nativeEvent.layout.y;
+  };
   const reduceMotion = useReducedMotion();
   const [focusTarget, setFocusTarget] = useState<SettingsFocusTarget | null>(() => takeSettingsFocus());
   useEffect(
@@ -363,21 +369,10 @@ export default function SettingsScreen() {
     if (!focusTarget) return;
     const timer = setTimeout(() => {
       setFocusTarget(null);
-      const section = focusTarget === "coach-memory" ? coachMemoryRef.current : ownLinesRef.current;
       const header = focusTarget === "coach-memory" ? coachMemoryHeaderRef.current : ownLinesHeaderRef.current;
-      const scroll = scrollRef.current;
-      try {
-        const inner = scroll?.getInnerViewNode();
-        if (section && scroll && inner) {
-          section.measureLayout(
-            inner,
-            (_x, y) => scroll.scrollTo({ y: Math.max(0, y - 16), animated: !reduceMotion }),
-            () => {},
-          );
-        }
-      } catch {
-        // Not laid out (or no native view, as in tests): Settings stays where it is.
-      }
+      const y = settingsSectionOffset(focusTarget, layoutY.current);
+      // Not laid out yet: Settings stays where it is (VoiceOver still moves).
+      if (y !== null) scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: !reduceMotion });
       if (header) AccessibilityInfo.sendAccessibilityEvent(header, "focus");
     }, SHEET_SWAP_DELAY_MS);
     return () => clearTimeout(timer);
@@ -712,7 +707,7 @@ export default function SettingsScreen() {
           </View>
         </Section>
 
-        <View ref={coachMemoryRef} collapsable={false}>
+        <View onLayout={onLayoutY("coachMemory")} testID="settings-coach-memory-place">
           <CoachMemorySection headerRef={coachMemoryHeaderRef} />
         </View>
 
@@ -915,6 +910,8 @@ export default function SettingsScreen() {
           icon="notifications-outline"
           title="Reminders"
           subtitle="Smart, local nudges that react to Today's Three."
+          onLayout={onLayoutY("reminders")}
+          testID="settings-reminders"
         >
           <View className="bg-surface rounded-2xl p-4 border border-border gap-4">
             <View className="flex-row items-center justify-between gap-4">
@@ -1007,7 +1004,11 @@ export default function SettingsScreen() {
           ) : null}
 
           {nagActive ? (
-            <View className="bg-surface rounded-2xl p-4 border border-border gap-4" testID="settings-nag">
+            <View
+              className="bg-surface rounded-2xl p-4 border border-border gap-4"
+              testID="settings-nag"
+              onLayout={onLayoutY("nagCard")}
+            >
               <View className="gap-2">
                 <Text className="text-sm font-semibold text-foreground">Voice</Text>
                 <ChoiceChips
@@ -1066,7 +1067,7 @@ export default function SettingsScreen() {
                   </Text>
                 </Pressable>
               </View>
-              <View ref={ownLinesRef} collapsable={false}>
+              <View onLayout={onLayoutY("ownLines")} testID="settings-nag-own-lines-place">
                 <NagOwnLines headerRef={ownLinesHeaderRef} />
               </View>
               <View className="gap-3">
@@ -1411,15 +1412,19 @@ function Section({
   title,
   subtitle,
   children,
+  onLayout,
+  testID,
 }: {
   icon?: React.ComponentProps<typeof Ionicons>["name"];
   title: string;
   subtitle?: string;
   children: React.ReactNode;
+  onLayout?: (event: LayoutChangeEvent) => void;
+  testID?: string;
 }) {
   const colors = useColors();
   return (
-    <View className="gap-3">
+    <View className="gap-3" onLayout={onLayout} testID={testID}>
       <View className="gap-1.5">
         <SectionLabel icon={icon} label={title} />
         {subtitle && (

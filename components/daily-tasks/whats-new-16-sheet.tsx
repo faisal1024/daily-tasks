@@ -3,7 +3,7 @@
 // "Got it". Only what it looks like and says: which cards show is
 // whatsNew16Cards (lib/daily-tasks/whats-new-16.ts), and what the buttons do
 // is Today's (app/(tabs)/index.tsx).
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Modal,
@@ -32,7 +32,8 @@ const INLINE_BUTTON_FONT_SCALE = 1.5;
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
-export function WhatsNew16Sheet({
+/** Memoized: Today re-renders often, and the sheet only changes with its props (stable callbacks there). */
+export const WhatsNew16Sheet = memo(function WhatsNew16Sheet({
   visible,
   cards,
   onAction,
@@ -243,4 +244,4 @@ export function WhatsNew16Sheet({
       </View>
     </Modal>
   );
-}
+});

@@ -1,7 +1,7 @@
 // Principal-tester additions for 1.6's What's new (PR #113) with the REAL Sunday
 // reset provider (the other What's new tests stand it in): "See Plus" opens the
-// paywall with the right source, only after the sheet has gone; "Try it now"
-// opens the reset only after it; a Sunday notification tap while the sheet is
+// paywall with the right source, only after the sheet has gone; "Try it now" ("Plan tomorrow now"
+// on a weekday) opens the reset only after it; a Sunday notification tap while the sheet is
 // up steps it aside (not seen) and the reset follows.
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AccessibilityInfo, Alert, AppState as RNAppState, Keyboard } from "react-native";
@@ -232,9 +232,9 @@ const tap = {
 };
 
 describe("Sunday reset from 1.6's sheet, with the real provider", () => {
-  it("Try it now (Plus): the sheet closes, the reset comes up only after the delay, and 1.6 does not return over it", async () => {
+  it("Plan tomorrow now (Plus, a Monday): the sheet closes, the reset comes up only after the delay, and 1.6 does not return over it", async () => {
     await openSheet({ whatsNewSeen: [NAG_ID] });
-    await press("Try it now");
+    await press("Plan tomorrow now");
     expect(sheet()).toBeNull();
     expect(resetSheet()).toBeNull();
     await advance(SHEET_SWAP_DELAY_MS - 100);

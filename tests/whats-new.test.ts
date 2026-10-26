@@ -222,8 +222,8 @@ describe("the Meet Nag mode sheet's words", () => {
     expect(NAG_INTRO_COPY.lede).toBe("Reminders with a personality. Pick who nags you and how hard.");
     expect(NAG_INTRO_COPY.points.map((point) => point.text)).toEqual([
       "Random times. Gets pushier while your tasks stay open, and always about the task in front of you.",
-      "Long-press a nag to Snooze an hour or Mark it done.",
-      "Plus: write your own lines. “{task}. Now. I mean it.” becomes “Gym. Now. I mean it.”",
+      "Long-press a nag to Snooze 1 hour or Mark done.",
+      "With Plus, write your own lines: “{task}. Now. I mean it.” becomes “Gym. Now. I mean it.”",
     ]);
     expect(NAG_INTRO_COPY.plus).toBe("Nag mode is part of Plus. Calm reminders stay free.");
     expect(NAG_INTRO_COPY.primary).toBe("Try Nag mode");

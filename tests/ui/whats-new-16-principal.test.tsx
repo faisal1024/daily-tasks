@@ -386,7 +386,8 @@ describe("each button: closes first (and is seen), acts only after the hand-off 
       },
     },
     {
-      name: "Try it now",
+      // A Monday: the reset opens as Plan tomorrow, and the button says so (Sunday: "Try it now").
+      name: "Plan tomorrow now",
       saved: {},
       plus: true,
       action: "try_reset",
@@ -439,15 +440,15 @@ describe("each button: closes first (and is seen), acts only after the hand-off 
     expect(sheet()).toBeNull();
   });
 
-  it("Show me is the only button that keeps the sheet up, and it is not marked seen by it", async () => {
+  it("How it works is the only button that keeps the sheet up, and it is not marked seen by it", async () => {
     await openSheet({ whatsNewSeen: [NAG_ID] });
-    await press("Show me");
+    await press("How it works");
     await advance(SHEET_SWAP_DELAY_MS + 200);
     expect(sheet()).toBeOnTheScreen();
     expect(navigate).not.toHaveBeenCalled();
     expect(mockReset.start).not.toHaveBeenCalled();
     expect(nagSheet()).toBeNull();
-    // Hide how and Show me again are still in place; nothing was seen until Got it.
+    // Hide and How it works again are still in place; nothing was seen until Got it.
     expect((await savedState()).whatsNewSeen).toEqual([NAG_ID]);
     await press("Got it");
     expect((await savedState()).whatsNewSeen).toEqual([NAG_ID, ID]);
@@ -457,7 +458,7 @@ describe("each button: closes first (and is seen), acts only after the hand-off 
     await openSheet({ whatsNewSeen: [NAG_ID] });
     await press("See what it remembers");
     expect(sheet()).toBeNull();
-    expect(screen.queryByRole("button", { name: "Try it now" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Plan tomorrow now" })).toBeNull();
     await advance(SHEET_SWAP_DELAY_MS + 50);
     expect(navigate).toHaveBeenCalledTimes(1);
     expect(eventsNamed("whats_new_action")).toHaveLength(1);
@@ -533,14 +534,11 @@ describe("never stacks over another sheet", () => {
     expect(nagSheet()).toBeOnTheScreen();
   });
 
-  // BUG (app/(tabs)/index.tsx, whatsNewStepAside, lines 1213-1216, the pending-whatsNew16Timer branch): a dump (or focus,
-  // or Sunday-reset notification) request inside the 650 ms gap after a card button's tap clears the pending
-  // action but falls through to `return false` (whatsNew.openId is already null), so the caller opens its sheet
-  // at once, while the What's new sheet is still animating away. iOS drops a modal presented then. Should
-  // return true after clearing the timer. Not fixed here (tester rule): unskip once it is.
-  it.skip("a dump link inside the hand-off gap waits for the closing sheet (not on screen at once)", async () => {
+  // Was a bug (whatsNewStepAside's pending-action branch returned false): fixed, the step-aside now returns true
+  // after dropping the action, so the dump waits for the closing sheet.
+  it("a dump link inside the hand-off gap waits for the closing sheet (not on screen at once)", async () => {
     await openSheet({ whatsNewSeen: [NAG_ID] });
-    await press("Try it now");
+    await press("Plan tomorrow now");
     await act(async () => queueCaptureOpen({ id: "c3", source: "widget" }));
     await flush();
     expect(mockReset.start).not.toHaveBeenCalled();
@@ -646,7 +644,7 @@ describe("a new user's 'Save for later from anywhere' card on Today", () => {
 describe("analytics: ids only, no words, through the whole sheet", () => {
   it("every property of every what's-new event is an id from a closed list", async () => {
     await openSheet({ whatsNewSeen: [NAG_ID], notifications: NAG, tasks: [{ ...WALK, text: "Call Dr. Rivera about the biopsy" }] });
-    await press("Show me");
+    await press("How it works");
     await press("Write your lines");
     await advance(SHEET_SWAP_DELAY_MS + 50);
     const events = tracked.mock.calls.filter(([name]) => String(name).startsWith("whats_new"));

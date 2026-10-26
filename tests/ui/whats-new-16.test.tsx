@@ -12,6 +12,7 @@ import { SHEET_SWAP_DELAY_MS } from "@/hooks/use-paywall-gate";
 import { __resetActionSheetForTests } from "@/lib/daily-tasks/action-sheet";
 import { track } from "@/lib/daily-tasks/analytics";
 import { queueCaptureOpen } from "@/lib/daily-tasks/capture";
+import { queueFocusOpen, queueFocusStart } from "@/lib/daily-tasks/focus-link";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { takeSettingsFocus } from "@/lib/daily-tasks/settings-focus";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
@@ -97,8 +98,9 @@ jest.mock("react-native/Libraries/Utilities/useWindowDimensions", () => ({
   default: () => mockWindow,
 }));
 
-const TODAY = "2026-10-26";
+// Monday 26 October 2026 (the Sunday reset card says "Plan tomorrow now"); SUNDAY is the day before.
 const START = new Date(2026, 9, 26, 9, 0);
+const SUNDAY = new Date(2026, 9, 25, 18, 0);
 const KEY = "daily-tasks/state/v1";
 const ID = "1.6-features";
 const NAG_ID = "1.4-nag";
@@ -158,16 +160,18 @@ const advance = async (ms: number) => {
 
 /** A state an updater could have saved (before 1.4 by default: no whatsNewSeen at all). */
 async function save(saved: Partial<AppState> = {}) {
+  // The day the clock says (a test may move it to a Sunday first).
+  const now = new Date(Date.now());
   const state: AppState = syncTodayHistory(
     {
-      ...buildInitialState(START),
+      ...buildInitialState(now),
       hasSeenOnboarding: true,
       reorderHintSeen: true,
       autoLock: { ...DEFAULT_AUTO_LOCK, enabled: false },
       tasks: [WALK],
       ...saved,
     },
-    TODAY,
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`,
   );
   const raw: Partial<AppState> = { ...state };
   if (!("whatsNewSeen" in saved)) delete raw.whatsNewSeen;
@@ -319,6 +323,68 @@ describe("never over another sheet", () => {
   });
 });
 
+describe("more of never over another sheet", () => {
+  const ROLLOVER = {
+    sourceDate: "2026-10-25",
+    tasks: [{ id: "y0", text: "Call the dentist", completed: false, carriedOver: false, rolloverOutcome: null }],
+  };
+
+  it("yesterday's leftovers waiting: not over them, nor straight after they're dealt with; the next foreground", async () => {
+    await openToday({ whatsNewSeen: [NAG_ID], tasks: [], pendingRollover: ROLLOVER } as Partial<AppState>);
+    expect(screen.getByTestId("rollover-card")).toBeOnTheScreen();
+    await advance(5000);
+    expect(sheet()).toBeNull();
+    await fireEvent.press(screen.getByTestId("rollover-fresh"));
+    await advance(5000);
+    expect(sheet()).toBeNull();
+    await comeBack();
+    await settle();
+    expect(sheet()).toBeOnTheScreen();
+  });
+
+  /** A timer started from the widget, then its Live Activity tapped: Today is asked to open its focus screen. */
+  async function focusPrompt() {
+    await act(async () => queueFocusStart({ kind: "timer", source: "widget" }));
+    await flush();
+    const session = (await savedState()).focusSession!;
+    await act(async () => queueFocusOpen({ sessionId: session.id }));
+    await flush();
+  }
+
+  it("a focus prompt while it's up: it steps aside (not seen), and the focus screen opens once it has gone", async () => {
+    await openSheet({ whatsNewSeen: [NAG_ID] });
+    await focusPrompt();
+    expect(sheet()).toBeNull();
+    expect(screen.queryByTestId("focus-modal")).toBeNull();
+    await advance(SHEET_SWAP_DELAY_MS + 50);
+    expect(screen.getByTestId("focus-modal")).toBeOnTheScreen();
+    expect((await savedState()).whatsNewSeen).toEqual([NAG_ID]);
+  });
+
+  it("a focus prompt while Meet Nag mode (from Try Nag mode) is up: it steps aside too, then the focus screen", async () => {
+    await openSheet({ whatsNewSeen: [NAG_ID] });
+    await press("Try Nag mode");
+    await advance(SHEET_SWAP_DELAY_MS + 50);
+    expect(nagSheet()).toBeOnTheScreen();
+    await focusPrompt();
+    expect(nagSheet()).toBeNull();
+    expect(screen.queryByTestId("focus-modal")).toBeNull();
+    await advance(SHEET_SWAP_DELAY_MS + 50);
+    expect(screen.getByTestId("focus-modal")).toBeOnTheScreen();
+    expect(nagSheet()).toBeNull();
+  });
+
+  it("'shown' goes out when iOS has it on screen, once per opening", async () => {
+    await openToday({ whatsNewSeen: [NAG_ID] });
+    await advance(WHATS_NEW_DELAY_MS + 50);
+    expect(sheet()).toBeOnTheScreen();
+    expect(eventsNamed("whats_new_shown")).toEqual([]);
+    await sheetShown();
+    await sheetShown();
+    expect(eventsNamed("whats_new_shown")).toEqual([{ id: ID, source: "today" }]);
+  });
+});
+
 describe("its cards", () => {
   it("Nag mode on, with Plus: all five, in order; headers for the title and each card", async () => {
     await openSheet({ notifications: NAG });
@@ -336,18 +402,26 @@ describe("its cards", () => {
     }
     expect(inSheet().getByText("New in 1.6")).toBeOnTheScreen();
     expect(
-      inSheet().getByText("Long-press a nag to Snooze an hour or Mark it done. Nags now always fit the task they're about."),
+      inSheet().getByText("Long-press a nag to Snooze 1 hour or Mark done. Nags now always fit the task they're about."),
     ).toBeOnTheScreen();
     expect(inSheet().getByRole("button", { name: "Write your lines" })).toBeOnTheScreen();
-    expect(inSheet().getByRole("button", { name: "Try it now" })).toBeOnTheScreen();
+    // A Monday: the reset opens as Plan tomorrow, and the button says so.
+    expect(inSheet().getByRole("button", { name: "Plan tomorrow now" })).toBeOnTheScreen();
     expect(inSheet().queryByTestId("whats-new-16-own_lines-plus")).toBeNull();
     // VoiceOver starts at the title.
     expect(focusEvents).toHaveBeenCalled();
   });
 
-  it("Nag mode off, with Plus: four, no nag card; 'Try Nag mode'", async () => {
+  it("Nag mode off, with Plus: four, no nag card; card 2 says what Nag mode is, with 'Try Nag mode'", async () => {
     await openSheet();
     expect(cardIds()).toEqual(["save_later", "own_lines", "sunday_reset", "coach_memory"]);
+    expect(inSheet().getByRole("header", { name: "Nag mode, in your own words" })).toBeOnTheScreen();
+    expect(
+      inSheet().getByText(
+        "Reminders with a personality that get pushier while your tasks stay open. With Plus, write your own lines: {task} becomes the task's name.",
+      ),
+    ).toBeOnTheScreen();
+    expect(screen.getByTestId("whats-new-16-example")).toBeOnTheScreen();
     expect(inSheet().getByRole("button", { name: "Try Nag mode" })).toBeOnTheScreen();
     expect(inSheet().queryByRole("button", { name: "Write your lines" })).toBeNull();
   });
@@ -357,8 +431,8 @@ describe("its cards", () => {
     await openSheet();
     expect(cardIds()).toEqual(["save_later", "own_lines", "sunday_reset", "coach_memory"]);
     expect(inSheet().getByRole("button", { name: "Try Nag mode" })).toBeOnTheScreen();
-    expect(inSheet().getByRole("button", { name: "See Plus" }).props.accessibilityHint).toBe("Shows what Plus includes");
-    expect(inSheet().getByRole("header", { name: "Nag in your own words, Plus" })).toBeOnTheScreen();
+    expect(inSheet().getByRole("button", { name: "See Plus" }).props.accessibilityHint).toBe("Sunday reset is part of Plus");
+    expect(inSheet().getByRole("header", { name: "Nag mode, in your own words, Plus" })).toBeOnTheScreen();
     expect(inSheet().getByRole("header", { name: "Sunday reset, Plus" })).toBeOnTheScreen();
   });
 
@@ -398,13 +472,27 @@ describe("its cards", () => {
 });
 
 describe("where each button leads", () => {
-  it("Show me opens the how-to in place: nothing closes", async () => {
+  it("on a Sunday the reset card says Try it now", async () => {
+    jest.setSystemTime(SUNDAY);
     await openSheet();
-    await press("Show me");
+    await press("Try it now");
+    await advance(SHEET_SWAP_DELAY_MS + 50);
+    expect(mockReset.start).toHaveBeenCalledWith("whats_new");
+  });
+
+  it("How it works opens the how-to in place, Siri first: nothing closes; Hide folds it", async () => {
+    await openSheet();
+    await press("How it works");
     expect(sheet()).toBeOnTheScreen();
     expect(screen.getByTestId("whats-new-16-how-to")).toBeOnTheScreen();
-    expect(inSheet().getByText("In any app, tap Share, then Three Today.")).toBeOnTheScreen();
-    expect(inSheet().getByRole("button", { name: "Show me" }).props.accessibilityState).toMatchObject({ expanded: true });
+    const steps = within(screen.getByTestId("whats-new-16-how-to"));
+    expect(steps.getAllByText(/./).map((text) => text.props.children)).toEqual([
+      "Say to Siri: “Save for later in Three Today”.",
+      "In Safari or any app, tap Share on text or a link. Pick Three Today. Not there? Scroll the app row, tap More, and turn it on.",
+      "For a quick brain dump, add the Dump widget. Touch and hold your Home Screen, tap Edit, then Add Widget. On the Lock Screen: touch and hold, tap Customize, then pick a spot.",
+    ]);
+    expect(inSheet().getByRole("button", { name: "How it works" }).props.accessibilityState).toMatchObject({ expanded: true });
+    expect(inSheet().getByText("Hide")).toBeOnTheScreen();
     expect(eventsNamed("whats_new_action")).toEqual([{ id: ID, action: "how_to", source: "today" }]);
     expect((await savedState()).whatsNewSeen).toEqual([NAG_ID]);
   });
@@ -440,9 +528,10 @@ describe("where each button leads", () => {
     expect(nagSheet()).toBeOnTheScreen();
     expect(screen.queryByText("New in 1.4")).toBeNull();
     expect(eventsNamed("whats_new_action")).toEqual([{ id: ID, action: "try_nag", source: "today" }]);
+    // Meet Nag mode has its own id, so it doesn't add to 1.6-features'.
     expect(eventsNamed("whats_new_shown")).toEqual([
       { id: ID, source: "today" },
-      { id: ID, source: "whats_new" },
+      { id: "1.6-try-nag", source: "whats_new" },
     ]);
     // Closing it goes back to Today; nothing comes back.
     await fireEvent.press(within(nagSheet()!).getByRole("button", { name: "Not now" }));
@@ -461,9 +550,9 @@ describe("where each button leads", () => {
     expect(mockOpenPaywall).toHaveBeenCalledWith("nag_mode");
   });
 
-  it("Try it now with Plus: the sheet goes, then the Sunday reset starts", async () => {
+  it("Plan tomorrow now with Plus (a weekday): the sheet goes, then the reset's sheet starts (Plan tomorrow there)", async () => {
     await openSheet();
-    await press("Try it now");
+    await press("Plan tomorrow now");
     expect(sheet()).toBeNull();
     expect(mockReset.start).not.toHaveBeenCalled();
     await advance(SHEET_SWAP_DELAY_MS + 50);
@@ -481,19 +570,38 @@ describe("where each button leads", () => {
     expect(eventsNamed("sunday_reset")).toEqual([]);
   });
 
-  it("a dump link between the tap and the action: the action is dropped, the dump opens", async () => {
+  it("a dump link between the tap and the action: the action is dropped, and the dump waits for the sheet to go", async () => {
     await openSheet();
-    await press("Try it now");
+    await press("Plan tomorrow now");
     await act(async () => queueCaptureOpen({ id: "c2", source: "widget" }));
     await flush();
+    // The sheet is still sliding away: not yet (iOS would drop it).
+    expect(screen.queryByTestId("brain-dump-sheet")).toBeNull();
     await advance(SHEET_SWAP_DELAY_MS + 50);
     expect(mockReset.start).not.toHaveBeenCalled();
     expect(screen.getByTestId("brain-dump-sheet")).toBeOnTheScreen();
   });
 
+  it("the Sunday reset's notification tapped in that gap: Today says something stepped aside, so the reset waits too", async () => {
+    await openSheet();
+    // What Today registered with the reset's provider.
+    const others = (mockReset.registerOthers.mock.calls as unknown as [() => boolean][]).at(-1)![0];
+    await press("See what it remembers");
+    let stepped = false;
+    await act(async () => {
+      stepped = others();
+    });
+    expect(stepped).toBe(true);
+    await advance(SHEET_SWAP_DELAY_MS + 50);
+    // The card's action was dropped.
+    expect(navigate).not.toHaveBeenCalled();
+    // Nothing up: nothing to step aside.
+    expect(others()).toBe(false);
+  });
+
   it("events carry ids only, never words", async () => {
     await openSheet({ notifications: NAG });
-    await press("Show me");
+    await press("How it works");
     await press("Write your lines");
     for (const call of tracked.mock.calls.filter(([name]) => String(name).startsWith("whats_new"))) {
       for (const value of Object.values(call[1] as Record<string, unknown>)) {

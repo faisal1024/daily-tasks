@@ -483,6 +483,22 @@ describe("the capture inbox", () => {
     expect(mockFiles.size).toBe(0);
   });
 
+  it("1.6: any capture found counts as the share sheet or Siri used (capturedEver), also a duplicate batch that saves nothing", async () => {
+    capture("1.json", "walk", 1);
+    const { result } = await renderStore();
+    await flush();
+    expect(result.current.state.parkedTasks).toEqual([]);
+    expect(result.current.state.capturedEver).toBe(true);
+  });
+
+  it("1.6: only junk in the inbox isn't a capture: capturedEver stays off", async () => {
+    capture("1.json", "   ");
+    mockFiles.set("2.json", "{not json");
+    const { result } = await renderStore();
+    await flush();
+    expect(result.current.state.capturedEver).toBe(false);
+  });
+
   it("if deleting a file fails, the next foreground doesn't save, toast or count the same thought again", async () => {
     mockDeleteSticks = false;
     capture("1.json", "Stamps");

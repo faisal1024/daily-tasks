@@ -251,6 +251,7 @@ type Action =
   | { type: "markOnboardingSeen" }
   | { type: "markReorderHintSeen" }
   | { type: "dismissSavedDateTip" }
+  | { type: "noteCaptured" }
   | { type: "markWhatsNewSeen"; ids: string[] }
   | { type: "completeMomentumOnboarding"; profile: MomentumProfile }
   | { type: "updateMomentumProfile"; profile: MomentumProfile }
@@ -698,13 +699,11 @@ function reduce(state: AppState, action: Action): AppState {
         today: state.lastOpenedDate,
         ...(action.refDays ? { refDays: action.refDays } : {}),
       });
-    case "parkCaptures": {
-      const next = parkCapturedTexts(state, action.texts, action.at, action.refDays);
-      // A capture came in (1.6): the new install's capture card isn't needed.
-      return next.parkedTasks.length > state.parkedTasks.length && !next.capturedEver
-        ? { ...next, capturedEver: true }
-        : next;
-    }
+    case "parkCaptures":
+      return parkCapturedTexts(state, action.texts, action.at, action.refDays);
+    case "noteCaptured":
+      // The share sheet or Siri was used (1.6): the new install's capture card isn't needed.
+      return state.capturedEver ? state : { ...state, capturedEver: true };
     case "setParkedWhen":
       return setParkedWhen(state, action.id, action.when);
     case "removeParkedTask":
@@ -3024,6 +3023,9 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     try {
       const { items, junk } = parseCaptureFiles(files);
       junk.forEach((name) => deleteCaptureFile(name));
+      // Something was captured, whether or not it's saved now (Saved for later
+      // full, or already there): the share sheet or Siri has been used.
+      if (items.length > 0) dispatch({ type: "noteCaptured" });
       const before = stateRef.current;
       const plan = planCaptureImport(before, items, MAX_PARKED_TASKS);
       const texts = plan.save.map((item) => item.text);

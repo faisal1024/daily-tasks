@@ -124,8 +124,8 @@ describe("the words", () => {
     expect(CAPTURE_CARD_COPY).toEqual({
       title: "Save for later from anywhere",
       body: "Share from any app, or tell Siri “Save for later in Three Today”. It waits in Ideas, never on today's three.",
-      showMe: "Show me",
-      hide: "Hide how",
+      showMe: "How it works",
+      hide: "Hide",
       gotIt: "Got it",
     });
   });
@@ -134,7 +134,7 @@ describe("the words", () => {
     const copy = widgetTipCopy("Three Today");
     expect(copy.title).toBe("Keep your three on your Home Screen");
     expect(copy.body).toBe(
-      "Touch and hold an empty spot on your Home Screen, tap Edit, then Add Widget, and search for Three Today. The Dump widget is a Lock Screen or Home Screen button that opens a brain dump.",
+      "Touch and hold an empty spot on your Home Screen, tap Edit, then Add Widget, and search for Three Today. The Dump widget is a button that opens a brain dump.",
     );
     expect(copy.body.split(/(?<=\.)\s+/)).toHaveLength(2);
   });

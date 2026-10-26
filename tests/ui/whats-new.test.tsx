@@ -659,9 +659,9 @@ describe("the sheet", () => {
     expect(
       view.getByText("Random times. Gets pushier while your tasks stay open, and always about the task in front of you."),
     ).toBeOnTheScreen();
-    expect(view.getByText("Long-press a nag to Snooze an hour or Mark it done.")).toBeOnTheScreen();
+    expect(view.getByText("Long-press a nag to Snooze 1 hour or Mark done.")).toBeOnTheScreen();
     expect(
-      view.getByText("Plus: write your own lines. “{task}. Now. I mean it.” becomes “Gym. Now. I mean it.”"),
+      view.getByText("With Plus, write your own lines: “{task}. Now. I mean it.” becomes “Gym. Now. I mean it.”"),
     ).toBeOnTheScreen();
     expect(
       view.getByText("“No more nags today” on a nag stops it until tomorrow. It stays quiet during Do Not Disturb and Focus."),

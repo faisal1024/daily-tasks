@@ -49,7 +49,7 @@ jest.mock("@/lib/daily-tasks/analytics", () => ({
 const KEY = "daily-tasks/state/v1";
 const NOW = new Date(2026, 9, 26, 9);
 const TODAY = "2026-10-26";
-const TIP = "Tip: add a day (“dentist Friday”) and it comes back then.";
+const TIP = "Tip: add a day, like “dentist Friday”, and it comes back then.";
 
 let latest: ReturnType<typeof useDailyTasks>;
 function Probe(): ReactNode {

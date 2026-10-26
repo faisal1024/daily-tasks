@@ -82,16 +82,16 @@ const MAX_OPEN_DAYS = CAPTURE_CARD_EARLIER_DAYS + 1;
 export function widgetTipCopy(appName: string): { title: string; body: string } {
   return {
     title: "Keep your three on your Home Screen",
-    body: `Touch and hold an empty spot on your Home Screen, tap Edit, then Add Widget, and search for ${appName}. The Dump widget is a Lock Screen or Home Screen button that opens a brain dump.`,
+    body: `Touch and hold an empty spot on your Home Screen, tap Edit, then Add Widget, and search for ${appName}. The Dump widget is a button that opens a brain dump.`,
   };
 }
 
-/** The 1.6 card's words. Its "Show me" opens the same steps as What's new's first card. */
+/** The 1.6 card's words. Its "How it works" opens the same steps as What's new's first card. */
 export const CAPTURE_CARD_COPY = {
   title: "Save for later from anywhere",
   body: "Share from any app, or tell Siri “Save for later in Three Today”. It waits in Ideas, never on today's three.",
-  showMe: "Show me",
-  hide: "Hide how",
+  showMe: "How it works",
+  hide: "Hide",
   gotIt: "Got it",
 } as const;
 

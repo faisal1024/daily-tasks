@@ -4,7 +4,7 @@
 // `savedDateTipDone`, like the reorder hint's `reorderHintSeen`.
 import type { AppState } from "./types";
 
-export const SAVED_DATE_TIP = "Tip: add a day (“dentist Friday”) and it comes back then.";
+export const SAVED_DATE_TIP = "Tip: add a day, like “dentist Friday”, and it comes back then.";
 export const SAVED_DATE_TIP_DISMISS = "Dismiss tip";
 
 type TipState = Pick<AppState, "parkedTasks" | "savedDateTipDone">;

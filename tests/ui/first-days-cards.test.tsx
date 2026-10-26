@@ -214,7 +214,7 @@ describe("widget tip", () => {
     await waitFor(() => expect(tip()).toBeOnTheScreen());
     expect(screen.getByText("Keep your three on your Home Screen")).toBeOnTheScreen();
     // 1.6: it names the Dump widget too.
-    expect(screen.getByText(/The Dump widget is a Lock Screen or Home Screen button that opens a brain dump\.$/)).toBeOnTheScreen();
+    expect(screen.getByText(/The Dump widget is a button that opens a brain dump\.$/)).toBeOnTheScreen();
     expect((await stored()).widgetTip).toBe("due");
   });
 

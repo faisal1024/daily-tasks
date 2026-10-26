@@ -27,3 +27,18 @@ export function subscribeSettingsFocus(listener: () => void): () => void {
     listeners.delete(listener);
   };
 }
+
+/**
+ * Where a section starts in Settings' scroll content, from the onLayout y's
+ * Settings keeps (each is in its parent): coach memory sits in the content
+ * itself; the own lines are in the Nag card, in the Reminders section. Null
+ * until all of its parts have been laid out.
+ */
+export function settingsSectionOffset(
+  target: SettingsFocusTarget,
+  y: { reminders?: number; nagCard?: number; ownLines?: number; coachMemory?: number },
+): number | null {
+  if (target === "coach-memory") return y.coachMemory ?? null;
+  if (y.reminders === undefined || y.nagCard === undefined || y.ownLines === undefined) return null;
+  return y.reminders + y.nagCard + y.ownLines;
+}
