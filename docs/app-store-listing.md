@@ -2,7 +2,8 @@
 
 Everything to paste into App Store Connect for the first "Three Today" release
 (the first release with Plus). Character counts are checked against Apple's
-limits. The same copy is in `store.config.json` for `eas metadata:push`.
+limits. The same copy is in `store.config.json` for `eas metadata:push`, except the
+1.5/1.6 What's New text and the review notes, which are only in this doc.
 
 ## Name and subtitle
 
@@ -99,7 +100,7 @@ A calmer start and a coach that remembers:
 • Routine ideas to add in one tap, Swap in from Saved for later, and a few small touches.
 ```
 
-## What's New in 1.4.1 (draft)
+## What's New in 1.4.1 (shipped)
 
 ```
 A small update to Nag mode, and a few fixes:
@@ -193,7 +194,7 @@ What's declared in App Store Connect → App Privacy:
 - **Identifiers → Device ID**: Analytics; not linked; no tracking (PostHog's random per-install id), in addition to User ID above.
 - **Diagnostics → Other Diagnostic Data**: Analytics; not linked; no tracking (error-kind events, no content).
 - Declaring these even if the analytics key isn't set is safe; under-declaring is not.
-- 1.4.1: the app lets RevenueCat collect Apple's AdServices attribution token (sent for every install on iOS 14.3+; Apple matches it to an ad when there was one). It holds no personal data and isn't tracking under ATT; check RevenueCat's current App Privacy guidance before submitting in case it asks for a declaration.
+- 1.4.1: the app lets RevenueCat collect Apple's AdServices attribution token (sent for every install on iOS 14.3+; Apple matches it to an ad when there was one). It holds no personal data and isn't tracking under ATT; checked again for 1.6: no extra declaration needed.
 
 ## Before the first `eas metadata:push`
 
