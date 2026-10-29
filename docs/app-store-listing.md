@@ -2,7 +2,8 @@
 
 Everything to paste into App Store Connect for the first "Three Today" release
 (the first release with Plus). Character counts are checked against Apple's
-limits. The same copy is in `store.config.json` for `eas metadata:push`.
+limits. The same copy is in `store.config.json` for `eas metadata:push`, except the
+1.5/1.6 What's New text and the review notes, which are only in this doc.
 
 ## Name and subtitle
 
@@ -64,19 +65,29 @@ Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html
 ```
 
-## What's New in 1.6 (draft)
+## What's New in 1.6 (submitted 2026-10-29)
+
+This is the text as submitted (1.5 was never released on its own, so 1.6 carries
+its changes too). French and Spanish (Mexico) translations of the same text were
+entered in App Store Connect.
 
 ```
 Catch it anywhere, see it again when it matters:
 • Save a thought for later from the share sheet, the Dump widget, Control Center or Siri ("Save for later in Three Today"). It never lands on today's three.
-• Saved items with a day ("dentist Friday") come back on that day. Missed deadlines show as Overdue. Tap a date to change it.
-• Nags now always fit the task they're about, and never mention one you've finished.
-• Snooze a nag for an hour or mark the task done right from the notification.
+• Saved items with a day ("dentist Friday") come back on that day. Missed deadlines show as Overdue.
+• Nags now always fit the task they're about. Snooze one for an hour or mark the task done right from the notification.
 • Plus: write your own nag lines.
 • Plus: Sunday reset. Two minutes on Sunday evening for your week's wins, a dump for the week, and Monday's three.
+
+Also new:
+• Getting started is three steps: dump, pick, go.
+• Each of your three shows why it was picked.
+• Your coach remembers what you finish and what keeps coming back. See it in Settings.
+• "Lock today" replaces "Set", with Unlock right on Today.
+• Share your finished day as a picture.
 ```
 
-## What's New in 1.5 (draft)
+## What's New in 1.5 (not released; folded into 1.6)
 
 ```
 A calmer start and a coach that remembers:
@@ -89,7 +100,7 @@ A calmer start and a coach that remembers:
 • Routine ideas to add in one tap, Swap in from Saved for later, and a few small touches.
 ```
 
-## What's New in 1.4.1 (draft)
+## What's New in 1.4.1 (shipped)
 
 ```
 A small update to Nag mode, and a few fixes:
@@ -121,45 +132,61 @@ Daily Tasks is now Three Today, rebuilt around a calm daily ritual:
 
 ## App Review notes
 
+As submitted with 1.6 (2026-10-29):
+
 ```
-No account or login is needed.
+No account or login is needed. To see the first-run flow, delete and reinstall the app.
 
 Where to find things:
-• Plus paywall: Settings › Plus › "See Plus plans", or tap "Break it down" on the next task (after setting the day), or "Get Plus" in the brain dump after the 3 free AI sorts.
-• The Lifetime purchase is shown only when the paywall is opened from Settings › Plus.
-• Restore purchases: on the paywall and in Settings.
+• Plus paywall: Settings › Plus › "See Plus plans". It also appears once at the end of the first run (closable), from "New ideas", from "Get Plus" after the 3 free AI brain-dump sorts, and from "Break it down" after the one free try.
+• Lifetime is shown only when the paywall is opened from Settings › Plus. Restore purchases: on the paywall and in Settings.
 
-AI features: brain dump sorting, Break it down, goal ideas and the evening check-in send only the text needed (for example task titles or what was typed) to our server, which forwards it to an AI model to create suggestions. Request contents aren't stored on our server. Details are in the privacy policy.
+AI features (brain dump, Break it down, ideas, evening check-in, coach note, Nag lines, Sunday reset) send only the text needed (for example task titles) to our server, which forwards it to an AI model. Request contents aren't stored on our server. Details are in the privacy policy.
 
-The Plus paywall also appears once at the end of the first-run flow (closable), and from "New ideas" in the ideas sheet.
+Calendar and Reminders: only used if the user turns on Settings › "Plan around my calendar" (Plus).
 
-Calendar and Reminders: only used if the user turns on Settings › "Plan around my calendar" (a Plus feature). Today's event titles and times and reminders due today are sent with AI suggestion requests so the three fit around the day.
+Focus timer: tap the timer icon on a task on Today. A Live Activity shows on the Lock Screen and in the Dynamic Island (iOS 17.2+). Siri: "Start my next task in Three Today". Ending a timer never completes a task.
 
-Nag mode (Settings › Reminders › Reminder style › Nag): an optional Plus feature, off by default. It sends local notifications about the user's own open tasks at random times, at most one an hour, never time-sensitive, and "Stop nagging me today" stops them for the day in one tap. The user picks a voice and a level. The Drill sergeant voice at the Firm and Relentless levels uses comic boot-camp remarks about the user's effort ("maggot", "slacker"); this is disclosed in the app where the level is chosen ("Drill sergeant gets rude at this level: it mocks your effort, not you."). There is no profanity, no slurs, no threats and nothing about body, intelligence, gender, health or family. AI-written lines are filtered on our server and again on the device. Open tasks are sent to the AI service only after an in-app confirmation ("Turn on Nag mode?").
+Nag mode (Settings › Reminders › Reminder style › Nag): an optional Plus feature, off by default. Local notifications about the user's own open tasks at random times, at most one an hour, never time-sensitive; "No more nags today" stops them for the day. Voices: Mom, Dad, Partner, Coach, Drill sergeant; levels Gentle, Firm, Relentless. Drill sergeant at Firm and Relentless uses comic boot-camp remarks about the user's effort ("maggot", "slacker"), disclosed where the level is chosen. No profanity, slurs or threats, and nothing about body, intelligence, gender, health or family. AI-written lines are filtered on our server and again on the device. Open tasks are sent to the AI service only after an in-app confirmation.
 
-Sunday reset (1.6, Plus): on Sundays from 5 PM a card appears on Today; any day it's in Progress › Set up your week.
-
-To see the first-run flow, delete and reinstall the app.
+New in 1.6 (and 1.5, which was not released separately):
+• Save for later from anywhere: "Three Today" in the share sheet (share extension), Siri "Save for later in Three Today", and the Dump widget and Control Center control. Saved items stay on the device and never go onto today's three. Items with a day ("dentist Friday") come back on that day.
+• Nags: long-press a nag for Snooze 1 hour or Mark done. With Plus, users can write up to 5 of their own nag lines (Settings › Reminders); these stay on the device.
+• Sunday reset (Plus): on Sundays from 5 PM a card appears on Today; any day it's in Progress › Set up your week.
+• Settings › "What your coach remembers" shows and clears what the coach has learned.
+• "Lock today" replaces "Set". Users can share their finished day as an image.
+• People updating see a one-time "What's new" sheet on Today.
+• RevenueCat collects Apple's AdServices attribution token (no tracking prompt, no personal data).
 ```
 
 ## Captioned screenshots
 
-Made by `scripts/make-store-screenshots.py` from simulator captures, in
-`~/Downloads/three-today-appstore-screenshots/` (iPhone 6.9" 1320×2868 and
-iPad 13" 2064×2752), in this order:
+The 1.6 set (v7), in `~/Downloads/three-today-appstore-screenshots-v7/final/`
+(iPhone 6.9" 1320×2868 and iPad 13" 2064×2752, 10 each), in this order.
+"PLUS" marks paid features (guideline 2.3.2).
 
-1. "Three tasks. No overdue pile." (Today, set, next task up front)
-2. "Dump it all. Get your three." (first run: the three picked from a dump)
-3. PLUS "Your coach drafts tomorrow" (the evening check-in and tomorrow's draft)
-4. PLUS "Break big tasks into tiny steps" (steps on the next task)
-5. "See your progress, not your misses" (Progress: Day N, week, milestones)
+1. PLUS "Reminders that won't let it go." (Coach nag on the Lock Screen)
+2. PLUS "Pick your nag. Or write its lines." (Nag settings with your own lines)
+3. PLUS "It gets pushier until you're done." (stack of Partner nags)
+4. "Save it anywhere. See it on its day." (Saved for later with dates and Overdue)
+5. PLUS "Sunday reset. Monday, sorted." (Set up your week: Monday's three)
+6. "The to-do list that asks for less" (brain dump to today's three)
+7. "One next task. No overdue pile." (Today)
+8. PLUS "Stuck? Break it into small steps." (steps on the next task)
+9. "Routines that wait for you" (Today's routines)
+10. "A timer on your Lock Screen." (focus timer Live Activity)
 
-Paid features carry a "PLUS" label on the screenshot (guideline 2.3.2). A widget
-screenshot from a real phone can be added as a 6th.
+The cards are built by `src/build.py` and `src/build7.py` in that folder from
+simulator captures (`src/seed7.py` seeds the demo data). The Sunday captures used
+a screenshot-only bundle that fakes the date; it's kept in that folder's `src/`
+and is never shipped.
 
-## App Privacy label (update before submitting)
+## App Privacy label
 
-In App Store Connect → App Privacy, add to what's already there:
+Checked for 1.6 (2026-10-29): no changes needed. Age rating answers updated for
+Apple's 2026 questions (no social media features); rating stays 4+.
+
+What's declared in App Store Connect → App Privacy:
 - **Identifiers → User ID**: App Functionality; not linked to the user; not used for tracking (the anonymous RevenueCat id sent to our server for the Plus check and limits).
 - **User Content → Other User Content**: already declared for AI requests. It now also covers brain dumps from free users and Calendar/Reminders titles when that setting is on.
 - **Purchases → Purchase History**: App Functionality; not linked; no tracking (RevenueCat).
@@ -167,7 +194,7 @@ In App Store Connect → App Privacy, add to what's already there:
 - **Identifiers → Device ID**: Analytics; not linked; no tracking (PostHog's random per-install id), in addition to User ID above.
 - **Diagnostics → Other Diagnostic Data**: Analytics; not linked; no tracking (error-kind events, no content).
 - Declaring these even if the analytics key isn't set is safe; under-declaring is not.
-- 1.4.1: the app lets RevenueCat collect Apple's AdServices attribution token (sent for every install on iOS 14.3+; Apple matches it to an ad when there was one). It holds no personal data and isn't tracking under ATT; check RevenueCat's current App Privacy guidance before submitting in case it asks for a declaration.
+- 1.4.1: the app lets RevenueCat collect Apple's AdServices attribution token (sent for every install on iOS 14.3+; Apple matches it to an ad when there was one). It holds no personal data and isn't tracking under ATT; checked again for 1.6: no extra declaration needed.
 
 ## Before the first `eas metadata:push`
 
