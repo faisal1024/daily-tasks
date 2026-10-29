@@ -141,9 +141,11 @@ describe("the add-a-day tip across relaunches", () => {
   });
 
   it("a dated item saved: gone; the item removed and a relaunch: still gone", async () => {
+    // "tomorrow", not a weekday: this uses the real clock, and on that weekday the
+    // word means today, which the app never sets as a date for a saved item.
     await launch({ parkedTasks: [parked("Buy shoes")] });
     expect(tip()).toBeOnTheScreen();
-    await act(async () => latest.parkTasks(["Dentist Friday"]));
+    await act(async () => latest.parkTasks(["Dentist tomorrow"]));
     await flush();
     expect(latest.state.parkedTasks.some((item) => item.when)).toBe(true);
     expect(tip()).toBeNull();
