@@ -779,7 +779,9 @@ function reduce(state: AppState, action: Action): AppState {
         (r) => r.id === action.id,
       );
       if (!routine) return state;
-      return reducer(state, { type: "addTask", text: routine.text, today: action.today, routineId: routine.id });
+      const added = reducer(state, { type: "addTask", text: routine.text, today: action.today, routineId: routine.id });
+      // A saved item with its words goes: it's on today now (like Swap).
+      return added === state ? state : unparkTexts(added, [routine.text]);
     }
     // Step changes also sync today's history record: tomorrow's carry-over is
     // built from it, so it must hold the current steps and their progress.

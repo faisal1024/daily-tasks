@@ -314,7 +314,7 @@ describe("routineBlockedLine: one copy for Today and Ideas", () => {
   });
 
   it("a full day with a task to swap out says to swap (1.6.1); locked ignores canSwap", () => {
-    const swapLine = "Your three are picked. Swap one out to fit a routine in.";
+    const swapLine = "Your three are picked. Swap one out to fit a routine.";
     expect(routineBlockedLine("full", { where: "today", canSwap: true })).toBe(swapLine);
     expect(routineBlockedLine("full", { where: "ideas", canSwap: true })).toBe(swapLine);
     expect(routineBlockedLine("full", { where: "today", canSwap: false })).toBe("Your three are picked. Free a slot to add one.");

@@ -120,7 +120,7 @@ describe("IdeasSheet: Today's routines", () => {
       const p = full();
       await render(<IdeasSheet {...p} routines={ROUTINES} />);
       expect(screen.getByTestId("todays-routines-blocked")).toHaveTextContent(
-        "Your three are picked. Swap one out to fit a routine in.",
+        "Your three are picked. Swap one out to fit a routine.",
       );
       expect(screen.queryByRole("button", { name: "Add Stretch to today" })).toBeNull();
       const row = screen.getByRole("button", { name: "Swap in Stretch" });

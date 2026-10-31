@@ -73,6 +73,14 @@ describe("swapRoutineIntoToday", () => {
     expect(swap(state)).toBe(state);
   });
 
+  it("takes a saved item with the routine's words out of Saved for later, so it isn't in both places", () => {
+    const saved = { id: "p1", text: "stretch", parkedAt: "" };
+    const keep = { id: "p2", text: "Delta", parkedAt: "" };
+    const next = swap(full({ parkedTasks: [saved, keep] }));
+    expect(next.tasks[1].text).toBe("Stretch");
+    expect(next.parkedTasks.map((p) => p.text)).toEqual(["Delta", "Bravo"]);
+  });
+
   it("refuses an unknown routine", () => {
     const state = full();
     expect(swap(state, "nope")).toBe(state);

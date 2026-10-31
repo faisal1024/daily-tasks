@@ -164,7 +164,7 @@ export function routineBlock(input: { locked: boolean; remainingSlots: number })
 }
 
 /** Under "Today's routines" on a full day that has an open task to swap out. */
-export const ROUTINE_SWAP_LINE = "Your three are picked. Swap one out to fit a routine in.";
+export const ROUTINE_SWAP_LINE = "Your three are picked. Swap one out to fit a routine.";
 
 /** Where a routines list is shown: Today's card or the Ideas sheet. */
 export type RoutinesWhere = "today" | "ideas";

@@ -650,18 +650,27 @@ export default function HomeScreen() {
     .filter((task) => !isCompleted(task.id))
     .map((task) => ({ id: task.id, text: task.text }));
   // "Swap" on a routine (1.6.1): it takes an open task's place; that one is saved for later.
-  const handleSwapRoutine = (routineId: string, taskId: string, source: RoutineAddSource) => {
-    const out = state.tasks.find((task) => task.id === taskId)?.text;
-    // Its timer goes with it (the store clears a session whose task leaves today): say so, as Not today does.
-    const timed = focusSessionRef.current?.taskId === taskId;
-    const lastOnCard = showRoutinesCard && dueRoutines.length === 1 && dueRoutines[0].id === routineId;
-    if (lastOnCard && !reduceMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    if (!swapRoutineIntoToday(routineId, taskId, source)) return;
+  // After a swap (a saved item's or a routine's): where the task that left
+  // went, and what it lost (its timer, its steps).
+  // `timed`: the task had the timer, read before the swap (the store clears a
+  // session whose task leaves today): say so, as Not today does.
+  const announceSwap = (taskId: string, timed: boolean) => {
+    const out = state.tasks.find((task) => task.id === taskId);
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
-    const swapped = out ? `Swapped in. “${out}” is saved for later.` : "Swapped in.";
-    const message = timed ? `${swapped} Timer stopped.` : swapped;
+    const parts = [out ? `Swapped in. “${out.text}” is in Saved for later.` : "Swapped in."];
+    if (out?.steps?.length) parts.push("Its steps were cleared.");
+    if (timed) parts.push("Timer stopped.");
+    const message = parts.join(" ");
     AccessibilityInfo.announceForAccessibility(message);
     showToast(message);
+  };
+  const handleSwapRoutine = (routineId: string, taskId: string, source: RoutineAddSource) => {
+    const lastOnCard = showRoutinesCard && dueRoutines.length === 1 && dueRoutines[0].id === routineId;
+    const timedBefore = focusSessionRef.current?.taskId === taskId;
+    if (!swapRoutineIntoToday(routineId, taskId, source)) return;
+    // Set before React renders the swap, so the card eases out with it.
+    if (lastOnCard && !reduceMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    announceSwap(taskId, timedBefore);
   };
   const coachDue = coachAi && needsCoachRequest(state.coachNotes, today, coachTexts);
   // A ref, not just state: re-renders mid-request must never start a second call.
@@ -2482,16 +2491,10 @@ export default function HomeScreen() {
         // 1.5 D: on a full, unlocked day a saved item swaps in for an open task.
         swapTargets={swapTargets}
         onSwapParked={(parkedId, taskId) => {
-          const out = state.tasks.find((task) => task.id === taskId)?.text;
-          // Its timer goes with it (the store clears a session whose task leaves today): say so, as Not today does.
-          const timed = focusSessionRef.current?.taskId === taskId;
+          const timedBefore = focusSessionRef.current?.taskId === taskId;
           if (!swapParkedTask(parkedId, taskId)) return;
-          haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
           track("saved_swapped_in", { source: ideasSavedOnly ? "saved" : "ideas" });
-          const swapped = out ? `Swapped in. “${out}” is saved for later.` : "Swapped in.";
-          const message = timed ? `${swapped} Timer stopped.` : swapped;
-          AccessibilityInfo.announceForAccessibility(message);
-          showToast(message);
+          announceSwap(taskId, timedBefore);
         }}
         onLock={total > 0 ? confirmLock : undefined}
         routines={dueRoutines}

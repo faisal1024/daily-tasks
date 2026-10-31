@@ -17,10 +17,11 @@ import { useColors } from "@/hooks/use-colors";
 import { showActionSheet } from "@/lib/daily-tasks/action-sheet";
 import { suggestionsHint } from "@/lib/daily-tasks/ai-status";
 import { routineBlock, routineBlockedLine } from "@/lib/daily-tasks/routines";
-import { askSwapTarget, SwapChoices, type SwapTarget } from "./swap-choices";
 import { SAVED_DATE_TIP, SAVED_DATE_TIP_DISMISS } from "@/lib/daily-tasks/saved-date-tip";
 import type { TaskWhen } from "@/lib/daily-tasks/types";
 import { THINKING_HINT_DELAY_MS, type IdeasSource } from "@/lib/daily-tasks/today-view";
+
+import { SWAP_HINT, SwapChoices, useSwapChooser, type SwapTarget } from "./swap-choices";
 
 export interface IdeaItem {
   id: string;
@@ -170,17 +171,8 @@ export function IdeasSheet({
   const canSwap = full && !locked && Boolean(onSwapParked) && swapTargets.length > 0;
   // The same for a routine due today (1.6.1).
   const routineSwap = full && !locked && Boolean(onSwapRoutine) && swapTargets.length > 0;
-  // Android: the choice opens under the item (an alert has room for three
-  // buttons, and three open tasks need a Cancel too).
-  const [swapChoosing, setSwapChoosing] = useState<string | null>(null);
-  useEffect(() => {
-    if (!visible || !canSwap) setSwapChoosing(null);
-  }, [visible, canSwap]);
-  const chooseSwap = (item: { id: string; text: string }) => {
-    if (!onSwapParked) return;
-    if (askSwapTarget(item.text, swapTargets, (taskId) => onSwapParked(item.id, taskId))) return;
-    setSwapChoosing((current) => (current === item.id ? null : item.id));
-  };
+  // iOS asks in a menu; Android opens the choices under the item.
+  const parkedSwap = useSwapChooser({ enabled: canSwap, targets: swapTargets, onSwap: onSwapParked, visible });
 
   // "Change day" on a dated saved item (1.6 F): a menu on iOS, choices under
   // the item on Android (like Swap in).
@@ -263,10 +255,10 @@ export function IdeasSheet({
         </View>
         {canSwap ? (
           <Pressable
-            onPress={() => chooseSwap(item)}
+            onPress={() => parkedSwap.press(item)}
             accessibilityRole="button"
             accessibilityLabel={`Swap in ${item.text}`}
-            accessibilityHint="Pick which of today's tasks it replaces"
+            accessibilityHint={SWAP_HINT}
             hitSlop={6}
             className="rounded-full px-3 justify-center"
             style={{ minHeight: 36, borderWidth: 1, borderColor: colors.primary }}
@@ -317,14 +309,11 @@ export function IdeasSheet({
           </View>
         </View>
       ) : null}
-      {canSwap && swapChoosing === item.id ? (
+      {parkedSwap.choosingId === item.id ? (
         <SwapChoices
           targets={swapTargets}
-          onPick={(taskId) => {
-            setSwapChoosing(null);
-            onSwapParked?.(item.id, taskId);
-          }}
-          onCancel={() => setSwapChoosing(null)}
+          onPick={(taskId) => parkedSwap.pick(item.id, taskId)}
+          onCancel={parkedSwap.cancel}
           testID={`swap-choices-${item.id}`}
         />
       ) : null}
@@ -402,6 +391,7 @@ export function IdeasSheet({
               onEdit={onManageRoutines}
               swapTargets={routineSwap ? swapTargets : []}
               onSwap={routineSwap ? onSwapRoutine : undefined}
+              visible={visible}
               blockedReason={routineBlockedLine(routineBlock({ locked, remainingSlots }), {
                 where: "ideas",
                 canSwap: routineSwap,
@@ -721,6 +711,7 @@ function TodaysRoutines({
   onEdit,
   swapTargets,
   onSwap,
+  visible,
 }: {
   routines: { id: string; text: string }[];
   onAdd?: (id: string) => void;
@@ -730,23 +721,14 @@ function TodaysRoutines({
   /** Today's open tasks a routine can swap with (empty: no swap). */
   swapTargets: SwapTarget[];
   onSwap?: (routineId: string, taskId: string) => void;
+  /** The sheet is open: Android's choices close with it. */
+  visible: boolean;
 }) {
   const colors = useColors();
   const canSwap = Boolean(onSwap) && swapTargets.length > 0;
   const disabled = blockedReason !== null && !canSwap;
-  // Android: the choice opens under the row.
-  const [choosing, setChoosing] = useState<string | null>(null);
-  useEffect(() => {
-    if (!canSwap) setChoosing(null);
-  }, [canSwap]);
-  const press = (routine: { id: string; text: string }) => {
-    if (!canSwap || !onSwap) {
-      onAdd?.(routine.id);
-      return;
-    }
-    if (askSwapTarget(routine.text, swapTargets, (taskId) => onSwap(routine.id, taskId))) return;
-    setChoosing((current) => (current === routine.id ? null : routine.id));
-  };
+  const swap = useSwapChooser({ enabled: canSwap, targets: swapTargets, onSwap, visible });
+  const press = (routine: SwapTarget) => (canSwap ? swap.press(routine) : onAdd?.(routine.id));
   return (
     <View className="gap-2" testID="todays-routines">
       <View className="flex-row items-center justify-between">
@@ -780,11 +762,7 @@ function TodaysRoutines({
             disabled={disabled}
             accessibilityRole="button"
             accessibilityLabel={canSwap ? `Swap in ${routine.text}` : `Add ${routine.text} to today`}
-            accessibilityHint={
-              canSwap
-                ? "Pick which of today's tasks it replaces"
-                : (blockedReason ?? "Adds this routine to today's three")
-            }
+            accessibilityHint={canSwap ? SWAP_HINT : (blockedReason ?? "Adds this routine to today's three")}
             accessibilityState={{ disabled }}
             className="rounded-2xl border p-4 flex-row items-center gap-3"
             style={{
@@ -800,21 +778,18 @@ function TodaysRoutines({
               {routine.text}
             </Text>
             {canSwap ? (
-              <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+              <Text className="text-sm font-semibold" style={{ color: colors.primary, flexShrink: 0 }}>
                 Swap in
               </Text>
             ) : (
               <Ionicons name="repeat" size={16} color={colors.muted} accessibilityElementsHidden importantForAccessibility="no" />
             )}
           </Pressable>
-          {canSwap && choosing === routine.id ? (
+          {swap.choosingId === routine.id ? (
             <SwapChoices
               targets={swapTargets}
-              onPick={(taskId) => {
-                setChoosing(null);
-                onSwap?.(routine.id, taskId);
-              }}
-              onCancel={() => setChoosing(null)}
+              onPick={(taskId) => swap.pick(routine.id, taskId)}
+              onCancel={swap.cancel}
               testID={`routine-swap-choices-${routine.id}`}
             />
           ) : null}

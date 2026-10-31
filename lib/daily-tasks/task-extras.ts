@@ -130,10 +130,12 @@ export function swapParkedTask(
 }
 
 /**
- * "Swap" on a routine (1.6.1): on a full, unlocked day a routine due today
- * takes an open task's place, in the same spot, and that task is saved for
- * later, the same as a saved item's "Swap in". Nothing changes on a locked
- * day, for a done task, or for a routine that isn't due or is already on today.
+ * "Swap" on a routine (1.6.1): a routine due today takes an open task's
+ * place, in the same spot, and that task is saved for later, the same as a
+ * saved item's "Swap in" (the screens offer it only on a full day). Nothing
+ * changes on a locked day, for a done task, or for a routine that isn't due or
+ * is already on today. A saved item with the routine's words goes, so it isn't
+ * on today and in Saved for later at once.
  */
 export function swapRoutineIntoToday(
   state: AppState,
@@ -148,8 +150,10 @@ export function swapRoutineIntoToday(
   const out = state.tasks[index];
   const tasks = state.tasks.slice();
   tasks[index] = { id: input.newId, text, createdAt: input.now, carriedOver: false, routineId: routine.id };
-  // The task that left is saved for later, with its date (1.6 F).
-  return parkTasks({ ...state, tasks }, [out.text], input.now, taskDates(out), { today: input.today, carried: true });
+  // The task that left is saved for later, with its date (1.6 F). Its words
+  // can't be the routine's (a routine with today's words isn't due).
+  const landed = unparkTexts({ ...state, tasks }, [text]);
+  return parkTasks(landed, [out.text], input.now, taskDates(out), { today: input.today, carried: true });
 }
 
 /** A task's carried date (1.6 F) in parkTasks' `dates` form, if it has one. */

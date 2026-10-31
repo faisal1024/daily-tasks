@@ -4,13 +4,12 @@
 // "Swap" instead (1.6.1): pick which open task makes way, and that one is
 // saved for later. On a set day the card is just its header and one line
 // (nothing to add until next time). Nothing is ever marked missed.
-import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useColors } from "@/hooks/use-colors";
 import { routineBlockedLine, type RoutineBlock } from "@/lib/daily-tasks/routines";
-import { askSwapTarget, SwapChoices, type SwapTarget } from "./swap-choices";
+import { SWAP_HINT, SwapChoices, useSwapChooser, type SwapTarget } from "./swap-choices";
 
 export function TodaysRoutinesCard({
   routines,
@@ -36,19 +35,8 @@ export function TodaysRoutinesCard({
   const disabled = blockedLine !== null && !canSwap;
   // A set day: no rows to look at, just when they'll be back.
   const rows = block === "set" ? [] : routines;
-  // Android: the choice opens under the row.
-  const [choosing, setChoosing] = useState<string | null>(null);
-  useEffect(() => {
-    if (!canSwap) setChoosing(null);
-  }, [canSwap]);
-  const press = (routine: { id: string; text: string }) => {
-    if (!canSwap || !onSwap) {
-      onAdd(routine.id);
-      return;
-    }
-    if (askSwapTarget(routine.text, swapTargets, (taskId) => onSwap(routine.id, taskId))) return;
-    setChoosing((current) => (current === routine.id ? null : routine.id));
-  };
+  const swap = useSwapChooser({ enabled: canSwap, targets: swapTargets, onSwap });
+  const press = (routine: SwapTarget) => (canSwap ? swap.press(routine) : onAdd(routine.id));
   return (
     <View
       className="rounded-3xl border px-4 pt-1 pb-2"
@@ -108,12 +96,8 @@ export function TodaysRoutinesCard({
               onPress={() => press(routine)}
               disabled={disabled}
               accessibilityRole="button"
-              accessibilityLabel={canSwap ? `Swap ${routine.text} into today` : `Add ${routine.text} to today`}
-              accessibilityHint={
-                canSwap
-                  ? "Pick which of today's tasks it replaces"
-                  : (blockedLine ?? "Adds this routine to today's three")
-              }
+              accessibilityLabel={canSwap ? `Swap in ${routine.text}` : `Add ${routine.text} to today`}
+              accessibilityHint={canSwap ? SWAP_HINT : (blockedLine ?? "Adds this routine to today's three")}
               accessibilityState={{ disabled }}
               className="flex-row items-center justify-center gap-1 rounded-full px-3.5"
               style={{
@@ -137,15 +121,12 @@ export function TodaysRoutinesCard({
               </Text>
             </Pressable>
           </View>
-          {canSwap && choosing === routine.id ? (
+          {swap.choosingId === routine.id ? (
             <View className="pb-2">
               <SwapChoices
                 targets={swapTargets}
-                onPick={(taskId) => {
-                  setChoosing(null);
-                  onSwap?.(routine.id, taskId);
-                }}
-                onCancel={() => setChoosing(null)}
+                onPick={(taskId) => swap.pick(routine.id, taskId)}
+                onCancel={swap.cancel}
                 testID={`today-routine-swap-choices-${routine.id}`}
               />
             </View>

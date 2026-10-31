@@ -567,16 +567,16 @@ describe("Today's routines card (1.3, PR #86)", () => {
     expect(addStretch()).not.toBeDisabled();
   });
 
-  const swapStretch = () => screen.getByRole("button", { name: "Swap Stretch into today" });
+  const swapStretch = () => screen.getByRole("button", { name: "Swap in Stretch" });
 
   it("today full (three picked, some open): Swap replaces Add (enabled, same look), with the swap line as one muted line", async () => {
-    const line = "Your three are picked. Swap one out to fit a routine in.";
+    const line = "Your three are picked. Swap one out to fit a routine.";
     mockStore = makeStore({ tasks: tasks("A", "B", "C"), routines: [stretch()] });
     await render(<HomeScreen />);
     expect(screen.getByTestId("today-routines-blocked")).toHaveTextContent(line);
     expect(screen.queryByRole("button", { name: "Add Stretch to today" })).toBeNull();
     expect(swapStretch()).not.toBeDisabled();
-    expect(swapStretch().props.accessibilityHint).toBe("Pick which of today's tasks it replaces");
+    expect(swapStretch().props.accessibilityHint).toBe("Choose which task it replaces. That task goes to Saved for later.");
     expect(within(swapStretch()).getByText("Swap")).toHaveStyle({ color: themeColors.primary.light });
     expect(within(swapStretch()).queryByText("Add")).toBeNull();
     // Nothing is added behind the user's back.
@@ -588,7 +588,7 @@ describe("Today's routines card (1.3, PR #86)", () => {
     await render(<HomeScreen />);
     expect(addStretch()).not.toBeDisabled();
     expect(within(addStretch()).getByText("Add")).toBeOnTheScreen();
-    expect(screen.queryByRole("button", { name: "Swap Stretch into today" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Swap in Stretch" })).toBeNull();
     expect(screen.queryByTestId("today-routines-blocked")).toBeNull();
   });
 
@@ -619,7 +619,7 @@ describe("Today's routines card (1.3, PR #86)", () => {
       await fireEvent.press(swapStretch());
       await act(async () => menu.mock.calls[1][1](1));
       expect(mockStore.swapRoutineIntoToday).toHaveBeenCalledWith("r1", "t2", "today");
-      const said = "Swapped in. “C” is saved for later.";
+      const said = "Swapped in. “C” is in Saved for later.";
       expect(announce).toHaveBeenCalledWith(said);
       expect(within(screen.getByTestId("today-toast")).getByText(said)).toBeOnTheScreen();
       announce.mockRestore();
@@ -681,7 +681,7 @@ describe("Today's routines card (1.3, PR #86)", () => {
     );
     expect(screen.queryByTestId("today-routine-r1")).toBeNull();
     expect(screen.queryByRole("button", { name: "Add Stretch to today" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Swap Stretch into today" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Swap in Stretch" })).toBeNull();
   });
 
   it("waits behind last night's draft on an empty morning, then shows once the draft is dismissed", async () => {

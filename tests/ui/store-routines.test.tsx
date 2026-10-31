@@ -131,6 +131,17 @@ describe("store: addRoutineToToday", () => {
     expect(trackedNames().filter((n) => n === "routine_added_today")).toHaveLength(1);
   });
 
+  it("takes a saved item with the routine's words out of Saved for later", async () => {
+    const { result } = await renderStore({
+      routines: [WALK],
+      tasks: [task("t0", "Read")],
+      parkedTasks: [{ id: "p1", text: "walk after lunch", parkedAt: "" }, { id: "p2", text: "Call Sam", parkedAt: "" }],
+    });
+    await act(async () => result.current.addRoutineToToday("r1", "ideas"));
+    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Read", "Walk after lunch"]);
+    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Call Sam"]);
+  });
+
   it.each([
     ["today is set", { tasks: [task("t0", "Read")], todayLocked: true, todayLockSource: "manual" as const }, "r1"],
     ["today already has three", { tasks: [task("a", "A"), task("b", "B"), task("c", "C")] }, "r1"],
