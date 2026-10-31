@@ -312,6 +312,14 @@ describe("routineBlockedLine: one copy for Today and Ideas", () => {
     expect(routineBlockedLine("set", { where: "ideas" })).toBe("Today is locked. Unlock it to add one.");
     expect(routineBlockedLine(null, { where: "today" })).toBeNull();
   });
+
+  it("a full day with a task to swap out says to swap (1.6.1); locked ignores canSwap", () => {
+    const swapLine = "Your three are picked. Swap one out to fit a routine in.";
+    expect(routineBlockedLine("full", { where: "today", canSwap: true })).toBe(swapLine);
+    expect(routineBlockedLine("full", { where: "ideas", canSwap: true })).toBe(swapLine);
+    expect(routineBlockedLine("full", { where: "today", canSwap: false })).toBe("Your three are picked. Free a slot to add one.");
+    expect(routineBlockedLine("set", { where: "today", canSwap: true })).toBe("Today is locked. Your routines will be here next time.");
+  });
 });
 
 describe("the next day a routine shows", () => {
