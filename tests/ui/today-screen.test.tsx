@@ -7,7 +7,6 @@ import {
   Alert,
   AppState as RNAppState,
   LayoutAnimation,
-  StyleSheet,
 } from "react-native";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 import { getByGestureTestId } from "react-native-gesture-handler/jest-utils";
@@ -225,6 +224,7 @@ function makeStore(overrides: Partial<AppState> = {}) {
     keepGoingFocusSession: jest.fn(),
     stopFocusSession: jest.fn(),
     addRoutineToToday: jest.fn(() => true),
+    swapRoutineIntoToday: jest.fn(() => true),
     addRoutine: jest.fn(() => "added"),
     canAddRoutine: true,
     updateRoutine: jest.fn(),
@@ -567,17 +567,105 @@ describe("Today's routines card (1.3, PR #86)", () => {
     expect(addStretch()).not.toBeDisabled();
   });
 
-  it("today full (three picked): still shown, Add off (muted, no extra fading) with the reason as its hint, one muted line", async () => {
-    const line = "Your three are picked. Free a slot to add one.";
+  const swapStretch = () => screen.getByRole("button", { name: "Swap in Stretch" });
+
+  it("today full (three picked, some open): Swap replaces Add (enabled, same look), with the swap line as one muted line", async () => {
+    const line = "Your three are picked. Swap one out to fit a routine.";
     mockStore = makeStore({ tasks: tasks("A", "B", "C"), routines: [stretch()] });
     await render(<HomeScreen />);
     expect(screen.getByTestId("today-routines-blocked")).toHaveTextContent(line);
-    expect(addStretch()).toBeDisabled();
-    expect(addStretch().props.accessibilityHint).toBe(line);
-    expect(StyleSheet.flatten(addStretch().props.style).opacity ?? 1).toBe(1);
-    expect(within(addStretch()).getByText("Add")).toHaveStyle({ color: themeColors.muted.light });
-    await fireEvent.press(addStretch());
+    expect(screen.queryByRole("button", { name: "Add Stretch to today" })).toBeNull();
+    expect(swapStretch()).not.toBeDisabled();
+    expect(swapStretch().props.accessibilityHint).toBe("Choose which task it replaces. That task goes to Saved for later.");
+    expect(within(swapStretch()).getByText("Swap")).toHaveStyle({ color: themeColors.primary.light });
+    expect(within(swapStretch()).queryByText("Add")).toBeNull();
+    // Nothing is added behind the user's back.
     expect(mockStore.addRoutineToToday).not.toHaveBeenCalled();
+  });
+
+  it("room left: still Add, no swap line", async () => {
+    mockStore = makeStore({ tasks: tasks("A", "B"), routines: [stretch()] });
+    await render(<HomeScreen />);
+    expect(addStretch()).not.toBeDisabled();
+    expect(within(addStretch()).getByText("Add")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Swap in Stretch" })).toBeNull();
+    expect(screen.queryByTestId("today-routines-blocked")).toBeNull();
+  });
+
+  describe("Swap on a full day", () => {
+    let menu: jest.SpyInstance;
+    beforeEach(() => {
+      menu = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+    });
+    afterEach(() => menu.mockRestore());
+
+    it("iOS: asks which open task it replaces (done ones aren't offered); the pick swaps, with a toast and announcement", async () => {
+      const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+      mockStore = makeStore({ tasks: tasks("A", "B", "C"), todayCompletions: ["t0"], routines: [stretch()] });
+      await render(<HomeScreen />);
+      await fireEvent.press(swapStretch());
+      expect(mockStore.swapRoutineIntoToday).not.toHaveBeenCalled();
+      expect(menu).toHaveBeenCalledTimes(1);
+      const [options, answer] = menu.mock.calls[0];
+      expect(options.title).toBe("Swap in “Stretch”");
+      expect(options.message).toBe("Which task should it replace? That one goes to Saved for later.");
+      expect(options.options).toEqual(["B", "C", "Cancel"]);
+      expect(options.cancelButtonIndex).toBe(2);
+      // Cancel swaps nothing and says nothing.
+      await act(async () => answer(2));
+      expect(mockStore.swapRoutineIntoToday).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("today-toast")).toBeNull();
+      // Picking "C".
+      await fireEvent.press(swapStretch());
+      await act(async () => menu.mock.calls[1][1](1));
+      expect(mockStore.swapRoutineIntoToday).toHaveBeenCalledWith("r1", "t2", "today");
+      const said = "Swapped in. “C” is in Saved for later.";
+      expect(announce).toHaveBeenCalledWith(said);
+      expect(within(screen.getByTestId("today-toast")).getByText(said)).toBeOnTheScreen();
+      announce.mockRestore();
+    });
+
+    it("a swap the store refuses (the day just changed) gets no toast and no announcement", async () => {
+      const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+      mockStore = makeStore({ tasks: tasks("A", "B", "C"), routines: [stretch()] });
+      mockStore.swapRoutineIntoToday.mockReturnValue(false);
+      await render(<HomeScreen />);
+      await fireEvent.press(swapStretch());
+      await act(async () => menu.mock.calls[0][1](0));
+      expect(mockStore.swapRoutineIntoToday).toHaveBeenCalledWith("r1", "t0", "today");
+      expect(screen.queryByTestId("today-toast")).toBeNull();
+      expect(announce).not.toHaveBeenCalledWith(expect.stringContaining("Swapped in"));
+      announce.mockRestore();
+    });
+
+    it("Android: the open tasks show under the row as buttons (with Cancel); the pick swaps", async () => {
+      const { Platform } = jest.requireActual("react-native");
+      const os = Platform.OS;
+      Platform.OS = "android";
+      try {
+        mockStore = makeStore({ tasks: tasks("A", "B", "C"), routines: [stretch()] });
+        await render(<HomeScreen />);
+        await fireEvent.press(swapStretch());
+        expect(menu).not.toHaveBeenCalled();
+        const choices = within(screen.getByTestId("today-routine-swap-choices-r1"));
+        expect(choices.getAllByRole("button").map((b) => b.props.accessibilityLabel)).toEqual([
+          "Replace A",
+          "Replace B",
+          "Replace C",
+          "Cancel",
+        ]);
+        await fireEvent.press(choices.getByRole("button", { name: "Cancel" }));
+        expect(screen.queryByTestId("today-routine-swap-choices-r1")).toBeNull();
+        await fireEvent.press(swapStretch());
+        await fireEvent.press(
+          within(screen.getByTestId("today-routine-swap-choices-r1")).getByRole("button", { name: "Replace B" }),
+        );
+        expect(mockStore.swapRoutineIntoToday).toHaveBeenCalledWith("r1", "t1", "today");
+        expect(screen.queryByTestId("today-routine-swap-choices-r1")).toBeNull();
+      } finally {
+        Platform.OS = os;
+      }
+    });
   });
 
   it.each([
@@ -593,6 +681,7 @@ describe("Today's routines card (1.3, PR #86)", () => {
     );
     expect(screen.queryByTestId("today-routine-r1")).toBeNull();
     expect(screen.queryByRole("button", { name: "Add Stretch to today" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Swap in Stretch" })).toBeNull();
   });
 
   it("waits behind last night's draft on an empty morning, then shows once the draft is dismissed", async () => {

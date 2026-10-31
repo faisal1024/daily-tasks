@@ -2,7 +2,7 @@
 // the routine editor's day picker, and Settings › Routines at the free limit.
 import { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AccessibilityInfo, Alert } from "react-native";
+import { AccessibilityInfo, ActionSheetIOS, Alert } from "react-native";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 
 import SettingsScreen from "@/app/(tabs)/settings";
@@ -106,6 +106,48 @@ describe("IdeasSheet: Today's routines", () => {
     expect(row.props.accessibilityHint).toBe(reason);
     await fireEvent.press(row);
     expect(p.onAddRoutine).not.toHaveBeenCalled();
+  });
+
+  describe("Swap in on a full day (1.6.1)", () => {
+    const TARGETS = [
+      { id: "t1", text: "Write" },
+      { id: "t2", text: "Plan" },
+    ];
+    const full = () => ({ ...props(), remainingSlots: 0, swapTargets: TARGETS, onSwapRoutine: jest.fn() });
+
+    it("the row reads Swap in (not disabled), says to swap, and the iOS menu's pick calls onSwapRoutine", async () => {
+      const menu = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+      const p = full();
+      await render(<IdeasSheet {...p} routines={ROUTINES} />);
+      expect(screen.getByTestId("todays-routines-blocked")).toHaveTextContent(
+        "Your three are picked. Swap one out to fit a routine.",
+      );
+      expect(screen.queryByRole("button", { name: "Add Stretch to today" })).toBeNull();
+      const row = screen.getByRole("button", { name: "Swap in Stretch" });
+      expect(row).not.toBeDisabled();
+      expect(within(row).getByText("Swap in")).toBeOnTheScreen();
+      await fireEvent.press(row);
+      expect(p.onAddRoutine).not.toHaveBeenCalled();
+      expect(p.onSwapRoutine).not.toHaveBeenCalled();
+      const [options, answer] = menu.mock.calls[0];
+      expect(options.options).toEqual(["Write", "Plan", "Cancel"]);
+      answer(1);
+      expect(p.onSwapRoutine).toHaveBeenCalledWith("r1", "t2");
+      expect(p.onSwapRoutine).toHaveBeenCalledTimes(1);
+      menu.mockRestore();
+    });
+
+    it("with no open task to swap out, or a locked day, the row stays the old disabled Add", async () => {
+      const p = full();
+      const { rerender } = await render(<IdeasSheet {...p} swapTargets={[]} routines={ROUTINES} />);
+      expect(screen.getByTestId("todays-routines-blocked")).toHaveTextContent(
+        "Your three are picked. Free a slot to add one.",
+      );
+      expect(screen.getByRole("button", { name: "Add Stretch to today" })).toBeDisabled();
+      await rerender(<IdeasSheet {...p} locked routines={ROUTINES} />);
+      expect(screen.getByRole("button", { name: "Add Stretch to today" })).toBeDisabled();
+      expect(screen.queryByRole("button", { name: "Swap in Stretch" })).toBeNull();
+    });
   });
 
   it("lists an idea with the same words as a due routine once, as the routine", async () => {

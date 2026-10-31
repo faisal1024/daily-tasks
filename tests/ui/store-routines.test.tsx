@@ -131,6 +131,17 @@ describe("store: addRoutineToToday", () => {
     expect(trackedNames().filter((n) => n === "routine_added_today")).toHaveLength(1);
   });
 
+  it("takes a saved item with the routine's words out of Saved for later", async () => {
+    const { result } = await renderStore({
+      routines: [WALK],
+      tasks: [task("t0", "Read")],
+      parkedTasks: [{ id: "p1", text: "walk after lunch", parkedAt: "" }, { id: "p2", text: "Call Sam", parkedAt: "" }],
+    });
+    await act(async () => result.current.addRoutineToToday("r1", "ideas"));
+    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Read", "Walk after lunch"]);
+    expect(result.current.state.parkedTasks.map((p) => p.text)).toEqual(["Call Sam"]);
+  });
+
   it.each([
     ["today is set", { tasks: [task("t0", "Read")], todayLocked: true, todayLockSource: "manual" as const }, "r1"],
     ["today already has three", { tasks: [task("a", "A"), task("b", "B"), task("c", "C")] }, "r1"],
@@ -185,6 +196,63 @@ describe("store: addRoutineToToday", () => {
     expect(landed).toBe(true);
     expect(result.current.state.tasks.map((t) => t.routineId)).toEqual(["r1"]);
     expect(trackedNames().filter((n) => n === "routine_added_today")).toHaveLength(2);
+  });
+});
+
+describe("store: swapRoutineIntoToday (1.6.1)", () => {
+  const THREE = [task("t0", "Read"), task("t1", "Write"), task("t2", "Plan")];
+
+  it("a due routine takes an open task's spot; that task is saved for later; today's record and analytics follow", async () => {
+    const { result } = await renderStore({ routines: [WALK], tasks: THREE });
+    expect(due(result.current)).toEqual(["r1"]);
+    let landed: boolean | undefined;
+    await act(async () => {
+      landed = result.current.swapRoutineIntoToday("r1", "t1", "today");
+    });
+    expect(landed).toBe(true);
+    const { tasks, parkedTasks, history } = result.current.state;
+    expect(tasks.map((t) => t.text)).toEqual(["Read", "Walk after lunch", "Plan"]);
+    expect(tasks[1]).toMatchObject({ routineId: "r1", carriedOver: false });
+    expect(tasks[1].id).not.toBe("t1");
+    expect(parkedTasks.map((p) => p.text)).toEqual(["Write"]);
+    // Today's history row follows the new list (it feeds the day's total and review).
+    expect(history[THU].tasks.map((t) => t.text)).toEqual(["Read", "Walk after lunch", "Plan"]);
+    expect(history[THU].total).toBe(3);
+    expect(due(result.current)).toEqual([]);
+    expect((track as jest.Mock).mock.calls.filter(([name]) => name === "routine_swapped_in")).toEqual([
+      ["routine_swapped_in", { source: "today" }],
+    ]);
+  });
+
+  it.each([
+    ["today is set", { todayLocked: true, todayLockSource: "manual" as const }, "t1"],
+    ["the task is done", { todayCompletions: ["t1"] }, "t1"],
+    ["the task isn't on today", {}, "nope"],
+  ])("is refused when %s: false, no change, nothing tracked", async (_label, saved, taskId) => {
+    const { result } = await renderStore({ routines: [WALK], tasks: THREE, ...saved });
+    const before = result.current.state;
+    let landed: boolean | undefined;
+    await act(async () => {
+      landed = result.current.swapRoutineIntoToday("r1", taskId, "ideas");
+    });
+    expect(landed).toBe(false);
+    expect(result.current.state).toBe(before);
+    expect(trackedNames()).not.toContain("routine_swapped_in");
+  });
+
+  it("two taps in one frame on the same task: one swap, one event", async () => {
+    const { result } = await renderStore({
+      routines: [WALK, routine("r2", "Stretch", [4])],
+      tasks: THREE,
+    });
+    const landed: boolean[] = [];
+    await act(async () => {
+      landed.push(result.current.swapRoutineIntoToday("r1", "t1", "today"));
+      landed.push(result.current.swapRoutineIntoToday("r2", "t1", "today"));
+    });
+    expect(landed).toEqual([true, false]);
+    expect(result.current.state.tasks.map((t) => t.text)).toEqual(["Read", "Walk after lunch", "Plan"]);
+    expect(trackedNames().filter((n) => n === "routine_swapped_in")).toHaveLength(1);
   });
 });
 

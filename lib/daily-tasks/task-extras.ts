@@ -2,6 +2,7 @@
 // Kept out of the React store so they're unit-tested directly.
 
 import { isDateKey, isOverdue, localDayOf, normalizeWhen, parseLocalWhen } from "./resurface";
+import { routinesDueToday } from "./routines";
 import type { AppState, ParkedTask, Task, TaskStep, TaskWhen } from "./types";
 import { MAX_PARKED_TASKS, MAX_TASKS } from "./types";
 
@@ -126,6 +127,33 @@ export function swapParkedTask(
   const swapped = { ...removeParkedTask(state, parked.id), tasks };
   // The task that left is saved for later (parkTasks skips what's still on today).
   return parkTasks(swapped, [out.text], input.now, taskDates(out), { today: input.today, carried: true });
+}
+
+/**
+ * "Swap" on a routine (1.6.1): a routine due today takes an open task's
+ * place, in the same spot, and that task is saved for later, the same as a
+ * saved item's "Swap in" (the screens offer it only on a full day). Nothing
+ * changes on a locked day, for a done task, or for a routine that isn't due or
+ * is already on today. A saved item with the routine's words goes, so it isn't
+ * on today and in Saved for later at once.
+ */
+export function swapRoutineIntoToday(
+  state: AppState,
+  input: { routineId: string; taskId: string; now: string; newId: string; today: string },
+): AppState {
+  if (state.todayLocked) return state;
+  const index = state.tasks.findIndex((task) => task.id === input.taskId);
+  if (index < 0 || state.todayCompletions.includes(input.taskId)) return state;
+  const routine = routinesDueToday(state.routines, state.tasks, input.today).find((r) => r.id === input.routineId);
+  const text = routine?.text.trim();
+  if (!routine || !text) return state;
+  const out = state.tasks[index];
+  const tasks = state.tasks.slice();
+  tasks[index] = { id: input.newId, text, createdAt: input.now, carriedOver: false, routineId: routine.id };
+  // The task that left is saved for later, with its date (1.6 F). Its words
+  // can't be the routine's (a routine with today's words isn't due).
+  const landed = unparkTexts({ ...state, tasks }, [text]);
+  return parkTasks(landed, [out.text], input.now, taskDates(out), { today: input.today, carried: true });
 }
 
 /** A task's carried date (1.6 F) in parkTasks' `dates` form, if it has one. */

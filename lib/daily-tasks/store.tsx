@@ -103,6 +103,7 @@ import {
   removeParkedTask,
   setParkedWhen,
   swapParkedTask,
+  swapRoutineIntoToday,
   taskDates,
   unparkTexts,
   setTaskSteps,
@@ -287,6 +288,7 @@ type Action =
   | { type: "setRoutinePaused"; id: string; paused: boolean }
   | { type: "removeRoutine"; id: string }
   | { type: "addRoutineToToday"; id: string; today: string }
+  | { type: "swapRoutineIntoToday"; routineId: string; taskId: string; today: string; at: string; newId: string }
   | {
       type: "setTaskSteps";
       taskId: TaskId;
@@ -759,6 +761,16 @@ function reduce(state: AppState, action: Action): AppState {
       return state.routines.some((r) => r.id === action.id)
         ? { ...state, routines: state.routines.filter((r) => r.id !== action.id) }
         : state;
+    case "swapRoutineIntoToday": {
+      const swapped = swapRoutineIntoToday(state, {
+        routineId: action.routineId,
+        taskId: action.taskId,
+        now: action.at,
+        newId: action.newId,
+        today: action.today,
+      });
+      return swapped === state ? state : syncTodayHistory(swapped, action.today);
+    }
     case "addRoutineToToday": {
       // Same room and lock rules as an idea or a saved item, and only a
       // routine that's due today and not already on the list.
@@ -767,7 +779,9 @@ function reduce(state: AppState, action: Action): AppState {
         (r) => r.id === action.id,
       );
       if (!routine) return state;
-      return reducer(state, { type: "addTask", text: routine.text, today: action.today, routineId: routine.id });
+      const added = reducer(state, { type: "addTask", text: routine.text, today: action.today, routineId: routine.id });
+      // A saved item with its words goes: it's on today now (like Swap).
+      return added === state ? state : unparkTexts(added, [routine.text]);
     }
     // Step changes also sync today's history record: tomorrow's carry-over is
     // built from it, so it must hold the current steps and their progress.
@@ -1472,6 +1486,11 @@ interface StoreContextValue {
    * it landed. `source`: where it was tapped (Today's card or the Ideas sheet).
    */
   addRoutineToToday: (id: string, source: RoutineAddSource) => boolean;
+  /**
+   * "Swap" (1.6.1): on a full, unlocked day a routine due today takes an open
+   * task's place; that task is saved for later. True when it happened.
+   */
+  swapRoutineIntoToday: (routineId: string, taskId: string, source: RoutineAddSource) => boolean;
   setTaskSteps: (taskId: TaskId, texts: string[], forText?: string) => void;
   toggleTaskStep: (taskId: TaskId, stepId: string) => void;
   clearTaskSteps: (taskId: TaskId) => void;
@@ -2605,6 +2624,24 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     },
     [ensureDay],
   );
+  const swapRoutineIntoTodayCb = useCallback(
+    (routineId: string, taskId: string, source: RoutineAddSource): boolean => {
+      const today = ensureDay();
+      const at = new Date().toISOString();
+      const newId = makeId();
+      // Same as swapParkedTask: judged on the latest state, shared swapRef.
+      const rendered = stateRef.current;
+      const current = swapRef.current && swapRef.current.from === rendered ? swapRef.current.to : rendered;
+      if (current.lastOpenedDate !== today) return false;
+      const next = swapRoutineIntoToday(current, { routineId, taskId, now: at, newId, today });
+      if (next === current) return false;
+      swapRef.current = { from: rendered, to: next };
+      dispatch({ type: "swapRoutineIntoToday", routineId, taskId, today, at, newId });
+      track("routine_swapped_in", { source });
+      return true;
+    },
+    [ensureDay],
+  );
   // Routines as of the last add, before React has rendered it: a
   // double-tapped Save must see the first one (and be refused).
   const routinesRef = useRef(state.routines);
@@ -3189,6 +3226,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setRoutinePaused,
       removeRoutine,
       addRoutineToToday,
+      swapRoutineIntoToday: swapRoutineIntoTodayCb,
       setTaskSteps: setTaskStepsCb,
       toggleTaskStep: toggleTaskStepCb,
       clearTaskSteps: clearTaskStepsCb,
@@ -3290,6 +3328,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       setParkedWhenCb,
       addParkedTask,
       swapParkedTaskCb,
+      swapRoutineIntoTodayCb,
       addRoutine,
       canAddRoutine,
       updateRoutine,

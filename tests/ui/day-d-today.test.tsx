@@ -754,7 +754,7 @@ describe("Saved for later: Swap in", () => {
     expect(screen.getByRole("checkbox", { name: /Task 1: Walk/ })).toBeOnTheScreen();
     expect(screen.getByRole("checkbox", { name: /Task 2: Zulu/ })).toBeOnTheScreen();
     expect(screen.getByRole("checkbox", { name: /Task 3: Hydrate/ })).toBeOnTheScreen();
-    expect(within(screen.getByTestId("today-toast")).getByText(/Swapped in\. .Stretch. is saved for later\./)).toBeOnTheScreen();
+    expect(within(screen.getByTestId("today-toast")).getByText(/Swapped in\. .Stretch. is in Saved for later\./)).toBeOnTheScreen();
     expect(eventsNamed("saved_swapped_in")).toEqual([{ source: "saved" }]);
     expect((Haptics.impactAsync as jest.Mock).mock.calls.map(([style]) => style)).toEqual(["light"]);
     // The old one is now the saved item, and Walk (done) stayed done.
@@ -801,7 +801,7 @@ describe("Saved for later: Swap in", () => {
     expect(screen.getByRole("checkbox", { name: /Task 2: Zulu/ })).toBeOnTheScreen();
     expect(JSON.parse((await AsyncStorage.getItem(KEY)) ?? "{}").focusSession).toBeNull();
     // Said, like Not today.
-    expect(within(screen.getByTestId("today-toast")).getByText(/Swapped in\. .Stretch. is saved for later\. Timer stopped\./)).toBeOnTheScreen();
+    expect(within(screen.getByTestId("today-toast")).getByText(/Swapped in\. .Stretch. is in Saved for later\. Timer stopped\./)).toBeOnTheScreen();
   });
 
   it("not offered on a locked day, nor when every task is done", async () => {
@@ -847,6 +847,95 @@ describe("Saved for later: Swap in", () => {
     await fireEvent.press(within(screen.getByTestId("swap-choices-p1")).getByRole("button", { name: "Replace Hydrate" }));
     await flush();
     expect(screen.getByRole("checkbox", { name: /Task 3: Zulu/ })).toBeOnTheScreen();
+  });
+});
+
+describe("Today's routines: Swap on a full day (1.6.1)", () => {
+  // TODAY (Monday 26 Oct 2026) is local weekday 1.
+  const MEDITATE = { id: "r1", text: "Meditate", days: [1], paused: false, createdAt: "2026-10-01T08:00:00.000Z" };
+  let menu: jest.SpyInstance;
+  beforeEach(() => {
+    menu = jest.spyOn(ActionSheetIOS, "showActionSheetWithOptions").mockImplementation(() => {});
+  });
+  const swapButton = () => screen.getByRole("button", { name: "Swap in Meditate" });
+
+  it("the pick keeps its spot with the routine's words, the old task is saved for later, today's record follows", async () => {
+    await openToday({ routines: [MEDITATE], todayCompletions: ["t0"] });
+    await fireEvent.press(swapButton());
+    const [options, answer] = menu.mock.calls[0];
+    expect(options.options).toEqual(["Stretch", "Hydrate", "Cancel"]);
+    await act(async () => answer(0));
+    await flush();
+    await advance(1000);
+    expect(screen.getByRole("checkbox", { name: /Task 1: Walk/ }).props.accessibilityState.checked).toBe(true);
+    expect(screen.getByRole("checkbox", { name: /Task 2: Meditate/ })).toBeOnTheScreen();
+    expect(screen.getByRole("checkbox", { name: /Task 3: Hydrate/ })).toBeOnTheScreen();
+    expect(within(screen.getByTestId("today-toast")).getByText(/Swapped in\. .Stretch. is in Saved for later\./)).toBeOnTheScreen();
+    expect(eventsNamed("routine_swapped_in")).toEqual([{ source: "today" }]);
+    expect((Haptics.impactAsync as jest.Mock).mock.calls.map(([style]) => style)).toEqual(["light"]);
+    // The routine is on today now, so its card is gone; Stretch is in Saved for later.
+    expect(screen.queryByTestId("today-routines")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Saved for later, 1 item/ })).toBeOnTheScreen();
+    const saved = JSON.parse((await AsyncStorage.getItem(KEY)) ?? "{}") as AppState;
+    expect(saved.tasks.map((t) => [t.text, t.routineId ?? null])).toEqual([
+      ["Walk", null],
+      ["Meditate", "r1"],
+      ["Hydrate", null],
+    ]);
+    expect(saved.parkedTasks.map((p) => p.text)).toEqual(["Stretch"]);
+    expect(saved.history[TODAY].tasks.map((t) => t.text)).toEqual(["Walk", "Meditate", "Hydrate"]);
+  });
+
+  it("a running focus timer on the task that left is stopped, and the toast says so", async () => {
+    const now = START.getTime();
+    await openToday({
+      routines: [MEDITATE],
+      focusSession: {
+        id: "s1",
+        taskId: "t1",
+        taskText: "Stretch",
+        stepText: null,
+        date: TODAY,
+        kind: "timer",
+        durationMs: 600_000,
+        startedAt: now,
+        endAt: now + 600_000,
+        pausedRemainingMs: null,
+        status: "running",
+      },
+    } as Partial<AppState>);
+    await fireEvent.press(swapButton());
+    await act(async () => menu.mock.calls[0][1](1));
+    await flush();
+    await advance(1000);
+    expect(screen.getByRole("checkbox", { name: /Task 2: Meditate/ })).toBeOnTheScreen();
+    expect(JSON.parse((await AsyncStorage.getItem(KEY)) ?? "{}").focusSession).toBeNull();
+    expect(
+      within(screen.getByTestId("today-toast")).getByText(/Swapped in\. .Stretch. is in Saved for later\. Timer stopped\./),
+    ).toBeOnTheScreen();
+  });
+
+  it("swapping out a task with steps says its steps were cleared", async () => {
+    const stretch = { ...STRETCH, steps: [{ id: "s1", text: "Reach up", done: false }] };
+    await openToday({ routines: [MEDITATE], tasks: [WALK, stretch, HYDRATE] });
+    await fireEvent.press(swapButton());
+    const [options, answer] = menu.mock.calls[0];
+    await act(async () => answer(options.options.indexOf("Stretch")));
+    await flush();
+    await advance(1000);
+    expect(
+      within(screen.getByTestId("today-toast")).getByText(/Swapped in\. .Stretch. is in Saved for later\. Its steps were cleared\./),
+    ).toBeOnTheScreen();
+  });
+
+  it("a locked day stays as it was: no Swap or Add rows, just the locked line", async () => {
+    await openToday({ routines: [MEDITATE], todayLocked: true, todayLockSource: "manual" });
+    expect(screen.queryByRole("button", { name: "Swap in Meditate" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add Meditate to today" })).toBeNull();
+    expect(screen.getByTestId("today-routines-blocked")).toHaveTextContent(
+      "Today is locked. Your routines will be here next time.",
+    );
+    expect(menu).not.toHaveBeenCalled();
   });
 });
 
