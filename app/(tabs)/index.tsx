@@ -253,6 +253,7 @@ export default function HomeScreen() {
     swapParkedTask,
     updateMomentumProfile,
     addRoutineToToday,
+    swapRoutineIntoToday,
     setTaskSteps,
     toggleTaskStep,
     clearTaskSteps,
@@ -643,6 +644,24 @@ export default function HomeScreen() {
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     // The row just disappears: say what happened.
     if (text) AccessibilityInfo.announceForAccessibility(`Added ${text} to today`);
+  };
+  // Today's open tasks: on a full day, what a saved item or a routine can swap with.
+  const swapTargets = state.tasks
+    .filter((task) => !isCompleted(task.id))
+    .map((task) => ({ id: task.id, text: task.text }));
+  // "Swap" on a routine (1.6.1): it takes an open task's place; that one is saved for later.
+  const handleSwapRoutine = (routineId: string, taskId: string, source: RoutineAddSource) => {
+    const out = state.tasks.find((task) => task.id === taskId)?.text;
+    // Its timer goes with it (the store clears a session whose task leaves today): say so, as Not today does.
+    const timed = focusSessionRef.current?.taskId === taskId;
+    const lastOnCard = showRoutinesCard && dueRoutines.length === 1 && dueRoutines[0].id === routineId;
+    if (lastOnCard && !reduceMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (!swapRoutineIntoToday(routineId, taskId, source)) return;
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+    const swapped = out ? `Swapped in. “${out}” is saved for later.` : "Swapped in.";
+    const message = timed ? `${swapped} Timer stopped.` : swapped;
+    AccessibilityInfo.announceForAccessibility(message);
+    showToast(message);
   };
   const coachDue = coachAi && needsCoachRequest(state.coachNotes, today, coachTexts);
   // A ref, not just state: re-renders mid-request must never start a second call.
@@ -2134,6 +2153,8 @@ export default function HomeScreen() {
                   block={routinesBlock}
                   onAdd={(id) => handleAddRoutine(id, "today")}
                   onEdit={() => setRoutinesOpen(true)}
+                  swapTargets={state.todayLocked ? [] : swapTargets}
+                  onSwap={(routineId, taskId) => handleSwapRoutine(routineId, taskId, "today")}
                 />
               )}
               {/* A full or locked day hides the ideas entry, but saved items
@@ -2459,7 +2480,7 @@ export default function HomeScreen() {
         dayChoices={whenChoices(today)}
         onSetParkedWhen={setParkedWhen}
         // 1.5 D: on a full, unlocked day a saved item swaps in for an open task.
-        swapTargets={state.tasks.filter((task) => !isCompleted(task.id)).map((task) => ({ id: task.id, text: task.text }))}
+        swapTargets={swapTargets}
         onSwapParked={(parkedId, taskId) => {
           const out = state.tasks.find((task) => task.id === taskId)?.text;
           // Its timer goes with it (the store clears a session whose task leaves today): say so, as Not today does.
@@ -2475,6 +2496,7 @@ export default function HomeScreen() {
         onLock={total > 0 ? confirmLock : undefined}
         routines={dueRoutines}
         onAddRoutine={(id) => handleAddRoutine(id, "ideas")}
+        onSwapRoutine={(routineId, taskId) => handleSwapRoutine(routineId, taskId, "ideas")}
         locked={state.todayLocked}
         hasRoutines={state.routines.length > 0}
         onManageRoutines={openRoutinesFromIdeas}

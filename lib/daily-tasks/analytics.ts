@@ -72,6 +72,8 @@ export type AnalyticsEvent =
   | "trial_note_dismissed"
   | "routine_created"
   | "routine_added_today"
+  // 1.6.1: a routine swapped in for an open task on a full day (source "today" | "ideas").
+  | "routine_swapped_in"
   | "routine_limit_hit"
   | "routines_card_shown"
   | "milestone_idea_added"

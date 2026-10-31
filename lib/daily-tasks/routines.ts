@@ -163,6 +163,9 @@ export function routineBlock(input: { locked: boolean; remainingSlots: number })
   return null;
 }
 
+/** Under "Today's routines" on a full day that has an open task to swap out. */
+export const ROUTINE_SWAP_LINE = "Your three are picked. Swap one out to fit a routine in.";
+
 /** Where a routines list is shown: Today's card or the Ideas sheet. */
 export type RoutinesWhere = "today" | "ideas";
 
@@ -172,13 +175,17 @@ export type RoutinesWhere = "today" | "ideas";
  * the card to this line (nothing to add until next time), while Ideas says to
  * unlock it (the Unlock tap is on Today's status line since 1.5).
  */
-export function routineBlockedLine(block: RoutineBlock, options: { where: RoutinesWhere }): string | null {
+export function routineBlockedLine(
+  block: RoutineBlock,
+  options: { where: RoutinesWhere; canSwap?: boolean },
+): string | null {
   if (block === "set") {
     return options.where === "today"
       ? "Today is locked. Your routines will be here next time."
       : "Today is locked. Unlock it to add one.";
   }
-  if (block === "full") return "Your three are picked. Free a slot to add one.";
+  // A full day with an open task: each routine offers "Swap" instead (1.6.1).
+  if (block === "full") return options.canSwap ? ROUTINE_SWAP_LINE : "Your three are picked. Free a slot to add one.";
   return null;
 }
 

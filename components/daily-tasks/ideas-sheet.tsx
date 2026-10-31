@@ -17,6 +17,7 @@ import { useColors } from "@/hooks/use-colors";
 import { showActionSheet } from "@/lib/daily-tasks/action-sheet";
 import { suggestionsHint } from "@/lib/daily-tasks/ai-status";
 import { routineBlock, routineBlockedLine } from "@/lib/daily-tasks/routines";
+import { askSwapTarget, SwapChoices, type SwapTarget } from "./swap-choices";
 import { SAVED_DATE_TIP, SAVED_DATE_TIP_DISMISS } from "@/lib/daily-tasks/saved-date-tip";
 import type { TaskWhen } from "@/lib/daily-tasks/types";
 import { THINKING_HINT_DELAY_MS, type IdeasSource } from "@/lib/daily-tasks/today-view";
@@ -82,6 +83,11 @@ interface IdeasSheetProps {
   /** Routines due today and not on today's list yet (1.3). Nothing shows when empty. */
   routines?: { id: string; text: string }[];
   onAddRoutine?: (id: string) => void;
+  /**
+   * "Swap" on a routine (1.6.1): on a full, unlocked day a routine takes one
+   * of `swapTargets`' place; that task is saved for later.
+   */
+  onSwapRoutine?: (routineId: string, taskId: string) => void;
   /** Today is locked: nothing can be added until it's unlocked. */
   locked?: boolean;
   /** The user has routines (due today or not); without any, a quiet footer offers one. */
@@ -105,7 +111,7 @@ interface IdeasSheetProps {
 const keyOf = (text: string) => text.trim().toLowerCase();
 
 /** "Swap in" asks which of today's open tasks makes way (1.5 D). */
-export const SWAP_IN_QUESTION = "Which task should it replace? That one goes to Saved for later.";
+export { SWAP_IN_QUESTION } from "./swap-choices";
 
 export function IdeasSheet({
   visible,
@@ -135,6 +141,7 @@ export function IdeasSheet({
   onLock,
   routines = [],
   onAddRoutine,
+  onSwapRoutine,
   locked = false,
   hasRoutines = true,
   onManageRoutines,
@@ -161,6 +168,8 @@ export function IdeasSheet({
   const parkedBlocked = full || locked;
   // A full, unlocked day: a saved item can swap places with an open task (1.5 D).
   const canSwap = full && !locked && Boolean(onSwapParked) && swapTargets.length > 0;
+  // The same for a routine due today (1.6.1).
+  const routineSwap = full && !locked && Boolean(onSwapRoutine) && swapTargets.length > 0;
   // Android: the choice opens under the item (an alert has room for three
   // buttons, and three open tasks need a Cancel too).
   const [swapChoosing, setSwapChoosing] = useState<string | null>(null);
@@ -169,22 +178,7 @@ export function IdeasSheet({
   }, [visible, canSwap]);
   const chooseSwap = (item: { id: string; text: string }) => {
     if (!onSwapParked) return;
-    const targets = swapTargets;
-    if (Platform.OS === "ios") {
-      showActionSheet(
-        {
-          title: `Swap in “${item.text}”`,
-          message: SWAP_IN_QUESTION,
-          options: [...targets.map((t) => t.text), "Cancel"],
-          cancelButtonIndex: targets.length,
-        },
-        (index) => {
-          const target = targets[index];
-          if (target) onSwapParked(item.id, target.id);
-        },
-      );
-      return;
-    }
+    if (askSwapTarget(item.text, swapTargets, (taskId) => onSwapParked(item.id, taskId))) return;
     setSwapChoosing((current) => (current === item.id ? null : item.id));
   };
 
@@ -324,41 +318,15 @@ export function IdeasSheet({
         </View>
       ) : null}
       {canSwap && swapChoosing === item.id ? (
-        <View className="gap-2 px-1" testID={`swap-choices-${item.id}`}>
-          <Text className="text-sm" style={{ color: colors.muted }}>
-            {SWAP_IN_QUESTION}
-          </Text>
-          <View className="flex-row flex-wrap gap-2">
-            {swapTargets.map((target) => (
-              <Pressable
-                key={target.id}
-                onPress={() => {
-                  setSwapChoosing(null);
-                  onSwapParked?.(item.id, target.id);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`Replace ${target.text}`}
-                className="rounded-full px-3 justify-center"
-                style={{ minHeight: 44, borderWidth: 1, borderColor: colors.primary }}
-              >
-                <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
-                  {target.text}
-                </Text>
-              </Pressable>
-            ))}
-            <Pressable
-              onPress={() => setSwapChoosing(null)}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel"
-              className="rounded-full px-3 justify-center"
-              style={{ minHeight: 44 }}
-            >
-              <Text className="text-sm font-semibold" style={{ color: colors.muted }}>
-                Cancel
-              </Text>
-            </Pressable>
-          </View>
-        </View>
+        <SwapChoices
+          targets={swapTargets}
+          onPick={(taskId) => {
+            setSwapChoosing(null);
+            onSwapParked?.(item.id, taskId);
+          }}
+          onCancel={() => setSwapChoosing(null)}
+          testID={`swap-choices-${item.id}`}
+        />
       ) : null}
       </View>
     );
@@ -432,7 +400,12 @@ export function IdeasSheet({
               routines={shownRoutines}
               onAdd={onAddRoutine}
               onEdit={onManageRoutines}
-              blockedReason={routineBlockedLine(routineBlock({ locked, remainingSlots }), { where: "ideas" })}
+              swapTargets={routineSwap ? swapTargets : []}
+              onSwap={routineSwap ? onSwapRoutine : undefined}
+              blockedReason={routineBlockedLine(routineBlock({ locked, remainingSlots }), {
+                where: "ideas",
+                canSwap: routineSwap,
+              })}
             />
           )}
 
@@ -737,23 +710,43 @@ export function IdeasSheet({
 
 /**
  * Routines due today, at the top of the sheet. Same one-tap add as an idea;
- * when today is full or locked, the rows are disabled and say why. A routine
- * that isn't added simply isn't: nothing is marked missed.
+ * on a full, unlocked day each row swaps in instead (1.6.1: pick which open
+ * task makes way); when today is locked, the rows are disabled and say why.
+ * A routine that isn't added simply isn't: nothing is marked missed.
  */
 function TodaysRoutines({
   routines,
   onAdd,
   blockedReason,
   onEdit,
+  swapTargets,
+  onSwap,
 }: {
   routines: { id: string; text: string }[];
   onAdd?: (id: string) => void;
   blockedReason: string | null;
   /** Opens the routines sheet. */
   onEdit?: () => void;
+  /** Today's open tasks a routine can swap with (empty: no swap). */
+  swapTargets: SwapTarget[];
+  onSwap?: (routineId: string, taskId: string) => void;
 }) {
   const colors = useColors();
-  const disabled = blockedReason !== null;
+  const canSwap = Boolean(onSwap) && swapTargets.length > 0;
+  const disabled = blockedReason !== null && !canSwap;
+  // Android: the choice opens under the row.
+  const [choosing, setChoosing] = useState<string | null>(null);
+  useEffect(() => {
+    if (!canSwap) setChoosing(null);
+  }, [canSwap]);
+  const press = (routine: { id: string; text: string }) => {
+    if (!canSwap || !onSwap) {
+      onAdd?.(routine.id);
+      return;
+    }
+    if (askSwapTarget(routine.text, swapTargets, (taskId) => onSwap(routine.id, taskId))) return;
+    setChoosing((current) => (current === routine.id ? null : routine.id));
+  };
   return (
     <View className="gap-2" testID="todays-routines">
       <View className="flex-row items-center justify-between">
@@ -781,29 +774,51 @@ function TodaysRoutines({
         </Text>
       )}
       {routines.map((routine) => (
-        <Pressable
-          key={routine.id}
-          onPress={() => onAdd?.(routine.id)}
-          disabled={disabled}
-          accessibilityRole="button"
-          accessibilityLabel={`Add ${routine.text} to today`}
-          accessibilityHint={blockedReason ?? "Adds this routine to today's three"}
-          accessibilityState={{ disabled }}
-          className="rounded-2xl border p-4 flex-row items-center gap-3"
-          style={{
-            minHeight: 44,
-            backgroundColor: colors.surface,
-            borderColor: colors.border,
-            opacity: disabled ? 0.5 : 1,
-          }}
-          testID={`routine-suggestion-${routine.id}`}
-        >
-          <Ionicons name="add-circle-outline" size={26} color={colors.primary} />
-          <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "700" }}>
-            {routine.text}
-          </Text>
-          <Ionicons name="repeat" size={16} color={colors.muted} accessibilityElementsHidden importantForAccessibility="no" />
-        </Pressable>
+        <View key={routine.id} className="gap-2">
+          <Pressable
+            onPress={() => press(routine)}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel={canSwap ? `Swap in ${routine.text}` : `Add ${routine.text} to today`}
+            accessibilityHint={
+              canSwap
+                ? "Pick which of today's tasks it replaces"
+                : (blockedReason ?? "Adds this routine to today's three")
+            }
+            accessibilityState={{ disabled }}
+            className="rounded-2xl border p-4 flex-row items-center gap-3"
+            style={{
+              minHeight: 44,
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              opacity: disabled ? 0.5 : 1,
+            }}
+            testID={`routine-suggestion-${routine.id}`}
+          >
+            <Ionicons name={canSwap ? "swap-horizontal" : "add-circle-outline"} size={26} color={colors.primary} />
+            <Text className="flex-1 text-base text-foreground" style={{ fontWeight: "700" }}>
+              {routine.text}
+            </Text>
+            {canSwap ? (
+              <Text className="text-sm font-semibold" style={{ color: colors.primary }}>
+                Swap in
+              </Text>
+            ) : (
+              <Ionicons name="repeat" size={16} color={colors.muted} accessibilityElementsHidden importantForAccessibility="no" />
+            )}
+          </Pressable>
+          {canSwap && choosing === routine.id ? (
+            <SwapChoices
+              targets={swapTargets}
+              onPick={(taskId) => {
+                setChoosing(null);
+                onSwap?.(routine.id, taskId);
+              }}
+              onCancel={() => setChoosing(null)}
+              testID={`routine-swap-choices-${routine.id}`}
+            />
+          ) : null}
+        </View>
       ))}
     </View>
   );
