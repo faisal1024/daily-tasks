@@ -517,7 +517,7 @@ export function PaywallSheet({
           {/* Directly under the button: what it bills (App Review 3.1.2). */}
           {selected && (
             <Text
-              className="text-xs text-center"
+              className="text-sm text-center"
               style={{ color: colors.muted }}
               maxFontSizeMultiplier={FOOTER_MAX_FONT}
               testID="paywall-terms"

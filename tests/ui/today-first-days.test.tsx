@@ -197,8 +197,9 @@ describe("first run ends (1.5): each path", () => {
     expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 
-  it("using the picks: a double tap ends first run once; the toast and VoiceOver say 'Your three are picked.'", async () => {
-    mockStore = makeStore({ hasSeenOnboarding: false });
+  // 1.6.1: a free user gets the day-0 offer instead of this note (today-first-run.test.tsx); with Plus there's no offer.
+  it("using the picks (Plus): a double tap ends first run once; the toast and VoiceOver say 'Your three are picked.'", async () => {
+    mockStore = makeStore({ hasSeenOnboarding: false }, { hasPlus: true });
     await render(<HomeScreen />);
     await dump("walk, call mum, report");
     const use = button("Use these three");
@@ -219,8 +220,8 @@ describe("first run ends (1.5): each path", () => {
     expect(mockOpenPaywall).not.toHaveBeenCalled();
   });
 
-  it("two picks, and one pick, are named as they are", async () => {
-    mockStore = makeStore({ hasSeenOnboarding: false });
+  it("two picks, and one pick, are named as they are (Plus, no offer)", async () => {
+    mockStore = makeStore({ hasSeenOnboarding: false }, { hasPlus: true });
     await render(<HomeScreen />);
     await dump("walk, call mum, report");
     await fireEvent.press(screen.getByRole("checkbox", { name: "Report" }));

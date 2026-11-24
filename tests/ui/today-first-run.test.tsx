@@ -192,7 +192,8 @@ describe("Today: first run", () => {
     // Three screens (1.5): "Here are your three" is the last one.
     expect(mockStore.markOnboardingSeen).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId(/^first-run-/)).toBeNull();
-    expect(screen.getByTestId("today-toast")).toHaveTextContent(/Your two are picked\./);
+    // 1.6.1: a free user gets the day-0 offer instead (its headline says the count), so no toast.
+    expect(screen.queryByTestId("today-toast")).toBeNull();
     expect(track).toHaveBeenCalledWith("onboarding_completed", { source: "dump", count: 2 });
   });
 

@@ -35,10 +35,10 @@ Words already in the name and subtitle (three, today, adhd, to, do, list, brain,
 dump, 3, tasks, day) are left out on purpose: Apple indexes those already. No
 competitor names (guideline 2.3.7).
 
-## Promotional text (158 / 170)
+## Promotional text (167 / 170)
 
 ```
-Too much to do? Dump it all, pick three tasks for today, start a 5-minute focus timer. No overdue pile, no account, no ads. Free. An ADHD-friendly to-do list.
+Too much to do? Dump it all, pick three tasks for today, start a 5-minute focus timer. No overdue pile, no account, no ads. Free to start. An ADHD-friendly to-do list.
 ```
 
 ## Description

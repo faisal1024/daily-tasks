@@ -2784,11 +2784,12 @@ export default function HomeScreen() {
           // tasks (closable; first run only runs once). Showing it records
           // lastPaywallShownAt, so the aha paywall keeps its 24-hour gap.
           // The nudge and widget tip are Today cards from here.
-          if (paywallEnabled && !hasPlus && source === "dump" && picked > 0) {
-            showPaywall("onboarding", { afterSheet: true, taskCount: picked });
-          }
+          const offer = paywallEnabled && !hasPlus && source === "dump" && picked > 0;
+          if (offer) showPaywall("onboarding", { afterSheet: true, taskCount: picked });
           void saveFirstDays(startFirstDays(today)).then(() => setFirstDaysVersion((v) => v + 1));
-          const note = pickedNote(picked);
+          // The offer's headline already says the count, and it would cover
+          // (and cut off) this note: say it only when there's no offer.
+          const note = offer ? null : pickedNote(picked);
           if (note) {
             showToast(note);
             announceLater(note);
