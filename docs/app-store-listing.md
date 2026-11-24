@@ -1,9 +1,9 @@
 # App Store listing: Three Today (1.6.1)
 
-Everything to paste into App Store Connect for the first "Three Today" release
-(the first release with Plus). Character counts are checked against Apple's
-limits. The same copy is in `store.config.json` for `eas metadata:push`, except the
-1.5/1.6 What's New text and the review notes, which are only in this doc.
+Everything to paste into App Store Connect for the current release. Character
+counts are checked against Apple's limits. The same name, subtitle, keywords,
+promo text and description are in `store.config.json` (rebuilt by
+`scripts/build-store-config.py`); What's New for 1.5 onward is only in this doc.
 
 ## Name and subtitle
 
@@ -48,6 +48,8 @@ Your whole to-do list can wait. Today is three things.
 
 Three Today turns the pile in your head into the three tasks that matter today. Dump everything on your mind, by typing or talking, and get your three. The rest is saved for later, not stacked on top of tomorrow.
 
+Made to be ADHD-friendly: three tasks, no overdue pile, and a 5-minute focus timer to get you started. Three Today is a planning app, not a medical one. It doesn't diagnose or treat anything.
+
 EVERY DAY STARTS FRESH
 There's no overdue list and no red badges. Anything you didn't finish waits for one tap: bring it into today, or let it go.
 
@@ -61,9 +63,11 @@ MADE TO KEEP GOING
 • Streak freezes, so one missed day doesn't wipe out a good run.
 • A weekly review that shows what's working.
 • Home Screen and Lock Screen widgets.
+• A focus timer on your Lock Screen, from 5 minutes.
+• Routines that show up on their days. Skip one and nothing turns red.
 
 THREE TODAY PLUS
-Plus adds the AI helpers: AI brain dump sorting (3 free to try), Break it down (turn a stuck task into tiny steps), fresh AI ideas for your goal, a coach that drafts tomorrow in the evening, and planning around today's Calendar and Reminders. Your three tasks stay free forever.
+Plus adds the AI helpers: AI brain dump sorting (3 free to try), Break it down (turn a stuck task into tiny steps), Nag mode (reminders that keep at it, in the voice you pick), the Sunday reset (set up your week in two minutes), fresh AI ideas for your goal, a coach that drafts tomorrow in the evening, and planning around today's Calendar and Reminders. Your three tasks stay free forever.
 
 • Monthly and yearly plans include a free trial for new subscribers.
 • Payment is charged to your Apple ID at confirmation of purchase (or when the trial ends).
@@ -81,8 +85,8 @@ Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70
 ```
 A small update to make each day smoother:
 • Already picked your three? You can now swap a routine in for one of them.
-• Checkboxes and buttons have clearer contrast, so they're easier to see.
-• Better VoiceOver announcements.
+• Checkboxes, text boxes and choices have clearer outlines, and the green tick is easier to read.
+• VoiceOver now reads out more of what changes on screen.
 ```
 
 ## What's New in 1.6 (submitted 2026-10-29)
