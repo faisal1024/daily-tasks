@@ -254,7 +254,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
                   minHeight: 140,
                   textAlignVertical: "top",
                   borderWidth: 1,
-                  borderColor: colors.border,
+                  borderColor: colors.controlBorder,
                   backgroundColor: colors.surface,
                 }}
               />
@@ -310,7 +310,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
                       accessibilityHint={on ? "Untick to save it for later" : "Tick to do it today"}
                       className="flex-row items-center gap-3 rounded-2xl border p-4"
                       style={{
-                        borderColor: on ? colors.primary : colors.border,
+                        borderColor: on ? colors.primary : colors.controlBorder,
                         backgroundColor: on ? `${colors.primary}10` : colors.surface,
                       }}
                     >
@@ -357,7 +357,7 @@ export function FirstRun({ visible, onSort, onSet, onStep, onFinish, resumeCount
                   accessibilityLabel="What should we call you? Optional"
                   accessibilityLabelledBy="first-run-name-label"
                   className="text-base text-foreground rounded-2xl px-4 py-3"
-                  style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                  style={{ borderWidth: 1, borderColor: colors.controlBorder, backgroundColor: colors.surface }}
                   testID="first-run-name"
                 />
                 <Text className="text-sm" style={{ color: colors.muted }}>

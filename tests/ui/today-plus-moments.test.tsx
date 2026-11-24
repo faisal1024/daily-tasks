@@ -3,7 +3,7 @@
 // Same harness as today-screen.test.tsx: a controllable store, no native side
 // effects, the clock pinned (local-time dates, so every time zone agrees).
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Alert } from "react-native";
+import { AccessibilityInfo, Alert } from "react-native";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react-native";
 
 import HomeScreen from "@/app/(tabs)/index";
@@ -599,6 +599,19 @@ describe("The free Break it down try (1.5)", () => {
     expect(requestBreakDown).toHaveBeenCalledTimes(1);
     expect(mockOpenPaywall).toHaveBeenCalledTimes(2);
     alert.mockRestore();
+  });
+
+  it("announces 'Steps added' once on iOS for a Plus break-down, and 'Breaking it down' before it", async () => {
+    const announced = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions").mockImplementation(() => {});
+    (requestBreakDown as jest.Mock).mockResolvedValue(["Clear counter"]);
+    mockStore = storeFor({ ...SET, tasks: tasks("Clean kitchen") }, PLUS);
+    await render(<HomeScreen />);
+    const calls = () => announced.mock.calls.map((call) => call[0]).filter((text) => /Steps added|Breaking it down/.test(text));
+    expect(calls()).toEqual([]);
+    await pressBreakDown();
+    await waitFor(() => expect(mockStore.setTaskSteps).toHaveBeenCalled());
+    expect(calls()).toEqual(["Breaking it down", "Steps added"]);
+    announced.mockRestore();
   });
 
   it("is not a try for Plus: no badge, no claim, and it counts as Plus use", async () => {

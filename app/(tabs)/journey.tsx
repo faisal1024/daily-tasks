@@ -15,8 +15,12 @@ import { useColors } from "@/hooks/use-colors";
 import { stageForDays } from "@/lib/daily-tasks/journey";
 import { pickCelebration } from "@/lib/daily-tasks/milestones";
 import { track } from "@/lib/daily-tasks/analytics";
+import { announceLiveChange, announcePolitely } from "@/lib/daily-tasks/announce";
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { buildWeeklyReview } from "@/lib/daily-tasks/weekly-review";
+
+/** Lets the path editor's sheet close before "Finding a new path" is read out. */
+const FINDING_ANNOUNCE_DELAY_MS = 500;
 
 export default function JourneyScreen() {
   const colors = useColors();
@@ -44,10 +48,36 @@ export default function JourneyScreen() {
   // "Suggest a new path": show it's on its way, and say so if it didn't come.
   const findingPath = state.pathRefreshPending === true;
   const [pathNote, setPathNote] = useState<string | null>(null);
-  const wasFinding = useRef(false);
+  // Starts at the current value: a search already under way isn't news on opening.
+  const wasFinding = useRef(findingPath);
+  // "Suggest a new path" is confirmed in an Alert that also closes the path
+  // editor's Modal: said a moment later so the closing sheet doesn't cut it off.
+  const findingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (findingTimer.current) clearTimeout(findingTimer.current);
+    },
+    [],
+  );
   useEffect(() => {
+    // The live regions below only speak on Android: VoiceOver is told here.
+    if (!wasFinding.current && findingPath) {
+      if (findingTimer.current) clearTimeout(findingTimer.current);
+      findingTimer.current = setTimeout(() => {
+        findingTimer.current = null;
+        announceLiveChange("Finding a new path");
+      }, FINDING_ANNOUNCE_DELAY_MS);
+    }
     if (wasFinding.current && !findingPath) {
-      setPathNote(state.momentumPlanStatus === "error" ? "Couldn't get a new path. Your steps are unchanged." : null);
+      // Back already: "Finding…" would now come after the answer.
+      if (findingTimer.current) clearTimeout(findingTimer.current);
+      findingTimer.current = null;
+      const failed = state.momentumPlanStatus === "error";
+      const note = failed ? "Couldn't get a new path. Your steps are unchanged." : null;
+      setPathNote(note);
+      if (note) announceLiveChange(note);
+      // The new steps just replace the old ones: say so (no live region there).
+      else if (state.momentumPlanStatus === "ready") announcePolitely("Your new path is ready");
     }
     wasFinding.current = findingPath;
   }, [findingPath, state.momentumPlanStatus]);
@@ -257,7 +287,7 @@ export default function JourneyScreen() {
                       hitSlop={8}
                       testID={`milestone-done-${milestone.id}`}
                     >
-                      <Text className="text-sm font-bold" style={{ color: colors.success }}>
+                      <Text className="text-sm font-bold" style={{ color: colors.successInk }}>
                         Done
                       </Text>
                     </Pressable>

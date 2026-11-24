@@ -122,7 +122,7 @@ export function CompletionReflection({
             placeholderTextColor={colors.muted}
             multiline
             maxLength={160}
-            className="rounded-2xl border border-border bg-background p-3 text-base text-foreground min-h-20"
+            className="rounded-2xl border border-controlBorder bg-background p-3 text-base text-foreground min-h-20"
             style={{ color: colors.foreground, textAlignVertical: "top" }}
           />
           <View className="flex-row gap-3">

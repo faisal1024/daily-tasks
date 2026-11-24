@@ -176,7 +176,7 @@ export function OnboardingModal({
                   className="text-lg text-foreground rounded-2xl px-4 py-3"
                   style={{
                     borderWidth: 1,
-                    borderColor: colors.border,
+                    borderColor: colors.controlBorder,
                     backgroundColor: colors.surface,
                   }}
                 />
@@ -244,7 +244,7 @@ export function OnboardingModal({
                     className="text-base text-foreground rounded-xl px-3 py-3"
                     style={{
                       borderWidth: 1,
-                      borderColor: colors.border,
+                      borderColor: colors.controlBorder,
                       backgroundColor: colors.background,
                     }}
                   />
@@ -326,7 +326,7 @@ export function OnboardingModal({
                     className="text-base text-foreground rounded-xl px-3 py-3"
                     style={{
                       borderWidth: 1,
-                      borderColor: colors.border,
+                      borderColor: colors.controlBorder,
                       backgroundColor: colors.surface,
                       minHeight: 64,
                     }}

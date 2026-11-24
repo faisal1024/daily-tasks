@@ -69,6 +69,8 @@ export const PURCHASE_FAILED_MESSAGE = "The purchase didn't go through. If you w
 
 /** Said a moment after StoreKit's sheet goes, so its dismissal doesn't cut it off. */
 const NUDGE_ANNOUNCE_DELAY_MS = 500;
+/** The fixed buy footer's text stops growing here (the largest sizes would fill a 375-pt screen). */
+const FOOTER_MAX_FONT = 1.6;
 /** text-sm line height and the timeline dot, before Dynamic Type scaling. */
 const TIMELINE_LINE_HEIGHT = 20;
 const TIMELINE_DOT = 9;
@@ -271,7 +273,7 @@ export function PaywallSheet({
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: insets.bottom + 24, gap: 18 }}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 24, gap: 18 }}>
           <View className="gap-2 items-center">
             <View
               className="w-14 h-14 rounded-2xl items-center justify-center"
@@ -292,7 +294,8 @@ export function PaywallSheet({
           </View>
 
           <View className="gap-3">
-            {plusBenefitsFor(source).map((benefit) => (
+            {/* The lead benefit and three more: short enough that the plans are near the top. */}
+            {plusBenefitsFor(source).slice(0, 4).map((benefit) => (
               <View key={benefit.title} className="flex-row gap-3 items-start">
                 <Ionicons
                   name={benefit.icon as React.ComponentProps<typeof Ionicons>["name"]}
@@ -426,66 +429,6 @@ export function PaywallSheet({
             </View>
           )}
 
-          {message && (
-            <Text
-              className="text-sm text-center"
-              style={{ color: colors.muted }}
-              accessibilityLiveRegion="polite"
-              testID="paywall-message"
-            >
-              {message}
-            </Text>
-          )}
-
-          <Pressable
-            onPress={() => void buy()}
-            disabled={!selected || busy !== null || purchasing}
-            accessibilityRole="button"
-            accessibilityLabel={purchaseButtonLabel(selected)}
-            accessibilityState={{
-              disabled: !selected || busy !== null || purchasing,
-              busy: busy === "purchase" || purchasing,
-            }}
-            className="rounded-2xl py-4 items-center"
-            style={{
-              backgroundColor: colors.primary,
-              opacity: selected && !busy && !purchasing ? 1 : 0.5,
-            }}
-            testID="paywall-buy"
-          >
-            {busy === "purchase" || purchasing ? (
-              <ActivityIndicator color={colors.onPrimary} />
-            ) : (
-              <Text className="text-lg" style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: colors.onPrimary }}>
-                {purchaseButtonLabel(selected)}
-              </Text>
-            )}
-          </Pressable>
-
-          {/* Button, then what it bills, then the monthly nudge. */}
-          {selected && (
-            <Text className="text-xs text-center" style={{ color: colors.muted }} testID="paywall-terms">
-              {purchaseTerms(selected)}
-            </Text>
-          )}
-
-          {showNudge && nudgeText && (
-            <Pressable
-              onPress={takeNudge}
-              disabled={busy !== null}
-              accessibilityRole="button"
-              accessibilityLabel={nudgeText}
-              accessibilityHint="Selects the monthly plan"
-              hitSlop={8}
-              className="self-center"
-              testID="paywall-monthly-nudge"
-            >
-              <Text className="text-sm text-center" style={{ color: colors.primary }}>
-                {nudgeText}
-              </Text>
-            </Pressable>
-          )}
-
           {/* Wraps at large text sizes (a row gap between the lines) instead of clipping. */}
           <View className="flex-row flex-wrap justify-center gap-x-5 gap-y-3" testID="paywall-footer">
             <Pressable
@@ -517,6 +460,89 @@ export function PaywallSheet({
             </Pressable>
           </View>
         </ScrollView>
+        {/* The trial button stays on screen however long the plans run;
+            capped text keeps it from eating a small screen at the largest sizes. */}
+        <View
+          className="gap-2"
+          style={{
+            paddingHorizontal: 24,
+            paddingTop: 12,
+            paddingBottom: insets.bottom + 12,
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+            backgroundColor: colors.background,
+          }}
+          testID="paywall-buy-footer"
+        >
+          {/* A purchase's outcome, by the button that started it (not scrolled out of view). */}
+          {message && (
+            <Text
+              className="text-sm text-center"
+              style={{ color: colors.muted }}
+              accessibilityLiveRegion="polite"
+              maxFontSizeMultiplier={FOOTER_MAX_FONT}
+              testID="paywall-message"
+            >
+              {message}
+            </Text>
+          )}
+          <Pressable
+            onPress={() => void buy()}
+            disabled={!selected || busy !== null || purchasing}
+            accessibilityRole="button"
+            accessibilityLabel={purchaseButtonLabel(selected)}
+            accessibilityState={{
+              disabled: !selected || busy !== null || purchasing,
+              busy: busy === "purchase" || purchasing,
+            }}
+            className="rounded-2xl py-4 items-center"
+            style={{
+              backgroundColor: colors.primary,
+              opacity: selected && !busy && !purchasing ? 1 : 0.5,
+            }}
+            testID="paywall-buy"
+          >
+            {busy === "purchase" || purchasing ? (
+              <ActivityIndicator color={colors.onPrimary} />
+            ) : (
+              <Text
+                className="text-lg"
+                style={{ fontFamily: Fonts.rounded, fontWeight: "700", color: colors.onPrimary }}
+                maxFontSizeMultiplier={FOOTER_MAX_FONT}
+              >
+                {purchaseButtonLabel(selected)}
+              </Text>
+            )}
+          </Pressable>
+          {/* Directly under the button: what it bills (App Review 3.1.2). */}
+          {selected && (
+            <Text
+              className="text-sm text-center"
+              style={{ color: colors.muted }}
+              maxFontSizeMultiplier={FOOTER_MAX_FONT}
+              testID="paywall-terms"
+            >
+              {purchaseTerms(selected)}
+            </Text>
+          )}
+          {/* Then, after a cancelled yearly, the monthly nudge. */}
+          {showNudge && nudgeText && (
+            <Pressable
+              onPress={takeNudge}
+              disabled={busy !== null}
+              accessibilityRole="button"
+              accessibilityLabel={nudgeText}
+              accessibilityHint="Selects the monthly plan"
+              hitSlop={8}
+              className="self-center"
+              testID="paywall-monthly-nudge"
+            >
+              <Text className="text-sm text-center" style={{ color: colors.primary }} maxFontSizeMultiplier={FOOTER_MAX_FONT}>
+                {nudgeText}
+              </Text>
+            </Pressable>
+          )}
+        </View>
       </View>
     </Modal>
   );

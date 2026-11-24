@@ -11,6 +11,7 @@ import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { track } from "@/lib/daily-tasks/analytics";
+import { announceLiveChange } from "@/lib/daily-tasks/announce";
 import {
   SHARE_CARD_BRAND,
   SHARE_CARD_INK,
@@ -88,6 +89,8 @@ export function ShareDaySheet({
       }
     } catch {
       setFailed(true);
+      // The failure line is a live region, which only TalkBack reads.
+      announceLiveChange(SHARE_DAY_COPY.failed);
     } finally {
       // The picture can hold task names: it doesn't stay in the app's temp folder.
       if (uri) {

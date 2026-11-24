@@ -75,6 +75,39 @@ describe("theme contrast", () => {
     expect(contrast(themeColors.onError[scheme], themeColors.error[scheme])).toBeGreaterThanOrEqual(4.5);
   });
 
+  // Empty tick circles, pick rows and inputs are outlined in controlBorder
+  // (WCAG 1.4.11 non-text contrast); the hairline border was ~1.2:1.
+  it.each(["light", "dark"] as const)(
+    "controlBorder meets 3:1 on the %s background and surface",
+    (scheme) => {
+      for (const base of [themeColors.background[scheme], themeColors.surface[scheme]]) {
+        expect(contrast(themeColors.controlBorder[scheme], base), `${scheme} on ${base}`).toBeGreaterThanOrEqual(3);
+      }
+    },
+  );
+
+  // The done circle and Today's progress bar fill with success; the calendar's
+  // perfect days put the date on it.
+  it.each(["light", "dark"] as const)(
+    "success fills meet 3:1 on the %s background and surface, with AA onSuccess on them",
+    (scheme) => {
+      const success = themeColors.success[scheme];
+      expect(contrast(success, themeColors.background[scheme])).toBeGreaterThanOrEqual(3);
+      expect(contrast(success, themeColors.surface[scheme])).toBeGreaterThanOrEqual(3);
+      expect(contrast(themeColors.onSuccess[scheme], success)).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
+  // Journey's "Done" is success-coloured small text.
+  it.each(["light", "dark"] as const)(
+    "successInk meets WCAG AA (4.5:1) on the %s background and surface",
+    (scheme) => {
+      const ink = themeColors.successInk[scheme];
+      expect(contrast(ink, themeColors.background[scheme])).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(ink, themeColors.surface[scheme])).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
   // Settings' "Reset all data" uses the error color as text.
   it.each(["light", "dark"] as const)(
     "error as text meets WCAG AA (4.5:1) on the %s background and surface",

@@ -3,6 +3,7 @@
 // screen must pass a stable dismissCelebration or re-renders keep it on screen
 // and delay the rating prompt.
 import { act, fireEvent, screen } from "@testing-library/react-native";
+import { AccessibilityInfo } from "react-native";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
@@ -180,9 +181,48 @@ describe("celebration with the real overlay", () => {
     expect(requestAppReview).not.toHaveBeenCalled();
   });
 
+  it("with VoiceOver on, focus moves to the card after a moment, and it stays until the card is tapped", async () => {
+    const reader = jest.spyOn(AccessibilityInfo, "isScreenReaderEnabled").mockResolvedValue(true);
+    const focus = jest.spyOn(AccessibilityInfo, "sendAccessibilityEvent");
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    const announceQueued = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions");
+    focus.mockClear();
+    announce.mockClear();
+    announceQueued.mockClear();
+    try {
+      await reachPerfectDay();
+      // The card comes first and is the close button, labelled with what it says.
+      const card = screen.getByTestId("celebration-card");
+      expect(card).toHaveProp("accessibilityLabel", "All Done! Three for three. Nice work.");
+      expect(card).toHaveProp("accessibilityHint", "Double-tap to close");
+      expect(focus).not.toHaveBeenCalled();
+      await act(async () => {
+        jest.advanceTimersByTime(500);
+      });
+      expect(focus).toHaveBeenCalledTimes(1);
+      expect(focus.mock.calls[0][1]).toBe("focus");
+      // On iOS the focus move reads the card: no separate announcement of it.
+      const spoken = [...announce.mock.calls, ...announceQueued.mock.calls].map((call) => call[0]);
+      expect(spoken).not.toContain("All Done! Three for three. Nice work.");
+      await act(async () => {
+        jest.advanceTimersByTime(OVERLAY_MS * 2);
+      });
+      expect(screen.getByText("All Done!")).toBeOnTheScreen();
+      await fireEvent.press(card);
+      expect(screen.queryByText("All Done!")).toBeNull();
+    } finally {
+      // These are react-native's own jest.fn mocks: put the "off" answer back
+      // (mockRestore would leave them returning undefined).
+      reader.mockImplementation(() => Promise.resolve(false));
+      focus.mockClear();
+      announce.mockClear();
+      announceQueued.mockClear();
+    }
+  });
+
   it("tapping dismisses it immediately, and nothing is asked on top of it", async () => {
     await reachPerfectDay();
-    await fireEvent.press(screen.getByLabelText("Dismiss celebration"));
+    await fireEvent.press(screen.getByLabelText("Dismiss"));
     expect(screen.queryByText("All Done!")).toBeNull();
     await act(async () => {
       jest.advanceTimersByTime(OVERLAY_MS * 2);

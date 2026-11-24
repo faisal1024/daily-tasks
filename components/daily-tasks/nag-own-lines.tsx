@@ -114,7 +114,7 @@ export function NagOwnLines({ headerRef }: { headerRef?: Ref<Text> } = {}) {
             returnKeyType="done"
             maxLength={MAX_NAG_OWN_LINE_CHARS}
             className="flex-1 text-sm text-foreground rounded-xl px-3 py-2.5"
-            style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background, minHeight: 44 }}
+            style={{ borderWidth: 1, borderColor: colors.controlBorder, backgroundColor: colors.background, minHeight: 44 }}
             testID="settings-nag-own-input"
           />
           <Pressable

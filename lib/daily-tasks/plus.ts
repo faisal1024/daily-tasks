@@ -368,6 +368,9 @@ const LEADING_BENEFIT: Partial<Record<PaywallSource, string>> = {
   sunday_reset: "Sunday reset",
   break_down: "Break it down",
   brain_dump: "Smart brain dump",
+  // First run is a brain dump: lead with it there and at the aha moment (1.6.1).
+  onboarding: "Smart brain dump",
+  aha: "Smart brain dump",
   new_ideas: "AI ideas for your goal",
   calendar: "Plan around your calendar",
   routines: "Unlimited routines",

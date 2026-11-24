@@ -8,7 +8,10 @@ export const themeColors: {
   foreground: { light: string; dark: string };
   muted: { light: string; dark: string };
   border: { light: string; dark: string };
+  controlBorder: { light: string; dark: string };
   success: { light: string; dark: string };
+  onSuccess: { light: string; dark: string };
+  successInk: { light: string; dark: string };
   warning: { light: string; dark: string };
   error: { light: string; dark: string };
   onError: { light: string; dark: string };

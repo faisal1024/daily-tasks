@@ -529,11 +529,12 @@ export function TaskRow({
                 width: completed ? 24 : 30,
                 height: completed ? 24 : 30,
                 borderWidth: 2,
-                borderColor: completed ? colors.success : hero ? colors.primary : colors.border,
+                // controlBorder: the empty circle is the control, so it needs 3:1.
+                borderColor: completed ? colors.success : hero ? colors.primary : colors.controlBorder,
                 backgroundColor: completed ? colors.success : "transparent",
               }}
             >
-              {completed ? <Ionicons name="checkmark" size={16} color="#fff" /> : null}
+              {completed ? <Ionicons name="checkmark" size={16} color={colors.onSuccess} /> : null}
             </Pressable>
           </Animated.View>
 

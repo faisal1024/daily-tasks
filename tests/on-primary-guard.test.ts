@@ -3,9 +3,9 @@ import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-// Regression guard: content drawn on a `colors.primary` / `colors.error` fill
-// must use `colors.onPrimary` / `colors.onError`. White fails AA on the
-// dark-scheme indigo and error, and `colors.background` is not a contrast token.
+// Regression guard: content drawn on a `colors.primary` / `colors.error` /
+// `colors.success` fill must use `colors.onPrimary` / `colors.onError` /
+// `colors.onSuccess`. White fails AA on the dark-scheme indigo, error and green, and `colors.background` is not a contrast token.
 // This is a source heuristic, not a renderer: for each line that fills with one
 // of those colours it looks at the next few lines (until another fill starts)
 // for a hard-coded white/background colour. A colour ternary that also routes to
@@ -17,6 +17,7 @@ const WINDOW = 15;
 const FILLS = [
   { fill: /backgroundColor:\s*[^,}\n]*\bcolors\.primary\b/, on: "colors.onPrimary" },
   { fill: /backgroundColor:\s*[^,}\n]*\bcolors\.error\b/, on: "colors.onError" },
+  { fill: /backgroundColor:\s*[^,}\n]*\bcolors\.success\b/, on: "colors.onSuccess" },
 ];
 const NEW_FILL = /style=\{\{[^}]*backgroundColor|^\s*backgroundColor:/;
 const BAD = /\bcolor[=:]\s*\{?[^\n]*?("#fff(?:fff)?"|"white"|\bcolors\.background\b)/i;

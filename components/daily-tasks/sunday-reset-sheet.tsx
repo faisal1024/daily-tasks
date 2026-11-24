@@ -25,6 +25,7 @@ import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { proxyRouteUrl } from "@/lib/daily-tasks/ai-client";
 import { MAX_BRAIN_DUMP_CHARS } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
+import { announceLiveChange } from "@/lib/daily-tasks/announce";
 import { buildBasicMemory, memoryStatsPayload } from "@/lib/daily-tasks/coach-memory";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
 import { draftDueReasons } from "@/lib/daily-tasks/resurface";
@@ -246,6 +247,8 @@ export const SundayResetSheet = forwardRef<
       source,
     });
     setStage("sorting");
+    // The sorting and done blocks are live regions, which only TalkBack reads.
+    announceLiveChange("Looking at your week");
     // What was saved before this session: items this dump already saved
     // (the app went to the background) are the dump's, not "saved" ones.
     const parkedNow = parkedBeforeDump();
@@ -353,6 +356,10 @@ export const SundayResetSheet = forwardRef<
     });
     setResult((current) => ({ ...current, picked: picked.length }));
     setStage("done");
+    // The screen's title and the first sentence of its line, kept short.
+    const line = doneLine({ weekday, picked: picked.length, added: result.added });
+    const firstSentence = line.match(/^[^.]*\./)?.[0] ?? line;
+    announceLiveChange(`${sundayRitual ? "Your week is set up." : "Tomorrow is set up."} ${firstSentence}`);
   };
 
   const full = chosen.length >= MAX_TASKS;
@@ -516,7 +523,7 @@ export const SundayResetSheet = forwardRef<
                   maxHeight: 300,
                   textAlignVertical: "top",
                   color: colors.foreground,
-                  borderColor: colors.border,
+                  borderColor: colors.controlBorder,
                   backgroundColor: colors.surface,
                   fontWeight: "600",
                 }}
@@ -567,8 +574,9 @@ export const SundayResetSheet = forwardRef<
                     accessibilityHint={blocked ? "Untick another one first." : undefined}
                     className="rounded-2xl border p-4 flex-row items-center gap-3"
                     style={{
-                      borderColor: on ? colors.primary : colors.border,
-                      backgroundColor: colors.surface,
+                      borderColor: on ? colors.primary : colors.controlBorder,
+                      // The tint first-run uses: selection doesn't rest on the small icon alone.
+                      backgroundColor: on ? `${colors.primary}10` : colors.surface,
                       opacity: blocked ? 0.5 : 1,
                     }}
                     testID="sunday-reset-candidate"
@@ -609,7 +617,7 @@ export const SundayResetSheet = forwardRef<
                   className="flex-1 rounded-2xl border px-4 py-3 text-base"
                   style={{
                     color: colors.foreground,
-                    borderColor: colors.border,
+                    borderColor: colors.controlBorder,
                     backgroundColor: colors.surface,
                   }}
                   testID="sunday-reset-own"

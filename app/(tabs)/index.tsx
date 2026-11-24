@@ -94,7 +94,7 @@ import {
 } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
 import { buildBasicMemory, memoryStatsPayload, withMovedReasons } from "@/lib/daily-tasks/coach-memory";
-import { announcePolitely } from "@/lib/daily-tasks/announce";
+import { announceLiveChange, announcePolitely } from "@/lib/daily-tasks/announce";
 import { actionSheetOpen, showActionSheet } from "@/lib/daily-tasks/action-sheet";
 import { AHA_PAYWALL_DELAY_MS, fillsDay, shouldOfferAhaPaywall } from "@/lib/daily-tasks/aha-paywall";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -400,11 +400,16 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!nagNote) return;
     showToast(nagNote.message);
+    // The toast is a live region, which only TalkBack reads.
+    announceLiveChange(nagNote.message);
     clearNagNote();
   }, [nagNote, clearNagNote]);
   const [breakingTaskId, setBreakingTaskId] = useState<string | null>(null);
   // A ref, not just state: two quick taps in one render must not both start.
   const breakingRef = useRef<string | null>(null);
+  // The latest tasks, for a break-down that lands after an edit.
+  const tasksRef = useRef(state.tasks);
+  tasksRef.current = state.tasks;
   const breakDownAvailable = proxyRouteUrl(getMomentumAiProxyUrl(), "break-down") != null;
   // Read when a free try returns: Plus may have been confirmed while it ran.
   const plusConfirmedRef = useRef(plusConfirmed);
@@ -1430,7 +1435,10 @@ export default function HomeScreen() {
     if (!captureNotice || !state.hasSeenOnboarding || firstRunActive) return;
     clearCaptureNotice();
     const message = captureToast(captureNotice);
-    if (message) showToast(message);
+    if (message) {
+      showToast(message);
+      announceLiveChange(message);
+    }
     // When a notice arrives, or once onboarding is done.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [captureNotice, state.hasSeenOnboarding, firstRunActive]);
@@ -1625,12 +1633,16 @@ export default function HomeScreen() {
       }
       setFreeBreakDowns(left);
     }
+    // After the free-try claim, so the paywall path never hears it. The row's
+    // "Breaking it down…" is a live region, which only TalkBack reads.
+    announceLiveChange("Breaking it down");
     // From the check-in: the timer on this task makes way for the steps.
     if (starter && focusSessionRef.current?.taskId === taskId) stopFocusSession("broken_down");
     try {
       const steps = await requestBreakDown({ task: text, goalTitle: state.momentumProfile.goalTitle });
       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
       // Only if the task still reads the same (it may have been edited meanwhile).
+      const applies = tasksRef.current.some((task) => task.id === taskId && task.text === text);
       setTaskSteps(taskId, steps, text);
       // Plus confirmed while it ran (it was still being checked): not a free try after all.
       const wasFreeTry = free.freeTry === true && !plusConfirmedRef.current;
@@ -1642,9 +1654,16 @@ export default function HomeScreen() {
       track("break_down_used", wasFreeTry ? { count: steps.length, source: "free_try" } : { count: steps.length });
       // Break it down is Plus-only and AI-only: steps back means Plus was used.
       if (steps.length > 0 && !free.freeTry) void recordPlusUse("break_down");
-      if (wasFreeTry) showToast("Steps added. That was your one free try.");
       // The store keeps steps trimmed: match it, so the starter names the step.
       const first = steps.map((step) => step.trim()).find(Boolean);
+      if (wasFreeTry) {
+        const note = "Steps added. That was your one free try.";
+        showToast(note);
+        announceLiveChange(note);
+      } else if (first && applies && !starter) {
+        // The steps appear under the row without a word; the starter's alert speaks for itself.
+        announcePolitely("Steps added");
+      }
       if (starter && first) offerStarter(taskId, first);
     } catch (error) {
       const kind = classifyAiFailure(error);
@@ -1654,6 +1673,8 @@ export default function HomeScreen() {
         void spendFreeBreakDowns();
         setFreeBreakDowns(0);
         showToast("Your free try was already used.");
+        // Said once the paywall has opened, so its Modal doesn't cut it off (TalkBack reads the toast).
+        if (Platform.OS === "ios") announceLater("Your free try was already used.");
         showBreakDownPaywall(taskId, text, { starter });
         return;
       }
@@ -1700,7 +1721,11 @@ export default function HomeScreen() {
   // simply loads at launch, and not on restore, which has its own message).
   const seenPurchases = useRef(purchaseCount);
   useEffect(() => {
-    if (purchaseCount > seenPurchases.current) showToast("You're on Plus. Thank you!");
+    if (purchaseCount > seenPurchases.current) {
+      showToast("You're on Plus. Thank you!");
+      // Said once the paywall has closed, so its Modal doesn't cut it off (TalkBack reads the toast).
+      if (Platform.OS === "ios") announceLater("You're on Plus. Thank you!");
+    }
     seenPurchases.current = purchaseCount;
   }, [purchaseCount]);
 
@@ -2608,7 +2633,11 @@ export default function HomeScreen() {
           // Offered only if the dump really filled the day's three (checked once the sheet has gone).
           if (accepted.length > 0) offerAhaPaywall({ fillsFrom: total });
           const message = brainDumpToast(accepted.length, saved.length, { locked: state.todayLocked });
-          if (message) showToast(message, state.todayLocked ? "locked" : "done");
+          if (message) {
+            showToast(message, state.todayLocked ? "locked" : "done");
+            // TalkBack reads the toast's live region; VoiceOver is told once the sheet has gone.
+            if (Platform.OS === "ios") announceLater(message);
+          }
         }}
       />
 
@@ -2751,10 +2780,16 @@ export default function HomeScreen() {
           // Resumed: count what's already on today (nothing was dumped now).
           const count = source === "resume" ? state.tasks.length : picked;
           track("onboarding_completed", { source, count });
-          // 1.5: no paywall at the end of first run (the aha paywall comes
-          // later); the nudge and widget tip become Today cards from here.
+          // 1.6.1: the day-0 offer is back, once, after a dump that picked
+          // tasks (closable; first run only runs once). Showing it records
+          // lastPaywallShownAt, so the aha paywall keeps its 24-hour gap.
+          // The nudge and widget tip are Today cards from here.
+          const offer = paywallEnabled && !hasPlus && source === "dump" && picked > 0;
+          if (offer) showPaywall("onboarding", { afterSheet: true, taskCount: picked });
           void saveFirstDays(startFirstDays(today)).then(() => setFirstDaysVersion((v) => v + 1));
-          const note = pickedNote(picked);
+          // The offer's headline already says the count, and it would cover
+          // (and cut off) this note: say it only when there's no offer.
+          const note = offer ? null : pickedNote(picked);
           if (note) {
             showToast(note);
             announceLater(note);

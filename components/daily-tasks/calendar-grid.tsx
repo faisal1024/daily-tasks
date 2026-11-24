@@ -83,7 +83,7 @@ export function CalendarGrid({
               let dot: string | null = null;
               if (isPerfect) {
                 bg = colors.success;
-                textColor = colors.background;
+                textColor = colors.onSuccess;
               } else if (isPartial) {
                 bg = `${colors.primary}22`;
                 dot = colors.primary;

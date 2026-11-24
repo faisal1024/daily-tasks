@@ -218,6 +218,8 @@ describe("Progress: milestones are ticked by hand", () => {
     await act(async () => buttons.find((b) => b.text === "Yes, I got there")?.onPress?.());
     expect(screen.queryByTestId("milestone-reach-run_1_mile")).toBeNull();
     expect(screen.getByText("Milestone reached!")).toBeOnTheScreen();
+    // The overlay covers the screen (and is modal for VoiceOver): close it first.
+    await fireEvent.press(screen.getByLabelText("Dismiss"));
 
     // "Done" can be undone after a confirmation.
     alert.mockClear();

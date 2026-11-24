@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Fonts } from "@/constants/theme";
 import { useSheetAnimation } from "@/hooks/use-sheet-animation";
 import { useColors } from "@/hooks/use-colors";
+import { announceLiveChange, announcePolitely } from "@/lib/daily-tasks/announce";
 import { MAX_BRAIN_DUMP_CHARS, pickReason, type SortedBrainDump } from "@/lib/daily-tasks/ai-helpers";
 
 type Stage = "write" | "sorting" | "review";
@@ -82,11 +83,16 @@ export function BrainDumpSheet({
     if (!text.trim()) return;
     const mine = session.current;
     setStage("sorting");
+    // The sorting and notice blocks are live regions, which only TalkBack reads.
+    announceLiveChange("Sorting through it");
     const result = await onSort(text);
     if (mine !== session.current) return;
     setSorted(result);
     setChosen(new Set(result.result.picks.slice(0, openSlots)));
     setStage("review");
+    // The notice is a live region (TalkBack reads it); plain "Sorted" isn't, so both platforms hear it.
+    if (result.notice) announceLiveChange(result.notice);
+    else announcePolitely("Sorted");
   };
 
   const confirm = () => {
@@ -180,7 +186,7 @@ export function BrainDumpSheet({
                   maxHeight: 320,
                   textAlignVertical: "top",
                   color: colors.foreground,
-                  borderColor: colors.border,
+                  borderColor: colors.controlBorder,
                   backgroundColor: colors.surface,
                   fontWeight: "600",
                 }}
@@ -312,8 +318,9 @@ export function BrainDumpSheet({
                     accessibilityHint={on ? "Double-tap to save for later instead" : "Double-tap to add to today"}
                     className="rounded-2xl border p-4 flex-row items-center gap-3"
                     style={{
-                      borderColor: on ? colors.primary : colors.border,
-                      backgroundColor: colors.surface,
+                      borderColor: on ? colors.primary : colors.controlBorder,
+                      // The tint first-run uses: selection doesn't rest on the small icon alone.
+                      backgroundColor: on ? `${colors.primary}10` : colors.surface,
                       opacity: blocked ? 0.5 : 1,
                     }}
                   >

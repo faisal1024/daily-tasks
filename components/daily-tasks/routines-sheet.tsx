@@ -306,7 +306,8 @@ export function RoutinesSheet({
                 accessibilityLabel="Add a routine"
                 accessibilityHint={canAdd ? undefined : "Free keeps two routines. Opens Plus."}
                 className="flex-row items-center justify-center gap-2 rounded-2xl border py-3"
-                style={{ borderColor: colors.border, borderStyle: "dashed", minHeight: 44 }}
+                // Primary like Today's add circle: the hairline border is under 3:1.
+                style={{ borderColor: colors.primary, borderStyle: "dashed", minHeight: 44 }}
                 testID="routines-add"
               >
                 <Ionicons name="add" size={18} color={colors.primary} />
@@ -570,7 +571,7 @@ function RoutineEditor({
           style={{
             color: colors.foreground,
             borderWidth: 1,
-            borderColor: colors.border,
+            borderColor: colors.controlBorder,
             backgroundColor: colors.surface,
             minHeight: 44,
             maxHeight: fieldMaxHeight,
