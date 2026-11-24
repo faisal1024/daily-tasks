@@ -9,6 +9,8 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { useColors } from "@/hooks/use-colors";
+import { useScreenReaderEnabled } from "@/hooks/use-screen-reader";
+import { announcePolitely } from "@/lib/daily-tasks/announce";
 
 const DURATION = 2600;
 
@@ -23,7 +25,9 @@ interface CelebrationOverlayProps {
 /**
  * A calm celebration: a soft expanding ring behind the emoji and a card that
  * gently scales + fades in, then auto-dismisses. Tap anywhere to dismiss.
- * Theme-aware and deliberately quiet — no confetti spray.
+ * Theme-aware and deliberately quiet — no confetti spray. With VoiceOver or
+ * TalkBack on it is read out and stays until dismissed (2.6s is too short to
+ * find and hear it).
  */
 export function CelebrationOverlay({
   visible,
@@ -37,6 +41,13 @@ export function CelebrationOverlay({
   const ring = useSharedValue(0);
   // Reduce Motion: appear without scaling, and no expanding ring.
   const reduceMotion = useReducedMotion();
+  const screenReader = useScreenReaderEnabled();
+  const spoken = `${title}${/[.!?]$/.test(title) ? "" : "."} ${subtitle}`;
+
+  // Queued after the tick's own words ("Completed", the row's label).
+  useEffect(() => {
+    if (visible) announcePolitely(spoken);
+  }, [visible, spoken]);
 
   useEffect(() => {
     if (!visible) {
@@ -51,9 +62,14 @@ export function CelebrationOverlay({
       progress.value = withTiming(1, { duration: 320, easing: Easing.out(Easing.cubic) });
       ring.value = withTiming(1, { duration: 1200, easing: Easing.out(Easing.cubic) });
     }
+  }, [visible, progress, ring, reduceMotion]);
+
+  // A screen reader user dismisses it themselves (the button or the escape gesture).
+  useEffect(() => {
+    if (!visible || screenReader) return;
     const timer = setTimeout(onDismiss, DURATION);
     return () => clearTimeout(timer);
-  }, [visible, onDismiss, progress, ring, reduceMotion]);
+  }, [visible, onDismiss, screenReader]);
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
   const cardStyle = useAnimatedStyle(() => ({
@@ -83,9 +99,14 @@ export function CelebrationOverlay({
         },
         backdropStyle,
       ]}
+      // VoiceOver stays on the overlay, and the escape gesture closes it.
+      accessibilityViewIsModal
+      onAccessibilityEscape={onDismiss}
+      testID="celebration-overlay"
     >
       <Pressable
         onPress={onDismiss}
+        accessibilityRole="button"
         accessibilityLabel="Dismiss celebration"
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
       />
@@ -106,6 +127,8 @@ export function CelebrationOverlay({
           },
           cardStyle,
         ]}
+        accessible
+        accessibilityLabel={spoken}
       >
         <View
           style={{

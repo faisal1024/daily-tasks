@@ -14,7 +14,7 @@ module.exports = (config) => ({
     primary: { light: "#5B52E8", dark: "#8B82FF" },
     muted: { light: "#6A6580", dark: "#A8A3C0" },
     foreground: { light: "#1E1B2E", dark: "#F3F1FB" },
-    success: { light: "#16C784", dark: "#37D9A0" },
+    success: { light: "#0E875D", dark: "#37D9A0" },
   },
   entitlements: {
     "com.apple.security.application-groups":

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
+import { announceLiveChange, announcePolitely } from "@/lib/daily-tasks/announce";
 import { morningPerspective } from "@/lib/daily-tasks/evening";
 import { EVENING_TEASER_COPY, EVENING_TEASER_PLACEHOLDER_LINES } from "@/lib/daily-tasks/evening-teaser";
 import { numberWord } from "@/lib/daily-tasks/number-word";
@@ -305,6 +306,19 @@ export function EveningResult({
   onRetry?: () => void;
 }) {
   const colors = useColors();
+  // The "Drafting tomorrow…" line is a live region, which only TalkBack reads;
+  // the result that replaces it isn't one, so both platforms hear that.
+  const wasClosing = useRef(closing);
+  useEffect(() => {
+    if (closing && !wasClosing.current) {
+      announceLiveChange(coachDrafts ? "Drafting tomorrow" : "Closing the day");
+    } else if (!closing && wasClosing.current) {
+      const failed = onRetry ? (draft ? "The coach couldn't add to it." : "Couldn't draft tomorrow.") : null;
+      const words = [note, draft ? "Tomorrow's three are ready." : null, failed].filter(Boolean).join(" ");
+      if (words) announcePolitely(words);
+    }
+    wasClosing.current = closing;
+  }, [closing, coachDrafts, note, draft, onRetry]);
   if (closing) {
     return (
       <View className="flex-row items-center gap-2 py-2" accessibilityLiveRegion="polite" testID="evening-closing">

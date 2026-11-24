@@ -530,7 +530,7 @@ export function IdeasSheet({
                   className="rounded-2xl border p-4 flex-row items-center gap-3"
                   style={{
                     backgroundColor: colors.surface,
-                    borderColor: added ? colors.success : colors.border,
+                    borderColor: added ? colors.success : colors.controlBorder,
                     opacity: disabled && !added ? 0.5 : 1,
                   }}
                 >
@@ -768,7 +768,7 @@ function TodaysRoutines({
             style={{
               minHeight: 44,
               backgroundColor: colors.surface,
-              borderColor: colors.border,
+              borderColor: colors.controlBorder,
               opacity: disabled ? 0.5 : 1,
             }}
             testID={`routine-suggestion-${routine.id}`}
@@ -851,7 +851,7 @@ function MilestoneIdeas({
             style={{
               minHeight: 44,
               backgroundColor: colors.surface,
-              borderColor: added ? colors.success : colors.border,
+              borderColor: added ? colors.success : colors.controlBorder,
               opacity: disabled && !added ? 0.5 : 1,
             }}
             testID={`milestone-idea-${idea.id}`}

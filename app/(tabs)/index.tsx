@@ -94,7 +94,7 @@ import {
 } from "@/lib/daily-tasks/ai-helpers";
 import { track } from "@/lib/daily-tasks/analytics";
 import { buildBasicMemory, memoryStatsPayload, withMovedReasons } from "@/lib/daily-tasks/coach-memory";
-import { announcePolitely } from "@/lib/daily-tasks/announce";
+import { announceLiveChange, announcePolitely } from "@/lib/daily-tasks/announce";
 import { actionSheetOpen, showActionSheet } from "@/lib/daily-tasks/action-sheet";
 import { AHA_PAYWALL_DELAY_MS, fillsDay, shouldOfferAhaPaywall } from "@/lib/daily-tasks/aha-paywall";
 import { usePlus } from "@/lib/daily-tasks/plus-context";
@@ -400,6 +400,8 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!nagNote) return;
     showToast(nagNote.message);
+    // The toast is a live region, which only TalkBack reads.
+    announceLiveChange(nagNote.message);
     clearNagNote();
   }, [nagNote, clearNagNote]);
   const [breakingTaskId, setBreakingTaskId] = useState<string | null>(null);
@@ -1430,7 +1432,10 @@ export default function HomeScreen() {
     if (!captureNotice || !state.hasSeenOnboarding || firstRunActive) return;
     clearCaptureNotice();
     const message = captureToast(captureNotice);
-    if (message) showToast(message);
+    if (message) {
+      showToast(message);
+      announceLiveChange(message);
+    }
     // When a notice arrives, or once onboarding is done.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [captureNotice, state.hasSeenOnboarding, firstRunActive]);
@@ -1614,6 +1619,8 @@ export default function HomeScreen() {
     if (breakingRef.current) return;
     breakingRef.current = taskId;
     setBreakingTaskId(taskId);
+    // The row's "Breaking it down…" is a live region, which only TalkBack reads.
+    announceLiveChange("Breaking it down");
     if (free.freeTry) {
       const left = await claimFreeBreakDown();
       if (left === null) {
@@ -1642,9 +1649,16 @@ export default function HomeScreen() {
       track("break_down_used", wasFreeTry ? { count: steps.length, source: "free_try" } : { count: steps.length });
       // Break it down is Plus-only and AI-only: steps back means Plus was used.
       if (steps.length > 0 && !free.freeTry) void recordPlusUse("break_down");
-      if (wasFreeTry) showToast("Steps added. That was your one free try.");
       // The store keeps steps trimmed: match it, so the starter names the step.
       const first = steps.map((step) => step.trim()).find(Boolean);
+      if (wasFreeTry) {
+        const note = "Steps added. That was your one free try.";
+        showToast(note);
+        announceLiveChange(note);
+      } else if (first && !starter) {
+        // The steps appear under the row without a word; the starter's alert speaks for itself.
+        announcePolitely("Steps added");
+      }
       if (starter && first) offerStarter(taskId, first);
     } catch (error) {
       const kind = classifyAiFailure(error);
@@ -1654,6 +1668,7 @@ export default function HomeScreen() {
         void spendFreeBreakDowns();
         setFreeBreakDowns(0);
         showToast("Your free try was already used.");
+        announceLiveChange("Your free try was already used.");
         showBreakDownPaywall(taskId, text, { starter });
         return;
       }
@@ -1700,7 +1715,10 @@ export default function HomeScreen() {
   // simply loads at launch, and not on restore, which has its own message).
   const seenPurchases = useRef(purchaseCount);
   useEffect(() => {
-    if (purchaseCount > seenPurchases.current) showToast("You're on Plus. Thank you!");
+    if (purchaseCount > seenPurchases.current) {
+      showToast("You're on Plus. Thank you!");
+      announceLiveChange("You're on Plus. Thank you!");
+    }
     seenPurchases.current = purchaseCount;
   }, [purchaseCount]);
 
@@ -2608,7 +2626,11 @@ export default function HomeScreen() {
           // Offered only if the dump really filled the day's three (checked once the sheet has gone).
           if (accepted.length > 0) offerAhaPaywall({ fillsFrom: total });
           const message = brainDumpToast(accepted.length, saved.length, { locked: state.todayLocked });
-          if (message) showToast(message, state.todayLocked ? "locked" : "done");
+          if (message) {
+            showToast(message, state.todayLocked ? "locked" : "done");
+            // TalkBack reads the toast's live region; VoiceOver is told once the sheet has gone.
+            if (Platform.OS === "ios") announceLater(message);
+          }
         }}
       />
 

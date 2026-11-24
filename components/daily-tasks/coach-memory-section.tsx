@@ -92,7 +92,7 @@ export function CoachMemorySection({ headerRef }: { headerRef?: Ref<View> } = {}
                     minHeight: 96,
                     textAlignVertical: "top",
                     color: colors.foreground,
-                    borderColor: colors.border,
+                    borderColor: colors.controlBorder,
                     backgroundColor: colors.background,
                   }}
                 />

@@ -9,3 +9,11 @@ export function announcePolitely(text: string): void {
   }
   AccessibilityInfo.announceForAccessibility(text);
 }
+
+/**
+ * For words that also sit in an `accessibilityLiveRegion`: TalkBack reads the
+ * region itself, but iOS has no live regions, so VoiceOver is told here.
+ */
+export function announceLiveChange(text: string): void {
+  if (Platform.OS === "ios") announcePolitely(text);
+}

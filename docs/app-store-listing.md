@@ -1,4 +1,4 @@
-# App Store listing: Three Today 1.1.0
+# App Store listing: Three Today (1.6.1)
 
 Everything to paste into App Store Connect for the first "Three Today" release
 (the first release with Plus). Character counts are checked against Apple's
@@ -9,25 +9,36 @@ limits. The same copy is in `store.config.json` for `eas metadata:push`, except 
 
 | Field | Text | Limit |
 |---|---|---|
-| Name | **Three Today: 3 Tasks a Day** | 26 / 30 |
-| Subtitle | **Brain dump to your daily three** | 30 / 30 |
+| Name | **Three Today: ADHD To Do List** | 28 / 30 |
+| Subtitle | **Brain Dump to 3 Tasks a Day** | 27 / 30 |
 
-Check the name is free: App Store Connect → the app → App Information → Name.
-If Apple says it's taken, use **Three Today – Daily Focus** (25).
+1.6.1 (2026-11-24): the owner chose the ADHD name. The app was outside the top
+~190 for "to do list" and "daily planner"; an exact long-tail phrase in the name
+ranks far better in this niche. Research and rank table:
+`~/Downloads/three-today-aso-1.6.1.md`. The description gets one plain
+"ADHD-friendly" line and no treatment claims (guideline 1.4.1).
 
-## Keywords (98 / 100)
+Extra US indexing (English text in other locales):
+- French (fr-FR): name "Three Today: To Do List", subtitle "Daily Planner & Focus Timer"
+  (the old US pair, so nothing indexed is lost), keywords
+  `task,procrastination,paralysis,executive,function,sunday,weekly,reset,review,routine,calm,minimal` (97).
+- Spanish (Mexico): name and subtitle unchanged, keywords
+  `nag,nagging,reminder,persistent,top,3,things,rule,priority,most,important,task,one,tareas,pendientes` (100).
+
+## Keywords (100 / 100)
 
 ```
-todo,list,planner,focus,adhd,priority,simple,minimal,checklist,goal,organizer,routine,reminder,top
+things,top,priorities,planner,daily,focus,timer,todo,simple,overwhelmed,routine,goals,checklist,rule
 ```
 
-Words already in the name and subtitle (three, today, tasks, day, brain, dump,
-daily) are left out on purpose: Apple indexes those already.
+Words already in the name and subtitle (three, today, adhd, to, do, list, brain,
+dump, 3, tasks, day) are left out on purpose: Apple indexes those already. No
+competitor names (guideline 2.3.7).
 
-## Promotional text (119 / 170)
+## Promotional text (156 / 170)
 
 ```
-Three tasks a day, and every morning starts fresh with no overdue pile. Dump what's on your mind and get today's three.
+Too much to do? Dump it all, pick just three tasks for today, and start with a 5-minute focus timer. No overdue pile, no guilt. An ADHD-friendly to-do list.
 ```
 
 ## Description
@@ -63,6 +74,15 @@ Private by design: your tasks are stored on your device, with no account and no 
 
 Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html
+```
+
+## What's New in 1.6.1
+
+```
+A small update to make each day smoother:
+• Already picked your three? You can now swap a routine in for one of them.
+• Checkboxes and buttons have clearer contrast, so they're easier to see.
+• Better VoiceOver announcements.
 ```
 
 ## What's New in 1.6 (submitted 2026-10-29)
@@ -161,25 +181,21 @@ New in 1.6 (and 1.5, which was not released separately):
 
 ## Captioned screenshots
 
-The 1.6 set (v7), in `~/Downloads/three-today-appstore-screenshots-v7/final/`
-(iPhone 6.9" 1320×2868 and iPad 13" 2064×2752, 10 each), in this order.
+The 1.6.1 set (v8), in `~/Downloads/three-today-appstore-screenshots-v8/`
+(iPhone 6.9" 1320×2868 and iPad 13" 2064×2752, 6 each). The owner's rule: lead
+with the core to-do promise, not Nag mode (search shows the first three).
 "PLUS" marks paid features (guideline 2.3.2).
 
-1. PLUS "Reminders that won't let it go." (Coach nag on the Lock Screen)
-2. PLUS "Pick your nag. Or write its lines." (Nag settings with your own lines)
-3. PLUS "It gets pushier until you're done." (stack of Partner nags)
-4. "Save it anywhere. See it on its day." (Saved for later with dates and Overdue)
-5. PLUS "Sunday reset. Monday, sorted." (Set up your week: Monday's three)
-6. "The to-do list that asks for less" (brain dump to today's three)
-7. "One next task. No overdue pile." (Today)
-8. PLUS "Stuck? Break it into small steps." (steps on the next task)
-9. "Routines that wait for you" (Today's routines)
-10. "A timer on your Lock Screen." (focus timer Live Activity)
+1. "Just three tasks. No overdue pile." / "The ADHD-friendly to-do list for today." (Today)
+2. "Brain dump it all. Keep three." / "The rest is saved for later." (brain dump to today's three)
+3. "Stuck? Start a focus timer." / "Even five minutes. Right on your Lock Screen." (focus timer Live Activity)
+4. "Routines that wait for you" (Today's routines)
+5. PLUS "Reminders that won't let it go." (Coach nag on the Lock Screen)
+6. PLUS "Sunday reset. Monday, sorted." (Set up your week: Monday's three)
 
-The cards are built by `src/build.py` and `src/build7.py` in that folder from
-simulator captures (`src/seed7.py` seeds the demo data). The Sunday captures used
-a screenshot-only bundle that fakes the date; it's kept in that folder's `src/`
-and is never shipped.
+`src/build8.py` there re-headlines v7 cards 7, 6 and 10 for frames 1-3 and reuses
+v7 cards 9, 1 and 5. The v7 set and its build scripts (simulator captures, demo
+seed) are in `~/Downloads/three-today-appstore-screenshots-v7/`.
 
 ## App Privacy label
 

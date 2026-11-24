@@ -570,7 +570,7 @@ function RoutineEditor({
           style={{
             color: colors.foreground,
             borderWidth: 1,
-            borderColor: colors.border,
+            borderColor: colors.controlBorder,
             backgroundColor: colors.surface,
             minHeight: 44,
             maxHeight: fieldMaxHeight,

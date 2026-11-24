@@ -3,6 +3,7 @@
 // screen must pass a stable dismissCelebration or re-renders keep it on screen
 // and delay the rating prompt.
 import { act, fireEvent, screen } from "@testing-library/react-native";
+import { AccessibilityInfo } from "react-native";
 
 import HomeScreen from "@/app/(tabs)/index";
 import { requestAppReview } from "@/lib/daily-tasks/app-review";
@@ -178,6 +179,29 @@ describe("celebration with the real overlay", () => {
     });
     expect(actions.markReviewDue).toHaveBeenCalledTimes(1);
     expect(requestAppReview).not.toHaveBeenCalled();
+  });
+
+  it("with VoiceOver on it is read out and stays until dismissed", async () => {
+    const reader = jest.spyOn(AccessibilityInfo, "isScreenReaderEnabled").mockResolvedValue(true);
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    const announceQueued = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions");
+    try {
+      await reachPerfectDay();
+      const spoken = [...announce.mock.calls, ...announceQueued.mock.calls].map((call) => call[0]);
+      expect(spoken).toContain("All Done! Three for three. Nice work.");
+      await act(async () => {
+        jest.advanceTimersByTime(OVERLAY_MS * 2);
+      });
+      expect(screen.getByText("All Done!")).toBeOnTheScreen();
+      await fireEvent.press(screen.getByLabelText("Dismiss celebration"));
+      expect(screen.queryByText("All Done!")).toBeNull();
+    } finally {
+      // These are react-native's own jest.fn mocks: put the "off" answer back
+      // (mockRestore would leave them returning undefined).
+      reader.mockImplementation(() => Promise.resolve(false));
+      announce.mockClear();
+      announceQueued.mockClear();
+    }
   });
 
   it("tapping dismisses it immediately, and nothing is asked on top of it", async () => {

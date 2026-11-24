@@ -4,33 +4,32 @@
     "copyright": "2026 Faisal Islam",
     "info": {
       "en-US": {
-        "title": "Three Today: 3 Tasks a Day",
-        "subtitle": "Brain dump to your daily three",
+        "title": "Three Today: ADHD To Do List",
+        "subtitle": "Brain Dump to 3 Tasks a Day",
         "description": "Your whole to-do list can wait. Today is three things.\n\nThree Today turns the pile in your head into the three tasks that matter today. Dump everything on your mind, by typing or talking, and get your three. The rest is saved for later, not stacked on top of tomorrow.\n\nEVERY DAY STARTS FRESH\nThere's no overdue list and no red badges. Anything you didn't finish waits for one tap: bring it into today, or let it go.\n\nA MORNING, A FEW WINS, AN EVENING\n• Morning: pick your three (with Plus, your coach drafts them the night before).\n• Day: tick them off. The next one is always the only one in front of you.\n• Evening: say how the day felt in one tap, and tomorrow starts with what's still open (with Plus, your AI coach drafts tomorrow's three).\n\nMADE TO KEEP GOING\n• A day count that only goes up: every day you plan counts.\n• Streak freezes, so one missed day doesn't wipe out a good run.\n• A weekly review that shows what's working.\n• Home Screen and Lock Screen widgets.\n\nTHREE TODAY PLUS\nPlus adds the AI helpers: AI brain dump sorting (3 free to try), Break it down (turn a stuck task into tiny steps), fresh AI ideas for your goal, a coach that drafts tomorrow in the evening, and planning around today's Calendar and Reminders. Your three tasks stay free forever.\n\n• Monthly and yearly plans include a free trial for new subscribers.\n• Payment is charged to your Apple ID at confirmation of purchase (or when the trial ends).\n• Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current period. Manage or cancel in iPhone Settings › your name › Subscriptions.\n• A one-time Lifetime purchase is available in the app's Settings.\n\nPrivate by design: your tasks are stored on your device, with no account and no ads. AI features send only the text they need, and our server doesn't store it.\n\nTerms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/\nPrivacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html",
         "keywords": [
-          "todo",
-          "list",
+          "things",
+          "top",
+          "priorities",
           "planner",
+          "daily",
           "focus",
-          "adhd",
-          "priority",
+          "timer",
+          "todo",
           "simple",
-          "minimal",
-          "checklist",
-          "goal",
-          "organizer",
+          "overwhelmed",
           "routine",
-          "reminder",
-          "top"
+          "goals",
+          "checklist",
+          "rule"
         ],
-        "promoText": "Three tasks a day, and every morning starts fresh with no overdue pile. Dump what's on your mind and get today's three.",
+        "promoText": "Too much to do? Dump it all, pick just three tasks for today, and start with a 5-minute focus timer. No overdue pile, no guilt. An ADHD-friendly to-do list.",
         "privacyPolicyUrl": "https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html",
-        "supportUrl": "https://github.com/faisal1024/daily-tasks#support",
-        "releaseNotes": "Daily Tasks is now Three Today, rebuilt around a calm daily ritual:\n• Dump everything on your mind and get your three, picked for you.\n• One calm card for today, with the next task up front.\n• An evening check-in that drafts tomorrow's three (Plus).\n• Plan around your Calendar and Reminders (Plus).\n• Progress and history together in one tab.\n• Introducing Three Today Plus, with a free trial. Already using the app? Plus is free for you, for life: just open the app before December 15, 2026."
+        "supportUrl": "https://github.com/faisal1024/daily-tasks#support"
       }
     },
     "review": {
-      "notes": "No account or login is needed.\n\nWhere to find things:\n• Plus paywall: Settings › Plus › \"See Plus plans\", or tap \"Break it down\" on the next task (after setting the day), or \"Get Plus\" in the brain dump after the 3 free AI sorts.\n• The Lifetime purchase is shown only when the paywall is opened from Settings › Plus.\n• Restore purchases: on the paywall and in Settings.\n\nAI features: brain dump sorting, Break it down, goal ideas and the evening check-in send only the text needed (for example task titles or what was typed) to our server, which forwards it to an AI model to create suggestions. Request contents aren't stored on our server. Details are in the privacy policy.\n\nThe Plus paywall also appears once at the end of the first-run flow (closable), and from \"New ideas\" in the ideas sheet.\n\nCalendar and Reminders: only used if the user turns on Settings › \"Plan around my calendar\" (a Plus feature). Today's event titles and times and reminders due today are sent with AI suggestion requests so the three fit around the day.\n\nTo see the first-run flow, delete and reinstall the app.",
+      "notes": "No account or login is needed. To see the first-run flow, delete and reinstall the app.\n\nWhere to find things:\n• Plus paywall: Settings › Plus › \"See Plus plans\". It also appears once at the end of the first run (closable), from \"New ideas\", from \"Get Plus\" after the 3 free AI brain-dump sorts, and from \"Break it down\" after the one free try.\n• Lifetime is shown only when the paywall is opened from Settings › Plus. Restore purchases: on the paywall and in Settings.\n\nAI features (brain dump, Break it down, ideas, evening check-in, coach note, Nag lines, Sunday reset) send only the text needed (for example task titles) to our server, which forwards it to an AI model. Request contents aren't stored on our server. Details are in the privacy policy.\n\nCalendar and Reminders: only used if the user turns on Settings › \"Plan around my calendar\" (Plus).\n\nFocus timer: tap the timer icon on a task on Today. A Live Activity shows on the Lock Screen and in the Dynamic Island (iOS 17.2+). Siri: \"Start my next task in Three Today\". Ending a timer never completes a task.\n\nNag mode (Settings › Reminders › Reminder style › Nag): an optional Plus feature, off by default. Local notifications about the user's own open tasks at random times, at most one an hour, never time-sensitive; \"No more nags today\" stops them for the day. Voices: Mom, Dad, Partner, Coach, Drill sergeant; levels Gentle, Firm, Relentless. Drill sergeant at Firm and Relentless uses comic boot-camp remarks about the user's effort (\"maggot\", \"slacker\"), disclosed where the level is chosen. No profanity, slurs or threats, and nothing about body, intelligence, gender, health or family. AI-written lines are filtered on our server and again on the device. Open tasks are sent to the AI service only after an in-app confirmation.\n\nNew in 1.6 (and 1.5, which was not released separately):\n• Save for later from anywhere: \"Three Today\" in the share sheet (share extension), Siri \"Save for later in Three Today\", and the Dump widget and Control Center control. Saved items stay on the device and never go onto today's three. Items with a day (\"dentist Friday\") come back on that day.\n• Nags: long-press a nag for Snooze 1 hour or Mark done. With Plus, users can write up to 5 of their own nag lines (Settings › Reminders); these stay on the device.\n• Sunday reset (Plus): on Sundays from 5 PM a card appears on Today; any day it's in Progress › Set up your week.\n• Settings › \"What your coach remembers\" shows and clears what the coach has learned.\n• \"Lock today\" replaces \"Set\". Users can share their finished day as an image.\n• People updating see a one-time \"What's new\" sheet on Today.\n• RevenueCat collects Apple's AdServices attribution token (no tracking prompt, no personal data).",
       "demoRequired": false
     }
   }

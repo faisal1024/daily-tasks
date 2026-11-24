@@ -677,7 +677,7 @@ export default function SettingsScreen() {
                 className="text-base text-foreground rounded-xl px-3 py-2.5"
                 style={{
                   borderWidth: 1,
-                  borderColor: colors.border,
+                  borderColor: colors.controlBorder,
                   backgroundColor: colors.background,
                 }}
               />
