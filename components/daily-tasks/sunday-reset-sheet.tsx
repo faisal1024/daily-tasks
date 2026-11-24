@@ -356,13 +356,10 @@ export const SundayResetSheet = forwardRef<
     });
     setResult((current) => ({ ...current, picked: picked.length }));
     setStage("done");
-    announceLiveChange(
-      `${sundayRitual ? "Your week is set up." : "Tomorrow is set up."} ${doneLine({
-        weekday,
-        picked: picked.length,
-        added: result.added,
-      })}`,
-    );
+    // The screen's title and the first sentence of its line, kept short.
+    const line = doneLine({ weekday, picked: picked.length, added: result.added });
+    const firstSentence = line.match(/^[^.]*\./)?.[0] ?? line;
+    announceLiveChange(`${sundayRitual ? "Your week is set up." : "Tomorrow is set up."} ${firstSentence}`);
   };
 
   const full = chosen.length >= MAX_TASKS;
@@ -578,7 +575,8 @@ export const SundayResetSheet = forwardRef<
                     className="rounded-2xl border p-4 flex-row items-center gap-3"
                     style={{
                       borderColor: on ? colors.primary : colors.controlBorder,
-                      backgroundColor: colors.surface,
+                      // The tint first-run uses: selection doesn't rest on the small icon alone.
+                      backgroundColor: on ? `${colors.primary}10` : colors.surface,
                       opacity: blocked ? 0.5 : 1,
                     }}
                     testID="sunday-reset-candidate"

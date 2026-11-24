@@ -219,7 +219,7 @@ describe("Progress: milestones are ticked by hand", () => {
     expect(screen.queryByTestId("milestone-reach-run_1_mile")).toBeNull();
     expect(screen.getByText("Milestone reached!")).toBeOnTheScreen();
     // The overlay covers the screen (and is modal for VoiceOver): close it first.
-    await fireEvent.press(screen.getByLabelText("Dismiss celebration"));
+    await fireEvent.press(screen.getByLabelText("Dismiss"));
 
     // "Done" can be undone after a confirmation.
     alert.mockClear();

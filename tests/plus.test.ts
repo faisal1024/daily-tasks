@@ -132,10 +132,12 @@ describe("which plans a paywall shows (Phase 11a)", () => {
     expect(plusBenefitsFor("evening_draft")).toHaveLength(PLUS_BENEFITS.length);
   });
 
-  it("a feature's paywall leads with that feature; generic and onboarding keep Nag mode first", () => {
+  it("a feature's paywall leads with that feature; onboarding and aha lead with the brain dump; generic keeps Nag mode first", () => {
     const leads: [PaywallSource, string][] = [
       ["break_down", "Break it down"],
       ["brain_dump", "Smart brain dump"],
+      ["onboarding", "Smart brain dump"],
+      ["aha", "Smart brain dump"],
       ["new_ideas", "AI ideas for your goal"],
       ["calendar", "Plan around your calendar"],
       ["routines", "Unlimited routines"],
@@ -145,7 +147,7 @@ describe("which plans a paywall shows (Phase 11a)", () => {
       expect(list[0].title).toBe(title);
       expect(new Set(list.map((b) => b.title)).size).toBe(PLUS_BENEFITS.length);
     }
-    for (const source of ["onboarding", "settings", "aha", "win_back", null] as const) {
+    for (const source of ["settings", "win_back", null] as const) {
       expect(plusBenefitsFor(source)[0].title).toBe("Nag mode");
     }
   });
@@ -165,7 +167,7 @@ describe("which plans a paywall shows (Phase 11a)", () => {
     expect(plusBenefitsFor("nag_mode")[0].title).toBe("Nag mode");
     expect(plusBenefitsFor("nag_mode")).toHaveLength(PLUS_BENEFITS.length);
     expect(new Set(plusBenefitsFor("nag_mode").map((b) => b.title)).size).toBe(PLUS_BENEFITS.length);
-    expect(plusBenefitsFor("onboarding")).toEqual(PLUS_BENEFITS);
+    expect(plusBenefitsFor("settings")).toEqual(PLUS_BENEFITS);
     expect(plusBenefitsFor(null)).toEqual(PLUS_BENEFITS);
     for (const benefit of PLUS_BENEFITS) expect(benefit.detail).not.toMatch(/\u2014/);
   });

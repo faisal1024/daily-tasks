@@ -307,18 +307,19 @@ export function EveningResult({
 }) {
   const colors = useColors();
   // The "Drafting tomorrow…" line is a live region, which only TalkBack reads;
-  // the result that replaces it isn't one, so both platforms hear that.
+  // the result that replaces it isn't one, so both platforms hear how it went
+  // (not the coach's whole note: that's on the card to read).
   const wasClosing = useRef(closing);
   useEffect(() => {
     if (closing && !wasClosing.current) {
       announceLiveChange(coachDrafts ? "Drafting tomorrow" : "Closing the day");
     } else if (!closing && wasClosing.current) {
       const failed = onRetry ? (draft ? "The coach couldn't add to it." : "Couldn't draft tomorrow.") : null;
-      const words = [note, draft ? "Tomorrow's three are ready." : null, failed].filter(Boolean).join(" ");
+      const words = failed ?? (draft ? "Tomorrow's three are ready." : null);
       if (words) announcePolitely(words);
     }
     wasClosing.current = closing;
-  }, [closing, coachDrafts, note, draft, onRetry]);
+  }, [closing, coachDrafts, draft, onRetry]);
   if (closing) {
     return (
       <View className="flex-row items-center gap-2 py-2" accessibilityLiveRegion="polite" testID="evening-closing">

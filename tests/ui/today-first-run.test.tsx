@@ -196,6 +196,28 @@ describe("Today: first run", () => {
     expect(track).toHaveBeenCalledWith("onboarding_completed", { source: "dump", count: 2 });
   });
 
+  it("a free user who used the dump's picks gets the day-0 offer once, after the sheet goes (1.6.1)", async () => {
+    mockOpenPaywall.mockClear();
+    mockStore = makeStore();
+    await render(<HomeScreen />);
+    await dump("walk, call mum, report");
+    await fireEvent.press(button("Use these three"));
+    // Waits for first run's sheet to go before opening.
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(mockOpenPaywall.mock.calls).toEqual([["onboarding", { taskCount: 3 }]]);
+  });
+
+  it("no day-0 offer with Plus, even after the dump's picks", async () => {
+    mockOpenPaywall.mockClear();
+    mockStore = makeStore({}, { hasPlus: true });
+    await render(<HomeScreen />);
+    await dump("walk, call mum, report");
+    await fireEvent.press(button("Use these three"));
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(mockOpenPaywall).not.toHaveBeenCalled();
+  });
+
   it("a day set while the picks were on screen takes nothing: every pick is saved for later, none is lost", async () => {
     mockStore = makeStore();
     const { rerender } = await render(<HomeScreen />);
@@ -275,7 +297,7 @@ describe("Today: first run", () => {
     expect(await AsyncStorage.getItem("daily-tasks/free-ai-dumps-used")).toBe("0");
   });
 
-  it("finishing marks onboarding seen, asks for nothing, and shows no paywall to a free user (1.5)", async () => {
+  it("finishing with 'I'll add my own' marks onboarding seen, asks for nothing, and shows no paywall to a free user", async () => {
     mockStore = makeStore();
     await render(<HomeScreen />);
     await fireEvent.press(button("I'll add my own"));

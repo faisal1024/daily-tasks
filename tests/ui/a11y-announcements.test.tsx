@@ -84,6 +84,18 @@ describe("useScreenReaderEnabled", () => {
     expect(remove).toHaveBeenCalledTimes(1);
   });
 
+  it("ignores a first answer that lands after a change event (the event is newer)", async () => {
+    seen.length = 0;
+    let resolve!: (on: boolean) => void;
+    jest.spyOn(AccessibilityInfo, "isScreenReaderEnabled").mockReturnValue(new Promise<boolean>((r) => (resolve = r)));
+    const view = await render(<Probe />);
+    await act(async () => listener?.(true));
+    expect(seen.at(-1)).toBe(true);
+    await act(async () => resolve(false));
+    expect(seen.at(-1)).toBe(true);
+    await view.unmount();
+  });
+
   it("reads a rejected or missing answer as off, never a crash, and ignores an answer after unmount", async () => {
     seen.length = 0;
     jest.spyOn(AccessibilityInfo, "isScreenReaderEnabled").mockRejectedValue(new Error("nope"));
@@ -132,12 +144,12 @@ describe("BrainDumpSheet announcements (iOS)", () => {
     expect(said()).toEqual(["Sorting through it", "Couldn't reach the AI"]);
   });
 
-  it("is silent on Android (the live regions speak)", async () => {
+  it("on Android only 'Sorted' is spoken (the sorting and notice live regions speak for themselves)", async () => {
     Platform.OS = "android";
     await mount(async () => sorted(null));
     await sort();
     await act(async () => {});
-    expect(said()).toEqual([]);
+    expect(said()).toEqual(["Sorted"]);
   });
 });
 
@@ -157,12 +169,12 @@ describe("EveningResult announcements", () => {
     expect(said()).toEqual([]);
   });
 
-  it("'Drafting tomorrow' when the coach starts, then the note and 'Tomorrow's three are ready.' once when it lands", async () => {
+  it("'Drafting tomorrow' when the coach starts, then 'Tomorrow's three are ready.' (not the note) once when it lands", async () => {
     const { rerender } = await render(el());
     await rerender(el({ closing: true }));
     expect(said()).toEqual(["Drafting tomorrow"]);
     await rerender(el({ closing: false, note: "A good day.", draft }));
-    expect(said()).toEqual(["Drafting tomorrow", "A good day. Tomorrow's three are ready."]);
+    expect(said()).toEqual(["Drafting tomorrow", "Tomorrow's three are ready."]);
     await rerender(el({ closing: false, note: "A good day.", draft }));
     expect(said()).toHaveLength(2);
   });
@@ -172,6 +184,6 @@ describe("EveningResult announcements", () => {
     await rerender(el({ coachDrafts: false, closing: true }));
     expect(said()).toEqual(["Closing the day"]);
     await rerender(el({ onRetry: jest.fn(), note: "A good day." }));
-    expect(said().at(-1)).toBe("A good day. Couldn't draft tomorrow.");
+    expect(said().at(-1)).toBe("Couldn't draft tomorrow.");
   });
 });

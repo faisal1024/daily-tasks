@@ -407,6 +407,9 @@ export default function HomeScreen() {
   const [breakingTaskId, setBreakingTaskId] = useState<string | null>(null);
   // A ref, not just state: two quick taps in one render must not both start.
   const breakingRef = useRef<string | null>(null);
+  // The latest tasks, for a break-down that lands after an edit.
+  const tasksRef = useRef(state.tasks);
+  tasksRef.current = state.tasks;
   const breakDownAvailable = proxyRouteUrl(getMomentumAiProxyUrl(), "break-down") != null;
   // Read when a free try returns: Plus may have been confirmed while it ran.
   const plusConfirmedRef = useRef(plusConfirmed);
@@ -1619,8 +1622,6 @@ export default function HomeScreen() {
     if (breakingRef.current) return;
     breakingRef.current = taskId;
     setBreakingTaskId(taskId);
-    // The row's "Breaking it down…" is a live region, which only TalkBack reads.
-    announceLiveChange("Breaking it down");
     if (free.freeTry) {
       const left = await claimFreeBreakDown();
       if (left === null) {
@@ -1632,12 +1633,16 @@ export default function HomeScreen() {
       }
       setFreeBreakDowns(left);
     }
+    // After the free-try claim, so the paywall path never hears it. The row's
+    // "Breaking it down…" is a live region, which only TalkBack reads.
+    announceLiveChange("Breaking it down");
     // From the check-in: the timer on this task makes way for the steps.
     if (starter && focusSessionRef.current?.taskId === taskId) stopFocusSession("broken_down");
     try {
       const steps = await requestBreakDown({ task: text, goalTitle: state.momentumProfile.goalTitle });
       haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
       // Only if the task still reads the same (it may have been edited meanwhile).
+      const applies = tasksRef.current.some((task) => task.id === taskId && task.text === text);
       setTaskSteps(taskId, steps, text);
       // Plus confirmed while it ran (it was still being checked): not a free try after all.
       const wasFreeTry = free.freeTry === true && !plusConfirmedRef.current;
@@ -1655,7 +1660,7 @@ export default function HomeScreen() {
         const note = "Steps added. That was your one free try.";
         showToast(note);
         announceLiveChange(note);
-      } else if (first && !starter) {
+      } else if (first && applies && !starter) {
         // The steps appear under the row without a word; the starter's alert speaks for itself.
         announcePolitely("Steps added");
       }
@@ -1668,7 +1673,8 @@ export default function HomeScreen() {
         void spendFreeBreakDowns();
         setFreeBreakDowns(0);
         showToast("Your free try was already used.");
-        announceLiveChange("Your free try was already used.");
+        // Said once the paywall has opened, so its Modal doesn't cut it off (TalkBack reads the toast).
+        if (Platform.OS === "ios") announceLater("Your free try was already used.");
         showBreakDownPaywall(taskId, text, { starter });
         return;
       }
@@ -1717,7 +1723,8 @@ export default function HomeScreen() {
   useEffect(() => {
     if (purchaseCount > seenPurchases.current) {
       showToast("You're on Plus. Thank you!");
-      announceLiveChange("You're on Plus. Thank you!");
+      // Said once the paywall has closed, so its Modal doesn't cut it off (TalkBack reads the toast).
+      if (Platform.OS === "ios") announceLater("You're on Plus. Thank you!");
     }
     seenPurchases.current = purchaseCount;
   }, [purchaseCount]);
@@ -2773,8 +2780,13 @@ export default function HomeScreen() {
           // Resumed: count what's already on today (nothing was dumped now).
           const count = source === "resume" ? state.tasks.length : picked;
           track("onboarding_completed", { source, count });
-          // 1.5: no paywall at the end of first run (the aha paywall comes
-          // later); the nudge and widget tip become Today cards from here.
+          // 1.6.1: the day-0 offer is back, once, after a dump that picked
+          // tasks (closable; first run only runs once). Showing it records
+          // lastPaywallShownAt, so the aha paywall keeps its 24-hour gap.
+          // The nudge and widget tip are Today cards from here.
+          if (paywallEnabled && !hasPlus && source === "dump" && picked > 0) {
+            showPaywall("onboarding", { afterSheet: true, taskCount: picked });
+          }
           void saveFirstDays(startFirstDays(today)).then(() => setFirstDaysVersion((v) => v + 1));
           const note = pickedNote(picked);
           if (note) {

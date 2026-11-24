@@ -92,8 +92,8 @@ export function AddTaskRow({
         height: 30,
         borderWidth: 2,
         borderStyle: "dashed",
-        // Half-alpha primary was ~2:1; the control outline is 3:1 (WCAG 1.4.11).
-        borderColor: disabled ? colors.border : colors.controlBorder,
+        // Solid primary: half-alpha was ~2:1; the outline needs 3:1 (WCAG 1.4.11).
+        borderColor: disabled ? colors.border : colors.primary,
       }}
     >
       {slotNumber ? (

@@ -215,7 +215,8 @@ export function PathEditor({ visible, goalTitle, milestones, plus, onSave, onSug
               onPress={add}
               accessibilityRole="button"
               className="flex-row items-center justify-center gap-2 rounded-2xl border py-3"
-              style={{ borderColor: colors.border, borderStyle: "dashed" }}
+              // Primary like Today's add circle: the hairline border is under 3:1.
+              style={{ borderColor: colors.primary, borderStyle: "dashed" }}
               accessibilityLabel="Add a step"
               testID="path-editor-add"
             >

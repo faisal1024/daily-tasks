@@ -19,6 +19,9 @@ import { announceLiveChange, announcePolitely } from "@/lib/daily-tasks/announce
 import { useDailyTasks } from "@/lib/daily-tasks/store";
 import { buildWeeklyReview } from "@/lib/daily-tasks/weekly-review";
 
+/** Lets the path editor's sheet close before "Finding a new path" is read out. */
+const FINDING_ANNOUNCE_DELAY_MS = 500;
+
 export default function JourneyScreen() {
   const colors = useColors();
   const {
@@ -47,10 +50,28 @@ export default function JourneyScreen() {
   const [pathNote, setPathNote] = useState<string | null>(null);
   // Starts at the current value: a search already under way isn't news on opening.
   const wasFinding = useRef(findingPath);
+  // "Suggest a new path" is confirmed in an Alert that also closes the path
+  // editor's Modal: said a moment later so the closing sheet doesn't cut it off.
+  const findingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (findingTimer.current) clearTimeout(findingTimer.current);
+    },
+    [],
+  );
   useEffect(() => {
     // The live regions below only speak on Android: VoiceOver is told here.
-    if (!wasFinding.current && findingPath) announceLiveChange("Finding a new path");
+    if (!wasFinding.current && findingPath) {
+      if (findingTimer.current) clearTimeout(findingTimer.current);
+      findingTimer.current = setTimeout(() => {
+        findingTimer.current = null;
+        announceLiveChange("Finding a new path");
+      }, FINDING_ANNOUNCE_DELAY_MS);
+    }
     if (wasFinding.current && !findingPath) {
+      // Back already: "Finding…" would now come after the answer.
+      if (findingTimer.current) clearTimeout(findingTimer.current);
+      findingTimer.current = null;
       const failed = state.momentumPlanStatus === "error";
       const note = failed ? "Couldn't get a new path. Your steps are unchanged." : null;
       setPathNote(note);
