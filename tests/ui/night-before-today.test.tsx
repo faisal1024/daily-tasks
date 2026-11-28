@@ -15,6 +15,7 @@ import { DailyTasksProvider } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
 import { DEFAULT_AUTO_LOCK, MAX_PARKED_TASKS, type AppState, type NightList, type ParkedTask, type Task } from "@/lib/daily-tasks/types";
 import { __setAnnouncementsForTests } from "@/lib/daily-tasks/whats-new";
+import { AHA_PAYWALL_DELAY_MS, type AhaPaywallState } from "@/lib/daily-tasks/aha-paywall";
 
 import { renderWithProviders as render } from "./render";
 
@@ -63,9 +64,11 @@ const mockPlus = {
   paywallSource: null as string | null,
   purchaseCount: 0,
   winBackDue: false,
+  ahaPaywallState: null as AhaPaywallState | null,
 };
+const mockOpenPaywall = jest.fn((_source: string) => true);
 jest.mock("@/lib/daily-tasks/plus-context", () => ({
-  usePlus: () => ({ ...mockPlus, openPaywall: jest.fn(() => true) }),
+  usePlus: () => ({ ...mockPlus, openPaywall: mockOpenPaywall }),
 }));
 jest.mock("@/lib/daily-tasks/analytics", () => ({
   ...jest.requireActual("@/lib/daily-tasks/analytics"),
@@ -138,6 +141,7 @@ beforeEach(async () => {
   await AsyncStorage.clear();
 });
 afterEach(() => {
+  mockPlus.ahaPaywallState = null;
   appState.currentState = realCurrentState;
   Platform.OS = originalOS;
   jest.useRealTimers();
@@ -436,5 +440,46 @@ describe("night-before edge cases on Today", () => {
       expect(screen.getByText(/Today/)).toBeTruthy();
       await again.unmount();
     }
+  });
+});
+
+describe("the aha paywall from last night's list", () => {
+  const AHA: AhaPaywallState = { installDay: "2026-11-20", ahaShown: false, lastPaywallShownAt: null };
+  const ahaCalls = () => mockOpenPaywall.mock.calls.filter((call) => call[0] === "aha").length;
+  const wait = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(AHA_PAYWALL_DELAY_MS + 100);
+    });
+    await flush();
+  };
+
+  it("is offered once when 'Add the N marked first' fills the day's three", async () => {
+    setNow(new Date(2026, 10, 27, 8, 0));
+    mockPlus.ahaPaywallState = AHA;
+    await save(FRI, { tasks: [task("a", "One")], nightLists: [held(["A", "B", "C"], FRI, THU, ["A", "B"])] });
+    await launch();
+    await press("night-morning-add-first");
+    expect((await persisted()).tasks.map((t) => t.text)).toEqual(["One", "A", "B"]);
+    await wait();
+    expect(ahaCalls()).toBe(1);
+  });
+
+  it("not while the day is under three; then once when a row's Add fills it", async () => {
+    setNow(new Date(2026, 10, 27, 8, 0));
+    mockPlus.ahaPaywallState = AHA;
+    await save(FRI, { nightLists: [held(["A", "B", "C"], FRI, THU, ["A"])] });
+    await launch();
+    await press("night-morning-add-first");
+    await wait();
+    expect(ahaCalls()).toBe(0);
+    await fireEvent.press(screen.getAllByTestId("night-morning-add")[0]);
+    await flush();
+    await wait();
+    expect(ahaCalls()).toBe(0);
+    await fireEvent.press(screen.getAllByTestId("night-morning-add")[0]);
+    await flush();
+    expect((await persisted()).tasks).toHaveLength(3);
+    await wait();
+    expect(ahaCalls()).toBe(1);
   });
 });

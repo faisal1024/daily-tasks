@@ -265,7 +265,8 @@ export function NightBeforeSheet({
         made = next.items;
         return next;
       });
-      setNotice(line ? { text: line, freeLimit } : null);
+      // The last free sort offers Plus too, as the used-up notice does.
+      setNotice(line ? { text: line, freeLimit: freeLimit || (kind === "free_ai" && freeLeft === 0) } : null);
       setStage("review");
       track("night_before", { step: "review", action: "sorted", kind, count: made.length, source });
       announcePolitely(line ? `${sortedSpoken(made)} ${line}` : sortedSpoken(made));

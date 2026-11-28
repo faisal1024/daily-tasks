@@ -2387,9 +2387,12 @@ export default function HomeScreen() {
                     room={remainingSlots}
                     locked={state.todayLocked}
                     onTake={(id, how) => {
+                      const before = total;
                       // Judged on the latest state, so it says what really happened.
                       const outcome = takeNightItem(id, how);
                       if (outcome === "done") {
+                        // The gentle aha paywall's rules (once, not on install day, only if this filled the day).
+                        if (how === "add") offerAhaPaywall({ fillsFrom: before });
                         haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
                         track("night_before", { step: "morning", action: how, source: "today" });
                         const left = nightMorning.items.length - 1;
@@ -2400,8 +2403,10 @@ export default function HomeScreen() {
                       return outcome;
                     }}
                     onAddFirst={() => {
+                      const before = total;
                       const added = addNightFirst();
                       if (added > 0) {
+                        offerAhaPaywall({ fillsFrom: before });
                         haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
                         track("night_before", { step: "morning", action: "add_first", count: added, source: "today" });
                         announcePolitely(`Added ${added} to today.`);

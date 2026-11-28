@@ -6,7 +6,7 @@
 // closing still counts, one sort at a time), and the morning card.
 // Local-time fixtures (26 Nov 2026 is a Thursday).
 import type { ReactNode } from "react";
-import { Alert, AppState as RNAppState } from "react-native";
+import { AccessibilityInfo, Alert, AppState as RNAppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react-native";
 
@@ -14,7 +14,7 @@ import { NightBeforeSheet } from "@/components/daily-tasks/night-before-sheet";
 import { NightMorningCard } from "@/components/daily-tasks/night-morning-card";
 import { requestBrainDump } from "@/lib/daily-tasks/ai-helpers";
 import { getMomentumAiProxyUrl } from "@/lib/daily-tasks/momentum-ai";
-import { FREE_AI_DUMPS, freeAiDumpsLeft } from "@/lib/daily-tasks/free-uses";
+import { claimFreeAiDump, FREE_AI_DUMPS, freeAiDumpsLeft } from "@/lib/daily-tasks/free-uses";
 import { isFromLastNight, morningList, NIGHT_AI_MAX_ROWS, NIGHT_TEXT_SAVE_MS } from "@/lib/daily-tasks/night-before";
 import { syncTodayHistory } from "@/lib/daily-tasks/rollover";
 import { DailyTasksProvider, reducer, useDailyTasks } from "@/lib/daily-tasks/store";
@@ -170,10 +170,18 @@ describe("the sheet", () => {
   }
   const onClose = jest.fn();
   const onDone = jest.fn();
+  const onSeePlus = jest.fn();
   const sheet = (visible: boolean) => (
     <DailyTasksProvider>
       <Probe />
-      <NightBeforeSheet visible={visible} target={{ forDate: FRI, nightOf: THU }} source="today" onClose={onClose} onDone={onDone} />
+      <NightBeforeSheet
+        visible={visible}
+        target={{ forDate: FRI, nightOf: THU }}
+        source="today"
+        onClose={onClose}
+        onDone={onDone}
+        onSeePlus={onSeePlus}
+      />
     </DailyTasksProvider>
   );
   const held = () => on(latest.state);
@@ -205,6 +213,7 @@ describe("the sheet", () => {
     jest.restoreAllMocks();
     onClose.mockClear();
     onDone.mockClear();
+    onSeePlus.mockClear();
     await AsyncStorage.clear();
   });
 
@@ -339,6 +348,26 @@ describe("the sheet", () => {
     }
   });
 
+  it("the last free AI sort says so and offers Plus", async () => {
+    (getMomentumAiProxyUrl as jest.Mock).mockReturnValue("https://proxy.test/api/momentum/plan");
+    (requestBrainDump as jest.Mock).mockResolvedValue({ picks: ["Call the dentist"], parked: ["Buy milk"], source: "ai" });
+    try {
+      await openSheet();
+      // Two of the three free sorts already used.
+      await claimFreeAiDump();
+      await claimFreeAiDump();
+      await makeList("dentist\nmilk");
+      expect(
+        screen.getByText("That was your last free AI sort. Next time we'll use a simple split, or Plus keeps AI sorting on."),
+      ).toBeTruthy();
+      await fireEvent.press(screen.getByTestId("night-before-see-plus"));
+      expect(onSeePlus).toHaveBeenCalled();
+    } finally {
+      (getMomentumAiProxyUrl as jest.Mock).mockReturnValue(null);
+      (requestBrainDump as jest.Mock).mockReset();
+    }
+  });
+
   it("writing tonight's list leaves this morning's undecided list alone", async () => {
     const morning = list(["Old one"], [], { forDay: THU, nightOf: "2026-11-25" });
     await openSheet({ nightLists: [morning] });
@@ -365,7 +394,7 @@ describe("the morning card", () => {
     await render(card());
     expect(screen.getAllByTestId("night-morning-row")).toHaveLength(3);
     expect(screen.getAllByText(/From last night/)).toHaveLength(3);
-    expect(screen.getByLabelText("C, from last night, marked do first")).toBeTruthy();
+    expect(screen.getByLabelText("C, from last night, marked to do first")).toBeTruthy();
     expect(screen.getByTestId("night-morning-blocked").props.children).toBe("Today's three are set. Save it for later instead.");
     const add = screen.getAllByTestId("night-morning-add")[0];
     expect(add.props.accessibilityState).toMatchObject({ disabled: true });
@@ -383,6 +412,32 @@ describe("the morning card", () => {
     await fireEvent.press(screen.getAllByTestId("night-morning-save")[0]);
     expect(onTake).toHaveBeenCalledWith("n2", "save");
     expect(screen.getByTestId("night-morning-blocked").props.children).toBe("Saved for later is full. Add it to Today, or let it go.");
+  });
+
+  it("with more marked than room, the button adds the first ones that fit", async () => {
+    await render(card({ list: list(["A", "B", "C"], ["A", "B", "C"]), room: 2 }));
+    expect(screen.getByTestId("night-morning-add-first")).toHaveTextContent("Add the first 2");
+  });
+
+  it("Saved for later full with Today full too doesn't suggest Add", async () => {
+    await render(card({ onTake: jest.fn(() => "full" as const) }));
+    await fireEvent.press(screen.getAllByTestId("night-morning-save")[0]);
+    expect(screen.getByTestId("night-morning-blocked").props.children).toBe("Saved for later is full.");
+  });
+
+  it("after Add, VoiceOver moves on to the next row", async () => {
+    const focus = jest.spyOn(AccessibilityInfo, "sendAccessibilityEvent").mockImplementation(() => {});
+    const onTake = jest.fn(() => "done" as const);
+    const view = await render(card({ room: 3, onTake }));
+    await fireEvent.press(screen.getAllByTestId("night-morning-add")[0]); // C (marked, first)
+    // The store drops the row; the card re-renders with the rest.
+    await view.rerender(card({ room: 2, onTake, list: { ...list(["A", "B"]), taken: 1 } }));
+    // Only the card's own moves count (other sheets' frames may still land in this file's run).
+    const rowFocus = () =>
+      focus.mock.calls
+        .map((call) => (call[0] as { props?: { accessibilityLabel?: string } })?.props?.accessibilityLabel)
+        .filter((label) => label?.includes("from last night"));
+    await waitFor(() => expect(rowFocus()).toEqual(["A, from last night"]));
   });
 
   it("Let all 3 go asks first; Cancel keeps them", async () => {

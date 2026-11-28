@@ -91,8 +91,8 @@ export const NIGHT_COPY = {
   writeButton: "Make it a list",
   sorting: "Turning it into a list…",
   reviewTitle: "Your list for the morning",
-  reviewHint: "Tick what to do first. Everything waits till morning, ticked or not. You choose then what to add or save.",
-  clear: "Clear ticks",
+  reviewHint: "Flag what to do first. Everything waits till morning, flagged or not. You choose then what to add or save.",
+  clear: "Clear flags",
   edit: "Edit",
   rowFirst: "Do first",
   keep: "Keep till morning",
@@ -115,6 +115,8 @@ export const NIGHT_COPY = {
   morningFull: "Today's three are set. Save it for later instead.",
   morningLocked: "Today is set. Save it for later instead.",
   savedFull: "Saved for later is full. Add it to Today, or let it go.",
+  /** When Today can't take it either. */
+  savedFullOnly: "Saved for later is full.",
 } as const;
 
 export const DEFAULT_NIGHT_BEFORE: NightBeforeState = {
@@ -194,6 +196,9 @@ export function normalizeNightList(value: unknown): NightList | null {
     }
   }
   const taken = record.taken;
+  const takenTexts = Array.isArray(record.takenTexts)
+    ? uniq(record.takenTexts.filter((text): text is string => typeof text === "string").map(looseKey)).slice(0, MAX_NIGHT_ITEMS)
+    : [];
   return {
     forDay: record.forDay,
     nightOf: record.nightOf,
@@ -203,6 +208,7 @@ export function normalizeNightList(value: unknown): NightList | null {
     ...(Object.keys(dates).length > 0 ? { dates } : {}),
     ...(typeof record.sortedText === "string" ? { sortedText: capText(record.sortedText) } : {}),
     ...(typeof taken === "number" && Number.isInteger(taken) && taken > 0 ? { taken: Math.min(taken, 999) } : {}),
+    ...(takenTexts.length > 0 ? { takenTexts } : {}),
     createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
   };
 }
@@ -316,6 +322,8 @@ export function withTextLines(list: NightList): NightList {
   const have = new Set([
     ...list.items.map((item) => looseKey(item.text)),
     ...(list.sortedText ? nightSplit(list.sortedText).map(looseKey) : []),
+    // Already added or saved this morning: never a row again.
+    ...(list.takenTexts ?? []),
   ]);
   const added = nightSplit(list.text)
     .filter((text) => !have.has(looseKey(text)))
@@ -452,7 +460,10 @@ export function withSortedItems(
   makeId: (index: number) => string,
 ): NightList {
   const before = new Map(list.items.map((item) => [looseKey(item.text), item]));
+  // A row already added or saved (re-sorting after midnight) doesn't come back.
+  const taken = new Set(list.takenTexts ?? []);
   const items = uniq(sort.items.map((text) => cleanTaskText(text) ?? "").filter(Boolean))
+    .filter((text) => !taken.has(looseKey(text)))
     .slice(0, MAX_NIGHT_ITEMS)
     .map((text, index) => {
       const had = before.get(looseKey(text));
@@ -482,9 +493,11 @@ function updateList(state: AppState, forDay: string, change: (list: NightList) =
 export function withoutNightItem(state: AppState, forDay: string, id: string): AppState {
   const list = listFor(nightListsOf(state), forDay);
   if (!list || !list.items.some((item) => item.id === id)) return state;
+  const gone = list.items.find((item) => item.id === id)!;
   return updateList(state, forDay, (current) => {
     const items = current.items.filter((item) => item.id !== id);
-    return items.length > 0 ? { ...current, items, taken: (current.taken ?? 0) + 1 } : null;
+    const takenTexts = uniq([...(current.takenTexts ?? []), looseKey(gone.text)]);
+    return items.length > 0 ? { ...current, items, taken: (current.taken ?? 0) + 1, takenTexts } : null;
   });
 }
 
@@ -561,8 +574,12 @@ export function letGoQuestion(count: number): string {
   return `Let ${count} go?`;
 }
 
-/** "Add the 2 marked first", up to the room Today has. */
-export function addFirstLabel(count: number): string {
+/**
+ * "Add the 2 marked first"; with more marked than Today has room for, "Add
+ * the first 2" (the ones that fit, in order).
+ */
+export function addFirstLabel(count: number, marked = count): string {
+  if (marked > count) return count === 1 ? "Add the first one" : `Add the first ${count}`;
   return count === 1 ? "Add the one marked first" : `Add the ${count} marked first`;
 }
 

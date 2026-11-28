@@ -53,19 +53,30 @@ export function NightMorningCard({
   const blocked = locked ? NIGHT_COPY.morningLocked : room <= 0 ? NIGHT_COPY.morningFull : null;
   const marked = rows.filter((row) => row.picked).length;
   const firstCount = canAdd ? Math.min(marked, room) : 0;
+  // Don't suggest Add when Today can't take it either.
+  const savedFullLine = canAdd ? NIGHT_COPY.savedFull : NIGHT_COPY.savedFullOnly;
 
   // After Add or Save, VoiceOver goes on to the next row (or the header).
   const headerRef = useRef<Text>(null);
   const rowRefs = useRef(new Map<string, View>());
-  const [focusNext, setFocusNext] = useState<string | "header" | null>(null);
+  // Where focus goes next, in a ref: clearing it mustn't re-run the effect
+  // (whose cleanup would cancel the frame before it fires).
+  const focusNext = useRef<string | "header" | null>(null);
+  const [focusTick, setFocusTick] = useState(0);
+  const moveFocus = (to: string | "header") => {
+    focusNext.current = to;
+    setFocusTick((tick) => tick + 1);
+  };
   useEffect(() => {
-    if (!focusNext) return;
-    const target = focusNext === "header" ? headerRef.current : rowRefs.current.get(focusNext);
-    setFocusNext(null);
-    if (!target) return;
-    const frame = requestAnimationFrame(() => AccessibilityInfo.sendAccessibilityEvent(target, "focus"));
+    if (!focusNext.current) return;
+    const frame = requestAnimationFrame(() => {
+      const to = focusNext.current;
+      focusNext.current = null;
+      const target = to === "header" ? headerRef.current : to ? rowRefs.current.get(to) : null;
+      if (target) AccessibilityInfo.sendAccessibilityEvent(target, "focus");
+    });
     return () => cancelAnimationFrame(frame);
-  }, [focusNext, list.items]);
+  }, [focusTick]);
 
   const take = (id: string, how: "add" | "save") => {
     const index = rows.findIndex((row) => row.id === id);
@@ -73,13 +84,13 @@ export function NightMorningCard({
     if (outcome === "full") {
       if (how === "save") {
         setSavedFull(true);
-        announcePolitely(NIGHT_COPY.savedFull);
+        announcePolitely(savedFullLine);
       }
       return;
     }
     setSavedFull(false);
     const next = rows[index + 1] ?? rows[index - 1];
-    setFocusNext(next && next.id !== id ? next.id : "header");
+    moveFocus(next && next.id !== id ? next.id : "header");
   };
 
   const letGo = () => {
@@ -147,13 +158,13 @@ export function NightMorningCard({
       </View>
       {blocked || savedFull ? (
         <Text className="text-sm" style={{ color: colors.muted }} testID="night-morning-blocked">
-          {savedFull ? NIGHT_COPY.savedFull : blocked}
+          {savedFull ? savedFullLine : blocked}
         </Text>
       ) : null}
       {firstCount > 0 ? (
         <Pressable
           onPress={() => {
-            if (onAddFirst() > 0) setFocusNext("header");
+            if (onAddFirst() > 0) moveFocus("header");
           }}
           accessibilityRole="button"
           className="rounded-2xl py-3 px-4 items-center justify-center"
@@ -161,7 +172,7 @@ export function NightMorningCard({
           testID="night-morning-add-first"
         >
           <Text className="text-center" style={{ color: colors.onPrimary, fontWeight: "700", fontSize: 16 }}>
-            {addFirstLabel(firstCount)}
+            {addFirstLabel(firstCount, marked)}
           </Text>
         </Pressable>
       ) : null}
@@ -190,7 +201,7 @@ export function NightMorningCard({
                 }}
                 className="flex-1 gap-0.5"
                 accessible
-                accessibilityLabel={`${item.text}, ${FROM_LAST_NIGHT.toLowerCase()}${item.picked ? ", marked do first" : ""}`}
+                accessibilityLabel={`${item.text}, ${FROM_LAST_NIGHT.toLowerCase()}${item.picked ? ", marked to do first" : ""}`}
               >
                 <Text className="text-base text-foreground" style={{ fontWeight: "600" }}>
                   {item.text}

@@ -260,6 +260,18 @@ describe("Save in the morning", () => {
     expect(saveNightItem(state, FRI, "n0", AT, FRI)).toBe(state);
   });
 
+  it("a row added or saved never comes back: not from a re-sort (after midnight) nor from the typed words", () => {
+    const state = stateOn(FRI, { nightLists: [list(["Call the dentist", "Buy milk"])] });
+    const saved = saveNightItem(state, FRI, "n0", AT, FRI);
+    const held = saved.nightLists![0];
+    expect(held.takenTexts).toEqual(["call the dentist"]);
+    const resorted = withSortedItems(held, { items: ["Call the dentist", "Buy milk", "Email Sam"], source: "ai" }, "x", (i) => `r${i}`);
+    expect(resorted.items.map((item) => item.text)).toEqual(["Buy milk", "Email Sam"]);
+    const typed = withTextLines({ ...held, text: "Call the dentist\nBuy milk\nWater plants", sortedText: "" });
+    expect(typed.items.map((item) => item.text)).toEqual(["Buy milk", "Water plants"]);
+    expect(normalizeNightList(held)?.takenTexts).toEqual(["call the dentist"]);
+  });
+
   it("withoutNightItem on a row that isn't there changes nothing", () => {
     const state = stateOn(FRI, { nightLists: [list(["A"])] });
     expect(withoutNightItem(state, FRI, "missing")).toBe(state);
@@ -298,6 +310,9 @@ describe("the words", () => {
     expect(letGoQuestion(3)).toBe("Let 3 go?");
     expect(addFirstLabel(2)).toBe("Add the 2 marked first");
     expect(addFirstLabel(1)).toBe("Add the one marked first");
+    // More marked than Today has room for: the ones that fit, in order.
+    expect(addFirstLabel(2, 3)).toBe("Add the first 2");
+    expect(addFirstLabel(1, 2)).toBe("Add the first one");
   });
 });
 

@@ -54,9 +54,9 @@ EVERY DAY STARTS FRESH
 There's no overdue list and no red badges. Anything you didn't finish waits for one tap: bring it into today, or let it go.
 
 A MORNING, A FEW WINS, AN EVENING
-• Morning: pick your three (with Plus, your coach drafts them the night before).
+• Morning: last night's list is waiting. Add what you want to today, save the rest for later, or let it go.
 • Day: tick them off. The next one is always the only one in front of you.
-• Evening: say how the day felt in one tap, and tomorrow starts with what's still open (with Plus, your AI coach drafts tomorrow's three).
+• Evening: say how the day felt in one tap, then write down what's on your mind for tomorrow. It waits till morning. (With Plus, your AI coach drafts tomorrow's three.)
 
 MADE TO KEEP GOING
 • A day count that only goes up: every day you plan counts.
@@ -83,7 +83,8 @@ Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70
 ## What's New in 1.7.0
 
 ```
-Plan tomorrow tonight. Write down what's on your mind and it waits till morning, marked "From last night".
+Plan tomorrow tonight. Free for everyone.
+Write down what's on your mind before bed and it waits till morning, marked "From last night".
 • In the morning, add what you want to Today or save it for later. The rest is let go.
 • Want a nudge? Turn on the night-before reminder in Settings › Reminders.
 ```

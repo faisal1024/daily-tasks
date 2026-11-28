@@ -97,6 +97,8 @@ export interface NightList {
   sortedText?: string;
   /** Rows already added or saved in the morning ("Let the rest go" vs "Let all 6 go"). */
   taken?: number;
+  /** Their words (loose keys), so a later sort or merge never brings them back. */
+  takenTexts?: string[];
   createdAt: string;
 }
 
