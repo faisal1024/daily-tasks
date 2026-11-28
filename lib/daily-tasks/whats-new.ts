@@ -262,7 +262,7 @@ export const WHATS_NEW_17_COPY = {
   title: "What's new",
   cardTitle: "Plan tomorrow tonight",
   cardBody:
-    "Write down what's on your mind tonight. In the morning it's waiting, marked “From last night”: add what you want to Today or save it for later.",
+    "Write down what's on your mind tonight. In the morning it's waiting, marked “From last night”: add what you want to Today or save it for later. The rest is let go.",
   /** Shown instead of the button outside the evening. */
   later: "From 6 PM, look for “Tomorrow, out of your head” on Today.",
   button: "Plan tomorrow",

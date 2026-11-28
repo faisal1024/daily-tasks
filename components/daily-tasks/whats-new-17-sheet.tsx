@@ -115,7 +115,7 @@ export const WhatsNew17Sheet = memo(function WhatsNew17Sheet({
                 style={{ minHeight: 44, backgroundColor: `${colors.primary}16` }}
                 testID="whats-new-17-plan"
               >
-                <Text className="text-sm font-semibold text-center" style={{ color: colors.primary }}>
+                <Text className="text-sm font-semibold text-center" style={{ color: colors.primaryInk }}>
                   {copy.button}
                 </Text>
               </Pressable>

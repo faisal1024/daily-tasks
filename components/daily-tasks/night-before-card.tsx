@@ -1,5 +1,5 @@
 // The night before's evening card on Today (1.7): the prompt ("Tomorrow,
-// out of your head"), or "Saved for the morning" once something is held for
+// out of your head"), or "Kept till morning" once something is held for
 // the night's day. Which one shows is showsNightCard
 // (lib/daily-tasks/night-before.ts); Today opens the sheet.
 import { useEffect, useRef } from "react";
@@ -54,6 +54,7 @@ export function NightBeforeCard({
           {/* Wraps beside the 44-pt ×, at any text size. */}
           <Text
             accessibilityRole="header"
+            maxFontSizeMultiplier={2}
             style={{ color: colors.foreground, fontFamily: Fonts.rounded, fontWeight: "700", fontSize: 18 }}
           >
             {held ? NIGHT_COPY.heldTitle : NIGHT_COPY.cardTitle}
@@ -87,7 +88,7 @@ export function NightBeforeCard({
         }}
         testID={held ? "night-before-open" : "night-before-start"}
       >
-        <Text style={{ color: held ? colors.primary : colors.onPrimary, fontWeight: "700", fontSize: 15 }}>
+        <Text style={{ color: held ? colors.primaryInk : colors.onPrimary, fontWeight: "700", fontSize: 15 }}>
           {held ? NIGHT_COPY.heldOpen : day === "today" ? NIGHT_COPY.cardButtonToday : NIGHT_COPY.cardButton}
         </Text>
       </Pressable>

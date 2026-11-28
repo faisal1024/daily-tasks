@@ -89,6 +89,14 @@ export interface NightList {
   source: "ai" | "local";
   /** Dates the AI read (1.6 F), by loose key; used when an item is added or saved. */
   dates?: Record<string, TaskWhen>;
+  /**
+   * The text the rows were made from. When `text` has moved on (Edit, then
+   * closed without making the list again), its new lines are added to the
+   * rows (withTextLines), so nothing typed is lost.
+   */
+  sortedText?: string;
+  /** Rows already added or saved in the morning ("Let the rest go" vs "Let all 6 go"). */
+  taken?: number;
   createdAt: string;
 }
 
@@ -450,8 +458,9 @@ export interface AppState {
   sundayReset?: SundayResetState;
   // The night before (1.7). Optional, like sundayReset (see nightBeforeOf).
   nightBefore?: NightBeforeState;
-  // The night-before list held for the morning (1.7), or null/absent.
-  nightList?: NightList | null;
+  // The night-before lists (1.7), one per day they're for, at most two:
+  // this morning's (still to decide) and tonight's (for tomorrow). Absent: none.
+  nightLists?: NightList[];
   // The last evening close: which day, the answer it was for, and the note.
   // (Kept even when nothing was drafted, so a closed day stays closed.)
   eveningClose: EveningCloseRecord | null;

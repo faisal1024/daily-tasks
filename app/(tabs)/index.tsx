@@ -285,6 +285,7 @@ export default function HomeScreen() {
     dismissTomorrowDraft,
     updateNightBefore,
     takeNightItem,
+    addNightFirst,
     finishNightList,
     claimCoachRequest,
     setCoachNotes,
@@ -474,9 +475,9 @@ export default function HomeScreen() {
     // Yesterday: anything finished after the close, or dropped at rollover.
     sourceDay: state.tomorrowDraft ? state.history[addDays(state.tomorrowDraft.forDate, -1)] : null,
   });
-  // Last night's list on its day (1.7): it takes the morning card's place
-  // until it's done (one card, not two); the draft card follows after.
-  const nightMorning = useMemo(() => morningList(state.nightList, today), [state.nightList, today]);
+  // Last night's list on its day (1.7): first in the morning, with the
+  // evening draft's card (if any) under it.
+  const nightMorning = useMemo(() => morningList(state.nightLists, today), [state.nightLists, today]);
   const morningCardUp = nightMorning !== null || Boolean(draft);
   // Saved for later as Ideas shows it: what's for today first (1.6 F).
   const savedItems = useMemo(() => savedItemsView(state.parkedTasks, today), [state.parkedTasks, today]);
@@ -510,13 +511,13 @@ export default function HomeScreen() {
         target: nightNow,
         today,
         record: nightRecord,
-        list: state.nightList,
+        lists: state.nightLists,
         firstRunActive,
         sundayCardShowing: sundayCardKind !== null,
       })
     : null;
   const nightDay = nightNow ? dayWord(nightNow, today) : "tomorrow";
-  const nightHeld = nightNow ? listFor(state.nightList, nightNow.forDate) : null;
+  const nightHeld = nightNow ? listFor(state.nightLists, nightNow.forDate) : null;
   /** Open the night-before sheet for the night it is now (false when there's none to plan). */
   const openNight = (source: NightBeforeSource): boolean => {
     const target = nightTarget(today, new Date().getHours(), isDayClosed(state.eveningClose, today));
@@ -2386,6 +2387,7 @@ export default function HomeScreen() {
                     room={remainingSlots}
                     locked={state.todayLocked}
                     onTake={(id, how) => {
+                      // Judged on the latest state, so it says what really happened.
                       const outcome = takeNightItem(id, how);
                       if (outcome === "done") {
                         haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
@@ -2397,6 +2399,15 @@ export default function HomeScreen() {
                       }
                       return outcome;
                     }}
+                    onAddFirst={() => {
+                      const added = addNightFirst();
+                      if (added > 0) {
+                        haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+                        track("night_before", { step: "morning", action: "add_first", count: added, source: "today" });
+                        announcePolitely(`Added ${added} to today.`);
+                      }
+                      return added;
+                    }}
                     onFinish={() => {
                       track("night_before", { step: "morning", action: "let_go", skipped: nightMorning.items.length, source: "today" });
                       finishNightList();
@@ -2404,7 +2415,7 @@ export default function HomeScreen() {
                     }}
                   />
                 ) : null}
-                {!nightMorning && draft && (
+                {draft && (
                   <TomorrowDraftCard
                     // A new night's draft starts fresh; the same one keeps the user's ticks.
                     key={draft.forDate}

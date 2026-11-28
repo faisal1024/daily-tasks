@@ -15,7 +15,7 @@ import { normalizeWhatsNewSeen } from "./whats-new";
 import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
 import { FIRST_DAYS_KEY, FIRST_DAYS_SHOWN_KEY } from "./first-days";
 import { normalizeSundayReset } from "./sunday-reset";
-import { normalizeNightBefore, normalizeNightList } from "./night-before";
+import { normalizeNightBefore, normalizeNightLists } from "./night-before";
 import { FIRST_TICK_KEY } from "./first-tick";
 import { WELCOME_BACK_SHOWN_KEY } from "./welcome-back";
 import type {
@@ -625,8 +625,11 @@ export function normalizeState(value: unknown): AppState | null {
     ...(isRecord(value.sundayReset) ? { sundayReset: normalizeSundayReset(value.sundayReset) } : {}),
     // 1.7: the same for the night before.
     ...(isRecord(value.nightBefore) ? { nightBefore: normalizeNightBefore(value.nightBefore) } : {}),
-    // The list held for the morning (1.7): a bad one is dropped (null), never the save.
-    ...(value.nightList !== undefined ? { nightList: normalizeNightList(value.nightList) } : {}),
+    // The lists held for the morning (1.7; a beta save's single `nightList`
+    // too): a bad one is dropped, never the save.
+    ...(value.nightLists !== undefined || value.nightList !== undefined
+      ? { nightLists: normalizeNightLists(value.nightLists, value.nightList) }
+      : {}),
     eveningClose: normalizeEveningClose(value.eveningClose),
     agendaEnabled: value.agendaEnabled === true,
     coachNotes: normalizeCoachNotes(value.coachNotes),

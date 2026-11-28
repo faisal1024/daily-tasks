@@ -53,7 +53,7 @@ import {
 import { NAG_LEVEL_COUNT_NOTE, nagLevelRudeNote } from "@/lib/daily-tasks/nag-copy";
 import { loadFirstDays } from "@/lib/daily-tasks/first-days";
 import { sundayResetOf } from "@/lib/daily-tasks/sunday-reset";
-import { nightBeforeOf, reminderTimeLabel } from "@/lib/daily-tasks/night-before";
+import { clampReminderMinutes, nightBeforeOf, reminderTimeLabel } from "@/lib/daily-tasks/night-before";
 import {
   settingsSectionOffset,
   subscribeSettingsFocus,
@@ -99,6 +99,8 @@ const NOTIFICATION_LABELS: Record<
 const SUNDAY_RESET_HELP = "Sunday at 6 PM: two minutes to set up your week.";
 /** 1.7: free and Plus, off by default. `{time}` is the chosen time. */
 const NIGHT_BEFORE_HELP = "Evenings at {time}: two minutes to get tomorrow out of your head.";
+/** Said instead while reminders can't arrive (switched off above, or not allowed in iOS Settings). */
+const NIGHT_BEFORE_BLOCKED = "Reminders are off, so this one can't arrive. Turn notifications on to get it.";
 
 /** Under the "Hide task names in notifications" switch (and its VoiceOver hint). */
 const HIDE_TASK_NAMES_HELP =
@@ -1224,7 +1226,11 @@ export default function SettingsScreen() {
             {/* The night before's reminder (1.7, free and Plus): off unless turned on here or after a save. */}
             <ReminderSwitchRow
               title="Night-before reminder"
-              subtitle={NIGHT_BEFORE_HELP.replace("{time}", reminderTimeLabel(nightBeforeOf(state).reminderMinutes))}
+              subtitle={
+                nightBeforeOf(state).reminder && (!state.notifications.enabled || notificationPermission === "denied")
+                  ? NIGHT_BEFORE_BLOCKED
+                  : NIGHT_BEFORE_HELP.replace("{time}", reminderTimeLabel(nightBeforeOf(state).reminderMinutes))
+              }
               value={nightBeforeOf(state).reminder}
               onValueChange={(value) => void handleNightBeforeReminder(value)}
               mutedColor={colors.muted}
@@ -1237,7 +1243,8 @@ export default function SettingsScreen() {
                   accessibilityLabel="Night-before reminder time"
                   hour={Math.floor(nightBeforeOf(state).reminderMinutes / 60)}
                   minute={nightBeforeOf(state).reminderMinutes % 60}
-                  onChange={(hour, minute) => updateNightBefore({ reminderMinutes: hour * 60 + minute })}
+                  // Evenings only (6 PM to 3:59 AM): a time outside moves to the nearer end.
+                  onChange={(hour, minute) => updateNightBefore({ reminderMinutes: clampReminderMinutes(hour * 60 + minute) })}
                 />
               </View>
             ) : null}

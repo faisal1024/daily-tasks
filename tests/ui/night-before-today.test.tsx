@@ -198,6 +198,8 @@ const held = (texts: string[], forDay = FRI, nightOf = THU, picked: string[] = [
   source: "local",
   createdAt: new Date(2026, 10, 26, 21).toISOString(),
 });
+/** The list for `day` as saved (one per day, at most two). */
+const listOn = (disk: AppState, day = FRI): NightList | null => disk.nightLists?.find((list) => list.forDay === day) ?? null;
 const rowTexts = () => screen.queryAllByTestId("night-morning-row").length;
 
 const until = async (testID: string, tries = 40) => {
@@ -229,7 +231,7 @@ describe("the night before on the real Today screen", () => {
     await fireEvent.press(screen.getAllByTestId("night-before-row")[2]);
     await press("night-before-close");
     let disk = await persisted();
-    expect(disk.nightList?.items.map((row) => [row.text, row.picked])).toEqual([
+    expect(listOn(disk)?.items.map((row) => [row.text, row.picked])).toEqual([
       ["Call the dentist", false],
       ["Buy milk", false],
       ["Email Sam", true],
@@ -266,17 +268,23 @@ describe("the night before on the real Today screen", () => {
     disk = await persisted();
     expect(disk.parkedTasks.map((t) => [t.text, t.nightFor])).toEqual([["Buy milk", FRI]]);
     expect(rowTexts()).toBe(1);
+    // Let the rest go asks first.
+    const ask = jest.spyOn(Alert, "alert").mockImplementation((title, _message, buttons) => {
+      expect(title).toBe("Let 1 go?");
+      buttons?.find((button) => button.text === "Let go")?.onPress?.();
+    });
     await press("night-morning-finish");
+    expect(ask).toHaveBeenCalled();
     expect(screen.queryByTestId("night-morning")).toBeNull();
     disk = await persisted();
-    expect(disk.nightList ?? null).toBeNull();
+    expect(listOn(disk)).toBeNull();
     // "Call the dentist" was never filed anywhere.
     expect(disk.tasks.map((t) => t.text)).toEqual(["Email Sam"]);
     expect(disk.parkedTasks.map((t) => t.text)).toEqual(["Buy milk"]);
     // And a relaunch brings nothing back.
     await relaunch(view);
     expect(screen.queryByTestId("night-morning")).toBeNull();
-    expect((await persisted()).nightList ?? null).toBeNull();
+    expect(listOn(await persisted())).toBeNull();
   });
 });
 
@@ -295,7 +303,7 @@ describe("night-before edge cases on Today", () => {
     await press("night-before-nudge-no");
     await press("night-before-finish");
     const disk = await persisted();
-    expect(disk.nightList).toMatchObject({ forDay: FRI, nightOf: THU });
+    expect(listOn(disk)).toMatchObject({ forDay: FRI, nightOf: THU });
     expect(screen.getByTestId("night-morning")).toBeOnTheScreen();
     expect(rowTexts()).toBe(2);
     expect(disk.tasks).toEqual([]);
@@ -316,8 +324,8 @@ describe("night-before edge cases on Today", () => {
     await press("night-before-nudge-no");
     await press("night-before-finish");
     const disk = await persisted();
-    expect(disk.nightList).toMatchObject({ forDay: FRI, nightOf: THU });
-    expect(disk.nightList?.items).toHaveLength(2);
+    expect(listOn(disk)).toMatchObject({ forDay: FRI, nightOf: THU });
+    expect(listOn(disk)?.items).toHaveLength(2);
     // It is now Friday morning: the list is Friday's, not let go, not filed.
     expect(disk.parkedTasks).toEqual([]);
     expect(disk.tasks).toEqual([]);
@@ -331,7 +339,7 @@ describe("night-before edge cases on Today", () => {
     setNow(new Date(2026, 10, 27, 8, 0));
     await save(FRI, {
       tasks: [task("a", "One"), task("b", "Two"), task("c", "Three")],
-      nightList: held(MORNING_TEXTS),
+      nightLists: [held(MORNING_TEXTS)],
     });
     const view = await launch();
     expect(screen.getByTestId("night-morning-blocked")).toHaveTextContent("Today's three are set. Save it for later instead.");
@@ -345,7 +353,7 @@ describe("night-before edge cases on Today", () => {
     await view.unmount();
     __resetStorageForTests();
     await AsyncStorage.clear();
-    await save(FRI, { tasks: [task("a", "One")], todayLocked: true, nightList: held(MORNING_TEXTS) });
+    await save(FRI, { tasks: [task("a", "One")], todayLocked: true, nightLists: [held(MORNING_TEXTS)] });
     await launch();
     expect(screen.getByTestId("night-morning-blocked")).toHaveTextContent("Today is set. Save it for later instead.");
     for (const add of screen.getAllByTestId("night-morning-add")) expect(add.props.accessibilityState).toMatchObject({ disabled: true });
@@ -355,30 +363,30 @@ describe("night-before edge cases on Today", () => {
   it("Save with Saved for later full says so, keeps the row, and pushes nothing out", async () => {
     setNow(new Date(2026, 10, 27, 8, 0));
     const full = Array.from({ length: MAX_PARKED_TASKS }, (_, n) => parked(n));
-    await save(FRI, { parkedTasks: full, nightList: held(MORNING_TEXTS) });
+    await save(FRI, { parkedTasks: full, nightLists: [held(MORNING_TEXTS)] });
     await launch();
     await fireEvent.press(screen.getAllByTestId("night-morning-save")[0]);
     await flush();
-    expect(screen.getByTestId("night-morning-blocked")).toHaveTextContent("Saved for later is full.");
+    expect(screen.getByTestId("night-morning-blocked")).toHaveTextContent("Saved for later is full. Add it to Today, or let it go.");
     expect(rowTexts()).toBe(3);
     const disk = await persisted();
     expect(disk.parkedTasks.map((t) => t.id)).toEqual(full.map((t) => t.id));
-    expect(disk.nightList?.items).toHaveLength(3);
+    expect(listOn(disk)?.items).toHaveLength(3);
   });
 
   it("a list never acted on is let go at the next rollover and never parked", async () => {
     setNow(new Date(2026, 10, 27, 8, 0));
-    await save(FRI, { nightList: held(MORNING_TEXTS) });
+    await save(FRI, { nightLists: [held(MORNING_TEXTS)] });
     const view = await launch();
     expect(screen.getByTestId("night-morning")).toBeOnTheScreen();
-    expect((await persisted()).nightList?.items).toHaveLength(3);
+    expect(listOn(await persisted())?.items).toHaveLength(3);
     // Saturday morning.
     setNow(new Date(2026, 10, 28, 8, 0));
     await relaunch(view);
     expect(screen.queryByTestId("night-morning")).toBeNull();
     const disk = await persisted();
     expect(disk.lastOpenedDate).toBe(SAT);
-    expect(disk.nightList ?? null).toBeNull();
+    expect(listOn(disk)).toBeNull();
     expect(disk.parkedTasks).toEqual([]);
     expect(disk.tasks).toEqual([]);
   });
@@ -396,6 +404,7 @@ describe("night-before edge cases on Today", () => {
 
   it("a malformed or old nightList in storage is cleaned, never breaks the app", async () => {
     setNow(new Date(2026, 10, 27, 8, 0));
+    // A 1.7 beta save's single `nightList` (read into nightLists).
     await save(FRI, {
       nightList: {
         forDay: FRI,
@@ -411,8 +420,8 @@ describe("night-before edge cases on Today", () => {
           { id: "c", text: "good  ONE" },
           { id: "d", text: "Second", picked: "yes" },
         ],
-      } as never,
-    });
+      },
+    } as unknown as Partial<AppState>);
     const view = await launch();
     expect(rowTexts()).toBe(2);
     expect(screen.getAllByTestId("night-morning-row")[0]).toHaveTextContent(/^Good one/);
@@ -421,7 +430,7 @@ describe("night-before edge cases on Today", () => {
     for (const bad of [{ forDay: "tomorrow", nightOf: THU, items: [] }, "garbage", 5, []]) {
       __resetStorageForTests();
       await AsyncStorage.clear();
-      await save(FRI, { nightList: bad as never });
+      await save(FRI, { nightList: bad } as unknown as Partial<AppState>);
       const again = await launch();
       expect(screen.queryByTestId("night-morning")).toBeNull();
       expect(screen.getByText(/Today/)).toBeTruthy();
