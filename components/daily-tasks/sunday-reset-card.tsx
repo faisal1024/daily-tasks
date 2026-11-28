@@ -22,20 +22,16 @@ import {
 import { useSundayReset } from "./sunday-reset-provider";
 
 /**
- * The Today card: Sunday from 5 PM (see sundayResetCard). Plus: "Set up your
- * week" with Start. A free user: the same title with a short Plus intro,
- * shown in one week only. × closes it for the week (and skips that week's
- * notification).
+ * Which Sunday reset card Today shows right now (sundayResetCard), or null.
+ * Shared with the night-before card (1.7), which stays hidden while this one is up.
  */
-export function SundayResetCard({ firstRunActive }: { firstRunActive: boolean }) {
-  const colors = useColors();
+export function useSundayResetCardKind(firstRunActive: boolean): SundayResetCardKind | null {
   const hour = useHour();
-  const { ready, state, today, plusConfirmed, hasPlus, updateSundayReset } = useDailyTasks();
+  const { ready, state, today, plusConfirmed, hasPlus } = useDailyTasks();
   const { paywallEnabled } = usePlus();
-  const reset = useSundayReset();
   const record = sundayResetOf(state);
   const usedBefore = useMemo(() => usedBeforeToday(state.history, today), [state.history, today]);
-  const kind: SundayResetCardKind | null = ready
+  return ready
     ? sundayResetCard({
         today,
         hour,
@@ -46,6 +42,20 @@ export function SundayResetCard({ firstRunActive }: { firstRunActive: boolean })
         firstRunActive,
       })
     : null;
+}
+
+/**
+ * The Today card: Sunday from 5 PM (see sundayResetCard). Plus: "Set up your
+ * week" with Start. A free user: the same title with a short Plus intro,
+ * shown in one week only. × closes it for the week (and skips that week's
+ * notification).
+ */
+export function SundayResetCard({ firstRunActive }: { firstRunActive: boolean }) {
+  const colors = useColors();
+  const { state, today, updateSundayReset } = useDailyTasks();
+  const reset = useSundayReset();
+  const record = sundayResetOf(state);
+  const kind = useSundayResetCardKind(firstRunActive);
   const week = weekKey(today);
 
   // "shown" once per card and week in this launch; a free user's intro is

@@ -2,7 +2,7 @@
 // shown it (updaters only, once, and alone when 1.4's is unseen too), which
 // cards show with Nag mode on or off and with or without Plus, the words,
 // the Settings focus queue, and Saved for later's "add a day" tip.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { showSavedDateTip, withSavedDateTip, SAVED_DATE_TIP } from "../lib/daily-tasks/saved-date-tip";
 import {
@@ -38,6 +38,8 @@ const state = (overrides: Partial<WhatsNewState> = {}): WhatsNewState => ({
 const NAG = { ...DEFAULT_NOTIFICATIONS, style: "nag" as const, nagConfirmed: true };
 
 describe("who is shown 1.6's What's new", () => {
+  // As 1.6 shipped: 1.7's own announcement is tested in whats-new.test.ts.
+  beforeEach(() => __setAnnouncementsForTests([NAG_ANNOUNCEMENT, FEATURES_16_ANNOUNCEMENT]));
   it("is released after 1.4's, under an id analytics keeps", () => {
     expect(allAnnouncementIds()).toEqual([NAG_ANNOUNCEMENT_ID, FEATURES_16_ID]);
     expect(FEATURES_16_ID).toBe("1.6-features");

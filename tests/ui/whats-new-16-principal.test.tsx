@@ -27,7 +27,12 @@ import { takeSettingsFocus } from "@/lib/daily-tasks/settings-focus";
 import { DailyTasksProvider } from "@/lib/daily-tasks/store";
 import { __resetStorageForTests, buildInitialState } from "@/lib/daily-tasks/storage";
 import { DEFAULT_AUTO_LOCK, DEFAULT_NOTIFICATIONS, type AppState, type Task } from "@/lib/daily-tasks/types";
-import { __setAnnouncementsForTests, WHATS_NEW_DELAY_MS } from "@/lib/daily-tasks/whats-new";
+import {
+  __setAnnouncementsForTests,
+  FEATURES_16_ANNOUNCEMENT,
+  NAG_ANNOUNCEMENT,
+  WHATS_NEW_DELAY_MS,
+} from "@/lib/daily-tasks/whats-new";
 
 import { renderWithProviders as render } from "./render";
 
@@ -126,7 +131,8 @@ beforeEach(async () => {
   jest.useFakeTimers({ now: START });
   jest.clearAllMocks();
   // The released announcements: 1.4's and 1.6's.
-  __setAnnouncementsForTests(null);
+  // As 1.6 shipped (1.7's own sheet comes after it: tests/whats-new.test.ts).
+  __setAnnouncementsForTests([NAG_ANNOUNCEMENT, FEATURES_16_ANNOUNCEMENT]);
   mockPlus = { ...PLUS };
   mockWindow = PHONE;
   mockReset.isOpen = false;

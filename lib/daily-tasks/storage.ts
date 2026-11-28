@@ -9,12 +9,13 @@ import { NAG_LEVELS, NAG_PERSONAS } from "./nag";
 import { normalizeNagOwnLines } from "./nag-own-lines";
 import { NAG_STORAGE_KEY, normalizeNagWindow } from "./nag-plan";
 import { normalizeRoutines } from "./routines";
-import { normalizeWhen } from "./resurface";
+import { isDateKey, normalizeWhen } from "./resurface";
 import { isReviewTrigger } from "./review-prompt";
 import { normalizeWhatsNewSeen } from "./whats-new";
 import { NOTE_KEY as TRIAL_NOTE_KEY, USES_KEY as PLUS_USES_KEY } from "./trial-note";
 import { FIRST_DAYS_KEY, FIRST_DAYS_SHOWN_KEY } from "./first-days";
 import { normalizeSundayReset } from "./sunday-reset";
+import { normalizeNightBefore, normalizeNightLists } from "./night-before";
 import { FIRST_TICK_KEY } from "./first-tick";
 import { WELCOME_BACK_SHOWN_KEY } from "./welcome-back";
 import type {
@@ -89,6 +90,7 @@ function normalizeTasks(value: unknown): Task[] {
     if (typeof item.routineId === "string" && item.routineId) task.routineId = item.routineId;
     const when = normalizeWhen(item.when);
     if (when) task.when = when;
+    if (isDateKey(item.nightFor)) task.nightFor = item.nightFor;
     tasks.push({ ...task, ...normalizeStepsField(item.steps) });
   }
   return tasks;
@@ -109,7 +111,12 @@ function normalizeParkedTasks(value: unknown): ParkedTask[] {
       };
       // 1.6 F: a malformed date is dropped, never the item.
       const when = normalizeWhen(item.when);
-      return when ? { ...parked, when } : parked;
+      // 1.7: a malformed night tag is dropped too, never the item.
+      return {
+        ...parked,
+        ...(when ? { when } : {}),
+        ...(isDateKey(item.nightFor) ? { nightFor: item.nightFor } : {}),
+      };
     })
     .slice(-MAX_PARKED_TASKS);
 }
@@ -133,6 +140,7 @@ function normalizeDayTaskRecord(value: unknown): DayTaskRecord | null {
     ...normalizeStepsField(value.steps),
     ...(typeof value.routineId === "string" && value.routineId ? { routineId: value.routineId } : {}),
     ...withWhen(value.when),
+    ...(isDateKey(value.nightFor) ? { nightFor: value.nightFor } : {}),
   };
 }
 
@@ -615,6 +623,13 @@ export function normalizeState(value: unknown): AppState | null {
     tomorrowDraft: normalizeTomorrowDraft(value.tomorrowDraft),
     // 1.6: only when saved (older saves read as the defaults).
     ...(isRecord(value.sundayReset) ? { sundayReset: normalizeSundayReset(value.sundayReset) } : {}),
+    // 1.7: the same for the night before.
+    ...(isRecord(value.nightBefore) ? { nightBefore: normalizeNightBefore(value.nightBefore) } : {}),
+    // The lists held for the morning (1.7; a beta save's single `nightList`
+    // too): a bad one is dropped, never the save.
+    ...(value.nightLists !== undefined || value.nightList !== undefined
+      ? { nightLists: normalizeNightLists(value.nightLists, value.nightList) }
+      : {}),
     eveningClose: normalizeEveningClose(value.eveningClose),
     agendaEnabled: value.agendaEnabled === true,
     coachNotes: normalizeCoachNotes(value.coachNotes),

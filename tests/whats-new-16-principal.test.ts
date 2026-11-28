@@ -2,7 +2,7 @@
 // and the Saved-for-later date tip. Where the other tests pin examples, these
 // sweep every combination against a plain-words oracle, so a wrong rule
 // anywhere in the matrix fails.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   addDays,
@@ -22,7 +22,9 @@ import { DEFAULT_NOTIFICATIONS, type AppState, type ParkedTask } from "../lib/da
 import {
   __setAnnouncementsForTests,
   allAnnouncementIds,
+  FEATURES_16_ANNOUNCEMENT,
   FEATURES_16_ID,
+  NAG_ANNOUNCEMENT,
   NAG_ANNOUNCEMENT_ID,
   whatsNewDecision,
   withWhatsNewSeen,
@@ -35,6 +37,8 @@ const subsets = <T,>(items: readonly T[]): T[][] =>
 const NAG = { ...DEFAULT_NOTIFICATIONS, style: "nag" as const, nagConfirmed: true };
 
 describe("who is shown what, over every saved state", () => {
+  // As 1.6 shipped: 1.7's own announcement is tested in whats-new.test.ts.
+  beforeEach(() => __setAnnouncementsForTests([NAG_ANNOUNCEMENT, FEATURES_16_ANNOUNCEMENT]));
   const ids = [NAG_ANNOUNCEMENT_ID, FEATURES_16_ID, "unrelated"];
   const states = subsets(ids).flatMap((whatsNewSeen) =>
     [true, false].flatMap((hasSeenOnboarding) =>

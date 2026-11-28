@@ -207,6 +207,8 @@ export interface SavedItemView {
   reason?: string;
   /** Leads Ideas under "For today": its day is today, or a deadline just missed. */
   dueToday: boolean;
+  /** Kept from last night's dump (1.7): "From last night" shows under it. */
+  fromLastNight?: true;
 }
 
 /**
@@ -226,6 +228,8 @@ export function savedItemsView(parked: ParkedTask[], today: string): SavedItemVi
       ...(label ? { label } : {}),
       ...(reason ? { reason } : {}),
       dueToday,
+      // 1.7: kept from last night's dump, on the day it was planned for.
+      ...(item.nightFor && item.nightFor === today ? { fromLastNight: true } : {}),
     };
   });
   return [...items.filter((item) => item.dueToday), ...items.filter((item) => !item.dueToday)];

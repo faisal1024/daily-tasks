@@ -13,6 +13,8 @@ import {
   allAnnouncementIds,
   currentAnnouncements,
   FEATURES_16_ID,
+  NIGHT_17_ANNOUNCEMENT,
+  NIGHT_17_ID,
   NAG_ANNOUNCEMENT,
   NAG_ANNOUNCEMENT_ID,
   NAG_INTRO_COPY,
@@ -42,8 +44,9 @@ const state = (overrides: Partial<WhatsNewState> = {}): WhatsNewState => ({
 });
 
 describe("who is shown what's new", () => {
-  it("1.4 announces Nag mode and 1.6 its features, under ids analytics will accept", () => {
-    expect(allAnnouncementIds()).toEqual(["1.4-nag", "1.6-features"]);
+  it("1.4 announces Nag mode, 1.6 its features and 1.7 the night before, under ids analytics will accept", () => {
+    expect(allAnnouncementIds()).toEqual(["1.4-nag", "1.6-features", "1.7-night"]);
+    expect(NIGHT_17_ID).toMatch(/^[a-z0-9_.-]{1,40}$/i);
     expect(FEATURES_16_ID).toMatch(/^[a-z0-9_.-]{1,40}$/i);
     expect(NAG_ANNOUNCEMENT_ID).toBe("1.4-nag");
     // The shape analytics keeps for a string property (sanitizeProps).
@@ -59,12 +62,18 @@ describe("who is shown what's new", () => {
     expect(whatsNewDecision(state())).toEqual({ show: NAG_ANNOUNCEMENT, skip: [] });
   });
 
+  it("1.7's comes after 1.6's (one a foreground), and only to someone who updated", () => {
+    expect(whatsNewDecision(state({ whatsNewSeen: ["1.4-nag", "1.6-features"] }))).toEqual({ show: NIGHT_17_ANNOUNCEMENT, skip: [] });
+    expect(whatsNewDecision(state({ whatsNewSeen: ["1.4-nag"] })).show?.id).toBe("1.6-features");
+    expect(whatsNewDecision(state({ hasSeenOnboarding: false, whatsNewSeen: ["1.4-nag", "1.6-features"] })).show).toBeNull();
+  });
+
   it("not before first run has finished", () => {
     expect(whatsNewDecision(state({ hasSeenOnboarding: false }))).toEqual({ show: null, skip: [] });
   });
 
   it("not once it has been seen", () => {
-    expect(whatsNewDecision(state({ whatsNewSeen: ["1.4-nag", "1.6-features"] }))).toEqual({ show: null, skip: [] });
+    expect(whatsNewDecision(state({ whatsNewSeen: ["1.4-nag", "1.6-features", "1.7-night"] }))).toEqual({ show: null, skip: [] });
     __setAnnouncementsForTests([NAG_ANNOUNCEMENT]);
     expect(whatsNewDecision(state({ whatsNewSeen: ["1.4-nag"] }))).toEqual({ show: null, skip: [] });
   });
@@ -172,9 +181,10 @@ describe("whatsNewSeen in the saved state", () => {
   });
 
   it("round-trips what was seen", () => {
-    const saved = { ...buildInitialState(new Date(2026, 9, 12)), hasSeenOnboarding: true, whatsNewSeen: ["1.4-nag", "1.6-features"] };
+    const seen = ["1.4-nag", "1.6-features", "1.7-night"];
+    const saved = { ...buildInitialState(new Date(2026, 9, 12)), hasSeenOnboarding: true, whatsNewSeen: seen };
     const loaded = normalizeState(JSON.parse(JSON.stringify(saved)))!;
-    expect(loaded.whatsNewSeen).toEqual(["1.4-nag", "1.6-features"]);
+    expect(loaded.whatsNewSeen).toEqual(seen);
     expect(whatsNewDecision(loaded).show).toBeNull();
   });
 

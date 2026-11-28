@@ -24,6 +24,11 @@ export interface Task {
   routineId?: string;
   /** A saved item's soft date, carried onto Today so "Not today" keeps it (1.6 F). */
   when?: TaskWhen;
+  /**
+   * Kept from a night-before dump (1.7): the day it was planned for. The
+   * "From last night" tag shows only while this is today, so it goes by itself.
+   */
+  nightFor?: string;
 }
 
 /**
@@ -55,6 +60,64 @@ export interface TomorrowDraft {
    * Absent on drafts from the evening close.
    */
   from?: "reset";
+}
+
+/** One line of the night-before list (1.7). */
+export interface NightItem {
+  id: string;
+  text: string;
+  /** Ticked at night: "do these first". It leads in the morning; nothing more. */
+  picked: boolean;
+}
+
+/**
+ * The night-before list (1.7; night-before.ts): everything written at night,
+ * typed text and the list made from it, held as it is until the morning of
+ * `forDay`. Nothing in it is in Saved for later or on Today until the user
+ * adds or saves it then; what's left is let go when they finish, or when
+ * that day ends.
+ */
+export interface NightList {
+  /** The day it's for (yyyy-MM-dd). */
+  forDay: string;
+  /** The evening it was written. */
+  nightOf: string;
+  /** What was typed (kept even half-written, so a killed app loses nothing). */
+  text: string;
+  items: NightItem[];
+  /** Whether the AI made the list (else the simple split, or none yet). */
+  source: "ai" | "local";
+  /** Dates the AI read (1.6 F), by loose key; used when an item is added or saved. */
+  dates?: Record<string, TaskWhen>;
+  /**
+   * The text the rows were made from. When `text` has moved on (Edit, then
+   * closed without making the list again), its new lines are added to the
+   * rows (withTextLines), so nothing typed is lost.
+   */
+  sortedText?: string;
+  /** Rows already added or saved in the morning ("Let the rest go" vs "Let all 6 go"). */
+  taken?: number;
+  /** Their words (loose keys), so a later sort or merge never brings them back. */
+  takenTexts?: string[];
+  createdAt: string;
+}
+
+/**
+ * The night before (1.7; lib/daily-tasks/night-before.ts). Day keys are the
+ * evening the dump was for (`nightOf`). Absent on older saves: read with
+ * nightBeforeOf (defaults).
+ */
+export interface NightBeforeState {
+  /** Settings › Reminders › Night-before reminder. Off by default. */
+  reminder: boolean;
+  /** When it goes off, in minutes of the local day (8:30 PM by default). */
+  reminderMinutes: number;
+  /** The evening the list was last kept for the morning ("Keep till morning"). */
+  doneFor: string | null;
+  /** The evening the Today card was closed with × ("Not tonight"). */
+  dismissedFor: string | null;
+  /** The done step's one-time "Want a nudge?" was answered. */
+  reminderAsked: boolean;
 }
 
 /**
@@ -127,6 +190,8 @@ export interface ParkedTask {
   parkedAt: string;
   /** Its soft date, when the words had one (1.6 F). Absent in older saves. */
   when?: TaskWhen;
+  /** Kept from a night-before dump (1.7): the day it was planned for (see Task.nightFor). */
+  nightFor?: string;
 }
 
 // Generous so a brain dump never silently drops what someone typed (100
@@ -149,6 +214,8 @@ export interface DayTaskRecord {
   routineId?: string;
   /** The task's soft date (1.6 F), kept so a carried task keeps it. */
   when?: TaskWhen;
+  /** The night-before day (1.7), kept through a hydrate repair like `when`. */
+  nightFor?: string;
 }
 
 export interface DayRecord {
@@ -391,6 +458,11 @@ export interface AppState {
   // The Sunday reset (1.6). Optional: older saves and hand-built states have
   // none (see sundayResetOf).
   sundayReset?: SundayResetState;
+  // The night before (1.7). Optional, like sundayReset (see nightBeforeOf).
+  nightBefore?: NightBeforeState;
+  // The night-before lists (1.7), one per day they're for, at most two:
+  // this morning's (still to decide) and tonight's (for tomorrow). Absent: none.
+  nightLists?: NightList[];
   // The last evening close: which day, the answer it was for, and the note.
   // (Kept even when nothing was drafted, so a closed day stays closed.)
   eveningClose: EveningCloseRecord | null;

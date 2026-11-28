@@ -27,6 +27,7 @@ import type {
   NotificationConfig,
   NotificationPermissionState,
   PendingRollover,
+  NightBeforeState,
   SundayResetState,
   TomorrowDraft,
 } from "./types";
@@ -104,6 +105,8 @@ export interface ReminderContext {
   plus?: boolean;
   /** The Sunday reset's switch and weeks (1.6), for its Sunday notification. Absent: none planned. */
   sundayReset?: SundayResetState;
+  /** The night before's reminder record (1.7). Absent: none planned. */
+  nightBefore?: NightBeforeState;
 }
 
 export type ReminderStrategy = (context: ReminderContext) => ReminderPlan | Promise<ReminderPlan>;

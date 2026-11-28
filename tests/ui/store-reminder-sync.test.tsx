@@ -254,8 +254,8 @@ describe("store: a rewrite that fails", () => {
     await renderOnDay({ tasks: THREE }, new Date(2026, 8, 25, 8));
     expect(Object.keys(lastSync()).sort()).toEqual(
       // `plus` and `strategy` are for nag mode (Plus-only; see nag-mode-store.test.tsx);
-      // `sundayReset` for the Sunday reset's notification (1.6).
-      ["draft", "locked", "now", "permissionState", "plus", "settings", "strategy", "sundayReset", "tasks", "today", "yesterdayOpen"].sort(),
+      // `sundayReset` for the Sunday reset's notification (1.6), `nightBefore` for the night-before reminder (1.7).
+      ["draft", "locked", "nightBefore", "now", "permissionState", "plus", "settings", "strategy", "sundayReset", "tasks", "today", "yesterdayOpen"].sort(),
     );
   });
 });

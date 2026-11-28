@@ -38,7 +38,9 @@ export type PaywallSource =
   // The evening close's tomorrow teaser for a free user (1.5).
   | "evening_draft"
   // The Sunday reset's one-time intro card, or its Progress row (1.6).
-  | "sunday_reset";
+  | "sunday_reset"
+  // The night before's "See Plus" once the free AI sorts are used up (1.7).
+  | "night_before";
 
 export type PlanKind = "annual" | "monthly" | "lifetime" | "other";
 
@@ -366,6 +368,7 @@ const LEADING_BENEFIT: Partial<Record<PaywallSource, string>> = {
   nag_mode: "Nag mode",
   evening_draft: "Your coach drafts tomorrow",
   sunday_reset: "Sunday reset",
+  night_before: "Smart brain dump",
   break_down: "Break it down",
   brain_dump: "Smart brain dump",
   // First run is a brain dump: lead with it there and at the aha moment (1.6.1).
@@ -415,6 +418,8 @@ export function paywallHeadline(source: PaywallSource, options: { taskCount?: nu
       return "Wake up to tomorrow's three";
     case "sunday_reset":
       return "Set up your week in two minutes";
+    case "night_before":
+      return "Wake up to a clear list";
     default:
       return "A little extra help, when you want it";
   }
@@ -439,6 +444,8 @@ export function paywallSubhead(source: PaywallSource, options: { taskCount?: num
       return "Plus drafts a full three each night, from how today went. Your three stay free either way.";
     case "sunday_reset":
       return "Your week's wins, a dump for the week, and Monday's three from your coach. Your three stay free either way.";
+    case "night_before":
+      return "Plus turns tonight's dump into clear tasks, every night. Planning tomorrow stays free either way.";
     default:
       return "Your three tasks stay free forever. Plus adds the AI helpers.";
   }
