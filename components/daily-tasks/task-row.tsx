@@ -119,6 +119,11 @@ interface TaskRowBaseProps {
    * row keeps them).
    */
   ghost?: boolean;
+  /**
+   * Kept from last night's dump (1.7): a quiet "From last night" where
+   * "Carried over" sits. Today passes it only on the day it was planned for.
+   */
+  fromLastNight?: boolean;
 }
 
 /**
@@ -188,6 +193,7 @@ export function TaskRow({
   dragActive = false,
   focusTick = 0,
   ghost = false,
+  fromLastNight = false,
 }: TaskRowProps) {
   const colors = useColors();
   /** The real row's testIDs; its copy under the finger has none. */
@@ -505,7 +511,9 @@ export function TaskRow({
               ref={boxRef}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: completed }}
-              accessibilityLabel={`${hero ? "Up next. " : ""}Task ${index + 1}: ${task.text}${task.routineId ? ", routine" : ""}`}
+              accessibilityLabel={`${hero ? "Up next. " : ""}Task ${index + 1}: ${task.text}${task.routineId ? ", routine" : ""}${
+                fromLastNight && !task.carriedOver ? ", from last night" : ""
+              }`}
               accessibilityHint={completed ? "Marks it not done" : "Marks it done"}
               accessibilityActions={[
                 ...actions.map((action) => ({ name: action, label: TASK_ROW_ACTION_LABELS[action] })),
@@ -593,6 +601,19 @@ export function TaskRow({
                 <Ionicons name="arrow-redo-outline" size={12} color={colors.muted} />
                 <Text className="text-xs" style={{ color: colors.muted }}>
                   Carried over
+                </Text>
+              </View>
+            ) : fromLastNight && !completed && !editing ? (
+              // 1.7: the same quiet line, with a moon. Part of the checkbox's label for VoiceOver.
+              <View
+                className="flex-row items-center gap-1"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                testID={tid(`task-night-${task.id}`)}
+              >
+                <Ionicons name="moon-outline" size={12} color={colors.muted} />
+                <Text className="text-xs" style={{ color: colors.muted }}>
+                  From last night
                 </Text>
               </View>
             ) : null}

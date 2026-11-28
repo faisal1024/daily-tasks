@@ -57,6 +57,13 @@ export type AnalyticsEvent =
   // action "shown" | "start" | "next" | "skip" | "saved" | "close" | "dismissed" | "plus" | "set";
   // source "today" | "progress" | "notification"; count = items saved (dump) or tasks set (three).
   | "sunday_reset"
+  // 1.7: the night before. step "card" | "write" | "review" | "reminder" | "morning";
+  // action "shown" | "start" | "open" | "sorted" | "kept" | "close" | "dismissed" | "plus" |
+  // "on" | "off" | "add" | "save" | "let_go"; source "today" | "notification" | "whats_new" |
+  // "settings"; kind "ai" | "local" | "free_ai" (sorted), "prompt" | "held" (card),
+  // "new" | "held" (write); count = rows, skipped = not ticked first (kept) or let go
+  // (morning). Never the text.
+  | "night_before"
   | "agenda_toggled"
   | "goal_set"
   | "task_not_today"

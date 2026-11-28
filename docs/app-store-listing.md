@@ -1,4 +1,4 @@
-# App Store listing: Three Today (1.6.1)
+# App Store listing: Three Today (1.7.0)
 
 Everything to paste into App Store Connect for the current release. Character
 counts are checked against Apple's limits. The same name, subtitle, keywords,
@@ -78,6 +78,14 @@ Private by design: your tasks are stored on your device, with no account and no 
 
 Terms of Use: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
 Privacy Policy: https://gist.githubusercontent.com/faisal1024/a43d6373453761af70d495d640e38ffa/raw/privacy-policy.html
+```
+
+## What's New in 1.7.0
+
+```
+Plan tomorrow tonight. Write down what's on your mind and it waits till morning, marked "From last night".
+• In the morning, add what you want to Today or save it for later. The rest is let go.
+• Want a nudge? Turn on the night-before reminder in Settings › Reminders.
 ```
 
 ## What's New in 1.6.1

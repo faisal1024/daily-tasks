@@ -59,6 +59,8 @@ interface IdeasSheetProps {
     label?: string;
     reason?: string;
     dueToday?: boolean;
+    /** Kept from last night's dump (1.7): "From last night" under it. */
+    fromLastNight?: boolean;
   }[];
   /**
    * Saved for later's one-line "add a day" tip (1.6, saved-date-tip.ts):
@@ -227,7 +229,7 @@ export function IdeasSheet({
             onPress={() => onAddParked?.(item.id)}
             disabled={parkedBlocked}
             accessibilityRole="button"
-            accessibilityLabel={detail ? `Add ${item.text}, ${detail}` : `Add ${item.text}`}
+            accessibilityLabel={`Add ${item.text}${detail ? `, ${detail}` : ""}${item.fromLastNight ? ", from last night" : ""}`}
             accessibilityState={{ disabled: parkedBlocked }}
             hitSlop={6}
             className="flex-row items-center gap-3"
@@ -251,6 +253,21 @@ export function IdeasSheet({
             </Pressable>
           ) : detailText ? (
             <View style={{ marginLeft: 36 }}>{detailText}</View>
+          ) : null}
+          {item.fromLastNight ? (
+            // Said with the Add button's label, so not a stop of its own.
+            <View
+              className="flex-row items-center gap-1"
+              style={{ marginLeft: 36 }}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              testID={`parked-night-${item.id}`}
+            >
+              <Ionicons name="moon-outline" size={12} color={colors.muted} />
+              <Text className="text-xs" style={{ color: colors.muted }}>
+                From last night
+              </Text>
+            </View>
           ) : null}
         </View>
         {canSwap ? (

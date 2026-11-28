@@ -123,7 +123,15 @@ export function swapParkedTask(
   if (!text || state.tasks.some((task, i) => i !== index && key(task.text) === key(text))) return state;
   const tasks = state.tasks.slice();
   // Its date comes along (1.6 F), so it's still there if it's saved again.
-  tasks[index] = { id: input.newId, text, createdAt: input.now, carriedOver: false, ...(parked.when ? { when: parked.when } : {}) };
+  // So is its night-before tag (1.7): "From last night" stays on the row.
+  tasks[index] = {
+    id: input.newId,
+    text,
+    createdAt: input.now,
+    carriedOver: false,
+    ...(parked.when ? { when: parked.when } : {}),
+    ...(parked.nightFor ? { nightFor: parked.nightFor } : {}),
+  };
   const swapped = { ...removeParkedTask(state, parked.id), tasks };
   // The task that left is saved for later (parkTasks skips what's still on today).
   return parkTasks(swapped, [out.text], input.now, taskDates(out), { today: input.today, carried: true });

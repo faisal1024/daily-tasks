@@ -27,6 +27,15 @@ import {
 } from "./notifications";
 import { createDebounced, yesterdayOpenTexts, type ReminderContext } from "./reminder-plan";
 import { resetDraft, sundayResetOf, usedBeforeToday, withSundayReset } from "./sunday-reset";
+import {
+  nightBeforeOf,
+  nightItemWhen,
+  nightListExpired,
+  saveNightItem,
+  withNightBefore,
+  withoutNightItem,
+  withTextSplit,
+} from "./night-before";
 import { clearNagRecord, ensureNagDay, nagModeStrategy, snoozeNagDay, stubNagRecord } from "./nag-day";
 import { normalizeNagOwnLines } from "./nag-own-lines";
 import type { NagLevel, NagPersona } from "./nag";
@@ -214,6 +223,8 @@ import type {
   ReflectionResult,
   Routine,
   ReviewTrigger,
+  NightBeforeState,
+  NightList,
   SundayResetState,
   TaskId,
   TaskWhen,
@@ -224,8 +235,15 @@ import { DEFAULT_NOTIFICATIONS, MAX_PARKED_TASKS, MAX_TASKS } from "./types";
 type Action =
   | { type: "hydrate"; state: AppState }
   | { type: "rollover"; today: string }
-  | { type: "addTask"; text: string; today: string; routineId?: string; when?: TaskWhen }
-  | { type: "addTasks"; texts: string[]; today: string; whens?: Record<string, TaskWhen> }
+  | { type: "addTask"; text: string; today: string; routineId?: string; when?: TaskWhen; nightFor?: string }
+  | {
+      type: "addTasks";
+      texts: string[];
+      today: string;
+      whens?: Record<string, TaskWhen>;
+      /** Night-before tags (1.7) by loose key, like `whens`. */
+      nights?: Record<string, string>;
+    }
   | { type: "editTask"; id: TaskId; text: string; today: string }
   | { type: "deleteTask"; id: TaskId; today: string }
   | { type: "notToday"; id: TaskId; today: string; at: string }
@@ -307,6 +325,12 @@ type Action =
   // The Sunday reset (1.6): its record, and the next day's draft it makes.
   | { type: "updateSundayReset"; patch: Partial<SundayResetState> }
   | { type: "setResetDraft"; tasks: string[]; today: string; source: "ai" | "local"; forDate?: string }
+  // The night before (1.7): the list held for the morning, as the sheet has it.
+  | { type: "setNightList"; list: NightList | null }
+  | { type: "updateNightBefore"; patch: Partial<NightBeforeState> }
+  // The morning: one row to Today or to Saved for later; "Let the rest go".
+  | { type: "takeNightItem"; id: string; how: "add" | "save"; today: string; at: string }
+  | { type: "finishNightList" }
   | { type: "setAgendaEnabled"; enabled: boolean }
   | { type: "setCoachMemory"; text: string }
   | { type: "clearCoachMemory"; today: string }
@@ -588,7 +612,10 @@ function reduce(state: AppState, action: Action): AppState {
       // Saved items in the draft bring their soft dates along (1.6 F).
       const whens: Record<string, TaskWhen> = {};
       for (const item of state.parkedTasks) if (item.when) whens[looseTextKey(item.text)] = item.when;
-      const next = reducer(state, { type: "addTasks", texts: action.tasks, today: action.today, whens });
+      // And their night-before tags (1.7).
+      const nights: Record<string, string> = {};
+      for (const item of state.parkedTasks) if (item.nightFor) nights[looseTextKey(item.text)] = item.nightFor;
+      const next = reducer(state, { type: "addTasks", texts: action.tasks, today: action.today, whens, nights });
       // Ticked ones now on Today leave Saved for later (no copy in both).
       const added = next.tasks.slice(state.tasks.length).map((task) => task.text);
       const unparked = unparkTexts(next, added);
@@ -665,6 +692,40 @@ function reduce(state: AppState, action: Action): AppState {
       const draft = resetDraft(action.tasks, action.today, action.source, action.forDate);
       return draft ? { ...state, tomorrowDraft: draft } : state;
     }
+    // The night before (1.7): held as written, nothing filed at night.
+    case "setNightList":
+      return { ...state, nightList: action.list };
+    case "takeNightItem": {
+      // A typed-only dump is split as the morning card showed it (same ids).
+      if (state.nightList && state.nightList.items.length === 0) {
+        const split = withTextSplit(state.nightList);
+        if (split !== state.nightList) return reducer({ ...state, nightList: split }, action);
+      }
+      const list = state.nightList;
+      const item = list?.items.find((row) => row.id === action.id);
+      if (!list || !item || list.forDay > action.today) return state;
+      if (action.how === "save") return saveNightItem(state, action.id, action.at, action.today);
+      // Already on Today under the same words: nothing to add twice.
+      if (state.tasks.some((task) => looseTextKey(task.text) === looseTextKey(item.text))) {
+        return withoutNightItem(state, action.id);
+      }
+      // Today's room and lock rules, as any add; tagged for its day.
+      const when = nightItemWhen(list, item.text, action.today);
+      const added = reducer(state, {
+        type: "addTask",
+        text: item.text,
+        today: action.today,
+        nightFor: list.forDay,
+        ...(when ? { when } : {}),
+      });
+      if (added === state) return state;
+      // A saved copy with the same words goes: it's on Today now.
+      return withoutNightItem(unparkTexts(added, [item.text]), action.id);
+    }
+    case "finishNightList":
+      return state.nightList ? { ...state, nightList: null } : state;
+    case "updateNightBefore":
+      return { ...state, nightBefore: { ...nightBeforeOf(state), ...action.patch } };
     case "completeMilestone": {
       // Milestones are the user's to tick when they've really got there.
       const advanced = completeMilestoneState({
@@ -718,6 +779,7 @@ function reduce(state: AppState, action: Action): AppState {
         text: parked.text,
         today: action.today,
         ...(parked.when ? { when: parked.when } : {}),
+        ...(parked.nightFor ? { nightFor: parked.nightFor } : {}),
       });
       return withTask === state ? state : removeParkedTask(withTask, action.id);
     }
@@ -821,10 +883,15 @@ function reduce(state: AppState, action: Action): AppState {
           ? { ...rolled, tomorrowDraft: null }
           : rolled;
       // Yesterday's coach lines (and their call count) don't carry over.
-      const next =
+      const uncoached =
         undrafted !== state && undrafted.coachNotes && undrafted.coachNotes.date < action.today
           ? { ...undrafted, coachNotes: null }
           : undrafted;
+      // The night list's day is over (1.7): what wasn't added or saved is let go.
+      const next =
+        uncoached !== state && nightListExpired(uncoached.nightList, action.today)
+          ? { ...uncoached, nightList: null }
+          : uncoached;
       // Held on the current day (clock a day behind): nothing changes, and
       // the plan mustn't be rebuilt for the earlier date.
       if (next === state && action.today !== state.lastOpenedDate) return state;
@@ -868,6 +935,7 @@ function reduce(state: AppState, action: Action): AppState {
               carriedOver: false,
               ...(action.routineId ? { routineId: action.routineId } : {}),
               ...(action.when ? { when: action.when } : {}),
+              ...(action.nightFor ? { nightFor: action.nightFor } : {}),
             },
           ],
           // Planning counts as showing up (no need to finish anything first).
@@ -891,12 +959,14 @@ function reduce(state: AppState, action: Action): AppState {
             ...state.tasks,
             ...texts.map((text) => {
               const when = action.whens?.[looseTextKey(text)];
+              const nightFor = action.nights?.[looseTextKey(text)];
               return {
                 id: makeId(),
                 text,
                 createdAt: new Date().toISOString(),
                 carriedOver: false,
                 ...(when ? { when } : {}),
+                ...(nightFor ? { nightFor } : {}),
               };
             }),
           ],
@@ -1435,6 +1505,18 @@ interface StoreContextValue {
    * sheet planned, captured when it sorted), else the next day.
    */
   setResetDraft: (tasks: string[], source: "ai" | "local", forDate?: string) => void;
+  /** The night before (1.7): the list held for the morning, as the sheet has it (null: none). */
+  setNightList: (list: NightList | null) => void;
+  /**
+   * The morning (1.7): a row of last night's list to Today ("add") or to
+   * Saved for later ("save"). "full": Today has no room or is set (add), or
+   * Saved for later is full (save); nothing changed.
+   */
+  takeNightItem: (id: string, how: "add" | "save") => "done" | "full";
+  /** "Let the rest go": what's left of last night's list is let go. */
+  finishNightList: () => void;
+  /** The night before's record (1.7): its reminder, tonight's done or closed. */
+  updateNightBefore: (patch: Partial<NightBeforeState>) => void;
   setAgendaEnabled: (enabled: boolean) => void;
   /** Replace the AI coach memory (Plus); blank clears it. */
   setCoachMemory: (text: string) => void;
@@ -1558,8 +1640,8 @@ interface StoreContextValue {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
-/** The reminders: the calm ones or the nags, plus the Sunday reset's (1.6). */
-const sundayResetStrategy = withSundayReset(nagModeStrategy);
+/** The reminders: the calm ones or the nags, plus the Sunday reset's (1.6) and the night before's (1.7). */
+const sundayResetStrategy = withNightBefore(withSundayReset(nagModeStrategy));
 
 /** What the reminders are written from; the time is added when they're written. */
 type ReminderSyncContext = Omit<ReminderContext, "now" | "pending" | "lastDeliveredAt">;
@@ -2053,6 +2135,8 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       // gate: none during first run or before a planned day.
       sundayReset:
         state.hasSeenOnboarding && resetUsedBefore ? sundayResetOf({ sundayReset: state.sundayReset }) : undefined,
+      // The night before's (1.7, off by default): never during first run.
+      nightBefore: state.hasSeenOnboarding ? nightBeforeOf({ nightBefore: state.nightBefore }) : undefined,
     };
     const signature = JSON.stringify([context, nagVersion]);
     if (lastReminderSync.current === signature) return;
@@ -2071,6 +2155,7 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     state.hasSeenOnboarding,
     resetUsedBefore,
     state.sundayReset,
+    state.nightBefore,
     state.tasks,
     state.todayCompletions,
     state.todayLocked,
@@ -2576,6 +2661,28 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
     },
     [ensureDay],
   );
+  const setNightList = useCallback((list: NightList | null) => {
+    dispatch({ type: "setNightList", list });
+  }, []);
+  const takeNightItem = useCallback(
+    (id: string, how: "add" | "save"): "done" | "full" => {
+      const action = { type: "takeNightItem" as const, id, how, today: ensureDay(), at: new Date().toISOString() };
+      // The same pure step on the latest state says whether it will happen.
+      const current = stateRef.current;
+      const next = reducer(current, action);
+      // The row is still there: Today (or Saved for later) had no room.
+      if (next.nightList?.items.some((item) => item.id === id)) return "full";
+      dispatch(action);
+      return "done";
+    },
+    [ensureDay],
+  );
+  const finishNightList = useCallback(() => {
+    dispatch({ type: "finishNightList" });
+  }, []);
+  const updateNightBefore = useCallback((patch: Partial<NightBeforeState>) => {
+    dispatch({ type: "updateNightBefore", patch });
+  }, []);
   const completeMilestone = useCallback((id: string) => {
     dispatch({ type: "completeMilestone", id });
   }, []);
@@ -3204,6 +3311,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       dismissTomorrowDraft,
       updateSundayReset,
       setResetDraft,
+      setNightList,
+      updateNightBefore,
+      takeNightItem,
+      finishNightList,
       setAgendaEnabled,
       setCoachMemory,
       clearCoachMemory,
@@ -3312,6 +3423,10 @@ export function DailyTasksProvider({ children }: { children: React.ReactNode }) 
       dismissTomorrowDraft,
       updateSundayReset,
       setResetDraft,
+      setNightList,
+      updateNightBefore,
+      takeNightItem,
+      finishNightList,
       setAgendaEnabled,
       setCoachMemory,
       clearCoachMemory,

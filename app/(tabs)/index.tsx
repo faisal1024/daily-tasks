@@ -46,7 +46,11 @@ import type { FocusSessionControls } from "@/components/daily-tasks/focus-check-
 import { FocusMode } from "@/components/daily-tasks/focus-mode";
 import { DoneCard } from "@/components/daily-tasks/done-card";
 import { ShareDaySheet } from "@/components/daily-tasks/share-day-sheet";
-import { SundayResetCard } from "@/components/daily-tasks/sunday-reset-card";
+import { SundayResetCard, useSundayResetCardKind } from "@/components/daily-tasks/sunday-reset-card";
+import { NightBeforeCard } from "@/components/daily-tasks/night-before-card";
+import { NightMorningCard } from "@/components/daily-tasks/night-morning-card";
+import { NightBeforeSheet, type NightBeforeSource } from "@/components/daily-tasks/night-before-sheet";
+import { WhatsNew17Sheet } from "@/components/daily-tasks/whats-new-17-sheet";
 import { useSundayReset } from "@/components/daily-tasks/sunday-reset-provider";
 import { RolloverModal } from "@/components/daily-tasks/rollover-modal";
 import { StatusLine } from "@/components/daily-tasks/status-line";
@@ -113,6 +117,18 @@ import {
 import { addDays, fromDateKey, greetingFor, greetingText, storeDayFor, todayKey } from "@/lib/daily-tasks/date";
 import { recordPlusUse } from "@/lib/daily-tasks/trial-note";
 import { draftDueReasons, savedItemsView, whenChoices, withDueTomorrow } from "@/lib/daily-tasks/resurface";
+import {
+  dayWord,
+  isFromLastNight,
+  listFor,
+  morningList,
+  nightBeforeOf,
+  nightTarget,
+  nightToast,
+  showsNightCard,
+  type NightTarget,
+} from "@/lib/daily-tasks/night-before";
+import { subscribeNightBeforeResponses } from "@/lib/daily-tasks/night-before-response";
 import { sessionEndedAnnouncement, STARTER_MINUTES, type FocusSessionSource } from "@/lib/daily-tasks/focus-session";
 import { durationWords, timerMenuLengths } from "@/lib/daily-tasks/focus-timer";
 import { loadLastTimer, saveLastTimer } from "@/lib/daily-tasks/focus-timer-storage";
@@ -162,6 +178,7 @@ import {
 } from "@/lib/daily-tasks/welcome-back";
 import {
   FEATURES_16_ID,
+  NIGHT_17_ID,
   NAG_ANNOUNCEMENT_ID,
   NAG_FIRST_DAYS_ID,
   NAG_ON_TOAST,
@@ -193,6 +210,8 @@ type Unlock =
   // `starter`: from the timer's check-in, so a 5-minute starter is offered after.
   | { kind: "break_down"; taskId: string; text: string; starter?: boolean }
   | { kind: "brain_dump" }
+  // The night before's "See Plus" (1.7): its sheet comes back with the held list.
+  | { kind: "night_before" }
   | { kind: "new_ideas" }
   // The evening teaser (1.5): once Plus, the coach drafts that day's close again.
   | { kind: "evening_draft"; day: string };
@@ -264,6 +283,9 @@ export default function HomeScreen() {
     setEveningClose,
     applyTomorrowDraft,
     dismissTomorrowDraft,
+    updateNightBefore,
+    takeNightItem,
+    finishNightList,
     claimCoachRequest,
     setCoachNotes,
     markCoachNoteLogged,
@@ -346,6 +368,10 @@ export default function HomeScreen() {
     }
   }, [ideasOpen]);
   const [brainDumpOpen, setBrainDumpOpen] = useState(false);
+  // The night before (1.7): its sheet, the day it plans (captured on opening,
+  // so a save after midnight still plans "tomorrow") and where it came from.
+  const [nightOpen, setNightOpen] = useState(false);
+  const [nightPlan, setNightPlan] = useState<{ target: NightTarget; source: NightBeforeSource } | null>(null);
   // Routines (1.3), reached from the Ideas sheet's footer when there are none
   // yet: Ideas closes first (one modal at a time on iOS).
   const [routinesOpen, setRoutinesOpen] = useState(false);
@@ -448,6 +474,10 @@ export default function HomeScreen() {
     // Yesterday: anything finished after the close, or dropped at rollover.
     sourceDay: state.tomorrowDraft ? state.history[addDays(state.tomorrowDraft.forDate, -1)] : null,
   });
+  // Last night's list on its day (1.7): it takes the morning card's place
+  // until it's done (one card, not two); the draft card follows after.
+  const nightMorning = useMemo(() => morningList(state.nightList, today), [state.nightList, today]);
+  const morningCardUp = nightMorning !== null || Boolean(draft);
   // Saved for later as Ideas shows it: what's for today first (1.6 F).
   const savedItems = useMemo(() => savedItemsView(state.parkedTasks, today), [state.parkedTasks, today]);
   const savedDueToday = savedItems.filter((item) => item.dueToday).length;
@@ -470,6 +500,31 @@ export default function HomeScreen() {
   const dayClosed = isDayClosed(state.eveningClose, today);
   const closedDraft =
     dayClosed && state.tomorrowDraft?.forDate === addDays(today, 1) ? state.tomorrowDraft : null;
+  // The night before's card (1.7): evenings, or once today is closed; not
+  // while the Sunday reset's card is up (the bigger version of the same thing).
+  const sundayCardKind = useSundayResetCardKind(firstRunActive);
+  const nightNow = nightTarget(today, hour, dayClosed);
+  const nightRecord = nightBeforeOf(state);
+  const nightCardKind = ready
+    ? showsNightCard({
+        target: nightNow,
+        today,
+        record: nightRecord,
+        list: state.nightList,
+        firstRunActive,
+        sundayCardShowing: sundayCardKind !== null,
+      })
+    : null;
+  const nightDay = nightNow ? dayWord(nightNow, today) : "tomorrow";
+  const nightHeld = nightNow ? listFor(state.nightList, nightNow.forDate) : null;
+  /** Open the night-before sheet for the night it is now (false when there's none to plan). */
+  const openNight = (source: NightBeforeSource): boolean => {
+    const target = nightTarget(today, new Date().getHours(), isDayClosed(state.eveningClose, today));
+    if (!target) return false;
+    setNightPlan({ target, source });
+    setNightOpen(true);
+    return true;
+  };
   // A free user's good day: a teaser of tomorrow with one real line (1.5).
   const eveningTeaser = showsEveningTeaser({
     paywallEnabled,
@@ -787,7 +842,10 @@ export default function HomeScreen() {
     focusPromptTimer.current = null;
     // The Sunday reset (1.6) closes as its × does (a typed dump is saved).
     const resetStepped = sundayReset.stepAside();
-    if (!whatsNewStepAside.current() && !resetStepped) {
+    // The night before (1.7) steps aside too; its words and list are held.
+    const nightStepped = nightOpen;
+    if (nightOpen) setNightOpen(false);
+    if (!whatsNewStepAside.current() && !resetStepped && !nightStepped) {
       openFocus(focusPrompt.taskId, focusPrompt.source);
       return;
     }
@@ -884,13 +942,13 @@ export default function HomeScreen() {
   // Yesterday's unfinished ones: a card, so the draft and the rest of Today
   // stay usable (it used to be a blocking modal). On a phone with no draft it
   // leads, above the three slots; otherwise it follows the draft, quietly.
-  const rolloverOnTop = !wide && !draft;
+  const rolloverOnTop = !wide && !morningCardUp;
   const rolloverCard = (
     <RolloverModal
       pending={state.pendingRollover}
       // A set day takes nothing new.
       remainingSlots={state.todayLocked ? 0 : remainingSlots}
-      quiet={Boolean(draft)}
+      quiet={morningCardUp}
       // "Unfinished from Tuesday": named for the day they're from (1.5 D).
       today={today}
       onApply={(ids) => {
@@ -950,10 +1008,11 @@ export default function HomeScreen() {
     },
   });
   const rightHasContent =
-    (Boolean(state.pendingRollover) && (wide || Boolean(draft))) ||
+    (Boolean(state.pendingRollover) && (wide || morningCardUp)) ||
     ideasVisible ||
-    Boolean(draft) ||
-    phase !== "plan";
+    morningCardUp ||
+    phase !== "plan" ||
+    nightCardKind !== null;
   const twoColumn = wide && rightHasContent;
   const dateLabel = fromDateKey(today).toLocaleDateString(undefined, {
     weekday: "long",
@@ -1158,7 +1217,9 @@ export default function HomeScreen() {
     nagFrom16Open ||
     shareOpen ||
     // 1.6 H: the Sunday reset's sheet.
-    sundayReset.isOpen;
+    sundayReset.isOpen ||
+    // 1.7: the night before's.
+    nightOpen;
 
   // What's new (1.4): once, for someone who updated, in the quiet window
   // right after a launch or a return to the foreground: Today in front with
@@ -1328,6 +1389,44 @@ export default function HomeScreen() {
       }
     }, SHEET_SWAP_DELAY_MS);
   };
+  // What's new in 1.7: the night before. Its button closes the sheet (seen)
+  // and opens the night-before sheet once it has animated away.
+  const whatsNew17Open = whatsNew.openId === NIGHT_17_ID;
+  const whatsNew17ShownSent = useRef(false);
+  useEffect(() => {
+    if (!whatsNew17Open) whatsNew17ShownSent.current = false;
+  }, [whatsNew17Open]);
+  const whatsNew17Latest = useRef({ plan: () => {}, close: () => {}, show: () => {} });
+  whatsNew17Latest.current = {
+    plan: () => {
+      track("whats_new_action", { id: NIGHT_17_ID, action: "plan", source: "today" });
+      whatsNew.close();
+      handOffWhatsNew();
+      if (whatsNew16Timer.current) clearTimeout(whatsNew16Timer.current);
+      whatsNew16Timer.current = setTimeout(() => {
+        whatsNew16Timer.current = null;
+        if (openNight("whats_new")) track("night_before", { step: "card", action: "start", source: "whats_new" });
+      }, SHEET_SWAP_DELAY_MS);
+    },
+    close: () => {
+      track("whats_new_action", { id: NIGHT_17_ID, action: "dismiss", source: "today" });
+      closeWhatsNew();
+    },
+    show: () => {
+      whatsNew.shown();
+      if (whatsNew17ShownSent.current) return;
+      whatsNew17ShownSent.current = true;
+      track("whats_new_shown", { id: NIGHT_17_ID, source: "today" });
+    },
+  };
+  const whatsNew17Handlers = useMemo(
+    () => ({
+      onPlan: () => whatsNew17Latest.current.plan(),
+      onGotIt: () => whatsNew17Latest.current.close(),
+      onShow: () => whatsNew17Latest.current.show(),
+    }),
+    [],
+  );
   // Stable for the memoized sheet: they read the latest render's handlers.
   const whatsNew16Latest = useRef({ act: actOnWhatsNew16, close: closeWhatsNew16, show: onWhatsNew16Show, how: trackWhatsNew16 });
   whatsNew16Latest.current = { act: actOnWhatsNew16, close: closeWhatsNew16, show: onWhatsNew16Show, how: trackWhatsNew16 };
@@ -1383,6 +1482,13 @@ export default function HomeScreen() {
     },
     // The Sunday reset (1.6 H): closed as its × does, so a typed dump is saved.
     sundayReset: () => sundayReset.stepAside(),
+    // The night before (1.7): closed without asking; its words and list are
+    // held for the morning and are there again if it's reopened tonight.
+    nightBefore: () => {
+      if (!nightOpen) return false;
+      setNightOpen(false);
+      return true;
+    },
   };
   // A tap on the Sunday reset's notification (1.6 H): Today's own sheets step
   // aside first (the brain dump too: what's typed in it stays), and the
@@ -1428,6 +1534,48 @@ export default function HomeScreen() {
     // Only when a new prompt arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dumpPrompt]);
+  // A tap on the night-before reminder (1.7): the sheet for tonight, once the
+  // app has loaded and first run is done, never over the paywall. Today's
+  // other sheets (and the Sunday reset) step aside first; nothing opens
+  // outside the evening (Today is enough then).
+  const [nightTapped, setNightTapped] = useState(0);
+  const nightTapPending = useRef(false);
+  const nightTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (nightTapTimer.current) clearTimeout(nightTapTimer.current);
+    },
+    [],
+  );
+  useEffect(
+    () =>
+      subscribeNightBeforeResponses(() => {
+        nightTapPending.current = true;
+        setNightTapped((count) => count + 1);
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (!nightTapPending.current || !ready || !state.hasSeenOnboarding || firstRunActive || paywallSource !== null) return;
+    nightTapPending.current = false;
+    if (nightOpen) return;
+    if (!nightTarget(today, new Date().getHours(), isDayClosed(state.eveningClose, today))) return;
+    track("night_before", { step: "card", action: "start", source: "notification" });
+    // Every entry runs (no short-circuit): all of them close.
+    const stepped = [stepAsideForReset.current(), sundayReset.stepAside()].some(Boolean);
+    if (nightTapTimer.current) clearTimeout(nightTapTimer.current);
+    nightTapTimer.current = null;
+    if (!stepped) {
+      openNight("notification");
+      return;
+    }
+    nightTapTimer.current = setTimeout(() => {
+      nightTapTimer.current = null;
+      openNight("notification");
+    }, SHEET_SWAP_DELAY_MS);
+    // When a tap arrives, or once what it waits for has cleared.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nightTapped, ready, state.hasSeenOnboarding, firstRunActive, paywallSource]);
   // Captures from the share sheet or "Save for later", just saved for later
   // (or Saved for later is full). Not during onboarding or first run: it
   // waits, and is said once they're done.
@@ -1708,6 +1856,11 @@ export default function HomeScreen() {
       }
       return;
     }
+    if (unlock.kind === "night_before") {
+      // The same night: the sheet comes back as it was (bought or not).
+      if (nightPlan && nightNow?.nightOf === nightPlan.target.nightOf) setNightOpen(true);
+      return;
+    }
     if (state.todayLocked) return;
     if (unlock.kind === "brain_dump") {
       setBrainDumpOpen(true);
@@ -1977,6 +2130,8 @@ export default function HomeScreen() {
         // the drop's own render moves nothing; then the swap is eased in.
         hero={task.id === reorder.heroId}
         completed={isCompleted(task.id)}
+        // 1.7: kept from last night's dump, on the day it was planned for.
+        fromLastNight={isFromLastNight(task.nightFor, today)}
         editable={!state.todayLocked}
         onToggle={() => handleToggle(task.id)}
         onEdit={(text) => editTask(task.id, text)}
@@ -2225,7 +2380,31 @@ export default function HomeScreen() {
             {(rightHasContent || firstDays.showing !== null) && (
               <View style={twoColumn ? { flex: 1, gap: 14 } : { gap: 14 }}>
 
-                {draft && (
+                {nightMorning ? (
+                  <NightMorningCard
+                    list={nightMorning}
+                    room={remainingSlots}
+                    locked={state.todayLocked}
+                    onTake={(id, how) => {
+                      const outcome = takeNightItem(id, how);
+                      if (outcome === "done") {
+                        haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+                        track("night_before", { step: "morning", action: how, source: "today" });
+                        const left = nightMorning.items.length - 1;
+                        announcePolitely(
+                          `${how === "add" ? "Added to today." : "Saved for later."}${left === 0 ? " Last night's list is done." : ""}`,
+                        );
+                      }
+                      return outcome;
+                    }}
+                    onFinish={() => {
+                      track("night_before", { step: "morning", action: "let_go", skipped: nightMorning.items.length, source: "today" });
+                      finishNightList();
+                      announcePolitely("Last night's list is done.");
+                    }}
+                  />
+                ) : null}
+                {!nightMorning && draft && (
                   <TomorrowDraftCard
                     // A new night's draft starts fresh; the same one keeps the user's ticks.
                     key={draft.forDate}
@@ -2254,7 +2433,7 @@ export default function HomeScreen() {
                 )}
                 {/* With a draft (or on iPad): after it, as the quieter choice. */}
                 {!rolloverOnTop && rolloverCard}
-                {emptyMorning && !draft && (
+                {emptyMorning && !morningCardUp && (
                   <MorningHero
                     onDump={() => setBrainDumpOpen(true)}
                     onBrowseIdeas={() => setIdeasOpen(true)}
@@ -2288,7 +2467,7 @@ export default function HomeScreen() {
                 <FirstDaysCardsView cards={firstDays} />
                 {/* A finished day swaps these for the done card's quiet "Pull one more".
                     Under the coach's note they shrink to one quiet line of links. */}
-                {ideasVisible && !emptyMorning && !draft && phase !== "done" && quietEntries && (
+                {ideasVisible && !emptyMorning && !morningCardUp && phase !== "done" && quietEntries && (
                   <View
                     className="flex-row items-center gap-2 px-1"
                     style={{ flexWrap: "wrap" }}
@@ -2327,7 +2506,7 @@ export default function HomeScreen() {
                     </Pressable>
                   </View>
                 )}
-                {ideasVisible && !emptyMorning && !draft && phase !== "done" && !quietEntries && (
+                {ideasVisible && !emptyMorning && !morningCardUp && phase !== "done" && !quietEntries && (
                   <View className={entry.prominent ? "gap-2" : "flex-row gap-2"}>
                     <Pressable
                       onPress={() => setIdeasOpen(true)}
@@ -2461,6 +2640,27 @@ export default function HomeScreen() {
                     />
                   </>
                 )}
+                {/* The night before (1.7): one tomorrow card, under the check-in and the coach's note. */}
+                {nightCardKind && nightNow ? (
+                  <NightBeforeCard
+                    kind={nightCardKind}
+                    target={nightNow}
+                    day={nightDay}
+                    list={nightHeld}
+                    onOpen={() => {
+                      track("night_before", {
+                        step: "card",
+                        action: nightCardKind === "held" ? "open" : "start",
+                        source: "today",
+                      });
+                      openNight("today");
+                    }}
+                    onDismiss={() => {
+                      updateNightBefore({ dismissedFor: nightNow.nightOf });
+                      track("night_before", { step: "card", action: "dismissed", kind: nightCardKind, source: "today" });
+                    }}
+                  />
+                ) : null}
               </View>
             )}
           </View>
@@ -2662,6 +2862,36 @@ export default function HomeScreen() {
           onClose={() => setFocusTaskId(null)}
         />
       )}
+
+      <NightBeforeSheet
+        visible={nightOpen && nightPlan !== null}
+        target={nightPlan?.target ?? null}
+        source={nightPlan?.source ?? "today"}
+        onClose={() => setNightOpen(false)}
+        onDone={() => {
+          setNightOpen(false);
+          const message = nightToast(nightPlan ? dayWord(nightPlan.target, today) : "tomorrow");
+          showToast(message);
+          // TalkBack reads the toast's live region; VoiceOver is told once the sheet has gone.
+          if (Platform.OS === "ios") announceLater(message);
+        }}
+        onSeePlus={
+          hasPlus
+            ? undefined
+            : () => {
+                setNightOpen(false);
+                showPaywall("night_before", { afterSheet: true, resume: { kind: "night_before" } });
+              }
+        }
+      />
+
+      <WhatsNew17Sheet
+        visible={whatsNew17Open}
+        canPlan={nightNow !== null}
+        onPlan={whatsNew17Handlers.onPlan}
+        onGotIt={whatsNew17Handlers.onGotIt}
+        onShow={whatsNew17Handlers.onShow}
+      />
 
       <WhatsNew16Sheet
         visible={whatsNew16Open}

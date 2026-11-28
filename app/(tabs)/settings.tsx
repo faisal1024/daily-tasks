@@ -53,6 +53,7 @@ import {
 import { NAG_LEVEL_COUNT_NOTE, nagLevelRudeNote } from "@/lib/daily-tasks/nag-copy";
 import { loadFirstDays } from "@/lib/daily-tasks/first-days";
 import { sundayResetOf } from "@/lib/daily-tasks/sunday-reset";
+import { nightBeforeOf, reminderTimeLabel } from "@/lib/daily-tasks/night-before";
 import {
   settingsSectionOffset,
   subscribeSettingsFocus,
@@ -96,6 +97,8 @@ const NOTIFICATION_LABELS: Record<
 
 /** Under the "Sunday reset" switch (1.6, Plus). */
 const SUNDAY_RESET_HELP = "Sunday at 6 PM: two minutes to set up your week.";
+/** 1.7: free and Plus, off by default. `{time}` is the chosen time. */
+const NIGHT_BEFORE_HELP = "Evenings at {time}: two minutes to get tomorrow out of your head.";
 
 /** Under the "Hide task names in notifications" switch (and its VoiceOver hint). */
 const HIDE_TASK_NAMES_HELP =
@@ -188,6 +191,7 @@ export default function SettingsScreen() {
     setNotificationEnabled,
     setHideTaskNamesInNotifications,
     updateSundayReset,
+    updateNightBefore,
     setReminderStyle,
     setNagPersona,
     setNagLevel,
@@ -460,6 +464,23 @@ export default function SettingsScreen() {
     }
 
     setNotificationEnabled(key, value);
+  };
+
+  // The night before's reminder (1.7): asks for permission like the other switches.
+  const handleNightBeforeReminder = async (value: boolean) => {
+    if (value && state.notifications.enabled && notificationPermission !== "granted") {
+      const status = await requestNotificationPermission();
+      if (status !== "granted") {
+        Alert.alert(
+          "Notifications unavailable",
+          "Allow notifications in System Settings to get the night-before reminder.",
+        );
+        return;
+      }
+    }
+    // Asked here, so the done step doesn't ask again.
+    updateNightBefore({ reminder: value, reminderAsked: true });
+    track("night_before", { step: "reminder", action: value ? "on" : "off", source: "settings" });
   };
 
   const openSystemSettings = async () => {
@@ -1199,6 +1220,26 @@ export default function SettingsScreen() {
                 mutedColor={colors.muted}
                 trackColor={colors.primary}
               />
+            ) : null}
+            {/* The night before's reminder (1.7, free and Plus): off unless turned on here or after a save. */}
+            <ReminderSwitchRow
+              title="Night-before reminder"
+              subtitle={NIGHT_BEFORE_HELP.replace("{time}", reminderTimeLabel(nightBeforeOf(state).reminderMinutes))}
+              value={nightBeforeOf(state).reminder}
+              onValueChange={(value) => void handleNightBeforeReminder(value)}
+              mutedColor={colors.muted}
+              trackColor={colors.primary}
+            />
+            {nightBeforeOf(state).reminder ? (
+              <View className="bg-surface rounded-2xl p-4 border border-border" testID="settings-night-before-time">
+                <TimePickerRow
+                  label="Time"
+                  accessibilityLabel="Night-before reminder time"
+                  hour={Math.floor(nightBeforeOf(state).reminderMinutes / 60)}
+                  minute={nightBeforeOf(state).reminderMinutes % 60}
+                  onChange={(hour, minute) => updateNightBefore({ reminderMinutes: hour * 60 + minute })}
+                />
+              </View>
             ) : null}
             {nagActive ? (
               <Text className="text-xs" style={{ color: colors.muted }} testID="settings-nag-calm-note">

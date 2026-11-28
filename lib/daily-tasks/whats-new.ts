@@ -33,6 +33,8 @@ export interface Announcement {
 export const NAG_ANNOUNCEMENT_ID = "1.4-nag";
 /** 1.6's sheet (whats-new-16.ts): Save for later, own nag lines, Sunday reset, coach memory, nag buttons. */
 export const FEATURES_16_ID = "1.6-features";
+/** 1.7's sheet (whats-new-17-sheet.tsx): the night before. */
+export const NIGHT_17_ID = "1.7-night";
 
 /** The 1.4 announcement on its own (its tests run with just this one). */
 export const NAG_ANNOUNCEMENT: Announcement = {
@@ -48,7 +50,10 @@ export const FEATURES_16_ANNOUNCEMENT: Announcement = {
   supersedes: [NAG_ANNOUNCEMENT_ID],
 };
 
-const RELEASED: readonly Announcement[] = [NAG_ANNOUNCEMENT, FEATURES_16_ANNOUNCEMENT];
+/** 1.7: plan tomorrow tonight. Nothing to skip: the feature is new to everyone who updates. */
+export const NIGHT_17_ANNOUNCEMENT: Announcement = { id: NIGHT_17_ID };
+
+const RELEASED: readonly Announcement[] = [NAG_ANNOUNCEMENT, FEATURES_16_ANNOUNCEMENT, NIGHT_17_ANNOUNCEMENT];
 
 let announcements: readonly Announcement[] = RELEASED;
 
@@ -245,6 +250,24 @@ export const NAG_CARD_COPY = {
   body: "Pick who nags you: Mom, Dad, Partner, Coach or Drill sergeant. Part of Plus.",
   button: "Meet Nag mode",
   dismiss: "Dismiss Nag mode card",
+} as const;
+
+/**
+ * 1.7's sheet: one card. Its button opens the night-before sheet in the
+ * evening (when there is a night to plan); at other times the card only
+ * explains, and "Got it" closes it.
+ */
+export const WHATS_NEW_17_COPY = {
+  label: "New in 1.7",
+  title: "What's new",
+  cardTitle: "Plan tomorrow tonight",
+  cardBody:
+    "Write down what's on your mind tonight. In the morning it's waiting, marked “From last night”: add what you want to Today or save it for later.",
+  /** Shown instead of the button outside the evening. */
+  later: "From 6 PM, look for “Tomorrow, out of your head” on Today.",
+  button: "Plan tomorrow",
+  buttonHint: "Opens the night-before list",
+  gotIt: "Got it",
 } as const;
 
 /** On Today once Nag mode was turned on from the sheet. */

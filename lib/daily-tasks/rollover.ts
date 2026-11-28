@@ -29,6 +29,7 @@ function buildDayTaskRecords(
       ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
       ...(task.routineId ? { routineId: task.routineId } : {}),
       ...(task.when ? { when: task.when } : {}),
+      ...(task.nightFor ? { nightFor: task.nightFor } : {}),
     };
   });
 }
@@ -89,6 +90,7 @@ function restoreTasksFromRecord(record: DayRecord): Task[] {
     ...(task.steps && task.steps.length > 0 ? { steps: task.steps } : {}),
     ...(task.routineId ? { routineId: task.routineId } : {}),
     ...(task.when ? { when: task.when } : {}),
+    ...(task.nightFor ? { nightFor: task.nightFor } : {}),
   }));
 }
 
@@ -251,6 +253,7 @@ export function resolvePendingRollover(
       ...(task.routineId ? { routineId: task.routineId } : {}),
       // Its soft date (1.6 F), so a deadline carried over can still come back Overdue.
       ...(task.when ? { when: task.when } : {}),
+      ...(task.nightFor ? { nightFor: task.nightFor } : {}),
     })),
   ];
 
